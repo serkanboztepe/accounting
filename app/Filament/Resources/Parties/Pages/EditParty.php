@@ -9,8 +9,11 @@ use App\Models\ContractDelivery;
 use App\Models\ContractPayment;
 use App\Models\Expense;
 use App\Models\Invoice;
+use App\Support\PartyStatement;
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Icons\Heroicon;
 
 class EditParty extends EditRecord
 {
@@ -18,7 +21,15 @@ class EditParty extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [DeleteAction::make()];
+        return [
+            Action::make('statement')
+                ->label('Ekstre Yazdır')
+                ->icon(Heroicon::OutlinedPrinter)
+                ->url(fn () => route('party.statement.print', $this->record))
+                ->openUrlInNewTab(),
+
+            DeleteAction::make(),
+        ];
     }
 
     public function getFooter(): ?\Illuminate\Contracts\View\View
@@ -30,6 +41,7 @@ class EditParty extends EditRecord
         return view('filament.resources.parties.edit-footer', [
             'party'     => $this->record,
             'summary'   => $this->getPartySummary(),
+            'statement' => PartyStatement::build($this->record),
             'timeline'  => $this->getTimelineEvents(),
             'contracts' => $this->getContractRows(),
             'invoices'  => $this->getInvoiceRows(),

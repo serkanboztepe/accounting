@@ -13,11 +13,21 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use UnitEnum;
 
 class ContractResource extends Resource
 {
     protected static ?string $model = Contract::class;
+
+    /**
+     * Sözleşme ekranı hem alım hem satış sözleşmelerini görür/yönetir —
+     * global 'purchase' scope'unu kaldırıyoruz (maliyet hesapları hâlâ korunur).
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->withoutGlobalScope('purchase');
+    }
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 

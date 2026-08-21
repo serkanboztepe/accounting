@@ -4,8 +4,10 @@ namespace App\Filament\Resources\Contracts\Pages;
 
 use App\Filament\Resources\Contracts\ContractResource;
 use App\Filament\Resources\Contracts\Widgets\ContractSummary;
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Icons\Heroicon;
 
 class EditContract extends EditRecord
 {
@@ -14,6 +16,12 @@ class EditContract extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('print')
+                ->label('Yazdır')
+                ->icon(Heroicon::OutlinedPrinter)
+                ->url(fn () => route('contract.print', $this->record))
+                ->openUrlInNewTab(),
+
             DeleteAction::make(),
         ];
     }

@@ -25,6 +25,11 @@ class ContractsTable
                     ->label('Başlık')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('direction')
+                    ->label('Yön')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state) => Contract::DIRECTIONS[$state] ?? Contract::DIRECTIONS[Contract::DIRECTION_PURCHASE])
+                    ->color(fn (?string $state) => $state === Contract::DIRECTION_SALE ? 'success' : 'gray'),
                 TextColumn::make('contract_type')
                     ->label('Tür')
                     ->badge()

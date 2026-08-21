@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,19 @@ class Contract extends Model
 {
     use HasFactory;
 
+    /**
+     * Satış (alacak) sözleşmeleri proje maliyeti/borcu DEĞİLDİR.
+     * Varsayılan olarak tüm sözleşme sorgularından dışlanır; böylece hiçbir
+     * maliyet/borç hesabı (rapor, dashboard, cari bakiyesi, ilişki toplamları)
+     * satışı yanlışlıkla toplayamaz. Sözleşme ekranı bu scope'u bilinçli kaldırır.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('purchase', function (Builder $query) {
+            $query->where('contracts.direction', '!=', self::DIRECTION_SALE);
+        });
+    }
+
     public const TYPE_SUPPLY = 'supply';
     public const TYPE_SUBCONTRACT = 'subcontract';
 
@@ -19,17 +33,28 @@ class Contract extends Model
         self::TYPE_SUBCONTRACT => 'Taşeron',
     ];
 
+    // Para yönü: alim = borç (maliyet), satis = alacak (tekliften doğan satış)
+    public const DIRECTION_PURCHASE = 'alim';
+    public const DIRECTION_SALE = 'satis';
+
+    public const DIRECTIONS = [
+        self::DIRECTION_PURCHASE => 'Alım',
+        self::DIRECTION_SALE => 'Satış',
+    ];
+
     protected $fillable = [
         'project_id',
         'party_id',
         'title',
         'contract_type',
+        'direction',
         'contract_date',
         'start_date',
         'end_date',
         'total_amount',
         'status',
         'notes',
+        'payment_plan',
     ];
 
     protected $casts = [
@@ -37,6 +62,7 @@ class Contract extends Model
         'start_date'    => 'date',
         'end_date'      => 'date',
         'total_amount'  => 'decimal:2',
+        'payment_plan'  => 'array',
     ];
 
     public function project(): BelongsTo
@@ -153,5 +179,15 @@ class Contract extends Model
     public function isSupply(): bool
     {
         return $this->contract_type === self::TYPE_SUPPLY;
+    }
+
+    public function isSale(): bool
+    {
+        return $this->direction === self::DIRECTION_SALE;
+    }
+
+    public function isPurchase(): bool
+    {
+        return $this->direction !== self::DIRECTION_SALE;
     }
 }

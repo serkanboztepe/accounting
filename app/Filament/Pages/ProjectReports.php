@@ -89,6 +89,7 @@ class ProjectReports extends Page implements HasSchemas
             ->where('project_id', $project->id)
             ->sum('amount');
 
+        // Satış (alacak) sözleşmeleri Contract global scope'u tarafından zaten dışlanır.
         $contracts = Contract::query()
             ->where('project_id', $project->id)
             ->with('items')
@@ -143,6 +144,46 @@ class ProjectReports extends Page implements HasSchemas
             'total_cost' => $directExpenses + $deliveryCost,
             'invoiced_total' => $invoicedTotal,
             'uninvoiced_total' => $uninvoicedTotal,
+        ];
+    }
+
+    /**
+     * Satış / Alacak özeti — SADECE projenin satış sözleşmesi varsa döner (yoksa null).
+     * Maliyet tarafıyla asla toplanmaz; ayrı gösterilir. Brüt = Satış − Toplam Maliyet.
+     */
+    public function getSalesStats(): ?array
+    {
+        $project = $this->getSelectedProject();
+
+        if (! $project) {
+            return null;
+        }
+
+        $sales = Contract::withoutGlobalScope('purchase')
+            ->where('project_id', $project->id)
+            ->where('direction', Contract::DIRECTION_SALE)
+            ->with('items')
+            ->get();
+
+        if ($sales->isEmpty()) {
+            return null;
+        }
+
+        $salesTotal = (float) $sales->sum(fn (Contract $c) => $c->reportableTotal());
+        // Tahsil edilen = nakit/EFT + tahsil edilmiş çek (maliyet tarafıyla aynı semantik).
+        $collected  = (float) $sales->sum(fn (Contract $c) => $c->cashPaidAmount());
+        $pending    = (float) $sales->sum(fn (Contract $c) => $c->pendingCheckAmount());
+        $remaining  = (float) $sales->sum(fn (Contract $c) => max(0, $c->reportableTotal() - $c->cashPaidAmount()));
+
+        $cost = (float) ($this->getSummaryStats()['total_cost'] ?? 0);
+
+        return [
+            'sales_total'    => $salesTotal,
+            'collected'      => $collected,
+            'pending_checks' => $pending,
+            'remaining'      => $remaining,
+            'cost'           => $cost,
+            'gross'          => $salesTotal - $cost,
         ];
     }
 

@@ -11,6 +11,15 @@ class ContractPayment extends Model
 {
     use HasFactory;
 
+    public const PAYMENT_TYPES = [
+        'cash'            => 'Nakit',
+        'eft'             => 'EFT',
+        'bank_transfer'   => 'Havale',
+        'check'           => 'Çek',
+        'promissory_note' => 'Senet',
+        'other'           => 'Diğer',
+    ];
+
     protected $fillable = [
         'contract_id',
         'payment_date',

@@ -43,6 +43,13 @@ class PartyResource extends Resource
         return PartiesTable::configure($table);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            RelationManagers\LedgerEntriesRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [

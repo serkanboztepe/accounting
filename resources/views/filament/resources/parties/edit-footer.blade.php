@@ -40,6 +40,54 @@
         </div>
     </div>
 
+    {{-- Cari Ekstresi --}}
+    <x-filament::section
+        heading="Cari Ekstresi"
+        :description="'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz')"
+        collapsible
+    >
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500 dark:border-white/10 dark:text-gray-400">
+                        <th class="py-2 pr-3 text-left font-medium">Tarih</th>
+                        <th class="py-2 px-3 text-left font-medium">Açıklama</th>
+                        <th class="py-2 px-3 text-right font-medium">Borç</th>
+                        <th class="py-2 px-3 text-right font-medium">Alacak</th>
+                        <th class="py-2 pl-3 text-right font-medium">Bakiye</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                    @forelse ($statement['rows'] as $r)
+                        <tr>
+                            <td class="py-2 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $r['date'] }}</td>
+                            <td class="py-2 px-3">
+                                <span class="text-gray-950 dark:text-white">{{ $r['desc'] }}</span>
+                                <span class="text-xs text-gray-400">· {{ $r['label'] }}</span>
+                                @if ($r['is_manual'])
+                                    <span class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-400">Manuel</span>
+                                @endif
+                            </td>
+                            <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['borc'] > 0 ? '₺' . \App\Support\Money::format($r['borc']) : '' }}</td>
+                            <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['alacak'] > 0 ? '₺' . \App\Support\Money::format($r['alacak']) : '' }}</td>
+                            <td class="py-2 pl-3 text-right tabular-nums font-medium text-gray-950 dark:text-white">₺{{ \App\Support\Money::format($r['balance']) }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="5" class="py-6 text-center text-gray-500 dark:text-gray-400">Hareket yok.</td></tr>
+                    @endforelse
+                </tbody>
+                <tfoot>
+                    <tr class="border-t-2 border-gray-300 font-semibold text-gray-950 dark:border-white/20 dark:text-white">
+                        <td class="py-2 pr-3" colspan="2">Toplam</td>
+                        <td class="py-2 px-3 text-right tabular-nums">₺{{ \App\Support\Money::format($statement['total_borc']) }}</td>
+                        <td class="py-2 px-3 text-right tabular-nums">₺{{ \App\Support\Money::format($statement['total_alacak']) }}</td>
+                        <td class="py-2 pl-3 text-right tabular-nums">₺{{ \App\Support\Money::format($statement['balance']) }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </x-filament::section>
+
     {{-- Aktivite Zaman Çizgisi --}}
     @if (count($timeline) > 0)
         @php

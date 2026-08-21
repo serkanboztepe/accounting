@@ -88,6 +88,40 @@
                 <div class="pr-foot tnum">Ödenen = nakit/EFT + tahsil edilmiş çek · Toplam çek {{ $m($summary['checks_total']) }} · Sözleşme/Kalan çapraz proje hariç, Teslimat dahil</div>
             </div>
 
+            {{-- Satış / Alacak — yalnız projenin satış sözleşmesi varsa. Maliyetle ASLA toplanmaz. --}}
+            @php($sales = $this->getSalesStats())
+            @if ($sales)
+                <div class="pr-summary">
+                    <div class="pr-top">
+                        <div>
+                            <div class="pr-eyebrow">Brüt (Satış − Maliyet)</div>
+                            <div class="pr-hero tnum {{ $sales['gross'] >= 0 ? 'pr-good' : 'pr-warn' }}">{{ $m($sales['gross']) }}</div>
+                        </div>
+                        <div class="pr-break tnum">Satış <b>{{ $m($sales['sales_total']) }}</b> &nbsp;−&nbsp; Maliyet <b>{{ $m($sales['cost']) }}</b></div>
+                    </div>
+
+                    <div class="pr-grid">
+                        <div class="pr-col">
+                            <div class="pr-colhead">Satış &amp; Tahsilat</div>
+                            <div class="pr-row"><span class="pr-k">Satış Toplamı</span><span class="pr-v tnum">{{ $m($sales['sales_total']) }}</span></div>
+                            <div class="pr-row"><span class="pr-k">Tahsil Edilen</span><span class="pr-v tnum pr-good">{{ $m($sales['collected']) }}</span></div>
+                            @if ($sales['pending_checks'] > 0)
+                                <div class="pr-row"><span class="pr-k">Bekleyen çek</span><span class="pr-v tnum pr-pend">{{ $m($sales['pending_checks']) }}</span></div>
+                            @endif
+                            <div class="pr-row pr-hi"><span class="pr-k">Kalan Alacak</span><span class="pr-v tnum pr-warn">{{ $m($sales['remaining']) }}</span></div>
+                        </div>
+                        <div class="pr-col">
+                            <div class="pr-colhead">Karşılaştırma</div>
+                            <div class="pr-row"><span class="pr-k">Toplam Proje Maliyeti</span><span class="pr-v tnum">{{ $m($sales['cost']) }}</span></div>
+                            <div class="pr-row"><span class="pr-k">Satış Geliri</span><span class="pr-v tnum">{{ $m($sales['sales_total']) }}</span></div>
+                            <div class="pr-row pr-hi"><span class="pr-k">Brüt Sonuç</span><span class="pr-v tnum {{ $sales['gross'] >= 0 ? 'pr-good' : 'pr-warn' }}">{{ $m($sales['gross']) }}</span></div>
+                        </div>
+                    </div>
+
+                    <div class="pr-foot tnum">Satış (alacak) tarafı maliyet toplamlarına dahil değildir · Tahsil Edilen = nakit/EFT + tahsil edilmiş çek · Brüt = Satış − Toplam Proje Maliyeti</div>
+                </div>
+            @endif
+
             <div class="grid gap-6 xl:grid-cols-2">
                 <x-filament::section heading="Direkt Giderler">
                     @php($expenseGroups = $this->getExpenseRows())

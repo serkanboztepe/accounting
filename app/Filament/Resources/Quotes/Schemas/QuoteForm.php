@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Filament\Resources\Contracts\Schemas;
+namespace App\Filament\Resources\Quotes\Schemas;
 
-use App\Models\Contract;
+use App\Models\Quote;
 use App\Support\Forms\MoneyInput;
 use App\Support\Forms\PaymentPlanRepeater;
 use Filament\Forms\Components\DatePicker;
@@ -12,18 +12,15 @@ use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
-class ContractForm
+class QuoteForm
 {
     public static function configure(Schema $schema): Schema
     {
         return $schema->columns(1)->components([
-            Section::make('Sözleşme Bilgileri')
-                ->collapsible()
-                ->collapsed()
-                ->persistCollapsed()
+            Section::make('Teklif Bilgileri')
                 ->schema([
                     Select::make('party_id')
-                        ->label('Cari')
+                        ->label('Müşteri / Cari')
                         ->relationship('party', 'name')
                         ->searchable()
                         ->preload()
@@ -34,7 +31,7 @@ class ContractForm
                         ->relationship('project', 'name')
                         ->searchable()
                         ->preload()
-                        ->helperText('Sözleşme tek bir şantiyeye özelse seç; birden fazla şantiyeye iş/teslimat yapılacaksa (çapraz proje, ör. m² usulü) boş bırak — projeyi her teslimatta ayrı seçersin.'),
+                        ->helperText('İsteğe bağlı — teklif belirli bir projeye aitse seç.'),
 
                     TextInput::make('title')
                         ->label('Başlık')
@@ -44,34 +41,22 @@ class ContractForm
 
                     Select::make('status')
                         ->label('Durum')
-                        ->options([
-                            'draft'     => 'Taslak',
-                            'active'    => 'Aktif',
-                            'completed' => 'Tamamlandı',
-                            'cancelled' => 'İptal',
-                        ])
-                        ->default('active')
-                        ->required(),
-
-                    DatePicker::make('contract_date')
-                        ->label('Sözleşme Tarihi'),
-
-                    Select::make('contract_type')
-                        ->label('Sözleşme Türü')
-                        ->options(Contract::TYPES)
+                        ->options(Quote::STATUSES)
+                        ->default(Quote::STATUS_DRAFT)
                         ->required()
                         ->native(false),
+
+                    DatePicker::make('quote_date')
+                        ->label('Teklif Tarihi')
+                        ->default(now()),
+
+                    DatePicker::make('valid_until')
+                        ->label('Geçerlilik Tarihi'),
 
                     MoneyInput::make('total_amount', 'Toplam Tutar')
                         ->required(false)
                         ->dehydrateStateUsing(fn ($state) => \App\Support\Money::store($state) ?? '0.00')
-                        ->helperText('Anlaşılan götürü bedel. Boş bırakırsan kalemlerden otomatik hesap yapılmaz; bu alan dolu olduğunda kalem tutarları kilitlenir.'),
-
-                    DatePicker::make('start_date')
-                        ->label('Başlangıç Tarihi'),
-
-                    DatePicker::make('end_date')
-                        ->label('Bitiş Tarihi'),
+                        ->helperText('Anlaşılan götürü bedel. Boş bırakırsan tutar kalemlerden hesaplanır; dolu olduğunda kalem tutarları kilitlenir.'),
 
                     Textarea::make('notes')
                         ->label('Notlar')
@@ -80,9 +65,8 @@ class ContractForm
                 ]),
 
             Section::make('Ödeme Planı')
-                ->description('Çıktıda görünecek ödeme takvimi. Bu bir plandır — gerçek tahsilat/ödeme "Ödemeler" sekmesinden işlenir.')
+                ->description('Çıktıda kalemlerin altında görünecek ödeme takvimi. Dönüştürünce sözleşmeye kopyalanır.')
                 ->collapsible()
-                ->collapsed()
                 ->schema([
                     PaymentPlanRepeater::make(),
                 ]),

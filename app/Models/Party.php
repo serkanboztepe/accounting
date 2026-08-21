@@ -35,4 +35,9 @@ class Party extends Model
     {
         return $this->hasMany(Check::class);
     }
+
+    public function ledgerEntries(): HasMany
+    {
+        return $this->hasMany(PartyLedgerEntry::class);
+    }
 }
