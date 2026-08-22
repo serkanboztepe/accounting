@@ -52,14 +52,23 @@
                 </x-filament::button>
             @endif
 
-            {{-- Yazdır butonu en sağda --}}
+            {{-- Yazdır: yeni sekme açmadan doğrudan yazdır penceresi (gizli iframe) --}}
             <x-filament::button
-                tag="a"
-                :href="$this->statementPrintUrl()"
-                target="_blank"
                 icon="heroicon-o-printer"
                 color="primary"
                 class="ml-auto"
+                :data-print-url="$this->statementPrintUrl()"
+                x-on:click="
+                    let f = document.getElementById('statement-print-frame');
+                    if (! f) {
+                        f = document.createElement('iframe');
+                        f.id = 'statement-print-frame';
+                        f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0;';
+                        document.body.appendChild(f);
+                    }
+                    f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); };
+                    f.src = $el.dataset.printUrl;
+                "
             >
                 Ekstre Yazdır
             </x-filament::button>
