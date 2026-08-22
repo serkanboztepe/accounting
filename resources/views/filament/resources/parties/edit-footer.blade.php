@@ -1,9 +1,15 @@
 <div class="space-y-6 mt-6">
 
     {{-- Cari Ekstresi --}}
+    @php
+        $projectFiltered = filled($statementProjectId);
+        $statementDesc = $projectFiltered
+            ? 'Bu projeye ait fark ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' (Borç − Alacak — cari bakiye değildir)'
+            : 'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz');
+    @endphp
     <x-filament::section
         heading="Cari Ekstresi"
-        :description="'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz')"
+        :description="$statementDesc"
         collapsible
     >
         {{-- Filtreler --}}

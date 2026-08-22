@@ -103,9 +103,15 @@
             </tfoot>
         </table>
 
+        @php $projectFiltered = ! empty($filters['project_id']); @endphp
         <div class="balance">
-            Bakiye: <strong>₺{{ \App\Support\Money::format(abs($statement['balance'])) }}</strong>
-            — {{ $statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz' }}
+            @if ($projectFiltered)
+                Bu projeye ait fark: <strong>₺{{ \App\Support\Money::format(abs($statement['balance'])) }}</strong>
+                <div style="font-size:11px;color:#777;margin-top:2px;">Borç − Alacak · cari bakiye değildir</div>
+            @else
+                Bakiye: <strong>₺{{ \App\Support\Money::format(abs($statement['balance'])) }}</strong>
+                — {{ $statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz' }}
+            @endif
         </div>
     </div>
 </body>
