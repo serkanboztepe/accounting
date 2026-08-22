@@ -231,25 +231,23 @@
                             <div class="divide-y divide-gray-100 dark:divide-white/5">
                                 <div class="flex gap-2 pb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
                                     <span class="w-20 shrink-0">Tarih</span>
-                                    <span class="w-2 shrink-0"></span>
-                                    <span class="flex-1 text-right">Miktar</span>
-                                    <span class="w-2 shrink-0"></span>
+                                    <span class="flex-1">Kalem / Not</span>
+                                    <span class="w-24 shrink-0 text-right">Miktar</span>
                                     <span class="w-24 shrink-0 text-right">Birim Fiyat</span>
-                                    <span class="w-2 shrink-0"></span>
                                     <span class="w-24 shrink-0 text-right">Tutar</span>
                                 </div>
                                 @foreach ($group['items'] as $item)
                                     <div class="flex items-center gap-2 py-3">
                                         <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['delivery_date'] }}</span>
-                                        <span class="w-2 shrink-0 text-xs text-gray-300 dark:text-gray-600">-</span>
-                                        <span class="flex-1 text-right text-sm text-gray-700 dark:text-gray-300">
+                                        <span class="flex-1 truncate text-sm text-gray-600 dark:text-gray-400" title="{{ $item['label'] }}">
+                                            {{ $item['label'] }}
+                                        </span>
+                                        <span class="w-24 shrink-0 text-right text-sm text-gray-700 dark:text-gray-300">
                                             {{ \App\Support\Money::format($item['quantity']) }} {{ $item['unit'] }}
                                         </span>
-                                        <span class="w-2 shrink-0 text-xs text-gray-300 dark:text-gray-600">-</span>
                                         <span class="w-24 shrink-0 text-right text-sm text-gray-500 dark:text-gray-400">
                                             ₺{{ \App\Support\Money::format($item['unit_price']) }}
                                         </span>
-                                        <span class="w-2 shrink-0 text-xs text-gray-300 dark:text-gray-600">-</span>
                                         <span class="w-24 shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
                                             ₺{{ \App\Support\Money::format($item['amount']) }}
                                         </span>

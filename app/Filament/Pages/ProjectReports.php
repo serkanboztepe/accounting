@@ -343,6 +343,8 @@ class ProjectReports extends Page implements HasSchemas
             $grouped[$contractId]['total_quantity']  += (float) $delivery->quantity;
             $grouped[$contractId]['items'][] = [
                 'delivery_date' => optional($delivery->delivery_date)->format('d.m.Y'),
+                // Kalem adı; boşsa teslimat notu (raporda ne teslim edildiği görünsün)
+                'label'         => $delivery->contractItem?->description ?: ($delivery->notes ?: '—'),
                 'quantity'      => (float) $delivery->quantity,
                 'unit'          => $unitCode($delivery),
                 'unit_price'    => (float) $delivery->unit_price,
