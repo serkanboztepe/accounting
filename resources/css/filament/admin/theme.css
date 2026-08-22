@@ -2,3 +2,8 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+
+/* Sol menü: gruplar arası boşluğu azalt (varsayılan gap-y-7 / 1.75rem) */
+.fi-sidebar-nav-groups {
+    gap: 0.5rem;
+}

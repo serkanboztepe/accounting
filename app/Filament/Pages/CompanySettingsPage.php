@@ -20,6 +20,8 @@ class CompanySettingsPage extends Page implements HasSchemas
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedCog6Tooth;
 
+    protected static string|\UnitEnum|null $navigationGroup = 'Sistem';
+
     protected static ?int $navigationSort = 9;
 
     protected static ?string $title = 'Ayarlar';

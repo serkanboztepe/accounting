@@ -20,6 +20,8 @@ class QuoteResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
 
+    protected static string|\UnitEnum|null $navigationGroup = 'İşlemler';
+
     protected static ?string $navigationLabel = 'Teklifler';
 
     protected static ?string $modelLabel = 'Teklif';

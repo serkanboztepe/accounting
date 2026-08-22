@@ -31,6 +31,10 @@ class ContractResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedDocumentText;
 
+    protected static string|UnitEnum|null $navigationGroup = 'İşlemler';
+
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Sözleşmeler';
 
     protected static ?string $modelLabel = 'Sözleşme';

@@ -45,11 +45,23 @@ Route::get('/sozlesmeler/{contract}/yazdir', function (string $contract) {
     ]);
 })->middleware('auth')->name('contract.print');
 
-Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party) {
+Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party, \Illuminate\Http\Request $request) {
+    $filters = array_filter([
+        'date_from'  => $request->query('date_from'),
+        'date_to'    => $request->query('date_to'),
+        'project_id' => $request->query('project_id'),
+    ], fn ($v) => filled($v));
+
+    $projectName = ! empty($filters['project_id'])
+        ? \App\Models\Project::find($filters['project_id'])?->name
+        : null;
+
     return view('print.party-statement', [
-        'party'     => $party,
-        'company'   => \App\Models\CompanySettings::current(),
-        'statement' => \App\Support\PartyStatement::build($party),
+        'party'       => $party,
+        'company'     => \App\Models\CompanySettings::current(),
+        'statement'   => \App\Support\PartyStatement::build($party, $filters),
+        'filters'     => $filters,
+        'projectName' => $projectName,
     ]);
 })->middleware('auth')->name('party.statement.print');
 

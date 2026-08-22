@@ -16,6 +16,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -23,8 +24,11 @@ class LedgerEntriesRelationManager extends RelationManager
 {
     protected static string $relationship = 'ledgerEntries';
 
-    protected static ?string $title = 'Manuel Cari Hareketleri';
+    protected static ?string $title = 'Cari Hareketleri';
 
+    /**
+     * Ortak alanlar — yön/tip yok; hangi butona basıldığı tipi (ve yönü) belirler.
+     */
     public function form(Schema $schema): Schema
     {
         return $schema->components([
@@ -33,20 +37,20 @@ class LedgerEntriesRelationManager extends RelationManager
                 ->default(now())
                 ->required(),
 
-            Select::make('direction')
-                ->label('Yön')
-                ->options(PartyLedgerEntry::DIRECTIONS)
-                ->required()
-                ->native(false)
-                ->helperText('Borç = cari bize borçlanır · Alacak = biz cariye borçlanırız'),
+            MoneyInput::make('amount', 'Tutar'),
+
+            Select::make('project_id')
+                ->label('Proje (opsiyonel)')
+                ->relationship('project', 'name')
+                ->searchable()
+                ->preload()
+                ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.'),
 
             TextInput::make('description')
                 ->label('Açıklama')
                 ->required()
                 ->maxLength(255)
                 ->columnSpanFull(),
-
-            MoneyInput::make('amount', 'Tutar'),
 
             Textarea::make('notes')
                 ->label('Not')
@@ -58,20 +62,26 @@ class LedgerEntriesRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->description('Açılış bakiyesi / düzeltme / veresiye. Bu satırlar yalnız cari ekstresini etkiler — proje maliyet raporlarına GİRMEZ.')
+            ->description('Çift yönlü cari hareketleri. Cari ekstresinde görünür; proje maliyet raporlarına GİRMEZ.')
             ->columns([
                 TextColumn::make('entry_date')
                     ->label('Tarih')
                     ->date('d.m.Y')
                     ->sortable(),
+                TextColumn::make('type')
+                    ->label('Tür')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state) => PartyLedgerEntry::TYPES[$state]['label'] ?? $state)
+                    ->color(fn (?string $state) => match ($state) {
+                        PartyLedgerEntry::TYPE_SALE       => 'info',
+                        PartyLedgerEntry::TYPE_COLLECTION => 'success',
+                        PartyLedgerEntry::TYPE_PURCHASE   => 'warning',
+                        PartyLedgerEntry::TYPE_PAYMENT    => 'danger',
+                        default                           => 'gray',
+                    }),
                 TextColumn::make('description')
                     ->label('Açıklama')
                     ->searchable(),
-                TextColumn::make('direction')
-                    ->label('Yön')
-                    ->badge()
-                    ->formatStateUsing(fn (?string $state) => PartyLedgerEntry::DIRECTIONS[$state] ?? $state)
-                    ->color(fn (?string $state) => $state === PartyLedgerEntry::DIRECTION_DEBIT ? 'success' : 'danger'),
                 TextColumn::make('amount')
                     ->label('Tutar')
                     ->formatStateUsing(fn ($state) => Money::format((float) $state) . ' ₺')
@@ -84,9 +94,12 @@ class LedgerEntriesRelationManager extends RelationManager
             ])
             ->defaultSort('entry_date')
             ->headerActions([
-                CreateAction::make()
-                    ->label('Manuel Satır Ekle')
-                    ->modalHeading('Manuel Cari Hareketi'),
+                // Bize doğru (cari müşteri): Satış + Tahsilat
+                $this->entryAction('satis', 'Satış', Heroicon::OutlinedShoppingCart, 'info', 'Satış — Cariyi Borçlandır'),
+                $this->entryAction('tahsilat', 'Tahsilat', Heroicon::OutlinedArrowDownCircle, 'success', 'Tahsilat — Para Girişi'),
+                // Bizden doğru (cari tedarikçi): Alış + Ödeme
+                $this->entryAction('alis', 'Alış / Hizmet', Heroicon::OutlinedShoppingBag, 'warning', 'Alış / Hizmet — Cariye Borçlan'),
+                $this->entryAction('odeme', 'Ödeme', Heroicon::OutlinedArrowUpCircle, 'danger', 'Ödeme — Para Çıkışı'),
             ])
             ->recordActions([
                 EditAction::make(),
@@ -97,5 +110,16 @@ class LedgerEntriesRelationManager extends RelationManager
                     DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    protected function entryAction(string $type, string $label, Heroicon $icon, string $color, string $heading): CreateAction
+    {
+        return CreateAction::make($type)
+            ->label($label)
+            ->icon($icon)
+            ->color($color)
+            ->modalHeading($heading)
+            ->modalSubmitActionLabel('Kaydet')
+            ->mutateDataUsing(fn (array $data): array => [...$data, 'type' => $type]);
     }
 }

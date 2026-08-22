@@ -22,13 +22,15 @@ class ProjectResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
+    protected static string|UnitEnum|null $navigationGroup = 'Genel';
+
     protected static ?string $navigationLabel = 'Projeler';
 
     protected static ?string $modelLabel = 'Proje';
 
     protected static ?string $pluralModelLabel = 'Projeler';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
 
     protected static ?string $recordTitleAttribute = 'name';
 

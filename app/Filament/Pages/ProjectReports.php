@@ -24,7 +24,9 @@ class ProjectReports extends Page implements HasSchemas
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedPresentationChartLine;
 
-    protected static ?int $navigationSort = 4;
+    protected static string|\UnitEnum|null $navigationGroup = 'Genel';
+
+    protected static ?int $navigationSort = 3;
 
     protected static ?string $title = 'Proje Raporları';
 

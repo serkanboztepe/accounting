@@ -1,51 +1,64 @@
 <div class="space-y-6 mt-6">
 
-    {{-- Özet Kartlar --}}
-    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-            <div class="text-sm text-gray-500 dark:text-gray-400">Toplam Sözleşme</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight text-gray-950 dark:text-white">
-                ₺{{ \App\Support\Money::format($summary['contracts_total']) }}
-            </div>
-        </div>
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-            <div class="text-sm text-gray-500 dark:text-gray-400">Toplam Ödenen</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight text-green-700 dark:text-green-400">
-                ₺{{ \App\Support\Money::format($summary['paid_total']) }}
-            </div>
-        </div>
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-            <div class="text-sm text-gray-500 dark:text-gray-400">Kalan Bakiye</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight text-orange-600 dark:text-orange-400">
-                ₺{{ \App\Support\Money::format($summary['remaining_total']) }}
-            </div>
-        </div>
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-            <div class="text-sm text-gray-500 dark:text-gray-400">Toplam Fatura</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight text-gray-950 dark:text-white">
-                ₺{{ \App\Support\Money::format($summary['invoiced_total']) }}
-            </div>
-        </div>
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-            <div class="text-sm text-gray-500 dark:text-gray-400">Toplam Gider</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight text-gray-950 dark:text-white">
-                ₺{{ \App\Support\Money::format($summary['expenses_total']) }}
-            </div>
-        </div>
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/5">
-            <div class="text-sm text-gray-500 dark:text-gray-400">Toplam Çek</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight text-gray-950 dark:text-white">
-                ₺{{ \App\Support\Money::format($summary['checks_total']) }}
-            </div>
-        </div>
-    </div>
-
     {{-- Cari Ekstresi --}}
     <x-filament::section
         heading="Cari Ekstresi"
         :description="'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz')"
         collapsible
     >
+        {{-- Filtreler --}}
+        @php
+            $hasFilter = filled($statementDateFrom) || filled($statementDateTo) || filled($statementProjectId);
+        @endphp
+        <div class="mb-4 flex flex-wrap items-end gap-3">
+            <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Başlangıç</label>
+                <x-filament::input.wrapper>
+                    <x-filament::input type="date" wire:model.live="statementDateFrom" />
+                </x-filament::input.wrapper>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Bitiş</label>
+                <x-filament::input.wrapper>
+                    <x-filament::input type="date" wire:model.live="statementDateTo" />
+                </x-filament::input.wrapper>
+            </div>
+            @if (count($statementProjects) > 0)
+                <div class="min-w-[12rem]">
+                    <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Proje</label>
+                    <x-filament::input.wrapper>
+                        <x-filament::input.select wire:model.live="statementProjectId">
+                            <option value="">Tüm projeler</option>
+                            @foreach ($statementProjects as $id => $name)
+                                <option value="{{ $id }}">{{ $name }}</option>
+                            @endforeach
+                        </x-filament::input.select>
+                    </x-filament::input.wrapper>
+                </div>
+            @endif
+            @if ($hasFilter)
+                <x-filament::button
+                    color="gray"
+                    icon="heroicon-o-x-mark"
+                    wire:click="clearStatementFilters"
+                >
+                    Temizle
+                </x-filament::button>
+            @endif
+
+            {{-- Yazdır butonu en sağda --}}
+            <x-filament::button
+                tag="a"
+                :href="$this->statementPrintUrl()"
+                target="_blank"
+                icon="heroicon-o-printer"
+                color="primary"
+                class="ml-auto"
+            >
+                Ekstre Yazdır
+            </x-filament::button>
+        </div>
+
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
@@ -64,9 +77,6 @@
                             <td class="py-2 px-3">
                                 <span class="text-gray-950 dark:text-white">{{ $r['desc'] }}</span>
                                 <span class="text-xs text-gray-400">· {{ $r['label'] }}</span>
-                                @if ($r['is_manual'])
-                                    <span class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-400">Manuel</span>
-                                @endif
                             </td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['borc'] > 0 ? '₺' . \App\Support\Money::format($r['borc']) : '' }}</td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['alacak'] > 0 ? '₺' . \App\Support\Money::format($r['alacak']) : '' }}</td>

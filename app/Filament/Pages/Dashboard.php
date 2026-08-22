@@ -24,6 +24,10 @@ class Dashboard extends BaseDashboard
 {
     use HasFiltersForm;
 
+    protected static string|\UnitEnum|null $navigationGroup = 'Genel';
+
+    protected static ?int $navigationSort = 1;
+
     public function getTitle(): string
     {
         return 'Genel Rapor';

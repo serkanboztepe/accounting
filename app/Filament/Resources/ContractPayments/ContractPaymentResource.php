@@ -21,6 +21,10 @@ class ContractPaymentResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCreditCard;
 
+    protected static string|UnitEnum|null $navigationGroup = 'İşlemler';
+
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationLabel = 'Sözleşme Ödemeleri';
 
     protected static ?string $modelLabel = 'Sözleşme Ödemesi';

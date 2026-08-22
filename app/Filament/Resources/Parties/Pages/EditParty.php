@@ -9,27 +9,57 @@ use App\Models\ContractDelivery;
 use App\Models\ContractPayment;
 use App\Models\Expense;
 use App\Models\Invoice;
+use App\Models\PartyLedgerEntry;
+use App\Models\Project;
 use App\Support\PartyStatement;
-use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
-use Filament\Support\Icons\Heroicon;
 
 class EditParty extends EditRecord
 {
     protected static string $resource = PartyResource::class;
 
+    public ?string $statementDateFrom = null;
+
+    public ?string $statementDateTo = null;
+
+    public ?string $statementProjectId = null;
+
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('statement')
-                ->label('Ekstre Yazdır')
-                ->icon(Heroicon::OutlinedPrinter)
-                ->url(fn () => route('party.statement.print', $this->record))
-                ->openUrlInNewTab(),
-
             DeleteAction::make(),
         ];
+    }
+
+    /**
+     * Filtreli ekstre yazdırma URL'i (footer'daki butona verilir).
+     */
+    public function statementPrintUrl(): string
+    {
+        return route('party.statement.print', array_merge(
+            ['party' => $this->record],
+            $this->statementFilters(),
+        ));
+    }
+
+    /**
+     * Ekstre filtreleri (boş olanlar elenir) — hem getFooter hem yazdır URL'i kullanır.
+     */
+    private function statementFilters(): array
+    {
+        return array_filter([
+            'date_from'  => $this->statementDateFrom,
+            'date_to'    => $this->statementDateTo,
+            'project_id' => $this->statementProjectId,
+        ], fn ($v) => filled($v));
+    }
+
+    public function clearStatementFilters(): void
+    {
+        $this->statementDateFrom = null;
+        $this->statementDateTo = null;
+        $this->statementProjectId = null;
     }
 
     public function getFooter(): ?\Illuminate\Contracts\View\View
@@ -39,15 +69,43 @@ class EditParty extends EditRecord
         }
 
         return view('filament.resources.parties.edit-footer', [
-            'party'     => $this->record,
-            'summary'   => $this->getPartySummary(),
-            'statement' => PartyStatement::build($this->record),
-            'timeline'  => $this->getTimelineEvents(),
-            'contracts' => $this->getContractRows(),
-            'invoices'  => $this->getInvoiceRows(),
-            'expenses'  => $this->getExpenseRows(),
-            'checks'    => $this->getCheckRows(),
+            'party'            => $this->record,
+            'statement'        => PartyStatement::build($this->record, $this->statementFilters()),
+            'statementProjects' => $this->getStatementProjects(),
+            'statementDateFrom' => $this->statementDateFrom,
+            'statementDateTo'   => $this->statementDateTo,
+            'statementProjectId' => $this->statementProjectId,
+            'timeline'         => $this->getTimelineEvents(),
+            'contracts'        => $this->getContractRows(),
+            'invoices'         => $this->getInvoiceRows(),
+            'expenses'         => $this->getExpenseRows(),
+            'checks'           => $this->getCheckRows(),
         ]);
+    }
+
+    /**
+     * Bu carinin ekstresinde geçen projeler (sözleşme + gider + elle hareket) → [id => ad].
+     */
+    private function getStatementProjects(): array
+    {
+        $party = $this->record;
+
+        $ids = collect()
+            ->merge(Contract::withoutGlobalScope('purchase')->where('party_id', $party->id)->pluck('project_id'))
+            ->merge(Expense::where('party_id', $party->id)->pluck('project_id'))
+            ->merge(PartyLedgerEntry::where('party_id', $party->id)->pluck('project_id'))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return Project::whereIn('id', $ids)
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
     }
 
     private function getTimelineEvents(): array
@@ -158,42 +216,6 @@ class EditParty extends EditRecord
 
             return $event;
         }, $events);
-    }
-
-    private function getPartySummary(): array
-    {
-        $party = $this->record;
-
-        $contractsTotal = (float) Contract::query()
-            ->where('party_id', $party->id)
-            ->with('items')
-            ->get()
-            ->sum(fn (Contract $c) => $c->reportableTotal());
-
-        $paidTotal = (float) ContractPayment::query()
-            ->whereHas('contract', fn ($q) => $q->where('party_id', $party->id))
-            ->sum('amount');
-
-        $expensesTotal = (float) Expense::query()
-            ->where('party_id', $party->id)
-            ->sum('amount');
-
-        $checksTotal = (float) Check::query()
-            ->where('party_id', $party->id)
-            ->sum('amount');
-
-        $invoicedTotal = (float) Invoice::query()
-            ->whereHas('contract', fn ($q) => $q->where('party_id', $party->id))
-            ->sum('total_amount');
-
-        return [
-            'contracts_total' => $contractsTotal,
-            'paid_total'      => $paidTotal,
-            'remaining_total' => max(0, $contractsTotal - $paidTotal),
-            'invoiced_total'  => $invoicedTotal,
-            'expenses_total'  => $expensesTotal,
-            'checks_total'    => $checksTotal,
-        ];
     }
 
     private function getContractRows(): array
