@@ -83,8 +83,8 @@ class StudyBuilder extends Page implements HasSchemas
                 ->label('Çıktı Al / Yazdır')
                 ->icon('heroicon-o-printer')
                 ->color('primary')
-                ->url(fn () => route('land-share.print', ['study' => $this->record, 'auto' => 1]))
-                ->openUrlInNewTab(),
+                ->url(fn () => route('land-share.print', ['study' => $this->record]))
+                ->extraAttributes(fn () => \App\Support\Printing::iframeAttributes(route('land-share.print', ['study' => $this->record]))),
 
             Action::make('distributeExisting')
                 ->label('Mevcut Hisseye Göre Paylaştır')

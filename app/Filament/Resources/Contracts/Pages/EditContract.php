@@ -20,7 +20,7 @@ class EditContract extends EditRecord
                 ->label('Yazdır')
                 ->icon(Heroicon::OutlinedPrinter)
                 ->url(fn () => route('contract.print', $this->record))
-                ->openUrlInNewTab(),
+                ->extraAttributes(fn () => \App\Support\Printing::iframeAttributes(route('contract.print', $this->record))),
 
             DeleteAction::make(),
         ];

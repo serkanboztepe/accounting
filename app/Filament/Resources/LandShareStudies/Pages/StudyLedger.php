@@ -46,8 +46,8 @@ class StudyLedger extends Page
                 ->label('Çıktı Al / Yazdır')
                 ->icon(Heroicon::OutlinedPrinter)
                 ->color('primary')
-                ->url(fn () => route('land-share.print', ['study' => $this->record, 'auto' => 1]))
-                ->openUrlInNewTab(),
+                ->url(fn () => route('land-share.print', ['study' => $this->record]))
+                ->extraAttributes(fn () => \App\Support\Printing::iframeAttributes(route('land-share.print', ['study' => $this->record]))),
 
             Action::make('edit')
                 ->label('Veri Girişine Dön')

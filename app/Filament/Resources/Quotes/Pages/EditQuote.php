@@ -45,7 +45,7 @@ class EditQuote extends EditRecord
                 ->label('Yazdır')
                 ->icon(Heroicon::OutlinedPrinter)
                 ->url(fn () => route('quote.print', $this->record))
-                ->openUrlInNewTab(),
+                ->extraAttributes(fn () => \App\Support\Printing::iframeAttributes(route('quote.print', $this->record))),
 
             Action::make('viewContract')
                 ->label('Sözleşmeyi Aç')

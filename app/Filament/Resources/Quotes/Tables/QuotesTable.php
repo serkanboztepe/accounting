@@ -81,7 +81,7 @@ class QuotesTable
                     ->label('Yazdır')
                     ->icon(Heroicon::OutlinedPrinter)
                     ->url(fn (Quote $record) => route('quote.print', $record))
-                    ->openUrlInNewTab(),
+                    ->extraAttributes(fn (Quote $record) => \App\Support\Printing::iframeAttributes(route('quote.print', $record))),
 
                 Action::make('viewContract')
                     ->label('Sözleşmeyi Aç')
