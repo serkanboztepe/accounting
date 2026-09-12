@@ -4,7 +4,9 @@ namespace App\Filament\Resources\Contracts\RelationManagers;
 
 use App\Models\ContractDelivery;
 use App\Models\ContractItem;
+use App\Models\Product;
 use App\Models\Project;
+use App\Models\Unit;
 use App\Support\Forms\MoneyInput;
 use App\Support\Money;
 use Filament\Actions\Action;
@@ -14,6 +16,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -37,6 +40,52 @@ class ItemsRelationManager extends RelationManager
 
         return $schema
             ->components([
+                Select::make('product_id')
+                    ->label('Katalog (Hizmet / Ürün)')
+                    ->options(fn () => Product::active()->orderBy('name')->pluck('name', 'id'))
+                    ->searchable()
+                    ->preload()
+                    ->live()
+                    ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                        if (! $state) {
+                            return;
+                        }
+                        $product = Product::find($state);
+                        if (! $product) {
+                            return;
+                        }
+                        if (blank($get('description'))) {
+                            $set('description', $product->name);
+                        }
+                        if ($product->unit_id) {
+                            $set('unit_id', $product->unit_id);
+                        }
+                        if ($product->default_price !== null) {
+                            $set('unit_price', Money::format((float) $product->default_price));
+                            $qty = (float) $get('quantity');
+                            if ($qty) {
+                                $set('amount', Money::format($qty * (float) $product->default_price));
+                            }
+                        }
+                    })
+                    ->createOptionForm([
+                        Radio::make('type')
+                            ->label('Tür')
+                            ->options(Product::TYPE_LABELS)
+                            ->default(Product::TYPE_PRODUCT)
+                            ->inline()
+                            ->required(),
+                        TextInput::make('name')->label('Ad')->required()->maxLength(255),
+                        Select::make('unit_id')
+                            ->label('Birim')
+                            ->options(fn () => Unit::orderBy('name')->pluck('name', 'id'))
+                            ->searchable(),
+                        MoneyInput::make('default_price', 'Varsayılan fiyat')->required(false),
+                    ])
+                    ->createOptionUsing(fn (array $data) => Product::create($data)->getKey())
+                    ->helperText('Katalogdan seç — ad/birim/fiyat otomatik gelir. Yoksa + ile yeni kart aç ya da aşağıya serbest yaz.')
+                    ->columnSpanFull(),
+
                 TextInput::make('description')
                     ->label('Kalem Adı')
                     ->required()

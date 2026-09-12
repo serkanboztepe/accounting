@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Projects\Schemas;
 
+use App\Models\Party;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -14,6 +15,12 @@ class ProjectForm
     {
         return $schema->components([
             TextInput::make('name')->required()->maxLength(255),
+            Select::make('party_id')
+                ->label('Sahip müşteri')
+                ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
+                ->searchable()
+                ->preload()
+                ->helperText('Opsiyonel — proje bir müşteriye aitse seç. Kendi projelerinde boş bırak.'),
             TextInput::make('code')->maxLength(255),
             TextInput::make('location')->maxLength(255),
             Select::make('status')

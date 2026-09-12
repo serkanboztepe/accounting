@@ -65,6 +65,32 @@ Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party, \Illum
     ]);
 })->middleware('auth')->name('party.statement.print');
 
+Route::get('/stok-raporu/yazdir', function () {
+    return view('print.stock-report', [
+        'company' => \App\Models\CompanySettings::current(),
+        'rows'    => \App\Support\StockReporting::stockRows(),
+    ]);
+})->middleware('auth')->name('stock-report.print');
+
+Route::get('/satis-ozeti/yazdir', function (\Illuminate\Http\Request $request) {
+    $group = $request->query('group') === 'project' ? 'project' : 'party';
+
+    return view('print.sales-summary', [
+        'company'    => \App\Models\CompanySettings::current(),
+        'rows'       => \App\Support\StockReporting::salesSummary($group),
+        'groupLabel' => $group === 'project' ? 'Şantiye / Proje' : 'Müşteri',
+    ]);
+})->middleware('auth')->name('sales-summary.print');
+
+Route::get('/satislar/{sale}/yazdir', function (\App\Models\Sale $sale) {
+    $sale->load(['party', 'project', 'lines.product', 'returns.product']);
+
+    return view('print.sale', [
+        'company' => \App\Models\CompanySettings::current(),
+        'sale'    => $sale,
+    ]);
+})->middleware('auth')->name('sale.print');
+
 Route::get('/invoice-file/{filename}', function (string $filename) {
     $path = storage_path('app/public/invoices/' . $filename);
 

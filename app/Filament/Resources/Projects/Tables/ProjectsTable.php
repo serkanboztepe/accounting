@@ -14,6 +14,10 @@ class ProjectsTable
         return $table
             ->columns([
                 TextColumn::make('name')->searchable()->sortable(),
+                TextColumn::make('party.name')
+                    ->label('Sahip müşteri')
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('code')->searchable(),
                 TextColumn::make('location')->searchable(),
                 TextColumn::make('status')->badge(),

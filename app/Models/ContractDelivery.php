@@ -15,6 +15,7 @@ class ContractDelivery extends Model
     protected $fillable = [
         'contract_id',
         'contract_item_id',
+        'product_id',
         'project_id',
         'unit_id',
         'delivery_date',
@@ -31,6 +32,20 @@ class ContractDelivery extends Model
         'amount' => 'decimal:2',
     ];
 
+    protected static function booted(): void
+    {
+        // Teslimat ürün kimliğini kaleminden miras alır — tüm oluşturma yolları için
+        // tek noktadan (böylece her teslimat, kalemi kataloğa bağlıysa stoğa da bağlanır).
+        static::saving(function (ContractDelivery $delivery) {
+            if ($delivery->product_id === null && $delivery->contract_item_id) {
+                $productId = $delivery->contractItem()->value('product_id');
+                if ($productId) {
+                    $delivery->product_id = $productId;
+                }
+            }
+        });
+    }
+
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);
@@ -39,6 +54,11 @@ class ContractDelivery extends Model
     public function contractItem(): BelongsTo
     {
         return $this->belongsTo(ContractItem::class);
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 
     public function project(): BelongsTo

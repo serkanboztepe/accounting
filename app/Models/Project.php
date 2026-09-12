@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Project extends Model
@@ -12,6 +13,7 @@ class Project extends Model
 
     protected $fillable = [
         'name',
+        'party_id',
         'code',
         'location',
         'status',
@@ -24,6 +26,12 @@ class Project extends Model
         'start_date' => 'date',
         'end_date' => 'date',
     ];
+
+    /** Projenin sahibi müşteri (opsiyonel) — "bu proje bu müşteriye ait". */
+    public function party(): BelongsTo
+    {
+        return $this->belongsTo(Party::class);
+    }
 
     public function expenses(): HasMany
     {

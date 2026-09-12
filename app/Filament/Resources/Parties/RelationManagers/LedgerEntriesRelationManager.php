@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\Parties\RelationManagers;
 
+use App\Filament\Resources\Sales\SaleResource;
 use App\Models\PartyLedgerEntry;
 use App\Support\Forms\MoneyInput;
 use App\Support\Money;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -62,8 +64,12 @@ class LedgerEntriesRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->description('Çift yönlü cari hareketleri. Cari ekstresinde görünür; proje maliyet raporlarına GİRMEZ.')
+            ->description('Çift yönlü cari hareketleri. Cari ekstresinde görünür; proje maliyet raporlarına GİRMEZ. 🔒 satırlar Direkt Satış’tan gelir — düzenleme/silme satış ekranından yapılır.')
             ->columns([
+                TextColumn::make('sale_id')
+                    ->label('')
+                    ->formatStateUsing(fn ($state) => $state ? '🔒' : '')
+                    ->tooltip(fn ($state) => $state ? 'Direkt Satış’tan gelir — buradan değiştirilemez' : null),
                 TextColumn::make('entry_date')
                     ->label('Tarih')
                     ->date('d.m.Y')
@@ -102,12 +108,27 @@ class LedgerEntriesRelationManager extends RelationManager
                 $this->entryAction('odeme', 'Ödeme', Heroicon::OutlinedArrowUpCircle, 'danger', 'Ödeme — Para Çıkışı'),
             ])
             ->recordActions([
-                EditAction::make(),
-                DeleteAction::make(),
+                // Direkt Satış'tan gelen satırlar salt-okunur — satışa yönlendir.
+                Action::make('openSale')
+                    ->label('Satışı Aç')
+                    ->icon(Heroicon::OutlinedShoppingCart)
+                    ->color('info')
+                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id !== null)
+                    ->url(fn (PartyLedgerEntry $record) => SaleResource::getUrl('edit', ['record' => $record->sale_id]))
+                    ->openUrlInNewTab(),
+
+                EditAction::make()
+                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id === null),
+                DeleteAction::make()
+                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id === null),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    // Yalnız elle girilen (satışa bağlı olmayan) satırlar toplu silinebilir.
+                    DeleteBulkAction::make()
+                        ->action(function ($records) {
+                            $records->whereNull('sale_id')->each->delete();
+                        }),
                 ]),
             ]);
     }
