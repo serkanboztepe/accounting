@@ -3,20 +3,17 @@
 namespace App\Filament\Resources\Contracts\Widgets;
 
 use App\Models\Contract;
-use App\Support\Money;
-use Filament\Widgets\StatsOverviewWidget;
-use Filament\Widgets\StatsOverviewWidget\Stat;
+use Filament\Widgets\Widget;
 
-class ContractSummary extends StatsOverviewWidget
+class ContractSummary extends Widget
 {
+    protected string $view = 'filament.widgets.contract-summary-card';
+
+    protected int|string|array $columnSpan = 'full';
+
     public ?Contract $record = null;
 
-    protected function getColumns(): int
-    {
-        return 3;
-    }
-
-    protected function getStats(): array
+    public function getData(): array
     {
         $contract = $this->record;
 
@@ -30,21 +27,26 @@ class ContractSummary extends StatsOverviewWidget
         $delivered = $contract->deliveredAmount();
         $paid      = $contract->paidAmount();
 
-        $remainingDelivery = max(0, $total - $delivered);
-        $remainingPayment  = max(0, $total - $paid);
+        // Teslimat sözleşmeyi aşarsa aşımı gizleme
+        $deliveryDiff = $delivered - $total;      // + aşım, − kalan
+
+        // İki farklı borç:
+        //  1) Teslim alınana göre: gelen mala karşılık şu an gerçekten borçlu olunan
+        //  2) Sözleşmeye göre: sözleşme bitene kadar toplam kalan taahhüt
+        $dueForDelivered   = $delivered - $paid;  // + borç, − fazla ödeme
+        $contractRemaining = $total - $paid;      // + kalan, − fazla ödeme
 
         return [
-            Stat::make('Sözleşme Tutarı', Money::format($total) . ' ₺')
-                ->description((float) $contract->total_amount > 0 ? 'Manuel götürü bedel' : 'Kalemlerden hesaplandı')
-                ->color('info'),
-
-            Stat::make($isSub ? 'Hakediş Tutarı' : 'Teslimat Tutarı', Money::format($delivered) . ' ₺')
-                ->description('Kalan (teslimat): ' . Money::format($remainingDelivery) . ' ₺')
-                ->color('success'),
-
-            Stat::make('Ödenen', Money::format($paid) . ' ₺')
-                ->description('Kalan (ödeme): ' . Money::format($remainingPayment) . ' ₺')
-                ->color($remainingPayment > 0 ? 'warning' : 'success'),
+            'is_sub'              => $isSub,
+            'type_label'          => Contract::TYPES[$contract->contract_type] ?? '',
+            'party_name'          => $contract->party?->name,
+            'is_manual_total'     => (float) $contract->total_amount > 0,
+            'total'               => $total,
+            'delivered'           => $delivered,
+            'paid'                => $paid,
+            'delivery_diff'       => $deliveryDiff,
+            'due_for_delivered'   => $dueForDelivered,
+            'contract_remaining'  => $contractRemaining,
         ];
     }
 }
