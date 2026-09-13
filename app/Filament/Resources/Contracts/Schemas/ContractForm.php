@@ -6,6 +6,7 @@ use App\Models\Contract;
 use App\Support\Forms\MoneyInput;
 use App\Support\Forms\PaymentPlanRepeater;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -17,6 +18,23 @@ class ContractForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->columns(1)->components([
+            // Yön: oluştururken butondan (?direction=), düzenlerken kayıttan gelir.
+            // Param yoksa etkin modüle göre varsayılan (sadece satış yapan firmada satış).
+            Hidden::make('direction')
+                ->default(function () {
+                    $q = request()->query('direction');
+                    if ($q === Contract::DIRECTION_SALE) {
+                        return Contract::DIRECTION_SALE;
+                    }
+                    if ($q === Contract::DIRECTION_PURCHASE) {
+                        return Contract::DIRECTION_PURCHASE;
+                    }
+
+                    return config('modules.purchase_contracts', true)
+                        ? Contract::DIRECTION_PURCHASE
+                        : Contract::DIRECTION_SALE;
+                }),
+
             Section::make('Sözleşme Bilgileri')
                 ->collapsible()
                 ->collapsed()

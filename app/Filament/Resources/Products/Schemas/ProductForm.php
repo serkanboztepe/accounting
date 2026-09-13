@@ -17,13 +17,16 @@ class ProductForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
+            // Stok kapalıyken tür seçimi gösterilmez; kart doğrudan "Hizmet" açılır.
             Radio::make('type')
                 ->label('Tür')
                 ->options(Product::TYPE_LABELS)
-                ->default(Product::TYPE_PRODUCT)
+                ->default(fn () => config('modules.stock') ? Product::TYPE_PRODUCT : Product::TYPE_SERVICE)
                 ->inline()
                 ->required()
                 ->live()
+                ->dehydrated(true)
+                ->visible(fn () => (bool) config('modules.stock'))
                 ->helperText('Ürün stoktan takip edilir; Hizmet stoksuzdur (sadece varsayılan fiyat).')
                 ->columnSpanFull(),
 

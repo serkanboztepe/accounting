@@ -33,6 +33,11 @@ class LandShareStudyResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    public static function canAccess(): bool
+    {
+        return config('modules.land_share');
+    }
+
     /**
      * Minimal başlatıcı form — sadece çalışmayı oluşturmaya yeter.
      * Asıl veri girişi (bloklar, hissedarlar, atama, cetvel) sihirbazda (build).

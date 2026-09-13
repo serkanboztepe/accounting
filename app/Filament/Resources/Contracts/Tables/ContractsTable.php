@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Contracts\Tables;
 use App\Models\Contract;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class ContractsTable
@@ -68,6 +69,11 @@ class ContractsTable
                     ->label('Tarih')
                     ->date('d.m.Y')
                     ->sortable(),
+            ])
+            ->filters([
+                SelectFilter::make('direction')
+                    ->label('Yön')
+                    ->options(Contract::DIRECTIONS),
             ])
             ->recordActions([
                 EditAction::make(),

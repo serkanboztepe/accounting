@@ -24,7 +24,7 @@ class ProjectReports extends Page implements HasSchemas
 
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedPresentationChartLine;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Genel';
+    protected static string|\UnitEnum|null $navigationGroup = 'Raporlar';
 
     protected static ?int $navigationSort = 3;
 
@@ -33,6 +33,11 @@ class ProjectReports extends Page implements HasSchemas
     protected static ?string $navigationLabel = 'Proje Raporları';
 
     protected string $view = 'filament.pages.project-reports';
+
+    public static function canAccess(): bool
+    {
+        return config('modules.report_project');
+    }
 
     public ?int $projectId = null;
 

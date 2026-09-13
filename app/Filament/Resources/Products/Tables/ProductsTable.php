@@ -44,6 +44,7 @@ class ProductsTable
 
                 TextColumn::make('current_stock')
                     ->label('Mevcut Stok')
+                    ->visible(fn () => (bool) config('modules.stock'))
                     ->state(fn (Product $record) => $record->isProduct()
                         ? number_format($record->currentStock(), 2, ',', '.')
                         : '—')

@@ -27,6 +27,11 @@ class SaleResource extends Resource
 
     protected static ?int $navigationSort = 4;
 
+    public static function canAccess(): bool
+    {
+        return config('modules.direct_sales');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return SaleForm::configure($schema);

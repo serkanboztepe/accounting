@@ -29,6 +29,12 @@ class ProductResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    public static function canAccess(): bool
+    {
+        // Katalog: direkt satış VEYA stok açıksa görünür.
+        return config('modules.direct_sales') || config('modules.stock');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return ProductForm::configure($schema);

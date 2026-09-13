@@ -38,6 +38,7 @@ class AdminPanelProvider extends PanelProvider
                 'Genel',
                 'Kat Karşılığı',
                 'İşlemler',
+                'Raporlar',
                 'Tanımlar',
                 'Sistem',
             ])

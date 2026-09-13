@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YapıTakip — İnşaata Özel Yönetim Yazılımı</title>
+<meta name="description" content="İnşaata özel proje, maliyet, hakediş, cari, kat karşılığı, stok ve satış yönetimi. Muhasebe programı değil.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏗️</text></svg>">
+</head>
+<body>
+<style>
+  :root {
+    --paper: #F4F3F0;
+    --paper-2: #EAE8E3;
+    --card: #FBFAF8;
+    --ink: #1C1B19;
+    --graphite: #6E6A62;
+    --amber: #C97A0C;
+    --amber-2: #A9640A;
+    --amber-tint: rgba(201,122,12,0.10);
+    --line: rgba(28,27,25,0.12);
+    --line-soft: rgba(28,27,25,0.06);
+    --shadow: 0 1px 2px rgba(28,27,25,.06), 0 12px 32px -12px rgba(28,27,25,.18);
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #171613;
+      --paper-2: #1F1D1A;
+      --card: #201E1A;
+      --ink: #F1EEE8;
+      --graphite: #A39C90;
+      --amber: #EBA22C;
+      --amber-2: #F2B54E;
+      --amber-tint: rgba(235,162,44,0.12);
+      --line: rgba(255,255,255,0.12);
+      --line-soft: rgba(255,255,255,0.06);
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #F4F3F0; --paper-2: #EAE8E3; --card: #FBFAF8; --ink: #1C1B19; --graphite: #6E6A62;
+    --amber: #C97A0C; --amber-2: #A9640A; --amber-tint: rgba(201,122,12,0.10);
+    --line: rgba(28,27,25,0.12); --line-soft: rgba(28,27,25,0.06);
+    --shadow: 0 1px 2px rgba(28,27,25,.06), 0 12px 32px -12px rgba(28,27,25,.18);
+  }
+  :root[data-theme="dark"] {
+    --paper: #171613; --paper-2: #1F1D1A; --card: #201E1A; --ink: #F1EEE8; --graphite: #A39C90;
+    --amber: #EBA22C; --amber-2: #F2B54E; --amber-tint: rgba(235,162,44,0.12);
+    --line: rgba(255,255,255,0.12); --line-soft: rgba(255,255,255,0.06);
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -16px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--font-sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  a { color: inherit; text-decoration: none; }
+
+  .mono { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; color: var(--graphite); }
+  h1, h2, h3 { font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; text-wrap: balance; margin: 0; }
+
+  /* ---- top bar ---- */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: 66px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -0.03em; font-size: 1.15rem; }
+  .brand .mk { width: 26px; height: 26px; display: grid; place-items: center; background: var(--amber); color: #fff; border-radius: 6px; font-family: var(--font-mono); font-size: .8rem; font-weight: 700; }
+  :root[data-theme="dark"] .brand .mk, .brand .mk { color: #1a1206; }
+  nav.links { display: flex; gap: 28px; align-items: center; }
+  nav.links a { font-size: .92rem; color: var(--graphite); font-weight: 500; }
+  nav.links a:hover { color: var(--ink); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: .92rem; padding: 10px 18px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: transform .12s ease, background .12s ease; }
+  .btn-primary { background: var(--amber); color: #1a1206; }
+  .btn-primary:hover { transform: translateY(-1px); background: var(--amber-2); color: #fff; }
+  .btn-ghost { border-color: var(--line); color: var(--ink); background: transparent; }
+  .btn-ghost:hover { border-color: var(--ink); }
+  @media (max-width: 760px){ nav.links { display: none; } }
+
+  /* ---- hero ---- */
+  .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line-soft); }
+  .hero::before {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image: linear-gradient(var(--line-soft) 1px, transparent 1px), linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size: 34px 34px; -webkit-mask-image: radial-gradient(ellipse 80% 70% at 70% 0%, #000 30%, transparent 78%);
+    mask-image: radial-gradient(ellipse 80% 70% at 70% 0%, #000 30%, transparent 78%);
+  }
+  .hero-grid { position: relative; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; padding: 78px 0 88px; }
+  @media (max-width: 900px){ .hero-grid { grid-template-columns: 1fr; gap: 40px; padding: 52px 0 60px; } }
+  .eyebrow { display:inline-flex; align-items:center; gap:10px; margin-bottom: 22px; }
+  .eyebrow .dot { width:7px; height:7px; background: var(--amber); border-radius:50%; box-shadow: 0 0 0 4px var(--amber-tint); }
+  h1 { font-size: clamp(2.25rem, 5.2vw, 3.5rem); }
+  .hero p.lead { font-size: 1.12rem; color: var(--graphite); max-width: 52ch; margin: 22px 0 30px; }
+  .cta-row { display:flex; gap: 14px; flex-wrap: wrap; }
+  .hero .note { margin-top: 20px; font-size: .82rem; color: var(--graphite); display:flex; align-items:center; gap:8px; }
+
+  /* ---- product mock ---- */
+  .mock { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .mock .top { display:flex; align-items:center; gap:8px; padding: 11px 14px; border-bottom: 1px solid var(--line-soft); background: var(--paper-2); }
+  .mock .top .d { width:10px; height:10px; border-radius:50%; background: var(--line); }
+  .mock .top .t { margin-left: 8px; font-family: var(--font-mono); font-size:.7rem; letter-spacing:.1em; color: var(--graphite); text-transform: uppercase; }
+  .mock .body { padding: 18px; }
+  .mock .proj { font-weight: 800; font-size: 1.05rem; letter-spacing: -.02em; margin-bottom: 2px; }
+  .mock .proj-sub { font-family: var(--font-mono); font-size:.68rem; color: var(--graphite); text-transform: uppercase; letter-spacing:.1em; margin-bottom: 16px; }
+  .kpis { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi { border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 13px; background: var(--paper); }
+  .kpi .lbl { font-family: var(--font-mono); font-size:.62rem; letter-spacing:.1em; text-transform: uppercase; color: var(--graphite); }
+  .kpi .val { font-weight: 800; font-size: 1.15rem; margin-top: 4px; font-variant-numeric: tabular-nums; letter-spacing:-.02em; }
+  .kpi .val.amber { color: var(--amber); }
+  .rows { margin-top: 14px; border-top: 1px solid var(--line-soft); }
+  .row { display:flex; align-items:center; justify-content: space-between; padding: 9px 2px; border-bottom: 1px solid var(--line-soft); font-size:.86rem; }
+  .row .nm { color: var(--ink); }
+  .row .amt { font-variant-numeric: tabular-nums; color: var(--graphite); }
+  .chip { font-family: var(--font-mono); font-size:.6rem; letter-spacing:.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: var(--amber-tint); color: var(--amber-2); }
+
+  /* ---- section scaffolding ---- */
+  section { padding: 84px 0; border-bottom: 1px solid var(--line-soft); }
+  .sec-head { display:flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
+  .sec-head h2 { font-size: clamp(1.7rem, 3.4vw, 2.3rem); max-width: 22ch; }
+  .sec-head p { color: var(--graphite); max-width: 40ch; margin: 0; }
+  .idx { font-family: var(--font-mono); font-size:.72rem; letter-spacing:.14em; color: var(--amber); }
+
+  /* ---- personas ---- */
+  .personas { display:grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; }
+  @media (max-width: 820px){ .personas { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px){ .personas { grid-template-columns: 1fr; } }
+  .persona { background: var(--card); padding: 26px 22px; }
+  .persona .tag { font-family: var(--font-mono); font-size:.64rem; letter-spacing:.1em; text-transform: uppercase; color: var(--amber); }
+  .persona h3 { font-size: 1.1rem; margin: 10px 0 8px; }
+  .persona p { margin: 0; color: var(--graphite); font-size:.92rem; }
+
+  /* ---- modules ---- */
+  .mods { display:grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+  @media (max-width: 820px){ .mods { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 520px){ .mods { grid-template-columns: 1fr; } }
+  .mod { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px; position: relative; transition: transform .14s ease, border-color .14s ease; }
+  .mod:hover { transform: translateY(-3px); border-color: var(--amber); }
+  .mod .n { font-family: var(--font-mono); font-size:.66rem; color: var(--graphite); letter-spacing:.12em; }
+  .mod h3 { font-size: 1.06rem; margin: 12px 0 8px; letter-spacing:-.01em; }
+  .mod p { margin: 0; color: var(--graphite); font-size:.9rem; }
+  .mod .bar { position:absolute; left:0; top:22px; bottom:22px; width:3px; background: var(--amber); border-radius: 0 3px 3px 0; opacity:0; transition: opacity .14s ease; }
+  .mod:hover .bar { opacity: 1; }
+
+  /* ---- why / diff ---- */
+  .why { display:grid; grid-template-columns: repeat(2,1fr); gap: 30px 48px; }
+  @media (max-width: 760px){ .why { grid-template-columns: 1fr; } }
+  .why .item { display:flex; gap: 16px; }
+  .why .num { font-family: var(--font-mono); font-weight: 700; color: var(--amber); font-size: .95rem; padding-top: 2px; min-width: 28px; }
+  .why h3 { font-size: 1.12rem; margin-bottom: 6px; }
+  .why p { margin: 0; color: var(--graphite); }
+
+  /* ---- cta band ---- */
+  .cta-band { background: var(--ink); color: var(--paper); border-radius: 18px; padding: 52px 44px; display:flex; align-items:center; justify-content: space-between; gap: 32px; flex-wrap: wrap; position: relative; overflow:hidden; }
+  .cta-band::after{ content:""; position:absolute; right:-40px; top:-40px; width:220px; height:220px; background: radial-gradient(circle, var(--amber) 0%, transparent 62%); opacity:.35; }
+  .cta-band h2 { color: var(--paper); font-size: clamp(1.6rem,3vw,2.1rem); max-width: 20ch; position: relative; }
+  .cta-band .sub { color: color-mix(in srgb, var(--paper) 70%, transparent); margin-top: 10px; position: relative; }
+  .cta-band .actions { display:flex; gap:12px; flex-wrap: wrap; position: relative; }
+
+  footer { padding: 46px 0; }
+  .foot { display:flex; align-items:center; justify-content: space-between; gap: 20px; flex-wrap: wrap; color: var(--graphite); font-size:.86rem; }
+  .foot .mono { color: var(--graphite); }
+
+  /* reveal */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity:1; transform:none; transition:none; } html{scroll-behavior:auto;} }
+
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+</style>
+
+<header>
+  <div class="wrap bar">
+    <div class="brand"><span class="mk">YT</span> YapıTakip</div>
+    <nav class="links">
+      <a href="#kimler">Kimler için</a>
+      <a href="#moduller">Modüller</a>
+      <a href="#neden">Neden</a>
+      <a href="#iletisim">İletişim</a>
+    </nav>
+    <a href="#iletisim" class="btn btn-primary">Demo İste</a>
+  </div>
+</header>
+
+<main>
+  <!-- HERO -->
+  <section class="hero" style="border-bottom:none;">
+    <div class="wrap hero-grid">
+      <div>
+        <div class="eyebrow"><span class="dot"></span><span class="mono">İnşaata özel — muhasebe değil</span></div>
+        <h1>Şantiyenin dilinden konuşan proje ve maliyet yönetimi.</h1>
+        <p class="lead">Sözleşme, hakediş, cari, çek, kat karşılığı, stok ve satış — hepsi tek yerde. Genel muhasebe programlarının beceremediği inşaat işini bilen sistem.</p>
+        <div class="cta-row">
+          <a href="#iletisim" class="btn btn-primary">Demo İste →</a>
+          <a href="#moduller" class="btn btn-ghost">Modülleri gör</a>
+        </div>
+        <div class="note"><span class="mono" style="color:var(--amber)">✓</span> Mali müşavirinin yerine geçmez — onu besler.</div>
+      </div>
+
+      <!-- product mock -->
+      <div class="mock reveal">
+        <div class="top"><span class="d"></span><span class="d"></span><span class="d"></span><span class="t">Proje Raporu</span></div>
+        <div class="body">
+          <div class="proj">Yıldız Sitesi</div>
+          <div class="proj-sub">B Blok · Aktif · 24 bağımsız bölüm</div>
+          <div class="kpis">
+            <div class="kpi"><div class="lbl">Sözleşme Toplamı</div><div class="val">₺18.240.000</div></div>
+            <div class="kpi"><div class="lbl">Teslimat Maliyeti</div><div class="val amber">₺11.905.500</div></div>
+            <div class="kpi"><div class="lbl">Kalan Bakiye</div><div class="val">₺6.334.500</div></div>
+            <div class="kpi"><div class="lbl">Faturasız</div><div class="val">₺842.300</div></div>
+          </div>
+          <div class="rows">
+            <div class="row"><span class="nm">Beton — Akçansa</span><span class="amt">₺4.550.000</span></div>
+            <div class="row"><span class="nm">Demir — hakediş #3</span><span class="amt">₺1.980.000 <span class="chip">Hakediş</span></span></div>
+            <div class="row"><span class="nm">Elektrik tesisatı — taşeron</span><span class="amt">₺600.000</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PERSONAS -->
+  <section id="kimler">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <h2><span class="idx">01 —</span> Tek sistem, dört farklı iş</h2>
+        <p>Herkes yalnız kendi işine yarayan modülleri görür. Rolüne göre kurulur.</p>
+      </div>
+      <div class="personas reveal">
+        <div class="persona"><div class="tag">Müteahhit</div><h3>İnşaat firması</h3><p>Proje bazlı maliyet, taşeron hakedişleri, çek ve nakit akışı — kuruş kuruş.</p></div>
+        <div class="persona"><div class="tag">Taşeron</div><h3>Hizmet veren</h3><p>Yaptığın işi hakedişle takip et; kimden ne alacağın, ne tahsil ettiğin net.</p></div>
+        <div class="persona"><div class="tag">Nalbur</div><h3>Tedarikçi</h3><p>Stok, sözleşme dışı satış, iade ve cari bakiye — tek ekranda.</p></div>
+        <div class="persona"><div class="tag">Mimar</div><h3>Proje ofisi</h3><p>Kat karşılığı hisse dağıtımı ve tapuya uygun dağılım cetveli.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODULES -->
+  <section id="moduller">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <h2><span class="idx">02 —</span> İşini bilen modüller</h2>
+        <p>İhtiyacın kadarını aç. Çekirdek her zaman yerinde, gerisi sana göre.</p>
+      </div>
+      <div class="mods">
+        <div class="mod reveal"><span class="bar"></span><div class="n">01 / ÇEKİRDEK</div><h3>Proje &amp; Maliyet</h3><p>Her masraf proje bazında. Teslimat maliyeti, sözleşme toplamı, kalan bakiye, faturasız takibi.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">02 / ÇEKİRDEK</div><h3>Sözleşme &amp; Hakediş</h3><p>Alım ve satış sözleşmeleri, kalem kalem hakediş ve teslimat, çapraz proje.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">03 / ÇEKİRDEK</div><h3>Cari &amp; Ekstre</h3><p>Borç/alacak, yürüyen bakiye, yazdırılabilir cari ekstre — tedarikçi ve taşeron.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">04 / ÇEKİRDEK</div><h3>Çek &amp; Ödeme</h3><p>Verdiğin çekler, vadeler, nakit-EFT ödemeler ve nakit akışı projeksiyonu.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">05 / MODÜL</div><h3>Kat Karşılığı</h3><p>Arsa payından hisse dağıtımı, akıllı yöntem seçimi, tapuya uygun cetvel.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">06 / MODÜL</div><h3>Stok &amp; Satış</h3><p>Ürün/hizmet kartı, giren-çıkan stok, sözleşme dışı direkt satış ve iade.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">07 / MODÜL</div><h3>Teklif</h3><p>Teklif hazırla, düzenlenebilir şablonla yazdır, tek tıkla satış sözleşmesine çevir.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">08 / MODÜL</div><h3>Gelen Fatura</h3><p>Faturayı teslimatlarla eşleştir; hangi teslimat faturalandı, hangisi bekliyor.</p></div>
+        <div class="mod reveal"><span class="bar"></span><div class="n">09 / RAPOR</div><h3>Rapor &amp; Çıktı</h3><p>Proje kârlılığı, stok raporu, satış özeti — hepsi tek tıkla yazdırılır.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHY -->
+  <section id="neden">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <h2><span class="idx">03 —</span> Neden genel bir muhasebe programı değil?</h2>
+        <p>Çünkü inşaat işi genel muhasebeye sığmaz.</p>
+      </div>
+      <div class="why">
+        <div class="item reveal"><div class="num">A</div><div><h3>İnşaata özel kavramlar yerleşik</h3><p>Çapraz proje teslimat, hakediş, kat karşılığı hisse dağıtımı — jenerik ERP'lerin bilmediği şeyler burada standart.</p></div></div>
+        <div class="item reveal"><div class="num">B</div><div><h3>Sana göre kurulur</h3><p>Müteahhit, taşeron, nalbur, mimar — modüller açılıp kapanır, herkes sadece işine yarayanı görür.</p></div></div>
+        <div class="item reveal"><div class="num">C</div><div><h3>Muhasebenin yerine geçmez, besler</h3><p>Mizan-beyanname değil; sahanın operasyonu. Mali müşavirine temiz, düzenli döküm çıkar.</p></div></div>
+        <div class="item reveal"><div class="num">D</div><div><h3>Yerli, Türkçe, sade</h3><p>Türk inşaat pratiğine göre tasarlandı. Karmaşık kurulum yok, aynı gün kullanmaya başlarsın.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="iletisim" style="border-bottom:none;">
+    <div class="wrap">
+      <div class="cta-band reveal">
+        <div>
+          <h2>Kendi projelerinde görmek ister misin?</h2>
+          <div class="sub">15 dakikalık demo ayarlayalım — kendi verinle deneyelim.</div>
+        </div>
+        <div class="actions">
+          <a href="#" class="btn btn-primary">WhatsApp'tan yaz</a>
+          <a href="#" class="btn btn-ghost" style="border-color:color-mix(in srgb,var(--paper) 40%,transparent); color:var(--paper);">Demo talebi bırak</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div class="brand" style="font-size:1rem;"><span class="mk">YT</span> YapıTakip</div>
+    <div class="mono">İnşaat Proje &amp; Maliyet Yönetimi</div>
+    <div>© 2026 · Tüm hakları saklıdır</div>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      els.forEach(function (e) { e.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { threshold: 0.12 });
+    els.forEach(function (e) { io.observe(e); });
+  })();
+</script>
+</body>
+</html>

@@ -46,9 +46,9 @@ class ProjectResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            LandShareStudiesRelationManager::class,
-        ];
+        return array_values(array_filter([
+            config('modules.land_share') ? LandShareStudiesRelationManager::class : null,
+        ]));
     }
 
     public static function getPages(): array

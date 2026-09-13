@@ -10,7 +10,7 @@ class SalesSummary extends Page
 {
     protected static string|\BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Genel';
+    protected static string|\UnitEnum|null $navigationGroup = 'Raporlar';
 
     protected static ?int $navigationSort = 5;
 
@@ -22,6 +22,11 @@ class SalesSummary extends Page
 
     /** 'party' | 'project' */
     public string $groupBy = 'party';
+
+    public static function canAccess(): bool
+    {
+        return config('modules.direct_sales') && config('modules.report_sales');
+    }
 
     public function getRows(): array
     {
