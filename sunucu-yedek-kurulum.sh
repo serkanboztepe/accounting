@@ -17,7 +17,7 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────
 # AYARLAR — kendi sunucuna göre düzenle
 # ─────────────────────────────────────────────────────────────
-APP_PATH="/home/muhasebe.boztepeler.com/public_html"      # Laravel kök dizini
+APP_PATH="/home/boztepeler.com/muhasebe"                   # Laravel kök dizini (deploy hedefiyle aynı)
 PHP_BIN="/usr/local/lsws/lsphp82/bin/php"                  # CyberPanel lsphp82
 RCLONE_REMOTE="gdrive"                                     # rclone config'te vereceğin ad
 DRIVE_FOLDER="insaat-yedek"                                # Drive'daki hedef klasör
