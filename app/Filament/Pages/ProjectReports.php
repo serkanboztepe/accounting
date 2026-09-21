@@ -323,13 +323,18 @@ class ProjectReports extends Page implements HasSchemas
         }
 
         $deliveries = ContractDelivery::query()
-            ->with(['contract.party', 'unit', 'contractItem.unit'])
+            ->with(['contract.party', 'product', 'unit', 'contractItem.unit'])
             ->where('project_id', $project->id)
             ->orderBy('delivery_date')
             ->get();
 
         $unitCode = fn (ContractDelivery $d): ?string =>
             $d->unit?->code ?? $d->contractItem?->unit?->code;
+
+        $materialName = fn (ContractDelivery $d): string =>
+            $d->product?->name
+                ?: ($d->contractItem?->description
+                ?: ($d->notes ?: '—'));
 
         $grouped = [];
         foreach ($deliveries as $delivery) {
@@ -342,34 +347,57 @@ class ProjectReports extends Page implements HasSchemas
                     'total_amount'   => 0,
                     'total_quantity' => 0,
                     'unit'           => $unitCode($delivery),
-                    'items'          => [],
+                    'delivery_count' => 0,
+                    'materials'      => [],
                 ];
             }
 
+            $unit = $unitCode($delivery);
+            $name = $materialName($delivery);
+            $mKey = mb_strtolower(trim($name)); // "Fayans" ve "fayans" birleşsin
+
+            // Sözleşme içinde malzeme bazlı alt-grup (tek tek teslimat gösterilmez;
+            // detay için sözleşme sayfasına gidilir).
+            if (! isset($grouped[$contractId]['materials'][$mKey])) {
+                $grouped[$contractId]['materials'][$mKey] = [
+                    'name'           => $name,
+                    'quantity'       => 0,
+                    'unit'           => $unit,
+                    'unit_mixed'     => false,
+                    'amount'         => 0,
+                    'delivery_count' => 0,
+                ];
+            }
+            $mat = &$grouped[$contractId]['materials'][$mKey];
+            // Aynı malzemede farklı birim varsa miktar toplamı anlamsız → işaretle.
+            if ($mat['unit'] !== null && $unit !== null && $mat['unit'] !== $unit) {
+                $mat['unit_mixed'] = true;
+            }
+            $mat['unit']     ??= $unit;
+            $mat['quantity']  += (float) $delivery->quantity;
+            $mat['amount']    += (float) $delivery->amount;
+            $mat['delivery_count']++;
+            unset($mat);
+
             $grouped[$contractId]['total_amount']   += (float) $delivery->amount;
             $grouped[$contractId]['total_quantity']  += (float) $delivery->quantity;
-            $grouped[$contractId]['items'][] = [
-                'delivery_date' => optional($delivery->delivery_date)->format('d.m.Y'),
-                // Kalem adı; boşsa teslimat notu (raporda ne teslim edildiği görünsün)
-                'label'         => $delivery->contractItem?->description ?: ($delivery->notes ?: '—'),
-                'quantity'      => (float) $delivery->quantity,
-                'unit'          => $unitCode($delivery),
-                'unit_price'    => (float) $delivery->unit_price,
-                'amount'        => (float) $delivery->amount,
-            ];
+            $grouped[$contractId]['delivery_count']++;
         }
 
         foreach ($grouped as &$g) {
+            // Malzemeleri tutara göre azalan sırala + düz diziye çevir.
+            uasort($g['materials'], fn ($a, $b) => $b['amount'] <=> $a['amount']);
+            $g['materials'] = array_values($g['materials']);
+
             $desc = '₺' . Money::format($g['total_amount']);
-            if ($g['total_quantity'] > 0) {
-                $desc .= ' · ' . Money::format($g['total_quantity']) . ' ' . $g['unit'];
-            }
-            $desc .= ' · ' . count($g['items']) . ' teslimat';
+            $desc .= ' · ' . count($g['materials']) . ' malzeme';
+            $desc .= ' · ' . $g['delivery_count'] . ' teslimat';
             if ($g['party']) {
                 $desc .= ' · ' . $g['party'];
             }
             $g['description'] = $desc;
         }
+        unset($g);
 
         return array_values($grouped);
     }

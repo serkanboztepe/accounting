@@ -23,6 +23,7 @@ use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 
@@ -165,7 +166,12 @@ class DeliveriesRelationManager extends RelationManager
                 TextColumn::make('quantity')
                     ->label('Miktar')
                     ->numeric(2)
-                    ->suffix(fn ($record) => ' ' . ($record->unit?->code ?? '')),
+                    ->suffix(fn ($record) => ' ' . ($record->unit?->code ?? ''))
+                    ->summarize(
+                        Sum::make()
+                            ->label('Toplam Miktar')
+                            ->numeric(2),
+                    ),
 
                 TextColumn::make('unit_price')
                     ->label('Birim Fiyat')
@@ -187,7 +193,23 @@ class DeliveriesRelationManager extends RelationManager
                     ->label('Notlar')
                     ->limit(40),
             ])
+            ->groups([
+                Group::make('contractItem.description')
+                    ->label('Kalem')
+                    // Kalemsiz teslimatlar (serbest not) tek grupta toplansın.
+                    ->getTitleFromRecordUsing(fn (Model $record): string => $record->contractItem?->description
+                        ?: ($record->notes ? \Illuminate\Support\Str::limit($record->notes, 30) : 'Kalemsiz'))
+                    ->collapsible(),
+            ])
+            ->defaultGroup('contractItem.description')
             ->filters(array_values(array_filter([
+                $contract->items->isNotEmpty()
+                    ? SelectFilter::make('contract_item_id')
+                        ->label('Kalem')
+                        ->options($contract->items->pluck('description', 'id'))
+                        ->placeholder('Tüm Kalemler')
+                    : null,
+
                 ! $contract->project_id
                     ? SelectFilter::make('project_id')
                         ->label('Şantiye / Proje')

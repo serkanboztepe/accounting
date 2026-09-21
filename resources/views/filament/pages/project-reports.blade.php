@@ -230,26 +230,28 @@
                         >
                             <div class="divide-y divide-gray-100 dark:divide-white/5">
                                 <div class="flex gap-2 pb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-                                    <span class="w-20 shrink-0">Tarih</span>
-                                    <span class="flex-1">Kalem / Not</span>
-                                    <span class="w-24 shrink-0 text-right">Miktar</span>
-                                    <span class="w-24 shrink-0 text-right">Birim Fiyat</span>
-                                    <span class="w-24 shrink-0 text-right">Tutar</span>
+                                    <span class="flex-1">Malzeme / Kalem</span>
+                                    <span class="w-20 shrink-0 text-right">Teslimat</span>
+                                    <span class="w-28 shrink-0 text-right">Toplam Miktar</span>
+                                    <span class="w-28 shrink-0 text-right">Tutar</span>
                                 </div>
-                                @foreach ($group['items'] as $item)
+                                @foreach ($group['materials'] as $material)
                                     <div class="flex items-center gap-2 py-3">
-                                        <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['delivery_date'] }}</span>
-                                        <span class="flex-1 truncate text-sm text-gray-600 dark:text-gray-400" title="{{ $item['label'] }}">
-                                            {{ $item['label'] }}
+                                        <span class="flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-200" title="{{ $material['name'] }}">
+                                            {{ $material['name'] }}
                                         </span>
-                                        <span class="w-24 shrink-0 text-right text-sm text-gray-700 dark:text-gray-300">
-                                            {{ \App\Support\Money::format($item['quantity']) }} {{ $item['unit'] }}
+                                        <span class="w-20 shrink-0 text-right text-sm text-gray-500 dark:text-gray-400 tnum">
+                                            {{ $material['delivery_count'] }}
                                         </span>
-                                        <span class="w-24 shrink-0 text-right text-sm text-gray-500 dark:text-gray-400">
-                                            ₺{{ \App\Support\Money::format($item['unit_price']) }}
+                                        <span class="w-28 shrink-0 text-right text-sm text-gray-700 dark:text-gray-300 tnum">
+                                            @if ($material['unit_mixed'])
+                                                <span class="text-gray-400" title="Karışık birim, miktar toplanamadı">karışık birim</span>
+                                            @else
+                                                {{ \App\Support\Money::format($material['quantity']) }} {{ $material['unit'] }}
+                                            @endif
                                         </span>
-                                        <span class="w-24 shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
-                                            ₺{{ \App\Support\Money::format($item['amount']) }}
+                                        <span class="w-28 shrink-0 text-right text-sm font-semibold text-gray-950 dark:text-white tnum">
+                                            ₺{{ \App\Support\Money::format($material['amount']) }}
                                         </span>
                                     </div>
                                 @endforeach
