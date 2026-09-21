@@ -201,7 +201,6 @@ class DeliveriesRelationManager extends RelationManager
                         ?: ($record->notes ? \Illuminate\Support\Str::limit($record->notes, 30) : 'Kalemsiz'))
                     ->collapsible(),
             ])
-            ->defaultGroup('contractItem.description')
             ->filters(array_values(array_filter([
                 $contract->items->isNotEmpty()
                     ? SelectFilter::make('contract_item_id')

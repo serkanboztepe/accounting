@@ -73,10 +73,13 @@ class DeliveryGroupingTest extends TestCase
             'pageClass'   => EditContract::class,
         ])
             ->assertOk()
-            ->assertSet('tableGrouping', 'contractItem.description:asc')
-            ->assertSeeText('14,00') // grup miktar toplamı (5+3+6)
+            // Varsayılan gruplı GELMEZ; düz liste.
+            ->assertSet('tableGrouping', null)
             ->assertCanSeeTableRecords($fayansDeliveries)
             ->assertCanSeeTableRecords([$demirDelivery])
+            // "Şuna göre grupla" → Kalem seçilince grup miktar toplamı (5+3+6) çıkar.
+            ->set('tableGrouping', 'contractItem.description')
+            ->assertSeeText('14,00')
             // Kalem filtresi: sadece Fayans seçilince Demir teslimatı gizlenir.
             ->filterTable('contract_item_id', $item->id)
             ->assertCanSeeTableRecords($fayansDeliveries)
