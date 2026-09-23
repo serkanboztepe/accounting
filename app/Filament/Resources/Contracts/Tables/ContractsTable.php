@@ -47,7 +47,20 @@ class ContractsTable
                     ->sortable(),
                 TextColumn::make('status')
                     ->label('Durum')
-                    ->badge(),
+                    ->badge()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'draft'     => 'Taslak',
+                        'active'    => 'Aktif',
+                        'completed' => 'Tamamlandı',
+                        'cancelled' => 'İptal',
+                        default     => $state,
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'active'    => 'success',
+                        'completed' => 'info',
+                        'cancelled' => 'danger',
+                        default     => 'gray',
+                    }),
 
                 TextColumn::make('invoice_status')
                     ->label('Fatura')

@@ -2,9 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::redirect('/', '/admin');
 
 Route::get('/land-share-studies/{study}/yazdir', function (\App\Models\LandShareStudy $study) {
     $data = $study->toStudyData();

@@ -25,6 +25,10 @@ class UnitResource extends Resource
 
     protected static ?string $navigationLabel = 'Birimler';
 
+    protected static ?string $modelLabel = 'Birim';
+
+    protected static ?string $pluralModelLabel = 'Birimler';
+
     protected static ?int $navigationSort = 2;
 
     protected static ?string $recordTitleAttribute = 'name';

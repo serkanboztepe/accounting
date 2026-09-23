@@ -14,16 +14,17 @@ class ProjectForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
-            TextInput::make('name')->required()->maxLength(255),
+            TextInput::make('name')->label('Ad')->required()->maxLength(255),
             Select::make('party_id')
                 ->label('Sahip müşteri')
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->preload()
                 ->helperText('Opsiyonel — proje bir müşteriye aitse seç. Kendi projelerinde boş bırak.'),
-            TextInput::make('code')->maxLength(255),
-            TextInput::make('location')->maxLength(255),
+            TextInput::make('code')->label('Kod')->maxLength(255),
+            TextInput::make('location')->label('Konum')->maxLength(255),
             Select::make('status')
+                ->label('Durum')
                 ->options([
                     'draft' => 'Taslak',
                     'active' => 'Aktif',
@@ -32,9 +33,9 @@ class ProjectForm
                 ])
                 ->default('active')
                 ->required(),
-            DatePicker::make('start_date'),
-            DatePicker::make('end_date'),
-            Textarea::make('notes')->columnSpanFull(),
+            DatePicker::make('start_date')->label('Başlangıç Tarihi'),
+            DatePicker::make('end_date')->label('Bitiş Tarihi'),
+            Textarea::make('notes')->label('Notlar')->columnSpanFull(),
         ])->columns(2);
     }
 }

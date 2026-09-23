@@ -25,6 +25,10 @@ class SaleResource extends Resource
 
     protected static ?string $navigationLabel = 'Direkt Satış';
 
+    protected static ?string $modelLabel = 'Satış';
+
+    protected static ?string $pluralModelLabel = 'Satışlar';
+
     protected static ?int $navigationSort = 4;
 
     public static function canAccess(): bool

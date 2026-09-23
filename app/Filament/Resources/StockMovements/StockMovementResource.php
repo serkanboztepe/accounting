@@ -23,6 +23,10 @@ class StockMovementResource extends Resource
 
     protected static ?string $navigationLabel = 'Stok Hareketleri';
 
+    protected static ?string $modelLabel = 'Stok Hareketi';
+
+    protected static ?string $pluralModelLabel = 'Stok Hareketleri';
+
     protected static ?int $navigationSort = 5;
 
     public static function canAccess(): bool

@@ -34,7 +34,20 @@ class ContractPaymentsTable
                     ->sortable(),
                 TextColumn::make('status')
                     ->label('Durum')
-                    ->badge(),
+                    ->badge()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'pending' => 'Bekliyor',
+                        'paid'    => 'Ödendi',
+                        'partial' => 'Kısmi',
+                        'cancelled' => 'İptal',
+                        default   => $state,
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'paid'      => 'success',
+                        'partial'   => 'warning',
+                        'cancelled' => 'danger',
+                        default     => 'gray',
+                    }),
                 TextColumn::make('payment_date')
                     ->label('Ödeme Tarihi')
                     ->date('d.m.Y')

@@ -13,9 +13,9 @@ class UnitsTable
     {
         return $table
             ->columns([
-                TextColumn::make('name')->searchable()->sortable(),
-                TextColumn::make('code')->searchable(),
-                TextColumn::make('created_at')->dateTime()->sortable(),
+                TextColumn::make('name')->label('Ad')->searchable()->sortable(),
+                TextColumn::make('code')->label('Kod')->searchable(),
+                TextColumn::make('created_at')->label('Oluşturulma')->dateTime()->sortable(),
             ])
             ->recordActions([
                 EditAction::make(),
