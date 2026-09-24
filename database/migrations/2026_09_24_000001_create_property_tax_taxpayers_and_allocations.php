@@ -50,7 +50,8 @@ return new class extends Migration
             $table->unsignedInteger('pay')->default(1);    // mükellefin bu dairedeki hissesi (pay)
             $table->unsignedInteger('payda')->default(1);  // hisse paydası
             $table->timestamps();
-            $table->unique(['property_tax_unit_id', 'property_tax_taxpayer_id']);
+            // Kısa isim: MySQL identifier 64 karakter sınırı (otomatik ad çok uzun).
+            $table->unique(['property_tax_unit_id', 'property_tax_taxpayer_id'], 'ptx_unit_taxpayer_unique');
         });
 
         // ── Mevcut veriyi taşı ─────────────────────────────────────────────
