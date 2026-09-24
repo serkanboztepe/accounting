@@ -28,3 +28,7 @@ identifier.sqlite
 *.pdf
 *.xlsx
 *.xlsm
+
+# Emlak Beyanı örnek/kaynak dosyalar (repoda tutulmaz; şablon resources/property-tax/ içinde)
+/beyanname.xls
+/ornek-beyanname-cikti.xls

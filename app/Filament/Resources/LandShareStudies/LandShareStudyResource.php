@@ -23,9 +23,11 @@ class LandShareStudyResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTableCells;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Kat Karşılığı';
+    protected static string|UnitEnum|null $navigationGroup = 'Mimar';
 
-    protected static ?string $navigationLabel = 'Hisse Dağıtım Çalışmaları';
+    protected static ?string $navigationLabel = 'Kat Karşılığı';
+
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $modelLabel = 'Hisse Dağıtım Çalışması';
 

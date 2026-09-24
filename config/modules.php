@@ -14,6 +14,7 @@
 |   MOD_SALES_CONTRACTS=false     # "Satış Sözleşmesi" oluşturma butonu
 |   MOD_PURCHASE_CONTRACTS=false   # "Alım Sözleşmesi" butonu (sadece satış yapan firma)
 |   MOD_QUOTES=false              # Teklif modülü
+|   MOD_PROPERTY_TAX=false        # Emlak Vergisi Bildirimi (bina beyanname + kroki Excel çıktısı)
 |   MOD_REPORT_PROJECT=false      # Proje Raporları (maliyet/kârlılık)
 |   MOD_REPORT_STOCK=false        # Stok Raporu (MOD_STOCK da açık olmalı)
 |   MOD_REPORT_SALES=false        # Satış Özeti (MOD_DIRECT_SALES de açık olmalı)
@@ -30,6 +31,7 @@ return [
     'purchase_contracts' => (bool) env('MOD_PURCHASE_CONTRACTS', true),
     'sales_contracts'    => (bool) env('MOD_SALES_CONTRACTS', true),
     'quotes'             => (bool) env('MOD_QUOTES', true),
+    'property_tax'       => (bool) env('MOD_PROPERTY_TAX', true), // Emlak Vergisi Bildirimi (proje→blok→daire, Excel çıktı)
 
     // Raporlar (menüde "Raporlar" grubu) — her biri ayrı aç/kapa.
     // Stok/Satış raporu ilgili modül de açıksa görünür.
