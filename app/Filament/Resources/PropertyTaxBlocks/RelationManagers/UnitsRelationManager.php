@@ -20,7 +20,6 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Columns\SelectColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Collection;
@@ -115,30 +114,30 @@ class UnitsRelationManager extends RelationManager
                 TextColumn::make('land_share')
                     ->label('Arsa Payı')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->landShareRatioText() ?? '—'),
-                SelectColumn::make('primary_taxpayer')
+                TextColumn::make('owners')
                     ->label('Sahibi (Mükellef)')
-                    ->options(fn () => PropertyTaxTaxpayer::query()
-                        ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
-                        ->orderBy('sort_order')->orderBy('id')
-                        ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
-                    ->selectablePlaceholder(fn (PropertyTaxUnit $record) => $record->allocations->count() <= 1)
-                    ->getStateUsing(fn (PropertyTaxUnit $record) => $record->allocations->count() === 1
-                        ? $record->allocations->first()->property_tax_taxpayer_id
-                        : null)
-                    ->disabled(fn (PropertyTaxUnit $record) => $record->allocations->count() > 1)
-                    ->placeholder(fn (PropertyTaxUnit $record) => $record->allocations->count() > 1
-                        ? 'çok sahipli — Düzenle’den'
-                        : 'seç')
-                    ->updateStateUsing(function (PropertyTaxUnit $record, $state) {
-                        $record->allocations()->delete();
-                        if ($state) {
-                            $record->allocations()->create([
-                                'property_tax_taxpayer_id' => $state, 'pay' => 1, 'payda' => 1,
-                            ]);
+                    ->badge(fn (PropertyTaxUnit $record) => $record->allocations->count() > 1)
+                    ->color(fn (PropertyTaxUnit $record) => match (true) {
+                        $record->allocations->count() > 1  => 'info',
+                        $record->allocations->count() === 1 => 'success',
+                        default                             => 'gray',
+                    })
+                    ->getStateUsing(function (PropertyTaxUnit $record) {
+                        $n = $record->allocations->count();
+                        if ($n === 0) {
+                            return '— atanmadı —';
+                        }
+                        if ($n === 1) {
+                            return $record->allocations->first()->taxpayer?->fullName();
                         }
 
-                        return $state;
-                    }),
+                        return $n.' sahip';
+                    })
+                    ->tooltip(fn (PropertyTaxUnit $record) => $record->allocations->count() > 1
+                        ? $record->allocations
+                            ->map(fn ($a) => $a->taxpayer?->fullName().' ('.$a->shareText().')')
+                            ->filter()->implode(', ')
+                        : null),
                 TextColumn::make('usage_type')
                     ->label('Kullanış')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->effectiveUsageType())
