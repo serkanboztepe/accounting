@@ -87,11 +87,6 @@ class TaxpayersRelationManager extends RelationManager
                     ->icon(Heroicon::OutlinedDocumentArrowDown)
                     ->color('info')
                     ->url(fn (PropertyTaxTaxpayer $record) => route('property-tax.taxpayer.pdf', $record), shouldOpenInNewTab: true),
-                Action::make('excel')
-                    ->label('Excel')
-                    ->icon(Heroicon::OutlinedArrowDownTray)
-                    ->color('success')
-                    ->url(fn (PropertyTaxTaxpayer $record) => route('property-tax.taxpayer.excel', $record), shouldOpenInNewTab: true),
                 EditAction::make(),
                 DeleteAction::make(),
             ])

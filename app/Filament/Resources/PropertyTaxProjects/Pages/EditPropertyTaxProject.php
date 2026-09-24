@@ -28,16 +28,16 @@ class EditPropertyTaxProject extends EditRecord
                 ->action(fn () => $this->distributeSharesEqually()),
 
             Action::make('allFormatliPdf')
-                ->label('Tüm Mükellefler — Formatlı PDF')
+                ->label('Tümü — Formatlı PDF')
                 ->icon(Heroicon::OutlinedDocumentCheck)
                 ->color('danger')
                 ->url(fn () => route('property-tax.project.formatli-pdf', $this->record), shouldOpenInNewTab: true),
 
-            Action::make('allExcel')
-                ->label('Tümü — Excel')
-                ->icon(Heroicon::OutlinedArrowDownTray)
-                ->color('success')
-                ->url(fn () => route('property-tax.project.excel', $this->record), shouldOpenInNewTab: true),
+            Action::make('allPdf')
+                ->label('Tümü — PDF')
+                ->icon(Heroicon::OutlinedDocumentArrowDown)
+                ->color('info')
+                ->url(fn () => route('property-tax.project.pdf', $this->record), shouldOpenInNewTab: true),
 
             DeleteAction::make(),
         ];
