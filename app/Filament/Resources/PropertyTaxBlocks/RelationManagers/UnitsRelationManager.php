@@ -4,6 +4,7 @@ namespace App\Filament\Resources\PropertyTaxBlocks\RelationManagers;
 
 use App\Models\PropertyTaxTaxpayer;
 use App\Models\PropertyTaxUnit;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -12,9 +13,12 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -119,6 +123,38 @@ class UnitsRelationManager extends RelationManager
             ])
             ->headerActions([
                 CreateAction::make()->label('Daire Ekle'),
+
+                Action::make('bulkCreateUnits')
+                    ->label('Toplu Daire Oluştur')
+                    ->icon(Heroicon::OutlinedSquares2x2)
+                    ->modalHeading('Toplu Daire Oluştur')
+                    ->modalDescription('Kat ve daire sayısını gir; daireler otomatik oluşturulur (numaralandırma + kat/sıra).')
+                    ->modalSubmitActionLabel('Oluştur')
+                    ->schema([
+                        TextInput::make('floors')->label('Kat Sayısı')
+                            ->numeric()->minValue(1)->required()->default(4)
+                            ->helperText('Zemin dahil ise Zemin de bu sayıya dahildir.'),
+                        Toggle::make('ground_floor')->label('Zemin katı olsun')->default(true),
+                        TextInput::make('per_floor')->label('Katta Kaç Daire')
+                            ->numeric()->minValue(1)->required()->default(2),
+                        TextInput::make('start_no')->label('Başlangıç Daire No')
+                            ->numeric()->minValue(1)->required()->default(1),
+                        Toggle::make('number_from_bottom')->label('Numaralandırma Zemin’den (alttan) başlasın')
+                            ->default(true)->helperText('Kapalı ise en üst kattan aşağı numaralandırır.'),
+                        TextInput::make('area')->label('Standart Yüzölçümü (m²)')->numeric()
+                            ->helperText('Boş bırakılabilir; sonra daire bazında girilir.'),
+                    ])
+                    ->action(fn (array $data) => $this->bulkCreateUnits($data)),
+
+                Action::make('distributeShares')
+                    ->label('Hisseleri Eşit Böl')
+                    ->icon(Heroicon::OutlinedScale)
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->modalHeading('Hisseleri Eşit Böl')
+                    ->modalDescription('Bu bloktaki her dairenin hissesi, atanmış mükellefler arasında EŞİT bölünür (N mükellef → 1/N; tek mükellef → TAM).')
+                    ->modalSubmitActionLabel('Eşit Böl')
+                    ->action(fn () => $this->distributeSharesEqually()),
             ])
             ->recordActions([
                 EditAction::make(),
@@ -129,5 +165,59 @@ class UnitsRelationManager extends RelationManager
                     DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    private function bulkCreateUnits(array $data): void
+    {
+        $block = $this->getOwnerRecord();
+        $floorCount = (int) $data['floors'];
+        $hasGround = (bool) ($data['ground_floor'] ?? true);
+        $fromBottom = (bool) ($data['number_from_bottom'] ?? true);
+        $perFloor = (int) $data['per_floor'];
+        $no = (int) $data['start_no'];
+        $area = $data['area'] !== null && $data['area'] !== '' ? (float) $data['area'] : null;
+        $sort = (int) ($block->units()->max('sort_order') ?? 0);
+
+        $floors = $hasGround ? range(0, $floorCount - 1) : range(1, $floorCount);
+        if (! $fromBottom) {
+            $floors = array_reverse($floors);
+        }
+
+        $created = 0;
+        foreach ($floors as $floor) {
+            for ($pos = 1; $pos <= $perFloor; $pos++) {
+                $block->units()->create([
+                    'unit_no'        => (string) $no,
+                    'floor_no'       => $floor,
+                    'floor_position' => $pos,
+                    'area'           => $area,
+                    'sort_order'     => ++$sort,
+                    // arsa payı pay/payda boş → bloğun varsayılanını devralır
+                ]);
+                $no++;
+                $created++;
+            }
+        }
+
+        Notification::make()->title($created.' daire oluşturuldu')->success()->send();
+    }
+
+    private function distributeSharesEqually(): void
+    {
+        $units = $this->getOwnerRecord()->units()->with('allocations')->get();
+
+        $count = 0;
+        foreach ($units as $unit) {
+            $n = $unit->allocations->count();
+            if ($n === 0) {
+                continue;
+            }
+            foreach ($unit->allocations as $alloc) {
+                $alloc->update(['pay' => 1, 'payda' => $n]);
+            }
+            $count++;
+        }
+
+        Notification::make()->title($count.' dairenin hissesi eşit bölündü')->success()->send();
     }
 }
