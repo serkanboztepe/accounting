@@ -51,8 +51,20 @@ class BlocksRelationManager extends RelationManager
                     ->icon(Heroicon::OutlinedBuildingOffice2)
                     ->url(fn (PropertyTaxBlock $record) => PropertyTaxBlockResource::getUrl('edit', ['record' => $record])),
 
+                Action::make('pdf')
+                    ->label('PDF')
+                    ->icon(Heroicon::OutlinedDocumentArrowDown)
+                    ->color('danger')
+                    ->url(fn (PropertyTaxBlock $record) => route('property-tax.declaration.pdf', $record), shouldOpenInNewTab: true),
+
+                Action::make('html')
+                    ->label('HTML')
+                    ->icon(Heroicon::OutlinedEye)
+                    ->color('info')
+                    ->url(fn (PropertyTaxBlock $record) => route('property-tax.declaration.html', $record), shouldOpenInNewTab: true),
+
                 Action::make('download')
-                    ->label('Beyanname İndir')
+                    ->label('Excel')
                     ->icon(Heroicon::OutlinedArrowDownTray)
                     ->color('success')
                     ->action(fn (PropertyTaxBlock $record) => static::downloadDeclaration($record)),

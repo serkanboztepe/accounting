@@ -44,8 +44,20 @@ class EditPropertyTaxBlock extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('pdf')
+                ->label('PDF Çıktı')
+                ->icon(Heroicon::OutlinedDocumentArrowDown)
+                ->color('danger')
+                ->url(fn () => route('property-tax.declaration.pdf', $this->record), shouldOpenInNewTab: true),
+
+            Action::make('html')
+                ->label('HTML Önizle')
+                ->icon(Heroicon::OutlinedEye)
+                ->color('info')
+                ->url(fn () => route('property-tax.declaration.html', $this->record), shouldOpenInNewTab: true),
+
             Action::make('download')
-                ->label('Beyanname İndir')
+                ->label('Excel İndir')
                 ->icon(Heroicon::OutlinedArrowDownTray)
                 ->color('success')
                 ->action(function () {

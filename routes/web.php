@@ -89,6 +89,21 @@ Route::get('/satislar/{sale}/yazdir', function (\App\Models\Sale $sale) {
     ]);
 })->middleware('auth')->name('sale.print');
 
+// Emlak Beyanı — HTML görünüm ve PDF (aynı Blade)
+Route::get('/emlak-beyani/{block}/html', function (\App\Models\PropertyTaxBlock $block) {
+    return view('property-tax.declaration', ['block' => $block->load(['project', 'units'])]);
+})->middleware('auth')->name('property-tax.declaration.html');
+
+Route::get('/emlak-beyani/{block}/pdf', function (\App\Models\PropertyTaxBlock $block) {
+    $block->load(['project', 'units']);
+    $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
+    $name = 'Beyanname-'.$slug($block->project?->name ?? 'proje').'-'.$slug($block->name).'.pdf';
+
+    return \Barryvdh\DomPDF\Facade\Pdf::loadView('property-tax.declaration', ['block' => $block])
+        ->setPaper('a4', 'portrait')
+        ->download($name);
+})->middleware('auth')->name('property-tax.declaration.pdf');
+
 Route::get('/invoice-file/{filename}', function (string $filename) {
     $path = storage_path('app/public/invoices/' . $filename);
 

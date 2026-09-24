@@ -32,3 +32,5 @@ identifier.sqlite
 # Emlak Beyanı örnek/kaynak dosyalar (repoda tutulmaz; şablon resources/property-tax/ içinde)
 /beyanname.xls
 /ornek-beyanname-cikti.xls
+/ornek-beyanname.pdf
+/ornek-beyanname.html
