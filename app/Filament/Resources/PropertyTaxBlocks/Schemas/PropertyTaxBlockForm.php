@@ -30,10 +30,14 @@ class PropertyTaxBlockForm
                     TextInput::make('land_area')
                         ->label('Arsa Alanı (m²)')
                         ->numeric(),
-                    TextInput::make('land_share_denominator')
-                        ->label('Arsa Payı Paydası')
+                    TextInput::make('land_share_numerator')
+                        ->label('Varsayılan Arsa Payı — Pay')
                         ->numeric()
-                        ->helperText('1/8 arsa payı için 8 yaz. Her dairenin arsa payı m²’si buradan hesaplanır.'),
+                        ->helperText('Tüm daireler aynı arsa payını paylaşıyorsa (ör. 1/120 için 1). Daire kendi payını girerse o geçerli olur.'),
+                    TextInput::make('land_share_denominator')
+                        ->label('Varsayılan Arsa Payı — Payda')
+                        ->numeric()
+                        ->helperText('Ör. 1/120 için 120.'),
                 ]),
 
             Section::make('Bina Ortak Özellikleri')

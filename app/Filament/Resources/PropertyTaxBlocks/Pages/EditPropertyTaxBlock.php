@@ -5,7 +5,6 @@ namespace App\Filament\Resources\PropertyTaxBlocks\Pages;
 use App\Filament\Resources\PropertyTaxBlocks\PropertyTaxBlockResource;
 use App\Filament\Resources\PropertyTaxProjects\PropertyTaxProjectResource;
 use App\Models\PropertyTaxUnit;
-use App\Services\PropertyTax\DeclarationExporter;
 use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -44,29 +43,6 @@ class EditPropertyTaxBlock extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('formatliPdf')
-                ->label('Formatlı PDF')
-                ->icon(Heroicon::OutlinedDocumentCheck)
-                ->color('danger')
-                ->url(fn () => route('property-tax.declaration.formatli-pdf', $this->record), shouldOpenInNewTab: true),
-
-            Action::make('pdf')
-                ->label('PDF')
-                ->icon(Heroicon::OutlinedDocumentArrowDown)
-                ->color('info')
-                ->url(fn () => route('property-tax.declaration.pdf', $this->record), shouldOpenInNewTab: true),
-
-            Action::make('download')
-                ->label('Excel İndir')
-                ->icon(Heroicon::OutlinedArrowDownTray)
-                ->color('success')
-                ->action(function () {
-                    $exporter = new DeclarationExporter();
-                    $path = $exporter->export($this->record);
-
-                    return response()->download($path, $exporter->downloadName($this->record))->deleteFileAfterSend();
-                }),
-
             Action::make('bulkCreateUnits')
                 ->label('Toplu Daire Oluştur')
                 ->icon(Heroicon::OutlinedSquares2x2)
@@ -108,12 +84,12 @@ class EditPropertyTaxBlock extends EditRecord
         for ($floor = 1; $floor <= $floors; $floor++) {
             for ($pos = 1; $pos <= $perFloor; $pos++) {
                 $this->record->units()->create([
-                    'unit_no'              => (string) $no,
-                    'floor_no'             => $floor,
-                    'floor_position'       => $pos,
-                    'area'                 => $area,
-                    'land_share_numerator' => 1,
-                    'sort_order'           => ++$sort,
+                    'unit_no'        => (string) $no,
+                    'floor_no'       => $floor,
+                    'floor_position' => $pos,
+                    'area'           => $area,
+                    'sort_order'     => ++$sort,
+                    // arsa payı pay/payda boş → bloğun varsayılanını devralır
                 ]);
                 $no++;
                 $created++;

@@ -4,10 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Emlak Vergisi Bildirimi — Daire (bağımsız bölüm) seviyesi.
  * Yalnız kendine özel alanlar; boş bırakılan alanları bloktan/projeden devralır.
+ * Arsa payı pay/payda daire bazında; mükellef atamaları pivot (hisse) ile.
  */
 class PropertyTaxUnit extends Model
 {
@@ -18,6 +21,7 @@ class PropertyTaxUnit extends Model
         'floor_position',
         'area',
         'land_share_numerator',
+        'land_share_denominator',
         'usage_type',
         'construction_class',
         'share_ratio',
@@ -27,16 +31,30 @@ class PropertyTaxUnit extends Model
     ];
 
     protected $casts = [
-        'floor_no'             => 'integer',
-        'floor_position'       => 'integer',
-        'area'                 => 'decimal:2',
-        'land_share_numerator' => 'integer',
-        'sort_order'           => 'integer',
+        'floor_no'               => 'integer',
+        'floor_position'         => 'integer',
+        'area'                   => 'decimal:2',
+        'land_share_numerator'   => 'integer',
+        'land_share_denominator' => 'integer',
+        'sort_order'             => 'integer',
     ];
 
     public function block(): BelongsTo
     {
         return $this->belongsTo(PropertyTaxBlock::class, 'property_tax_block_id');
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(PropertyTaxUnitTaxpayer::class);
+    }
+
+    /** Bu daireyi paylaşan mükellefler (hisse pivotuyla). */
+    public function taxpayers(): BelongsToMany
+    {
+        return $this->belongsToMany(PropertyTaxTaxpayer::class, 'property_tax_unit_taxpayer')
+            ->withPivot(['pay', 'payda'])
+            ->withTimestamps();
     }
 
     // ── Miras: null ise bloktan/projeden devral ────────────────────────────
@@ -66,26 +84,40 @@ class PropertyTaxUnit extends Model
         return $this->street ?: $this->block?->project?->street;
     }
 
+    /** Arsa payı payı — daire boşsa bloğun varsayılanını devral. */
+    public function landShareNumerator(): ?int
+    {
+        return $this->land_share_numerator ?: $this->block?->land_share_numerator;
+    }
+
+    /** Arsa payı paydası — daire boşsa bloğun varsayılanını devral. */
+    public function landShareDenominator(): ?int
+    {
+        return $this->land_share_denominator ?: $this->block?->land_share_denominator;
+    }
+
     /** Arsa payı oranı metni, ör. "1/8". */
     public function landShareRatioText(): ?string
     {
-        $den = $this->block?->land_share_denominator;
-        if (! $den) {
+        $num = $this->landShareNumerator();
+        $den = $this->landShareDenominator();
+        if (! $num || ! $den) {
             return null;
         }
 
-        return $this->land_share_numerator.'/'.$den;
+        return $num.'/'.$den;
     }
 
     /** Arsa payına düşen metrekare = arsa alanı × (pay / payda). */
     public function landShareArea(): ?float
     {
-        $den = $this->block?->land_share_denominator;
+        $num = $this->landShareNumerator();
+        $den = $this->landShareDenominator();
         $area = $this->block?->land_area;
-        if (! $den || $area === null) {
+        if (! $num || ! $den || $area === null) {
             return null;
         }
 
-        return round(((float) $area) * $this->land_share_numerator / $den, 4);
+        return round(((float) $area) * $num / $den, 4);
     }
 }

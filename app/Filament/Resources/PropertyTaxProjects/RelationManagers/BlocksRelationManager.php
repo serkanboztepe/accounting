@@ -5,7 +5,6 @@ namespace App\Filament\Resources\PropertyTaxProjects\RelationManagers;
 use App\Filament\Resources\PropertyTaxBlocks\PropertyTaxBlockResource;
 use App\Filament\Resources\PropertyTaxBlocks\Schemas\PropertyTaxBlockForm;
 use App\Models\PropertyTaxBlock;
-use App\Services\PropertyTax\DeclarationExporter;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
@@ -51,24 +50,6 @@ class BlocksRelationManager extends RelationManager
                     ->icon(Heroicon::OutlinedBuildingOffice2)
                     ->url(fn (PropertyTaxBlock $record) => PropertyTaxBlockResource::getUrl('edit', ['record' => $record])),
 
-                Action::make('formatliPdf')
-                    ->label('Formatlı PDF')
-                    ->icon(Heroicon::OutlinedDocumentCheck)
-                    ->color('danger')
-                    ->url(fn (PropertyTaxBlock $record) => route('property-tax.declaration.formatli-pdf', $record), shouldOpenInNewTab: true),
-
-                Action::make('pdf')
-                    ->label('PDF')
-                    ->icon(Heroicon::OutlinedDocumentArrowDown)
-                    ->color('info')
-                    ->url(fn (PropertyTaxBlock $record) => route('property-tax.declaration.pdf', $record), shouldOpenInNewTab: true),
-
-                Action::make('download')
-                    ->label('Excel')
-                    ->icon(Heroicon::OutlinedArrowDownTray)
-                    ->color('success')
-                    ->action(fn (PropertyTaxBlock $record) => static::downloadDeclaration($record)),
-
                 EditAction::make()->label('Düzenle'),
             ])
             ->toolbarActions([
@@ -76,13 +57,5 @@ class BlocksRelationManager extends RelationManager
                     DeleteBulkAction::make(),
                 ]),
             ]);
-    }
-
-    public static function downloadDeclaration(PropertyTaxBlock $block)
-    {
-        $exporter = new DeclarationExporter();
-        $path = $exporter->export($block);
-
-        return response()->download($path, $exporter->downloadName($block))->deleteFileAfterSend();
     }
 }

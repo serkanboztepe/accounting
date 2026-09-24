@@ -52,6 +52,11 @@ class PropertyTaxProject extends Model
         return $this->hasMany(PropertyTaxBlock::class);
     }
 
+    public function taxpayers(): HasMany
+    {
+        return $this->hasMany(PropertyTaxTaxpayer::class)->orderBy('sort_order')->orderBy('id');
+    }
+
     /** Opsiyonel ERP projesi bağı (sözleşme/teslimat projeleri). */
     public function project(): BelongsTo
     {

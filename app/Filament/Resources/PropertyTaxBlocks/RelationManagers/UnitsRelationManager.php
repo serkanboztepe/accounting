@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\PropertyTaxBlocks\RelationManagers;
 
+use App\Models\PropertyTaxTaxpayer;
 use App\Models\PropertyTaxUnit;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
@@ -42,10 +45,37 @@ class UnitsRelationManager extends RelationManager
                         ->numeric()
                         ->helperText('1 = sol, 2 = sağ…'),
                     TextInput::make('land_share_numerator')
-                        ->label('Arsa Payı (Pay)')
+                        ->label('Arsa Payı — Pay')
                         ->numeric()
-                        ->default(1)
-                        ->helperText('Payda blokta girilir. 1/8 için buraya 1.'),
+                        ->placeholder('boş = bloktan devralır')
+                        ->helperText('Ör. 5/120 için buraya 5.'),
+                    TextInput::make('land_share_denominator')
+                        ->label('Arsa Payı — Payda')
+                        ->numeric()
+                        ->placeholder('boş = bloktan devralır')
+                        ->helperText('Ör. 5/120 için buraya 120.'),
+                ]),
+
+            Section::make('Mükellef Atamaları (Hisse)')
+                ->description('Bu daireyi paylaşan mükellef(ler) ve hisseleri. Tam sahiplik için pay=payda (ör. 1/1). Beyanname her mükellef için ayrı üretilir.')
+                ->schema([
+                    Repeater::make('allocations')
+                        ->hiddenLabel()
+                        ->relationship()
+                        ->addActionLabel('Mükellef Ata')
+                        ->columns(3)
+                        ->schema([
+                            Select::make('property_tax_taxpayer_id')
+                                ->label('Mükellef')
+                                ->options(fn () => PropertyTaxTaxpayer::query()
+                                    ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
+                                    ->orderBy('sort_order')->orderBy('id')
+                                    ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
+                                ->required()
+                                ->columnSpan(1),
+                            TextInput::make('pay')->label('Hisse Pay')->numeric()->default(1)->required(),
+                            TextInput::make('payda')->label('Hisse Payda')->numeric()->default(1)->required(),
+                        ]),
                 ]),
 
             Section::make('Bloktan Farklıysa (İsteğe Bağlı)')
@@ -75,6 +105,11 @@ class UnitsRelationManager extends RelationManager
                 TextColumn::make('land_share')
                     ->label('Arsa Payı')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->landShareRatioText() ?? '—'),
+                TextColumn::make('taxpayers')
+                    ->label('Mükellef(ler)')
+                    ->getStateUsing(fn (PropertyTaxUnit $record) => $record->allocations
+                        ->map(fn ($a) => $a->taxpayer?->fullName().' ('.$a->shareText().')')
+                        ->filter()->implode(', ') ?: '— atanmadı —'),
                 TextColumn::make('usage_type')
                     ->label('Kullanış')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->effectiveUsageType())

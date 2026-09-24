@@ -17,6 +17,7 @@ class PropertyTaxBlock extends Model
         'name',
         'land_area',
         'land_share_denominator',
+        'land_share_numerator',
         'building_door_no',
         'construction_type',
         'construction_class',
@@ -34,6 +35,7 @@ class PropertyTaxBlock extends Model
     protected $casts = [
         'land_area'                    => 'decimal:2',
         'land_share_denominator'       => 'integer',
+        'land_share_numerator'         => 'integer',
         'construction_completion_date' => 'date',
         'acquisition_date'             => 'date',
         'has_heating'                  => 'boolean',

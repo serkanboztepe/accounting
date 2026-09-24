@@ -56,29 +56,6 @@ class PropertyTaxProjectForm
                         ->required(),
                 ]),
 
-            Section::make('Mükellef')
-                ->description('Beyannamenin üst kısmı ve imza bloğu bu bilgilerle doldurulur.')
-                ->columns(2)
-                ->schema([
-                    TextInput::make('taxpayer_surname')
-                        ->label('Adı Soyadı / Ünvanı')
-                        ->required()
-                        ->placeholder('ABDULLAH UÇAR')
-                        ->columnSpanFull(),
-                    TextInput::make('tax_id')
-                        ->label('T.C. / Vergi Kimlik No'),
-                    TextInput::make('property_registry_no')
-                        ->label('Emlak Vergisi Sicil No'),
-                    TextInput::make('phone_area_code')
-                        ->label('Telefon Alan Kodu')
-                        ->placeholder('553'),
-                    TextInput::make('phone')
-                        ->label('Telefon'),
-                    TextInput::make('email')
-                        ->label('E-posta')
-                        ->email(),
-                ]),
-
             Section::make('Konum')
                 ->description('İl/ilçe/belediye .env’den otomatik gelir. Mahalle/cadde/ada-parsel bina bazında girilir.')
                 ->columns(2)

@@ -3,7 +3,8 @@
 namespace App\Services\PropertyTax;
 
 use App\Models\PropertyTaxBlock;
-use App\Models\PropertyTaxUnit;
+use App\Models\PropertyTaxTaxpayer;
+use App\Models\PropertyTaxUnitTaxpayer;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
@@ -45,51 +46,68 @@ class DeclarationExporter
     /**
      * Bloğu doldurup geçici bir .xls dosyasına yazar, yolunu döndürür.
      */
-    public function export(PropertyTaxBlock $block): string
+    /**
+     * Bir mükellefin beyannamesini üretir: o mükellefe atanmış daire-hisseleri
+     * (bloklar arası olabilir) 3'erli sayfalara dağıtılır (5 → 3+2, 2 → 2, 1 → 1).
+     * Değerler hisseye göre ayarlanır. Ayrıca ilgili blok(lar) için kroki.
+     */
+    public function exportForTaxpayer(PropertyTaxTaxpayer $taxpayer): string
     {
-        $block->loadMissing(['project', 'units']);
-        $project = $block->project;
-        $units = $block->units->values();
+        $taxpayer->loadMissing(['project', 'allocations.unit.block.project']);
+        $project = $taxpayer->project;
+
+        $allocations = $taxpayer->allocations
+            ->filter(fn ($a) => $a->unit && $a->unit->block)
+            ->sortBy([
+                ['unit.block.id', 'asc'],
+                ['unit.sort_order', 'asc'],
+                ['unit.id', 'asc'],
+            ])->values();
 
         $reader = IOFactory::createReader('Xls');
         $ss = $reader->load($this->templatePath());
 
-        $sheetCount = max(1, (int) ceil($units->count() / self::UNITS_PER_SHEET));
+        $sheetCount = max(1, (int) ceil($allocations->count() / self::UNITS_PER_SHEET));
         $this->ensureBeyannameSheets($ss, $sheetCount);
 
         for ($i = 0; $i < $sheetCount; $i++) {
             $sheet = $ss->getSheetByName('BEYANNAME '.($i + 1));
             $this->normalizePageSetup($sheet);
-            $this->fillHeader($sheet, $project);
+            $this->fillHeader($sheet, $taxpayer, $project);
 
             for ($slot = 0; $slot < self::UNITS_PER_SHEET; $slot++) {
-                $unit = $units->get($i * self::UNITS_PER_SHEET + $slot);
-                if ($unit) {
-                    $this->fillUnit($sheet, $slot, $unit);
+                $alloc = $allocations->get($i * self::UNITS_PER_SHEET + $slot);
+                if ($alloc) {
+                    $this->fillAllocation($sheet, $slot, $alloc);
                 } else {
                     $this->clearUnit($sheet, $slot);
                 }
             }
         }
 
-        $this->buildKroki($ss, $block, $units);
+        // Kroki (tek/sabit): mükellefin ilk dairesinin bloğu, tam bina.
+        $firstBlock = $allocations->first()?->unit->block;
+        if ($firstBlock) {
+            $firstBlock->loadMissing('units');
+            $this->buildKroki($ss, $firstBlock, $firstBlock->units, $taxpayer->fullName());
+        } elseif ($ss->getSheetByName('Sayfa1')) {
+            $ss->removeSheetByIndex($ss->getIndex($ss->getSheetByName('Sayfa1')));
+        }
 
         $ss->setActiveSheetIndex(0);
 
-        // .xlsx olarak yaz: köşegen çatı ve genel biçim .xlsx'te doğru render olur
-        // (.xls/BIFF yazıcı köşegen kenarlığı göstermiyor).
+        // .xlsx: köşegen çatı ve biçim .xlsx'te doğru render olur (.xls yazıcı köşegeni göstermiyor).
         $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xlsx';
         IOFactory::createWriter($ss, 'Xlsx')->save($path);
 
         return $path;
     }
 
-    public function downloadName(PropertyTaxBlock $block): string
+    public function downloadNameForTaxpayer(PropertyTaxTaxpayer $taxpayer): string
     {
-        $project = $block->project?->name ?? 'proje';
         $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
 
-        return 'Beyanname-'.$slug($project).'-'.$slug($block->name).'.xlsx';
+        return 'Beyanname-'.$slug($taxpayer->project?->name ?? 'proje').'-'.$slug($taxpayer->fullName()).'.xlsx';
     }
 
     // ── Sayfa yönetimi ─────────────────────────────────────────────────────
@@ -135,38 +153,39 @@ class DeclarationExporter
 
     // ── Başlık (mükellef + ortak) ──────────────────────────────────────────
 
-    private function fillHeader(Worksheet $sheet, $project): void
+    private function fillHeader(Worksheet $sheet, PropertyTaxTaxpayer $taxpayer, $project): void
     {
+        // Konum/beyan bilgisi projeden
         $sheet->setCellValue('B6', $project->city);
         $sheet->setCellValue('BB6', 'YILI………'.$project->declaration_year.'…………………………………');
         $sheet->setCellValue('B8', $project->municipality);
-
-        // Veriliş nedeni kutuları (İlk İktisap / Değişiklik)
         $sheet->setCellValue('DI8', $project->filing_reason === 'first_acquisition' ? 'X' : '');
         $sheet->setCellValue('DS8', $project->filing_reason === 'change' ? 'X' : '');
+        $this->setDate($sheet, 'CM61', $project->declaration_date);
 
-        $this->setText($sheet, 'AI11', $project->tax_id);
-        $sheet->setCellValue('CR11', $project->phone_area_code);
-        $sheet->setCellValue('DG11', $project->phone);
-        $this->setText($sheet, 'AI13', $project->property_registry_no);
-        $sheet->setCellValue('AI15', $project->taxpayer_surname);
-        $sheet->setCellValue('AI17', $project->taxpayer_first_name);
+        // Mükellef bilgisi (bu beyanname o mükellef için)
+        $this->setText($sheet, 'AI11', $taxpayer->tax_id);
+        $sheet->setCellValue('CR11', $taxpayer->phone_area_code);
+        $sheet->setCellValue('DG11', $taxpayer->phone);
+        $this->setText($sheet, 'AI13', $taxpayer->property_registry_no);
+        $sheet->setCellValue('AI15', $taxpayer->surname);
+        $sheet->setCellValue('AI17', $taxpayer->first_name);
 
         // Alt imza bloğu
-        $fullName = trim($project->taxpayer_surname.' '.$project->taxpayer_first_name);
-        $sheet->setCellValue('T56', $fullName);
-        $this->setText($sheet, 'CN56', $project->tax_id);
-        $this->setDate($sheet, 'CM61', $project->declaration_date);
-        $sheet->setCellValue('DA53', $project->filer_role === 'taxpayer' ? 'X' : '');
+        $sheet->setCellValue('T56', $taxpayer->fullName());
+        $this->setText($sheet, 'CN56', $taxpayer->tax_id);
+        $sheet->setCellValue('DA53', $taxpayer->filer_role === 'taxpayer' ? 'X' : '');
     }
 
     // ── Daire sütunu (I/II/III. Bina) ──────────────────────────────────────
 
-    private function fillUnit(Worksheet $sheet, int $slot, PropertyTaxUnit $unit): void
+    private function fillAllocation(Worksheet $sheet, int $slot, PropertyTaxUnitTaxpayer $alloc): void
     {
         $c = self::MAIN_COLS[$slot];
         $s = self::SUB_COLS[$slot];
+        $unit = $alloc->unit;
         $block = $unit->block;
+        $fraction = $alloc->shareFraction();
 
         $sheet->setCellValue($c.'29', $unit->effectiveNeighborhood());
         $sheet->setCellValue($c.'30', $unit->effectiveStreet());
@@ -174,7 +193,7 @@ class DeclarationExporter
         $this->setText($sheet, $s.'31', (string) $unit->unit_no);  // Daire no
         $this->setText($sheet, $c.'33', $block->project?->cadastral_parcel);
         $sheet->setCellValue($c.'35', $block->land_area);
-        $sheet->setCellValue($c.'36', $unit->landShareRatioText()); // ör. 1/8
+        $sheet->setCellValue($c.'36', $unit->landShareRatioText()); // binaya ait arsa payı (ör. 5/120)
         $sheet->setCellValue($s.'36', $unit->landShareArea());      // m²
         $sheet->setCellValue($c.'37', $block->construction_type);
         $sheet->setCellValue($c.'38', $unit->effectiveConstructionClass());
@@ -184,8 +203,9 @@ class DeclarationExporter
         $sheet->setCellValue($c.'42', $block->restriction_status);
         $sheet->setCellValue($c.'43', $block->exemption_status);
         $sheet->setCellValue($c.'44', $block->reduced_tax);
-        $sheet->setCellValue($c.'45', $unit->effectiveShareRatio());
-        $sheet->setCellValue($c.'46', $unit->area);
+        $sheet->setCellValue($c.'45', $alloc->shareText());        // Hisse oranı (TAM veya pay/payda)
+        // Dıştan dışa yüzölçümü — hisseli ise hisseye isabet eden
+        $sheet->setCellValue($c.'46', $unit->area !== null ? round((float) $unit->area * $fraction, 2) : null);
         $sheet->setCellValue($c.'47', $block->has_heating ? 'VAR' : 'YOK');
         $sheet->setCellValue($c.'48', $block->has_elevator ? 'VAR' : 'YOK');
     }
@@ -212,7 +232,7 @@ class DeclarationExporter
     private const KROKI_BOX_COLS = 3;   // kutu genişliği (referans: B:D)
     private const KROKI_FLOOR_ROWS = 6; // kat yüksekliği (isim 3 + m² 3)
 
-    private function buildKroki(Spreadsheet $ss, PropertyTaxBlock $block, $units): void
+    private function buildKroki(Spreadsheet $ss, PropertyTaxBlock $block, $units, string $ownerName = ''): void
     {
         // Sayfa1'i kroki için yeniden kullan: içeriği temizle, birleştirmeleri boz.
         $sheet = $ss->getSheetByName('Sayfa1');
@@ -320,7 +340,7 @@ class DeclarationExporter
         }
 
         $summaryRow = $startRow + count($byFloor) * self::KROKI_FLOOR_ROWS + 1;
-        $this->buildKrokiSummary($sheet, $block, $units, $summaryRow);
+        $this->buildKrokiSummary($sheet, $block, $units, $summaryRow, $ownerName);
 
         // Şablon Sayfa1'den kalan alttaki boş satırları sil
         $last = $sheet->getHighestRow();
@@ -339,7 +359,7 @@ class DeclarationExporter
         $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
     }
 
-    private function buildKrokiSummary(Worksheet $sheet, PropertyTaxBlock $block, $units, int $row): void
+    private function buildKrokiSummary(Worksheet $sheet, PropertyTaxBlock $block, $units, int $row, string $ownerName = ''): void
     {
         $project = $block->project;
         $totalArea = 0.0;
@@ -349,7 +369,7 @@ class DeclarationExporter
 
         $headers = ['YAPI SAHİBİ', 'KULLANIM AMACI', 'İLİ', 'İLÇESİ', 'MAHALLE', 'ADA/PARSEL', 'YAPI ALANI M2'];
         $values = [
-            trim($project->taxpayer_surname.' '.$project->taxpayer_first_name),
+            $ownerName,
             $block->usage_type,
             $project->city,
             $project->district,

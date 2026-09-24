@@ -6,6 +6,7 @@ use App\Filament\Resources\PropertyTaxProjects\Pages\CreatePropertyTaxProject;
 use App\Filament\Resources\PropertyTaxProjects\Pages\EditPropertyTaxProject;
 use App\Filament\Resources\PropertyTaxProjects\Pages\ListPropertyTaxProjects;
 use App\Filament\Resources\PropertyTaxProjects\RelationManagers\BlocksRelationManager;
+use App\Filament\Resources\PropertyTaxProjects\RelationManagers\TaxpayersRelationManager;
 use App\Filament\Resources\PropertyTaxProjects\Schemas\PropertyTaxProjectForm;
 use App\Filament\Resources\PropertyTaxProjects\Tables\PropertyTaxProjectsTable;
 use App\Models\PropertyTaxProject;
@@ -52,6 +53,7 @@ class PropertyTaxProjectResource extends Resource
     public static function getRelations(): array
     {
         return [
+            TaxpayersRelationManager::class,
             BlocksRelationManager::class,
         ];
     }

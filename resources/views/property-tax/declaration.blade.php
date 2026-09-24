@@ -1,17 +1,21 @@
 @php
-    /** @var \App\Models\PropertyTaxBlock $block */
-    $project = $block->project;
-    $units = $block->units;
-    $pages = $units->chunk(3)->map(fn ($c) => $c->values());
+    /** @var \App\Models\PropertyTaxTaxpayer $taxpayer */
+    $project = $taxpayer->project;
+    $allocations = $taxpayer->allocations
+        ->filter(fn ($a) => $a->unit && $a->unit->block)
+        ->sortBy([['unit.block.id', 'asc'], ['unit.sort_order', 'asc'], ['unit.id', 'asc']])
+        ->values();
+    $pages = $allocations->chunk(3)->map(fn ($c) => $c->values());
 
     $fmtNum = fn ($v) => $v === null || $v === '' ? '' : rtrim(rtrim(number_format((float) $v, 2, ',', '.'), '0'), ',');
     $fmtDate = fn ($d) => $d ? \Illuminate\Support\Carbon::parse($d)->format('d.m.Y') : '';
     $verilis = $project->filing_reason === 'change' ? 'Değişiklik' : 'İlk İktisap';
 
-    // Kroki: kat başına daireler yan yana (ızgara), üst kat en üstte
+    // Kroki: mükellefin ilk dairesinin bloğu (tam bina), kat başına daireler yan yana
+    $krokiBlock = $allocations->first()?->unit->block;
     $byFloor = [];
     $maxPos = 1;
-    foreach ($units as $u) {
+    foreach (($krokiBlock?->units ?? collect()) as $u) {
         $byFloor[$u->floor_no ?? 1][$u->floor_position ?? 1] = $u;
         $maxPos = max($maxPos, $u->floor_position ?? 1);
     }
@@ -28,7 +32,6 @@
     .page { page-break-after: always; }
     .page:last-child { page-break-after: auto; }
     h1 { text-align: center; font-size: 14px; margin: 0 0 8px; }
-    .muted { color: #555; }
     .top { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
     .top td { padding: 2px 4px; vertical-align: top; }
     .kv { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
@@ -42,8 +45,6 @@
     .sign { margin-top: 10px; width: 100%; }
     .sign td { padding: 6px; vertical-align: bottom; }
     .note { margin-top: 10px; font-size: 8px; color: #333; white-space: pre-line; border-top: 1px solid #ccc; padding-top: 4px; }
-
-    /* Kroki (ızgara: kat başına daireler yan yana) */
     .kroki { text-align: center; }
     .kroki h2 { font-size: 13px; margin: 0 0 14px; }
     .kroki-grid { border-collapse: collapse; margin: 0 auto; }
@@ -61,7 +62,7 @@
 </head>
 <body>
 
-@foreach ($pages as $pageUnits)
+@forelse ($pages as $pageAllocs)
     <div class="page">
         <h1>EMLAK VERGİSİ BİLDİRİMİ (BİNA)</h1>
 
@@ -78,53 +79,53 @@
 
         <table class="kv">
             <tr>
-                <td class="lbl">Mükellefin Soyadı (Unvanı) / Adı</td>
-                <td>{{ trim($project->taxpayer_surname.' '.$project->taxpayer_first_name) }}</td>
+                <td class="lbl">Mükellefin Adı Soyadı / Ünvanı</td>
+                <td>{{ $taxpayer->fullName() }}</td>
             </tr>
             <tr>
                 <td class="lbl">T.C. / Vergi Kimlik No</td>
-                <td>{{ $project->tax_id }}</td>
+                <td>{{ $taxpayer->tax_id }}</td>
             </tr>
             <tr>
                 <td class="lbl">Telefon</td>
-                <td>{{ trim($project->phone_area_code.' '.$project->phone) }}</td>
+                <td>{{ trim($taxpayer->phone_area_code.' '.$taxpayer->phone) }}</td>
             </tr>
         </table>
 
         <table class="bina">
             <tr>
                 <th class="field">BİNAYA AİT BİLGİLER</th>
-                @foreach ($pageUnits as $i => $u)
+                @foreach ($pageAllocs as $i => $a)
                     <th class="val">{{ ['I','II','III'][$i] }}. BİNA</th>
                 @endforeach
             </tr>
             @php
                 $rows = [
-                    ['Bulunduğu Mahalle', fn($u) => $u->effectiveNeighborhood()],
-                    ['Cadde / Sokak', fn($u) => $u->effectiveStreet()],
-                    ['Kapı ve Daire No', fn($u) => trim(($u->block->building_door_no ?? '').' / '.$u->unit_no)],
-                    ['Ada / Parsel', fn($u) => $project->cadastral_parcel],
-                    ['Bina Arsasının Alanı (m²)', fn($u) => $fmtNum($u->block->land_area)],
-                    ['Arsa Payı (Oran / m²)', fn($u) => trim(($u->landShareRatioText() ?? '').'  '.($u->landShareArea() !== null ? $fmtNum($u->landShareArea()).' m²' : ''))],
-                    ['İnşaatın Türü', fn($u) => $u->block->construction_type],
-                    ['İnşaatın Sınıfı', fn($u) => $u->effectiveConstructionClass()],
-                    ['Kullanış Şekli', fn($u) => $u->effectiveUsageType()],
-                    ['İnşaatın Bitim Tarihi', fn($u) => $fmtDate($u->block->construction_completion_date)],
-                    ['İktisap Tarihi', fn($u) => $fmtDate($u->block->acquisition_date)],
-                    ['Kısıtlılık Hali', fn($u) => $u->block->restriction_status],
-                    ['Muafiyet', fn($u) => $u->block->exemption_status],
-                    ['İndirimli Vergi', fn($u) => $u->block->reduced_tax],
-                    ['Hisse Oranı', fn($u) => $u->effectiveShareRatio()],
-                    ['Dıştan Dışa Yüzölçümü (m²)', fn($u) => $fmtNum($u->area)],
-                    ['Kaloriferli', fn($u) => $u->block->has_heating ? 'VAR' : 'YOK'],
-                    ['Asansörlü', fn($u) => $u->block->has_elevator ? 'VAR' : 'YOK'],
+                    ['Bulunduğu Mahalle', fn($a) => $a->unit->effectiveNeighborhood()],
+                    ['Cadde / Sokak', fn($a) => $a->unit->effectiveStreet()],
+                    ['Kapı ve Daire No', fn($a) => trim(($a->unit->block->building_door_no ?? '').' / '.$a->unit->unit_no)],
+                    ['Ada / Parsel', fn($a) => $project->cadastral_parcel],
+                    ['Bina Arsasının Alanı (m²)', fn($a) => $fmtNum($a->unit->block->land_area)],
+                    ['Arsa Payı (Oran / m²)', fn($a) => trim(($a->unit->landShareRatioText() ?? '').'  '.($a->unit->landShareArea() !== null ? $fmtNum($a->unit->landShareArea()).' m²' : ''))],
+                    ['İnşaatın Türü', fn($a) => $a->unit->block->construction_type],
+                    ['İnşaatın Sınıfı', fn($a) => $a->unit->effectiveConstructionClass()],
+                    ['Kullanış Şekli', fn($a) => $a->unit->effectiveUsageType()],
+                    ['İnşaatın Bitim Tarihi', fn($a) => $fmtDate($a->unit->block->construction_completion_date)],
+                    ['İktisap Tarihi', fn($a) => $fmtDate($a->unit->block->acquisition_date)],
+                    ['Kısıtlılık Hali', fn($a) => $a->unit->block->restriction_status],
+                    ['Muafiyet', fn($a) => $a->unit->block->exemption_status],
+                    ['İndirimli Vergi', fn($a) => $a->unit->block->reduced_tax],
+                    ['Hisse Oranı', fn($a) => $a->shareText()],
+                    ['Dıştan Dışa Yüzölçümü — Hisseye İsabet Eden (m²)', fn($a) => $fmtNum($a->unit->area !== null ? round((float) $a->unit->area * $a->shareFraction(), 2) : null)],
+                    ['Kaloriferli', fn($a) => $a->unit->block->has_heating ? 'VAR' : 'YOK'],
+                    ['Asansörlü', fn($a) => $a->unit->block->has_elevator ? 'VAR' : 'YOK'],
                 ];
             @endphp
             @foreach ($rows as [$label, $getter])
                 <tr>
                     <td class="field">{{ $label }}</td>
-                    @foreach ($pageUnits as $u)
-                        <td class="val">{{ $getter($u) }}</td>
+                    @foreach ($pageAllocs as $a)
+                        <td class="val">{{ $getter($a) }}</td>
                     @endforeach
                 </tr>
             @endforeach
@@ -132,8 +133,8 @@
 
         <table class="sign">
             <tr>
-                <td>Bildirimi Veren: <b>{{ trim($project->taxpayer_surname.' '.$project->taxpayer_first_name) }}</b>
-                    ({{ $project->filer_role === 'proxy' ? 'Kanuni Temsilci / Vekil' : 'Mükellef' }})</td>
+                <td>Bildirimi Veren: <b>{{ $taxpayer->fullName() }}</b>
+                    ({{ $taxpayer->filer_role === 'proxy' ? 'Kanuni Temsilci / Vekil' : 'Mükellef' }})</td>
                 <td style="text-align:right;">Tarih: {{ $fmtDate($project->declaration_date) }}<br><br>İmza:</td>
             </tr>
         </table>
@@ -144,11 +145,14 @@
 4- Aynı çatı altındaki birden çok bağımsız birim ve dairelerin her biri ayrı ayrı bildirilecektir.
 5- Bir mükellefe ait bina birimlerinin bildirimine bir bildirimin yetmemesi halinde yeteri kadar bildirim doldurularak birbirine iliştirilir.</div>
     </div>
-@endforeach
+@empty
+    <div class="page"><h1>EMLAK VERGİSİ BİLDİRİMİ (BİNA)</h1><p style="text-align:center;">Bu mükellefe atanmış daire yok.</p></div>
+@endforelse
 
-{{-- KROKİ: ev görünümü --}}
+{{-- KROKİ --}}
+@if ($krokiBlock)
 <div class="page kroki">
-    <h2>{{ trim($block->name) && $block->name !== '-' ? $block->name.' — ' : '' }}BİNA KROKİSİ</h2>
+    <h2>{{ trim($krokiBlock->name) && $krokiBlock->name !== '-' ? $krokiBlock->name.' — ' : '' }}BİNA KROKİSİ</h2>
     <table class="kroki-grid">
         @php $roofHalf = max(60, $maxPos * 49); $roofH = max(45, $maxPos * 30); @endphp
         <tr>
@@ -186,16 +190,17 @@
             <td class="h">YAPI ALANI</td>
         </tr>
         <tr>
-            <td>{{ trim($project->taxpayer_surname.' '.$project->taxpayer_first_name) }}</td>
-            <td>{{ $block->usage_type }}</td>
+            <td>{{ $taxpayer->fullName() }}</td>
+            <td>{{ $krokiBlock->usage_type }}</td>
             <td>{{ $project->city }}</td>
             <td>{{ $project->district }}</td>
             <td>{{ $project->neighborhood }}</td>
             <td>{{ $project->cadastral_parcel }}</td>
-            <td>{{ $fmtNum($units->sum(fn ($u) => (float) $u->area)) }} m²</td>
+            <td>{{ $fmtNum($krokiBlock->units->sum(fn ($u) => (float) $u->area)) }} m²</td>
         </tr>
     </table>
 </div>
+@endif
 
 </body>
 </html>
