@@ -76,8 +76,10 @@ class DeclarationExporter
 
         $ss->setActiveSheetIndex(0);
 
-        $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xls';
-        IOFactory::createWriter($ss, 'Xls')->save($path);
+        // .xlsx olarak yaz: köşegen çatı ve genel biçim .xlsx'te doğru render olur
+        // (.xls/BIFF yazıcı köşegen kenarlığı göstermiyor).
+        $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xlsx';
+        IOFactory::createWriter($ss, 'Xlsx')->save($path);
 
         return $path;
     }
@@ -87,7 +89,7 @@ class DeclarationExporter
         $project = $block->project?->name ?? 'proje';
         $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
 
-        return 'Beyanname-'.$slug($project).'-'.$slug($block->name).'.xls';
+        return 'Beyanname-'.$slug($project).'-'.$slug($block->name).'.xlsx';
     }
 
     // ── Sayfa yönetimi ─────────────────────────────────────────────────────
@@ -254,25 +256,24 @@ class DeclarationExporter
         $sheet->getStyle('B1:'.$lastLetter.'1')->getFont()->setBold(true)->setSize(12);
         $sheet->getStyle('B1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        // Çatı: /\ — Excel birleştirilmiş hücrede köşegeni çizmiyor, o yüzden
-        // her yamacı TEK TEK hücrelere merdiven şeklinde çiziyoruz (güvenilir render).
-        // Yükseklik = yarı genişlik (sütun), satırları yükseltip eğimi dikleştiriyoruz.
+        // Çatı: /\ — bina genişliği boyunca iki birleşik yarı (sol köşegen yukarı,
+        // sağ köşegen aşağı). .xlsx'te birleştirilmiş köşegen düzgün render olur.
+        // Yükseklik ~ yarı genişlik; satır yüksekliği ile eğim ayarlanır.
         $width = $maxPos * $boxW;
-        $half = max(1, intdiv($width, 2));
+        $half = max(2, intdiv($width, 2));
         $roofTop = 3;
         $roofBottom = $roofTop + $half - 1;
-        for ($kk = 0; $kk < $half; $kk++) {
-            // sol yamaç (/): alt-soldan yukarı-sağa
-            $sheet->getStyle($this->colLetter($firstCol + $kk).($roofBottom - $kk))
-                ->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
-                ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
-            // sağ yamaç (\): yukarı-soldan alt-sağa
-            $sheet->getStyle($this->colLetter($lastCol - $kk).($roofBottom - $kk))
-                ->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
-                ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
-        }
+        $mid = $firstCol + intdiv($width, 2);
+        $leftRoof = $this->colLetter($firstCol).$roofTop.':'.$this->colLetter($mid - 1).$roofBottom;
+        $rightRoof = $this->colLetter($mid).$roofTop.':'.$lastLetter.$roofBottom;
+        $sheet->mergeCells($leftRoof);
+        $sheet->mergeCells($rightRoof);
+        $sheet->getStyle($leftRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
+            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        $sheet->getStyle($rightRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
+            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
         for ($r = $roofTop; $r <= $roofBottom; $r++) {
-            $sheet->getRowDimension($r)->setRowHeight(28); // eğimi diklik için yüksek satır
+            $sheet->getRowDimension($r)->setRowHeight(26);
         }
 
         // Izgara: kat başına maxPos daire yan yana, katlar üst üste (çatının altından)
@@ -313,6 +314,12 @@ class DeclarationExporter
 
         $summaryRow = $startRow + count($byFloor) * self::KROKI_FLOOR_ROWS + 1;
         $this->buildKrokiSummary($sheet, $block, $units, $summaryRow);
+
+        // Şablon Sayfa1'den kalan alttaki boş satırları sil
+        $last = $sheet->getHighestRow();
+        if ($last > $summaryRow + 1) {
+            $sheet->removeRow($summaryRow + 2, $last - ($summaryRow + 1));
+        }
 
         $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
     }
