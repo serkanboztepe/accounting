@@ -3,14 +3,17 @@
 namespace App\Filament\Resources\PropertyTaxProjects\RelationManagers;
 
 use App\Models\PropertyTaxTaxpayer;
+use App\Models\PropertyTaxUnit;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -77,6 +80,28 @@ class TaxpayersRelationManager extends RelationManager
                 CreateAction::make()->label('Mükellef Ekle'),
             ])
             ->recordActions([
+                Action::make('assignUnits')
+                    ->label('Daire Ata')
+                    ->icon(Heroicon::OutlinedHomeModern)
+                    ->color('warning')
+                    ->modalHeading(fn (PropertyTaxTaxpayer $record) => $record->fullName().' — Daire Seç')
+                    ->modalDescription('Bu mükellefin sahip olduğu daireleri işaretle. İşaretlenenler bu mükellefe (1/1) atanır; işareti kaldırılanlardan çıkarılır. Hisseli (ortak) için daire "Düzenle"sini kullan.')
+                    ->modalSubmitActionLabel('Kaydet')
+                    ->fillForm(fn (PropertyTaxTaxpayer $record) => ['units' => $record->units->pluck('id')->all()])
+                    ->schema([
+                        CheckboxList::make('units')
+                            ->label('Daireler')
+                            ->options(fn () => $this->unitOptions())
+                            ->columns(3)
+                            ->bulkToggleable()
+                            ->searchable(),
+                    ])
+                    ->action(function (array $data, PropertyTaxTaxpayer $record) {
+                        $record->units()->sync(
+                            collect($data['units'] ?? [])->mapWithKeys(fn ($id) => [$id => ['pay' => 1, 'payda' => 1]])->all()
+                        );
+                        Notification::make()->title(count($data['units'] ?? []).' daire atandı')->success()->send();
+                    }),
                 Action::make('formatliPdf')
                     ->label('Formatlı PDF')
                     ->icon(Heroicon::OutlinedDocumentCheck)
@@ -95,5 +120,19 @@ class TaxpayersRelationManager extends RelationManager
                     DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    /** Projedeki tüm daireler — "Daire N — Blok (Kat)" etiketiyle. */
+    private function unitOptions(): array
+    {
+        return PropertyTaxUnit::query()
+            ->whereHas('block', fn ($q) => $q->where('property_tax_project_id', $this->getOwnerRecord()->id))
+            ->with('block')
+            ->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->mapWithKeys(fn (PropertyTaxUnit $u) => [
+                $u->id => 'Daire '.$u->unit_no.' — '.$u->block?->name.' ('.$u->floorLabel().')',
+            ])
+            ->all();
     }
 }
