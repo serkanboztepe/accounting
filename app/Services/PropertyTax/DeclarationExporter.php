@@ -308,12 +308,13 @@ class DeclarationExporter
             $totalArea += (float) $u->area;
         }
 
-        $headers = ['YAPI SAHİBİ', 'KULLANIM AMACI', 'İLİ', 'İLÇESİ', 'ADA/PARSEL', 'YAPI ALANI M2'];
+        $headers = ['YAPI SAHİBİ', 'KULLANIM AMACI', 'İLİ', 'İLÇESİ', 'MAHALLE', 'ADA/PARSEL', 'YAPI ALANI M2'];
         $values = [
             trim($project->taxpayer_surname.' '.$project->taxpayer_first_name),
             $block->usage_type,
             $project->city,
             $project->district,
+            $project->neighborhood,
             $project->cadastral_parcel,
             $totalArea ? number_format($totalArea, 2, ',', '.') : '',
         ];

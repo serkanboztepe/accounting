@@ -170,6 +170,7 @@
             <td class="h">KULLANIM</td>
             <td class="h">İL</td>
             <td class="h">İLÇE</td>
+            <td class="h">MAHALLE</td>
             <td class="h">ADA/PARSEL</td>
             <td class="h">YAPI ALANI</td>
         </tr>
@@ -178,6 +179,7 @@
             <td>{{ $block->usage_type }}</td>
             <td>{{ $project->city }}</td>
             <td>{{ $project->district }}</td>
+            <td>{{ $project->neighborhood }}</td>
             <td>{{ $project->cadastral_parcel }}</td>
             <td>{{ $fmtNum($units->sum(fn ($u) => (float) $u->area)) }} m²</td>
         </tr>
