@@ -254,23 +254,25 @@ class DeclarationExporter
         $sheet->getStyle('B1:'.$lastLetter.'1')->getFont()->setBold(true)->setSize(12);
         $sheet->getStyle('B1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        // Çatı: bina genişliği boyunca /\ (sol yarı köşegen yukarı, sağ yarı aşağı).
-        // Yükseklik genişlikle ölçeklenir ki eğim basıklaşmasın.
+        // Çatı: /\ — Excel birleştirilmiş hücrede köşegeni çizmiyor, o yüzden
+        // her yamacı TEK TEK hücrelere merdiven şeklinde çiziyoruz (güvenilir render).
+        // Yükseklik = yarı genişlik (sütun), satırları yükseltip eğimi dikleştiriyoruz.
         $width = $maxPos * $boxW;
-        $roofRows = max(4, $maxPos * 2);
+        $half = max(1, intdiv($width, 2));
         $roofTop = 3;
-        $roofBottom = $roofTop + $roofRows - 1;
-        $mid = $firstCol + intdiv($width, 2);
-        $leftRoof = $this->colLetter($firstCol).$roofTop.':'.$this->colLetter($mid - 1).$roofBottom;
-        $rightRoof = $this->colLetter($mid).$roofTop.':'.$lastLetter.$roofBottom;
-        $sheet->mergeCells($leftRoof);
-        $sheet->mergeCells($rightRoof);
-        $sheet->getStyle($leftRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
-            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
-        $sheet->getStyle($rightRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
-            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        $roofBottom = $roofTop + $half - 1;
+        for ($kk = 0; $kk < $half; $kk++) {
+            // sol yamaç (/): alt-soldan yukarı-sağa
+            $sheet->getStyle($this->colLetter($firstCol + $kk).($roofBottom - $kk))
+                ->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
+                ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+            // sağ yamaç (\): yukarı-soldan alt-sağa
+            $sheet->getStyle($this->colLetter($lastCol - $kk).($roofBottom - $kk))
+                ->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
+                ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        }
         for ($r = $roofTop; $r <= $roofBottom; $r++) {
-            $sheet->getRowDimension($r)->setRowHeight(14);
+            $sheet->getRowDimension($r)->setRowHeight(28); // eğimi diklik için yüksek satır
         }
 
         // Izgara: kat başına maxPos daire yan yana, katlar üst üste (çatının altından)
