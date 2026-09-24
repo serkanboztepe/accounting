@@ -10,6 +10,7 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Borders;
 use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
@@ -120,9 +121,13 @@ class DeclarationExporter
         $sheet->setShowGridlines(false);
         $ps = $sheet->getPageSetup();
         $ps->setOrientation(PageSetup::ORIENTATION_PORTRAIT);
-        $ps->setScale(79);
-        $ps->setFitToPage(false);
-        $ps->setPrintArea('A1:EQ70');
+        $ps->setPaperSize(PageSetup::PAPERSIZE_A4);
+        // Tam 1 A4'e sığdır — en alttaki NOT bloğu (C66:EN70) dahil her şey sayfaya girsin.
+        $ps->setFitToWidth(1);
+        $ps->setFitToHeight(1);
+        $ps->setFitToPage(true);
+        // Baskı alanı içeriğin gerçek sağ kenarına (EN = III. Bina + NOT sağ kenarı) ve NOT'un son satırına.
+        $ps->setPrintArea('A1:EN70');
     }
 
     // ── Başlık (mükellef + ortak) ──────────────────────────────────────────
@@ -196,12 +201,13 @@ class DeclarationExporter
     // ── Kroki (bina şeması) ────────────────────────────────────────────────
 
     /**
-     * Bina krokisi — orijinal Sayfa1 geometrisi birebir: her daire 6 sütun geniş,
-     * üst yarısı (3 satır) "X NOLU DAİRE", alt yarısı (3 satır) yüzölçümü.
-     * Katta N daire yan yana, katlar üst üste (üst kat en üstte). Altta özet tablo.
+     * Bina krokisi — "ev görünümü": üstte köşegen kenarlıklı çatı üçgeni (/\),
+     * altında katlar üst üste. Her daire dar (4 sütun) kompakt kutu: üst satır
+     * "X NOLU DAİRE", alt satır yüzölçümü (alt alta). Altta özet tablo.
      */
-    private const KROKI_BOX_COLS = 6;   // kutu genişliği (B:G = 6 sütun)
-    private const KROKI_FLOOR_ROWS = 6; // kat yüksekliği (etiket 3 + m² 3)
+    private const KROKI_BOX_COLS = 4;   // kutu genişliği (dar)
+    private const KROKI_FLOOR_ROWS = 2; // kat yüksekliği (isim 1 + m² 1)
+    private const KROKI_ROOF_ROWS = 5;  // çatı yüksekliği (satır)
 
     private function buildKroki(Spreadsheet $ss, PropertyTaxBlock $block, $units): void
     {
@@ -237,52 +243,68 @@ class DeclarationExporter
 
         $boxW = self::KROKI_BOX_COLS;
         $firstCol = 2; // B
-        $lastCol = $firstCol + $maxPos * $boxW - 1;
+        $width = $maxPos * $boxW;
+        $lastCol = $firstCol + $width - 1;
         $lastLetter = $this->colLetter($lastCol);
 
         // Başlık
-        $sheet->mergeCells('B2:'.$lastLetter.'2');
-        $sheet->setCellValue('B2', trim(($block->name ? $block->name.' — ' : '').'BİNA KROKİSİ'));
-        $sheet->getStyle('B2:'.$lastLetter.'2')->getFont()->setBold(true)->setSize(12);
-        $sheet->getStyle('B2')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        $sheet->mergeCells('B1:'.$lastLetter.'1');
+        $sheet->setCellValue('B1', trim(($block->name ? $block->name.' — ' : '').'BİNA KROKİSİ'));
+        $sheet->getStyle('B1:'.$lastLetter.'1')->getFont()->setBold(true)->setSize(12);
+        $sheet->getStyle('B1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        $startRow = 4;
+        // Çatı (ev görünümü): sol yarı köşegen yukarı (/), sağ yarı köşegen aşağı (\) → /\
+        $roofTop = 3;
+        $roofBottom = $roofTop + self::KROKI_ROOF_ROWS - 1;
+        $mid = $firstCol + intdiv($width, 2); // sağ yarının başı (tepe = orta üst)
+        $leftRoof = $this->colLetter($firstCol).$roofTop.':'.$this->colLetter($mid - 1).$roofBottom;
+        $rightRoof = $this->colLetter($mid).$roofTop.':'.$lastLetter.$roofBottom;
+        $sheet->mergeCells($leftRoof);
+        $sheet->mergeCells($rightRoof);
+        $sheet->getStyle($leftRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
+            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        $sheet->getStyle($rightRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
+            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        for ($r = $roofTop; $r <= $roofBottom; $r++) {
+            $sheet->getRowDimension($r)->setRowHeight(16);
+        }
+
+        // Katlar (çatının hemen altından başlar)
+        $buildTop = $roofBottom + 1;
         $floorIndex = 0;
         foreach ($byFloor as $floor => $positions) {
-            $top = $startRow + $floorIndex * self::KROKI_FLOOR_ROWS;
+            $top = $buildTop + $floorIndex * self::KROKI_FLOOR_ROWS;
 
-            // Kat etiketi (sol, A sütunu)
-            $sheet->setCellValue('A'.($top + 1), $floor.'.KAT');
-            $sheet->getStyle('A'.($top + 1))->getFont()->setBold(true);
+            $sheet->setCellValue('A'.$top, $floor.'.KAT');
+            $sheet->getStyle('A'.$top)->getFont()->setBold(true);
 
             for ($p = 1; $p <= $maxPos; $p++) {
                 $u = $positions[$p] ?? null;
                 if (! $u) {
-                    continue; // eksik konum: boş bırak (hayali daire çizme)
+                    continue; // eksik konum: boş bırak
                 }
                 $cs = $firstCol + ($p - 1) * $boxW;
                 $c0 = $this->colLetter($cs);
                 $c1 = $this->colLetter($cs + $boxW - 1);
 
-                $labelRange = $c0.$top.':'.$c1.($top + 2);
-                $areaRange = $c0.($top + 3).':'.$c1.($top + 5);
+                $labelRange = $c0.$top.':'.$c1.$top;             // isim (1 satır)
+                $areaRange = $c0.($top + 1).':'.$c1.($top + 1);  // m² (1 satır)
+                $boxRange = $c0.$top.':'.$c1.($top + 1);
                 $sheet->mergeCells($labelRange);
                 $sheet->mergeCells($areaRange);
 
                 $sheet->setCellValue($c0.$top, $u->unit_no.' NOLU DAİRE');
-                $sheet->setCellValue($c0.($top + 3), $this->areaText($u->area));
+                $sheet->setCellValue($c0.($top + 1), $this->areaText($u->area));
 
-                foreach ([$labelRange, $areaRange] as $rg) {
-                    $sheet->getStyle($rg)->getBorders()->getOutline()->setBorderStyle(Border::BORDER_THIN);
-                    $sheet->getStyle($rg)->getAlignment()
-                        ->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-                }
+                $sheet->getStyle($boxRange)->getBorders()->getOutline()->setBorderStyle(Border::BORDER_THIN);
+                $sheet->getStyle($boxRange)->getAlignment()
+                    ->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
                 $sheet->getStyle($labelRange)->getFont()->setBold(true);
             }
             $floorIndex++;
         }
 
-        $summaryRow = $startRow + count($byFloor) * self::KROKI_FLOOR_ROWS + 2;
+        $summaryRow = $buildTop + count($byFloor) * self::KROKI_FLOOR_ROWS + 2;
         $this->buildKrokiSummary($sheet, $block, $units, $summaryRow);
 
         $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
@@ -356,5 +378,8 @@ class DeclarationExporter
             return;
         }
         $sheet->setCellValue($coord, ExcelDate::PHPToExcel($date));
+        // Şablonda bazı tarih hücreleri (ör. İktisap Tarihi) sayı biçimli (0.00) —
+        // serial sayı olarak görünmesin diye tarih hücrelerine gg.aa.yyyy uygula.
+        $sheet->getStyle($coord)->getNumberFormat()->setFormatCode('dd.mm.yyyy');
     }
 }
