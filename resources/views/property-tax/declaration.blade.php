@@ -52,6 +52,8 @@
     .kroki-grid .dbox .no { font-weight: bold; font-size: 10px; }
     .kroki-grid .dbox .m2 { font-size: 9px; color: #333; }
     .kroki-grid .empty { border: none; width: 95px; }
+    .kroki-grid .roof-cell { border: none; padding: 0 0 2px; }
+    .roof { width: 0; height: 0; margin: 0 auto; border-style: solid; border-color: transparent transparent #444 transparent; }
     .ozet { margin: 16px auto 0; border-collapse: collapse; }
     .ozet td { border: 1px solid #999; padding: 4px 8px; font-size: 9px; }
     .ozet .h { background: #f2f2f2; font-weight: bold; }
@@ -148,6 +150,13 @@
 <div class="page kroki">
     <h2>{{ trim($block->name) && $block->name !== '-' ? $block->name.' — ' : '' }}BİNA KROKİSİ</h2>
     <table class="kroki-grid">
+        @php $roofHalf = max(60, $maxPos * 49); $roofH = max(45, $maxPos * 30); @endphp
+        <tr>
+            <td class="kat"></td>
+            <td colspan="{{ $maxPos }}" class="roof-cell">
+                <div class="roof" style="border-width: 0 {{ $roofHalf }}px {{ $roofH }}px {{ $roofHalf }}px;"></div>
+            </td>
+        </tr>
         @foreach ($byFloor as $floor => $positions)
             <tr>
                 <td class="kat">{{ $floor }}.KAT</td>

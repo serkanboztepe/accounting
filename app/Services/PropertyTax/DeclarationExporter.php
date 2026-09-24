@@ -10,6 +10,7 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Borders;
 use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
@@ -203,7 +204,7 @@ class DeclarationExporter
      * Bina krokisi — ızgara düzeni (referans dosyayla birebir): kat başına N daire
      * YAN YANA (her kutu 3 sütun: B:D, E:G…), katlar üst üste (üst kat en üstte).
      * Her kutu: üst yarı (3 satır) "X NOLU DAİRE", alt yarı (3 satır) yüzölçümü.
-     * Çatı yok. Altta özet tablo. Solda kat etiketi.
+     * Üstte /\ çatı (ev görünümü). Altta özet tablo. Solda kat etiketi.
      */
     private const KROKI_BOX_COLS = 3;   // kutu genişliği (referans: B:D)
     private const KROKI_FLOOR_ROWS = 6; // kat yüksekliği (isim 3 + m² 3)
@@ -253,8 +254,27 @@ class DeclarationExporter
         $sheet->getStyle('B1:'.$lastLetter.'1')->getFont()->setBold(true)->setSize(12);
         $sheet->getStyle('B1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        // Izgara: kat başına maxPos daire yan yana, katlar üst üste
-        $startRow = 3;
+        // Çatı: bina genişliği boyunca /\ (sol yarı köşegen yukarı, sağ yarı aşağı).
+        // Yükseklik genişlikle ölçeklenir ki eğim basıklaşmasın.
+        $width = $maxPos * $boxW;
+        $roofRows = max(4, $maxPos * 2);
+        $roofTop = 3;
+        $roofBottom = $roofTop + $roofRows - 1;
+        $mid = $firstCol + intdiv($width, 2);
+        $leftRoof = $this->colLetter($firstCol).$roofTop.':'.$this->colLetter($mid - 1).$roofBottom;
+        $rightRoof = $this->colLetter($mid).$roofTop.':'.$lastLetter.$roofBottom;
+        $sheet->mergeCells($leftRoof);
+        $sheet->mergeCells($rightRoof);
+        $sheet->getStyle($leftRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
+            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        $sheet->getStyle($rightRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
+            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        for ($r = $roofTop; $r <= $roofBottom; $r++) {
+            $sheet->getRowDimension($r)->setRowHeight(14);
+        }
+
+        // Izgara: kat başına maxPos daire yan yana, katlar üst üste (çatının altından)
+        $startRow = $roofBottom + 1;
         $floorIndex = 0;
         foreach ($byFloor as $floor => $positions) {
             $top = $startRow + $floorIndex * self::KROKI_FLOOR_ROWS;
