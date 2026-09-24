@@ -77,8 +77,40 @@ class EditPropertyTaxBlock extends EditRecord
                     $this->bulkCreateUnits($data);
                 }),
 
+            Action::make('distributeShares')
+                ->label('Hisseleri Eşit Böl')
+                ->icon(Heroicon::OutlinedScale)
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading('Hisseleri Eşit Böl')
+                ->modalDescription('Bu bloktaki her dairenin hissesi, atanmış mükellefler arasında EŞİT bölünür (N mükellef → 1/N; tek mükellef → TAM). Mevcut hisseler güncellenir.')
+                ->modalSubmitActionLabel('Eşit Böl')
+                ->action(fn () => $this->distributeSharesEqually()),
+
             \Filament\Actions\DeleteAction::make(),
         ];
+    }
+
+    private function distributeSharesEqually(): void
+    {
+        $units = $this->record->units()->with('allocations')->get();
+
+        $count = 0;
+        foreach ($units as $unit) {
+            $n = $unit->allocations->count();
+            if ($n === 0) {
+                continue;
+            }
+            foreach ($unit->allocations as $alloc) {
+                $alloc->update(['pay' => 1, 'payda' => $n]);
+            }
+            $count++;
+        }
+
+        Notification::make()
+            ->title($count.' dairenin hissesi eşit bölündü')
+            ->success()
+            ->send();
     }
 
     private function bulkCreateUnits(array $data): void
