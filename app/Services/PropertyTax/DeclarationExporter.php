@@ -256,22 +256,23 @@ class DeclarationExporter
         $sheet->getStyle('B1:'.$lastLetter.'1')->getFont()->setBold(true)->setSize(12);
         $sheet->getStyle('B1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        // Çatı: /\ — bina genişliği boyunca iki birleşik yarı (sol köşegen yukarı,
-        // sağ köşegen aşağı). .xlsx'te birleştirilmiş köşegen düzgün render olur.
-        // Yükseklik ~ yarı genişlik; satır yüksekliği ile eğim ayarlanır.
+        // Çatı: /\ — köşegeni BİRLEŞTİRMESİZ, tek tek hücrelere merdiven şeklinde
+        // çiziyoruz (birleşik hücre köşegenini birçok görüntüleyici çizmiyor).
+        // .xlsx'te tek hücre köşegeni her yerde render olur.
         $width = $maxPos * $boxW;
         $half = max(2, intdiv($width, 2));
         $roofTop = 3;
         $roofBottom = $roofTop + $half - 1;
-        $mid = $firstCol + intdiv($width, 2);
-        $leftRoof = $this->colLetter($firstCol).$roofTop.':'.$this->colLetter($mid - 1).$roofBottom;
-        $rightRoof = $this->colLetter($mid).$roofTop.':'.$lastLetter.$roofBottom;
-        $sheet->mergeCells($leftRoof);
-        $sheet->mergeCells($rightRoof);
-        $sheet->getStyle($leftRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
-            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
-        $sheet->getStyle($rightRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
-            ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        for ($kk = 0; $kk < $half; $kk++) {
+            // sol yamaç (/): alt-soldan yukarı-sağa
+            $sheet->getStyle($this->colLetter($firstCol + $kk).($roofBottom - $kk))
+                ->getBorders()->setDiagonalDirection(Borders::DIAGONAL_UP)
+                ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+            // sağ yamaç (\): yukarı-soldan alt-sağa
+            $sheet->getStyle($this->colLetter($lastCol - $kk).($roofBottom - $kk))
+                ->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
+                ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
+        }
         for ($r = $roofTop; $r <= $roofBottom; $r++) {
             $sheet->getRowDimension($r)->setRowHeight(26);
         }
