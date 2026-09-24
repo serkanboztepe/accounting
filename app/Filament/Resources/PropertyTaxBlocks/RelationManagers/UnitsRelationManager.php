@@ -187,11 +187,12 @@ class UnitsRelationManager extends RelationManager
                     ->label('Mükellefe Ata')
                     ->icon(Heroicon::OutlinedUserPlus)
                     ->color('warning')
-                    ->modalHeading('Seçili Daireleri Mükellefe Ata')
-                    ->modalDescription('Seçili dairelerin sahibi bu mükellef olur (tam sahiplik). Mevcut atamaların yerini alır.')
+                    ->modalHeading('Seçili Daireleri Mükellef(ler)e Ata')
+                    ->modalDescription('Bir mükellef seçersen tam sahiplik (1/1). Birden fazla seçersen daireler hisseli olur, hisse EŞİT bölünür (2 mükellef → her biri 1/2). Mevcut atamaların yerini alır.')
                     ->schema([
-                        Select::make('taxpayer_id')
-                            ->label('Mükellef')
+                        Select::make('taxpayer_ids')
+                            ->label('Mükellef(ler)')
+                            ->multiple()
                             ->options(fn () => PropertyTaxTaxpayer::query()
                                 ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
                                 ->orderBy('sort_order')->orderBy('id')
@@ -199,13 +200,22 @@ class UnitsRelationManager extends RelationManager
                             ->required(),
                     ])
                     ->action(function (array $data, Collection $records) {
+                        $ids = array_values($data['taxpayer_ids'] ?? []);
+                        $n = count($ids);
+                        if ($n === 0) {
+                            return;
+                        }
                         foreach ($records as $unit) {
                             $unit->allocations()->delete();
-                            $unit->allocations()->create([
-                                'property_tax_taxpayer_id' => $data['taxpayer_id'], 'pay' => 1, 'payda' => 1,
-                            ]);
+                            foreach ($ids as $tid) {
+                                $unit->allocations()->create([
+                                    'property_tax_taxpayer_id' => $tid, 'pay' => 1, 'payda' => $n,
+                                ]);
+                            }
                         }
-                        Notification::make()->title($records->count().' daire atandı')->success()->send();
+                        Notification::make()
+                            ->title($records->count().' daire, '.$n.' mükellefe atandı')
+                            ->success()->send();
                     })
                     ->deselectRecordsAfterCompletion(),
 
