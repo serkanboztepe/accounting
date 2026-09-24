@@ -201,13 +201,13 @@ class DeclarationExporter
     // ── Kroki (bina şeması) ────────────────────────────────────────────────
 
     /**
-     * Bina krokisi — "ev görünümü": üstte köşegen kenarlıklı çatı üçgeni (/\),
-     * altında katlar üst üste. Her daire dar (4 sütun) kompakt kutu: üst satır
-     * "X NOLU DAİRE", alt satır yüzölçümü (alt alta). Altta özet tablo.
+     * Bina krokisi — "ev görünümü": tüm daireler TEK SÜTUNDA alt alta (üst kat
+     * en üstte), üstünde köşegen kenarlıklı çatı üçgeni (/\). Her kutu dar:
+     * üst satır "X NOLU DAİRE", alt satır yüzölçümü. Altta özet tablo.
      */
-    private const KROKI_BOX_COLS = 4;   // kutu genişliği (dar)
-    private const KROKI_FLOOR_ROWS = 2; // kat yüksekliği (isim 1 + m² 1)
-    private const KROKI_ROOF_ROWS = 5;  // çatı yüksekliği (satır)
+    private const KROKI_BOX_COLS = 6;   // tek sütun kutu genişliği
+    private const KROKI_FLOOR_ROWS = 2; // kutu yüksekliği (isim 1 + m² 1)
+    private const KROKI_ROOF_ROWS = 6;  // çatı yüksekliği (satır)
 
     private function buildKroki(Spreadsheet $ss, PropertyTaxBlock $block, $units): void
     {
@@ -227,36 +227,34 @@ class DeclarationExporter
         }
         $sheet->setTitle('KROKİ');
 
-        // Katlara göre grupla
-        $byFloor = [];
-        $maxPos = 1;
-        foreach ($units as $u) {
-            $floor = $u->floor_no ?? 1;
-            $pos = $u->floor_position ?? 1;
-            $byFloor[$floor][$pos] = $u;
-            $maxPos = max($maxPos, $pos);
-        }
-        if (empty($byFloor)) {
-            $byFloor[1] = [];
-        }
-        krsort($byFloor); // üst kat en üstte
+        // Daireleri sırala: üst kat en üstte, aynı katta soldan sağa
+        $ordered = $units->sort(function ($a, $b) {
+            $fa = $a->floor_no ?? 0;
+            $fb = $b->floor_no ?? 0;
+            if ($fa !== $fb) {
+                return $fb <=> $fa; // üst kat önce
+            }
+
+            return ($a->floor_position ?? 0) <=> ($b->floor_position ?? 0);
+        })->values();
 
         $boxW = self::KROKI_BOX_COLS;
         $firstCol = 2; // B
-        $width = $maxPos * $boxW;
-        $lastCol = $firstCol + $width - 1;
+        $lastCol = $firstCol + $boxW - 1;
         $lastLetter = $this->colLetter($lastCol);
 
-        // Başlık
+        // Başlık ("-" veya boş blok adını gösterme)
+        $name = trim((string) $block->name);
+        $prefix = ($name !== '' && $name !== '-') ? $name.' — ' : '';
         $sheet->mergeCells('B1:'.$lastLetter.'1');
-        $sheet->setCellValue('B1', trim(($block->name ? $block->name.' — ' : '').'BİNA KROKİSİ'));
+        $sheet->setCellValue('B1', $prefix.'BİNA KROKİSİ');
         $sheet->getStyle('B1:'.$lastLetter.'1')->getFont()->setBold(true)->setSize(12);
         $sheet->getStyle('B1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
-        // Çatı (ev görünümü): sol yarı köşegen yukarı (/), sağ yarı köşegen aşağı (\) → /\
+        // Çatı: sol yarı köşegen yukarı (/), sağ yarı köşegen aşağı (\) → /\
         $roofTop = 3;
         $roofBottom = $roofTop + self::KROKI_ROOF_ROWS - 1;
-        $mid = $firstCol + intdiv($width, 2); // sağ yarının başı (tepe = orta üst)
+        $mid = $firstCol + intdiv($boxW, 2);
         $leftRoof = $this->colLetter($firstCol).$roofTop.':'.$this->colLetter($mid - 1).$roofBottom;
         $rightRoof = $this->colLetter($mid).$roofTop.':'.$lastLetter.$roofBottom;
         $sheet->mergeCells($leftRoof);
@@ -266,46 +264,38 @@ class DeclarationExporter
         $sheet->getStyle($rightRoof)->getBorders()->setDiagonalDirection(Borders::DIAGONAL_DOWN)
             ->getDiagonal()->setBorderStyle(Border::BORDER_MEDIUM);
         for ($r = $roofTop; $r <= $roofBottom; $r++) {
-            $sheet->getRowDimension($r)->setRowHeight(16);
+            $sheet->getRowDimension($r)->setRowHeight(15);
         }
 
-        // Katlar (çatının hemen altından başlar)
-        $buildTop = $roofBottom + 1;
-        $floorIndex = 0;
-        foreach ($byFloor as $floor => $positions) {
-            $top = $buildTop + $floorIndex * self::KROKI_FLOOR_ROWS;
-
-            $sheet->setCellValue('A'.$top, $floor.'.KAT');
-            $sheet->getStyle('A'.$top)->getFont()->setBold(true);
-
-            for ($p = 1; $p <= $maxPos; $p++) {
-                $u = $positions[$p] ?? null;
-                if (! $u) {
-                    continue; // eksik konum: boş bırak
-                }
-                $cs = $firstCol + ($p - 1) * $boxW;
-                $c0 = $this->colLetter($cs);
-                $c1 = $this->colLetter($cs + $boxW - 1);
-
-                $labelRange = $c0.$top.':'.$c1.$top;             // isim (1 satır)
-                $areaRange = $c0.($top + 1).':'.$c1.($top + 1);  // m² (1 satır)
-                $boxRange = $c0.$top.':'.$c1.($top + 1);
-                $sheet->mergeCells($labelRange);
-                $sheet->mergeCells($areaRange);
-
-                $sheet->setCellValue($c0.$top, $u->unit_no.' NOLU DAİRE');
-                $sheet->setCellValue($c0.($top + 1), $this->areaText($u->area));
-
-                $sheet->getStyle($boxRange)->getBorders()->getOutline()->setBorderStyle(Border::BORDER_THIN);
-                $sheet->getStyle($boxRange)->getAlignment()
-                    ->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
-                $sheet->getStyle($labelRange)->getFont()->setBold(true);
+        // Daireler: tek sütun, alt alta (çatının hemen altından)
+        $row = $roofBottom + 1;
+        $prevFloor = null;
+        foreach ($ordered as $u) {
+            $floor = $u->floor_no;
+            if ($floor !== null && $floor !== $prevFloor) {
+                $sheet->setCellValue('A'.$row, $floor.'.KAT');
+                $sheet->getStyle('A'.$row)->getFont()->setBold(true);
+                $prevFloor = $floor;
             }
-            $floorIndex++;
+
+            $labelRange = $this->colLetter($firstCol).$row.':'.$lastLetter.$row;
+            $areaRange = $this->colLetter($firstCol).($row + 1).':'.$lastLetter.($row + 1);
+            $boxRange = $this->colLetter($firstCol).$row.':'.$lastLetter.($row + 1);
+            $sheet->mergeCells($labelRange);
+            $sheet->mergeCells($areaRange);
+
+            $sheet->setCellValue($this->colLetter($firstCol).$row, $u->unit_no.' NOLU DAİRE');
+            $sheet->setCellValue($this->colLetter($firstCol).($row + 1), $this->areaText($u->area));
+
+            $sheet->getStyle($boxRange)->getBorders()->getOutline()->setBorderStyle(Border::BORDER_THIN);
+            $sheet->getStyle($boxRange)->getAlignment()
+                ->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle($labelRange)->getFont()->setBold(true);
+
+            $row += self::KROKI_FLOOR_ROWS;
         }
 
-        $summaryRow = $buildTop + count($byFloor) * self::KROKI_FLOOR_ROWS + 2;
-        $this->buildKrokiSummary($sheet, $block, $units, $summaryRow);
+        $this->buildKrokiSummary($sheet, $block, $units, $row + 1);
 
         $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
     }
