@@ -7,6 +7,7 @@ use App\Filament\Resources\PropertyTaxProjects\PropertyTaxProjectResource;
 use App\Models\PropertyTaxUnit;
 use Filament\Actions\Action;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Icons\Heroicon;
@@ -52,13 +53,21 @@ class EditPropertyTaxBlock extends EditRecord
                 ->schema([
                     TextInput::make('floors')
                         ->label('Kat Sayısı')
-                        ->numeric()->minValue(1)->required()->default(4),
+                        ->numeric()->minValue(1)->required()->default(4)
+                        ->helperText('Zemin dahil ise Zemin de bu sayıya dahildir.'),
+                    Toggle::make('ground_floor')
+                        ->label('Zemin katı olsun')
+                        ->default(true),
                     TextInput::make('per_floor')
                         ->label('Katta Kaç Daire')
                         ->numeric()->minValue(1)->required()->default(2),
                     TextInput::make('start_no')
                         ->label('Başlangıç Daire No')
                         ->numeric()->minValue(1)->required()->default(1),
+                    Toggle::make('number_from_bottom')
+                        ->label('Numaralandırma Zemin’den (alttan) başlasın')
+                        ->default(true)
+                        ->helperText('Kapalı ise en üst kattan aşağı numaralandırır.'),
                     TextInput::make('area')
                         ->label('Standart Yüzölçümü (m²)')
                         ->numeric()
@@ -74,14 +83,23 @@ class EditPropertyTaxBlock extends EditRecord
 
     private function bulkCreateUnits(array $data): void
     {
-        $floors = (int) $data['floors'];
+        $floorCount = (int) $data['floors'];
+        $hasGround = (bool) ($data['ground_floor'] ?? true);
+        $fromBottom = (bool) ($data['number_from_bottom'] ?? true);
         $perFloor = (int) $data['per_floor'];
         $no = (int) $data['start_no'];
         $area = $data['area'] !== null && $data['area'] !== '' ? (float) $data['area'] : null;
         $sort = (int) ($this->record->units()->max('sort_order') ?? 0);
 
+        // Kat listesi: Zemin dahilse 0..(N-1), değilse 1..N
+        $floors = $hasGround ? range(0, $floorCount - 1) : range(1, $floorCount);
+        // Numaralandırma yönü (alttan/üstten)
+        if (! $fromBottom) {
+            $floors = array_reverse($floors);
+        }
+
         $created = 0;
-        for ($floor = 1; $floor <= $floors; $floor++) {
+        foreach ($floors as $floor) {
             for ($pos = 1; $pos <= $perFloor; $pos++) {
                 $this->record->units()->create([
                     'unit_no'        => (string) $no,

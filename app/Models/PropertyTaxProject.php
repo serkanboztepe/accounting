@@ -37,6 +37,7 @@ class PropertyTaxProject extends Model
         'neighborhood',
         'street',
         'cadastral_parcel',
+        'land_area',
         'declaration_year',
         'filing_reason',
         'filer_role',
@@ -45,6 +46,7 @@ class PropertyTaxProject extends Model
 
     protected $casts = [
         'declaration_date' => 'date',
+        'land_area'        => 'decimal:2',
     ];
 
     public function blocks(): HasMany

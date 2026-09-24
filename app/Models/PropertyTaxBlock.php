@@ -15,7 +15,6 @@ class PropertyTaxBlock extends Model
     protected $fillable = [
         'property_tax_project_id',
         'name',
-        'land_area',
         'land_share_denominator',
         'land_share_numerator',
         'building_door_no',
@@ -33,7 +32,6 @@ class PropertyTaxBlock extends Model
     ];
 
     protected $casts = [
-        'land_area'                    => 'decimal:2',
         'land_share_denominator'       => 'integer',
         'land_share_numerator'         => 'integer',
         'construction_completion_date' => 'date',

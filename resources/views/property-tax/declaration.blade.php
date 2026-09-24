@@ -163,7 +163,7 @@
         </tr>
         @foreach ($byFloor as $floor => $positions)
             <tr>
-                <td class="kat">{{ $floor }}.KAT</td>
+                <td class="kat">{{ (int) $floor === 0 ? 'ZEMİN' : $floor.'.KAT' }}</td>
                 @for ($p = 1; $p <= $maxPos; $p++)
                     @php $u = $positions[$p] ?? null; @endphp
                     @if ($u)

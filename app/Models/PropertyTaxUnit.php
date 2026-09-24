@@ -44,6 +44,23 @@ class PropertyTaxUnit extends Model
         return $this->belongsTo(PropertyTaxBlock::class, 'property_tax_block_id');
     }
 
+    /** Kat etiketi: 0 → "Zemin", diğerleri "N. Kat". */
+    public function floorLabel(): string
+    {
+        return (int) ($this->floor_no ?? 0) === 0 ? 'Zemin' : $this->floor_no.'. Kat';
+    }
+
+    /** Kat seçim listesi: Zemin (0), 1. Kat, 2. Kat … */
+    public static function floorOptions(int $max = 40): array
+    {
+        $options = [0 => 'Zemin'];
+        for ($i = 1; $i <= $max; $i++) {
+            $options[$i] = $i.'. Kat';
+        }
+
+        return $options;
+    }
+
     public function allocations(): HasMany
     {
         return $this->hasMany(PropertyTaxUnitTaxpayer::class);
@@ -113,7 +130,7 @@ class PropertyTaxUnit extends Model
     {
         $num = $this->landShareNumerator();
         $den = $this->landShareDenominator();
-        $area = $this->block?->land_area;
+        $area = $this->block?->project?->land_area;
         if (! $num || ! $den || $area === null) {
             return null;
         }

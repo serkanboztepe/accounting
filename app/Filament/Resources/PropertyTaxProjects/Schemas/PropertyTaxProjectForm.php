@@ -20,12 +20,16 @@ class PropertyTaxProjectForm
     {
         return $schema->components([
             Section::make('Proje')
+                ->columns(2)
                 ->schema([
                     TextInput::make('name')
                         ->label('Proje / Bina Adı')
                         ->required()
-                        ->placeholder('Hocabey Apartmanı')
-                        ->columnSpanFull(),
+                        ->placeholder('Hocabey Apartmanı'),
+                    TextInput::make('land_area')
+                        ->label('Arsa Alanı (m²)')
+                        ->numeric()
+                        ->helperText('Parselin toplam arsa alanı — proje bazında tek.'),
                 ])
                 ->columnSpanFull(),
 
@@ -51,8 +55,8 @@ class PropertyTaxProjectForm
                     ]),
 
                 Section::make('Konum')
-                    ->description('İl/ilçe/belediye .env’den otomatik gelir. Mahalle/cadde/ada-parsel bina bazında.')
-                    ->columns(2)
+                    ->description('İl/ilçe/belediye .env’den otomatik gelir.')
+                    ->columns(1)
                     ->schema([
                         TextInput::make('city')
                             ->label('İl')
@@ -65,14 +69,12 @@ class PropertyTaxProjectForm
                         TextInput::make('municipality')
                             ->label('Belediye')
                             ->default(config('property_tax.municipality'))
-                            ->placeholder(config('property_tax.municipality') ?: 'MERKEZ-ERZİNCAN')
-                            ->columnSpanFull()
-                            ->helperText('Beyannamenin “… Belediye Başkanlığına” satırı.'),
+                            ->placeholder(config('property_tax.municipality') ?: 'MERKEZ-ERZİNCAN'),
                         TextInput::make('neighborhood')->label('Mahalle')->placeholder('HOCABEY'),
                         TextInput::make('cadastral_parcel')->label('Ada / Parsel')->placeholder('880/294'),
-                        TextInput::make('street')->label('Cadde / Sokak')->placeholder('1056')->columnSpanFull(),
+                        TextInput::make('street')->label('Cadde / Sokak')->placeholder('1056'),
                     ]),
-            ]),
+            ])->columnSpanFull(),
         ]);
     }
 }

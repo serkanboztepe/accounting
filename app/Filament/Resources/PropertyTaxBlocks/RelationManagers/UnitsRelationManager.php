@@ -36,10 +36,11 @@ class UnitsRelationManager extends RelationManager
                     TextInput::make('area')
                         ->label('Dıştan Dışa Yüzölçümü (m²)')
                         ->numeric(),
-                    TextInput::make('floor_no')
-                        ->label('Kat No')
-                        ->numeric()
-                        ->helperText('Kroki için — 1 en alt kat.'),
+                    Select::make('floor_no')
+                        ->label('Kat')
+                        ->options(PropertyTaxUnit::floorOptions())
+                        ->default(0)
+                        ->helperText('Zemin en alt kat.'),
                     TextInput::make('floor_position')
                         ->label('Kattaki Sıra')
                         ->numeric()
@@ -99,7 +100,8 @@ class UnitsRelationManager extends RelationManager
             ->defaultSort('sort_order')
             ->columns([
                 TextColumn::make('unit_no')->label('Daire')->sortable(),
-                TextColumn::make('floor_no')->label('Kat')->sortable(),
+                TextColumn::make('floor_no')->label('Kat')->sortable()
+                    ->getStateUsing(fn (PropertyTaxUnit $record) => $record->floorLabel()),
                 TextColumn::make('floor_position')->label('Sıra'),
                 TextColumn::make('area')->label('Yüzölçümü')->numeric(2)->suffix(' m²'),
                 TextColumn::make('land_share')

@@ -244,7 +244,7 @@ class DeclarationExporter
         $sheet->setCellValue($c.'31', $block->building_door_no);   // Kapı/Bina no
         $this->setText($sheet, $s.'31', (string) $unit->unit_no);  // Daire no
         $this->setText($sheet, $c.'33', $block->project?->cadastral_parcel);
-        $sheet->setCellValue($c.'35', $block->land_area);
+        $sheet->setCellValue($c.'35', $block->project?->land_area);
         $sheet->setCellValue($c.'36', $unit->landShareRatioText()); // binaya ait arsa payı (ör. 5/120)
         $sheet->setCellValue($s.'36', $unit->landShareArea());      // m²
         $sheet->setCellValue($c.'37', $block->construction_type);
@@ -361,7 +361,7 @@ class DeclarationExporter
         foreach ($byFloor as $floor => $positions) {
             $top = $startRow + $floorIndex * self::KROKI_FLOOR_ROWS;
 
-            $sheet->setCellValue('A'.($top + 1), $floor.'.KAT');
+            $sheet->setCellValue('A'.($top + 1), (int) $floor === 0 ? 'ZEMİN' : $floor.'.KAT');
             $sheet->getStyle('A'.($top + 1))->getFont()->setBold(true);
 
             for ($p = 1; $p <= $maxPos; $p++) {

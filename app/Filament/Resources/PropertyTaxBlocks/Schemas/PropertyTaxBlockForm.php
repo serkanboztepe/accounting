@@ -27,9 +27,6 @@ class PropertyTaxBlockForm
                     TextInput::make('building_door_no')
                         ->label('Bina / Kapı No')
                         ->placeholder('3'),
-                    TextInput::make('land_area')
-                        ->label('Arsa Alanı (m²)')
-                        ->numeric(),
                     TextInput::make('land_share_numerator')
                         ->label('Varsayılan Arsa Payı — Pay')
                         ->numeric()
