@@ -5,6 +5,7 @@ namespace App\Filament\Resources\PropertyTaxBlocks\RelationManagers;
 use App\Models\PropertyTaxTaxpayer;
 use App\Models\PropertyTaxUnit;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -19,8 +20,10 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\SelectColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 
 class UnitsRelationManager extends RelationManager
 {
@@ -102,6 +105,7 @@ class UnitsRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('unit_no')
             ->defaultSort('sort_order')
+            ->modifyQueryUsing(fn ($query) => $query->with('allocations.taxpayer'))
             ->columns([
                 TextColumn::make('unit_no')->label('Daire')->sortable(),
                 TextColumn::make('floor_no')->label('Kat')->sortable()
@@ -111,11 +115,30 @@ class UnitsRelationManager extends RelationManager
                 TextColumn::make('land_share')
                     ->label('Arsa Payı')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->landShareRatioText() ?? '—'),
-                TextColumn::make('taxpayers')
-                    ->label('Mükellef(ler)')
-                    ->getStateUsing(fn (PropertyTaxUnit $record) => $record->allocations
-                        ->map(fn ($a) => $a->taxpayer?->fullName().' ('.$a->shareText().')')
-                        ->filter()->implode(', ') ?: '— atanmadı —'),
+                SelectColumn::make('primary_taxpayer')
+                    ->label('Sahibi (Mükellef)')
+                    ->options(fn () => PropertyTaxTaxpayer::query()
+                        ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
+                        ->orderBy('sort_order')->orderBy('id')
+                        ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
+                    ->selectablePlaceholder(fn (PropertyTaxUnit $record) => $record->allocations->count() <= 1)
+                    ->getStateUsing(fn (PropertyTaxUnit $record) => $record->allocations->count() === 1
+                        ? $record->allocations->first()->property_tax_taxpayer_id
+                        : null)
+                    ->disabled(fn (PropertyTaxUnit $record) => $record->allocations->count() > 1)
+                    ->placeholder(fn (PropertyTaxUnit $record) => $record->allocations->count() > 1
+                        ? 'çok sahipli — Düzenle’den'
+                        : 'seç')
+                    ->updateStateUsing(function (PropertyTaxUnit $record, $state) {
+                        $record->allocations()->delete();
+                        if ($state) {
+                            $record->allocations()->create([
+                                'property_tax_taxpayer_id' => $state, 'pay' => 1, 'payda' => 1,
+                            ]);
+                        }
+
+                        return $state;
+                    }),
                 TextColumn::make('usage_type')
                     ->label('Kullanış')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->effectiveUsageType())
@@ -161,6 +184,32 @@ class UnitsRelationManager extends RelationManager
                 DeleteAction::make(),
             ])
             ->toolbarActions([
+                BulkAction::make('assignTaxpayer')
+                    ->label('Mükellefe Ata')
+                    ->icon(Heroicon::OutlinedUserPlus)
+                    ->color('warning')
+                    ->modalHeading('Seçili Daireleri Mükellefe Ata')
+                    ->modalDescription('Seçili dairelerin sahibi bu mükellef olur (tam sahiplik). Mevcut atamaların yerini alır.')
+                    ->schema([
+                        Select::make('taxpayer_id')
+                            ->label('Mükellef')
+                            ->options(fn () => PropertyTaxTaxpayer::query()
+                                ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
+                                ->orderBy('sort_order')->orderBy('id')
+                                ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
+                            ->required(),
+                    ])
+                    ->action(function (array $data, Collection $records) {
+                        foreach ($records as $unit) {
+                            $unit->allocations()->delete();
+                            $unit->allocations()->create([
+                                'property_tax_taxpayer_id' => $data['taxpayer_id'], 'pay' => 1, 'payda' => 1,
+                            ]);
+                        }
+                        Notification::make()->title($records->count().' daire atandı')->success()->send();
+                    })
+                    ->deselectRecordsAfterCompletion(),
+
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),
