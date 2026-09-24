@@ -38,7 +38,6 @@ class BlocksRelationManager extends RelationManager
                     ->counts('units')
                     ->badge()
                     ->color('info'),
-                TextColumn::make('land_area')->label('Arsa Alanı')->numeric(2)->suffix(' m²'),
                 TextColumn::make('construction_type')->label('İnşaat')->toggleable(),
             ])
             ->headerActions([
