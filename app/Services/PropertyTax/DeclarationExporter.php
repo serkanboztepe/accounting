@@ -3,6 +3,7 @@
 namespace App\Services\PropertyTax;
 
 use App\Models\PropertyTaxBlock;
+use App\Models\PropertyTaxProject;
 use App\Models\PropertyTaxTaxpayer;
 use App\Models\PropertyTaxUnitTaxpayer;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
@@ -53,6 +54,54 @@ class DeclarationExporter
      */
     public function exportForTaxpayer(PropertyTaxTaxpayer $taxpayer): string
     {
+        $ss = $this->buildWorkbookForTaxpayer($taxpayer);
+
+        // .xlsx: köşegen çatı ve biçim .xlsx'te doğru render olur (.xls yazıcı köşegeni göstermiyor).
+        $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xlsx';
+        IOFactory::createWriter($ss, 'Xlsx')->save($path);
+
+        return $path;
+    }
+
+    /**
+     * Projedeki TÜM mükelleflerin beyannameleri tek dosyada (tek tık PDF için).
+     * Her mükellefin sayfaları sırayla birleştirilir; boş mükellef atlanır.
+     */
+    public function exportForProject(PropertyTaxProject $project): string
+    {
+        $project->loadMissing('taxpayers');
+
+        $master = new Spreadsheet();
+        $i = 0;
+        foreach ($project->taxpayers as $taxpayer) {
+            if ($taxpayer->allocations()->count() === 0) {
+                continue; // atanmış dairesi olmayan mükellefi atla
+            }
+            $i++;
+            $ss = $this->buildWorkbookForTaxpayer($taxpayer);
+            foreach ($ss->getAllSheets() as $sheet) {
+                $sheet->setTitle(mb_substr('M'.$i.'-'.$sheet->getTitle(), 0, 31), false);
+                $master->addExternalSheet($sheet);
+            }
+        }
+
+        // Başlangıçtaki boş varsayılan sayfayı sil (dış sayfa eklendiyse)
+        if ($master->getSheetCount() > 1) {
+            $master->removeSheetByIndex(0);
+        } elseif ($i === 0) {
+            $master->getActiveSheet()->setCellValue('A1', 'Beyanname üretilecek mükellef/daire yok.');
+        }
+
+        $master->setActiveSheetIndex(0);
+
+        $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xlsx';
+        IOFactory::createWriter($master, 'Xlsx')->save($path);
+
+        return $path;
+    }
+
+    private function buildWorkbookForTaxpayer(PropertyTaxTaxpayer $taxpayer): Spreadsheet
+    {
         $taxpayer->loadMissing(['project', 'allocations.unit.block.project']);
         $project = $taxpayer->project;
 
@@ -96,11 +145,7 @@ class DeclarationExporter
 
         $ss->setActiveSheetIndex(0);
 
-        // .xlsx: köşegen çatı ve biçim .xlsx'te doğru render olur (.xls yazıcı köşegeni göstermiyor).
-        $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xlsx';
-        IOFactory::createWriter($ss, 'Xlsx')->save($path);
-
-        return $path;
+        return $ss;
     }
 
     public function downloadNameForTaxpayer(PropertyTaxTaxpayer $taxpayer): string
@@ -108,6 +153,13 @@ class DeclarationExporter
         $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
 
         return 'Beyanname-'.$slug($taxpayer->project?->name ?? 'proje').'-'.$slug($taxpayer->fullName()).'.xlsx';
+    }
+
+    public function downloadNameForProject(PropertyTaxProject $project): string
+    {
+        $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
+
+        return 'Beyannameler-'.$slug($project->name ?? 'proje').'.xlsx';
     }
 
     // ── Sayfa yönetimi ─────────────────────────────────────────────────────

@@ -121,6 +121,28 @@ Route::get('/emlak-beyani-mukellef/{taxpayer}/formatli-pdf', function (\App\Mode
         ->deleteFileAfterSend();
 })->middleware('auth')->name('property-tax.taxpayer.formatli-pdf');
 
+// Proje geneli — tüm mükellefler tek dosyada
+Route::get('/emlak-beyani-proje/{project}/excel', function (\App\Models\PropertyTaxProject $project) {
+    $exporter = new \App\Services\PropertyTax\DeclarationExporter();
+
+    return response()->download($exporter->exportForProject($project), $exporter->downloadNameForProject($project))
+        ->deleteFileAfterSend();
+})->middleware('auth')->name('property-tax.project.excel');
+
+Route::get('/emlak-beyani-proje/{project}/formatli-pdf', function (\App\Models\PropertyTaxProject $project) {
+    $exporter = new \App\Services\PropertyTax\DeclarationExporter();
+    $xlsx = $exporter->exportForProject($project);
+
+    try {
+        $pdf = (new \App\Services\PropertyTax\PdfConverter())->fromXlsx($xlsx);
+    } finally {
+        @unlink($xlsx);
+    }
+
+    return response()->download($pdf, str_replace('.xlsx', '.pdf', $exporter->downloadNameForProject($project)))
+        ->deleteFileAfterSend();
+})->middleware('auth')->name('property-tax.project.formatli-pdf');
+
 Route::get('/invoice-file/{filename}', function (string $filename) {
     $path = storage_path('app/public/invoices/' . $filename);
 
