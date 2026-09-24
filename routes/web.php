@@ -89,11 +89,7 @@ Route::get('/satislar/{sale}/yazdir', function (\App\Models\Sale $sale) {
     ]);
 })->middleware('auth')->name('sale.print');
 
-// Emlak Beyanı — HTML görünüm ve PDF (aynı Blade)
-Route::get('/emlak-beyani/{block}/html', function (\App\Models\PropertyTaxBlock $block) {
-    return view('property-tax.declaration', ['block' => $block->load(['project', 'units'])]);
-})->middleware('auth')->name('property-tax.declaration.html');
-
+// Emlak Beyanı — PDF (dompdf, temiz) ve Formatlı PDF (LibreOffice, birebir resmi form)
 Route::get('/emlak-beyani/{block}/pdf', function (\App\Models\PropertyTaxBlock $block) {
     $block->load(['project', 'units']);
     $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
@@ -103,6 +99,22 @@ Route::get('/emlak-beyani/{block}/pdf', function (\App\Models\PropertyTaxBlock $
         ->setPaper('a4', 'portrait')
         ->download($name);
 })->middleware('auth')->name('property-tax.declaration.pdf');
+
+Route::get('/emlak-beyani/{block}/formatli-pdf', function (\App\Models\PropertyTaxBlock $block) {
+    $block->load(['project', 'units']);
+    $exporter = new \App\Services\PropertyTax\DeclarationExporter();
+    $xlsx = $exporter->export($block);
+
+    try {
+        $pdf = (new \App\Services\PropertyTax\PdfConverter())->fromXlsx($xlsx);
+    } finally {
+        @unlink($xlsx);
+    }
+
+    $name = str_replace('.xlsx', '.pdf', $exporter->downloadName($block));
+
+    return response()->download($pdf, $name)->deleteFileAfterSend();
+})->middleware('auth')->name('property-tax.declaration.formatli-pdf');
 
 Route::get('/invoice-file/{filename}', function (string $filename) {
     $path = storage_path('app/public/invoices/' . $filename);

@@ -130,6 +130,7 @@ class DeclarationExporter
         $ps->setFitToPage(true);
         // Baskı alanı içeriğin gerçek sağ kenarına (EN = III. Bina + NOT sağ kenarı) ve NOT'un son satırına.
         $ps->setPrintArea('A1:EN70');
+        $ps->setHorizontalCentered(true); // tüm beyanname sayfaları aynı hizada ortalı
     }
 
     // ── Başlık (mükellef + ortak) ──────────────────────────────────────────
@@ -227,6 +228,11 @@ class DeclarationExporter
                 $sheet->setCellValue($col.$r, null);
             }
         }
+        // Şablon Sayfa1'den kalan kenarlık/köşegenleri de temizle — yoksa çatının
+        // altında orijinal kroki kutularının hayalet dikdörtgenleri kalıyor.
+        $clear = 'A1:AC'.$highest;
+        $sheet->getStyle($clear)->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_NONE);
+        $sheet->getStyle($clear)->getBorders()->getDiagonal()->setBorderStyle(Border::BORDER_NONE);
         $sheet->setTitle('KROKİ');
 
         // Katlara göre grupla
@@ -321,6 +327,14 @@ class DeclarationExporter
         if ($last > $summaryRow + 1) {
             $sheet->removeRow($summaryRow + 2, $last - ($summaryRow + 1));
         }
+
+        // Kroki tek sayfaya sığsın (LibreOffice PDF'te bölünmesin)
+        $sheet->setShowGridlines(false);
+        $kps = $sheet->getPageSetup();
+        $kps->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);
+        $kps->setFitToWidth(1);
+        $kps->setFitToHeight(1);
+        $kps->setFitToPage(true);
 
         $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
     }
