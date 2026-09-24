@@ -8,12 +8,14 @@
     $fmtDate = fn ($d) => $d ? \Illuminate\Support\Carbon::parse($d)->format('d.m.Y') : '';
     $verilis = $project->filing_reason === 'change' ? 'Değişiklik' : 'İlk İktisap';
 
-    // Kroki için: üst kat en üstte, aynı katta soldan sağa
-    $krokiUnits = $units->sort(function ($a, $b) {
-        $fa = $a->floor_no ?? 0; $fb = $b->floor_no ?? 0;
-        if ($fa !== $fb) return $fb <=> $fa;
-        return ($a->floor_position ?? 0) <=> ($b->floor_position ?? 0);
-    })->values();
+    // Kroki: kat başına daireler yan yana (ızgara), üst kat en üstte
+    $byFloor = [];
+    $maxPos = 1;
+    foreach ($units as $u) {
+        $byFloor[$u->floor_no ?? 1][$u->floor_position ?? 1] = $u;
+        $maxPos = max($maxPos, $u->floor_position ?? 1);
+    }
+    krsort($byFloor);
 @endphp
 <!DOCTYPE html>
 <html lang="tr">
@@ -41,17 +43,15 @@
     .sign td { padding: 6px; vertical-align: bottom; }
     .note { margin-top: 10px; font-size: 8px; color: #333; white-space: pre-line; border-top: 1px solid #ccc; padding-top: 4px; }
 
-    /* Kroki (ev görünümü) */
+    /* Kroki (ızgara: kat başına daireler yan yana) */
     .kroki { text-align: center; }
-    .kroki h2 { font-size: 13px; margin: 0 0 12px; }
-    .house { display: inline-block; }
-    .roof { width: 0; height: 0; border-left: 110px solid transparent; border-right: 110px solid transparent; border-bottom: 55px solid #444; margin: 0 auto; }
-    .floor-row { position: relative; }
-    .kat { position: absolute; left: -46px; top: 14px; font-weight: bold; font-size: 10px; }
-    .daire { width: 220px; border: 1.5px solid #333; border-top: none; margin: 0 auto; padding: 6px 0; }
-    .daire.first { border-top: 1.5px solid #333; }
-    .daire .no { font-weight: bold; font-size: 11px; }
-    .daire .m2 { font-size: 10px; color: #333; }
+    .kroki h2 { font-size: 13px; margin: 0 0 14px; }
+    .kroki-grid { border-collapse: collapse; margin: 0 auto; }
+    .kroki-grid .kat { font-weight: bold; font-size: 10px; padding: 0 10px 0 0; border: none; white-space: nowrap; }
+    .kroki-grid .dbox { border: 1.5px solid #333; width: 95px; height: 48px; text-align: center; vertical-align: middle; padding: 2px; }
+    .kroki-grid .dbox .no { font-weight: bold; font-size: 10px; }
+    .kroki-grid .dbox .m2 { font-size: 9px; color: #333; }
+    .kroki-grid .empty { border: none; width: 95px; }
     .ozet { margin: 16px auto 0; border-collapse: collapse; }
     .ozet td { border: 1px solid #999; padding: 4px 8px; font-size: 9px; }
     .ozet .h { background: #f2f2f2; font-weight: bold; }
@@ -147,22 +147,24 @@
 {{-- KROKİ: ev görünümü --}}
 <div class="page kroki">
     <h2>{{ trim($block->name) && $block->name !== '-' ? $block->name.' — ' : '' }}BİNA KROKİSİ</h2>
-    <div class="house">
-        <div class="roof"></div>
-        @php $prevFloor = null; @endphp
-        @foreach ($krokiUnits as $idx => $u)
-            <div class="floor-row">
-                @if ($u->floor_no !== null && $u->floor_no !== $prevFloor)
-                    <span class="kat">{{ $u->floor_no }}.KAT</span>
-                    @php $prevFloor = $u->floor_no; @endphp
-                @endif
-                <div class="daire {{ $idx === 0 ? 'first' : '' }}">
-                    <div class="no">{{ $u->unit_no }} NOLU DAİRE</div>
-                    <div class="m2">{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
-                </div>
-            </div>
+    <table class="kroki-grid">
+        @foreach ($byFloor as $floor => $positions)
+            <tr>
+                <td class="kat">{{ $floor }}.KAT</td>
+                @for ($p = 1; $p <= $maxPos; $p++)
+                    @php $u = $positions[$p] ?? null; @endphp
+                    @if ($u)
+                        <td class="dbox">
+                            <div class="no">{{ $u->unit_no }} NOLU DAİRE</div>
+                            <div class="m2">{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
+                        </td>
+                    @else
+                        <td class="empty"></td>
+                    @endif
+                @endfor
+            </tr>
         @endforeach
-    </div>
+    </table>
 
     <table class="ozet">
         <tr>
