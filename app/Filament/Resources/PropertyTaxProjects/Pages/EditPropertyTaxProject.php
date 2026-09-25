@@ -3,11 +3,13 @@
 namespace App\Filament\Resources\PropertyTaxProjects\Pages;
 
 use App\Filament\Resources\PropertyTaxProjects\PropertyTaxProjectResource;
+use App\Filament\Resources\PropertyTaxProjects\Schemas\PropertyTaxProjectForm;
 use App\Models\PropertyTaxUnit;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 
 class EditPropertyTaxProject extends EditRecord
@@ -17,6 +19,17 @@ class EditPropertyTaxProject extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Proje bilgileri artık sağ üstteki ⚙ Ayarlar modalından; gövde blok/mükellef yönetimine kaldı.
+            Action::make('settings')
+                ->label('Ayarlar')
+                ->icon(Heroicon::OutlinedCog6Tooth)
+                ->color('gray')
+                ->modalHeading('Proje Bilgileri')
+                ->modalSubmitActionLabel('Kaydet')
+                ->fillForm(fn (): array => $this->record->attributesToArray())
+                ->schema(PropertyTaxProjectForm::components())
+                ->action(fn (array $data) => $this->record->update($data)),
+
             Action::make('distributeShares')
                 ->label('Hisseleri Eşit Böl')
                 ->icon(Heroicon::OutlinedScale)
@@ -41,6 +54,17 @@ class EditPropertyTaxProject extends EditRecord
 
             DeleteAction::make(),
         ];
+    }
+
+    /**
+     * Gövdeden inline proje formu + alttaki Kaydet bar'ı kaldır — düzenleme ⚙ Ayarlar modalından.
+     * Gövde: bloklar + mükellefler (asıl çalışılan yer).
+     */
+    public function content(Schema $schema): Schema
+    {
+        return $schema->components([
+            $this->getRelationManagersContentComponent(),
+        ]);
     }
 
     private function distributeSharesEqually(): void

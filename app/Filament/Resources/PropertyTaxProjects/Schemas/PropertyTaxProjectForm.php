@@ -18,7 +18,13 @@ class PropertyTaxProjectForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema->components([
+        return $schema->components(self::components());
+    }
+
+    /** Proje form bileşenleri — hem resource formu hem "⚙ Ayarlar" modalı kullanır. */
+    public static function components(): array
+    {
+        return [
             Section::make('Proje')
                 ->columns(2)
                 ->schema([
@@ -79,6 +85,6 @@ class PropertyTaxProjectForm
                         TextInput::make('street')->label('Cadde / Sokak')->placeholder('1056'),
                     ]),
             ])->columnSpanFull(),
-        ]);
+        ];
     }
 }
