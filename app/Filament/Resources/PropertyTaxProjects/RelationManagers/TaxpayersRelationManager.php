@@ -87,20 +87,14 @@ class TaxpayersRelationManager extends RelationManager
                     ->modalHeading(fn (PropertyTaxTaxpayer $record) => $record->fullName().' — Daire Seç')
                     ->modalDescription('Bu mükellefin sahip olduğu daireleri işaretle. İşaretlenenler bu mükellefe (1/1) atanır; işareti kaldırılanlardan çıkarılır. Hisseli (ortak) için daire "Düzenle"sini kullan.')
                     ->modalSubmitActionLabel('Kaydet')
-                    ->fillForm(fn (PropertyTaxTaxpayer $record) => ['units' => $record->units->pluck('id')->all()])
-                    ->schema([
-                        CheckboxList::make('units')
-                            ->label('Daireler')
-                            ->options(fn () => $this->unitOptions())
-                            ->columns(3)
-                            ->bulkToggleable()
-                            ->searchable(),
-                    ])
+                    ->fillForm(fn (PropertyTaxTaxpayer $record) => $this->assignUnitsFill($record))
+                    ->schema(fn () => $this->assignUnitsSchema())
                     ->action(function (array $data, PropertyTaxTaxpayer $record) {
+                        $ids = $this->collectSelectedUnitIds($data);
                         $record->units()->sync(
-                            collect($data['units'] ?? [])->mapWithKeys(fn ($id) => [$id => ['pay' => 1, 'payda' => 1]])->all()
+                            collect($ids)->mapWithKeys(fn ($id) => [$id => ['pay' => 1, 'payda' => 1]])->all()
                         );
-                        Notification::make()->title(count($data['units'] ?? []).' daire atandı')->success()->send();
+                        Notification::make()->title(count($ids).' daire atandı')->success()->send();
                     }),
                 Action::make('formatliPdf')
                     ->label('Formatlı PDF')
@@ -122,17 +116,51 @@ class TaxpayersRelationManager extends RelationManager
             ]);
     }
 
-    /** Projedeki tüm daireler — "Daire N — Blok (Kat)" etiketiyle. */
-    private function unitOptions(): array
+    /** Projedeki bloklar (daireleri sıralı, boş bloklar hariç). */
+    private function projectBlocksWithUnits()
     {
-        return PropertyTaxUnit::query()
-            ->whereHas('block', fn ($q) => $q->where('property_tax_project_id', $this->getOwnerRecord()->id))
-            ->with('block')
-            ->orderBy('sort_order')->orderBy('id')
+        return $this->getOwnerRecord()->blocks()
+            ->with(['units' => fn ($q) => $q->orderBy('sort_order')->orderBy('id')])
+            ->orderBy('id')
             ->get()
-            ->mapWithKeys(fn (PropertyTaxUnit $u) => [
-                $u->id => 'Daire '.$u->unit_no.' — '.$u->block?->name.' ('.$u->floorLabel().')',
-            ])
+            ->filter(fn ($b) => $b->units->isNotEmpty())
+            ->values();
+    }
+
+    /** Her blok için ayrı CheckboxList (blok adı başlıklı, daireler sıralı). */
+    private function assignUnitsSchema(): array
+    {
+        return $this->projectBlocksWithUnits()
+            ->map(fn ($block) => CheckboxList::make('block_'.$block->id)
+                ->label($block->name)
+                ->options($block->units->mapWithKeys(fn (PropertyTaxUnit $u) => [
+                    $u->id => 'Daire '.$u->unit_no.' — '.$u->floorLabel(),
+                ]))
+                ->columns(3)
+                ->bulkToggleable())
             ->all();
+    }
+
+    /** Mükellefin mevcut dairelerini blok bazında işaretli getir. */
+    private function assignUnitsFill(PropertyTaxTaxpayer $record): array
+    {
+        $owned = $record->units->pluck('id')->all();
+        $data = [];
+        foreach ($this->projectBlocksWithUnits() as $block) {
+            $data['block_'.$block->id] = $block->units->pluck('id')->intersect($owned)->values()->all();
+        }
+
+        return $data;
+    }
+
+    /** Tüm blok CheckboxList seçimlerini tek listede topla. */
+    private function collectSelectedUnitIds(array $data): array
+    {
+        $ids = [];
+        foreach ($this->projectBlocksWithUnits() as $block) {
+            $ids = array_merge($ids, $data['block_'.$block->id] ?? []);
+        }
+
+        return array_values(array_unique($ids));
     }
 }
