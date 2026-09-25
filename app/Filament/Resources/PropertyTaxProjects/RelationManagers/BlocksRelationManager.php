@@ -9,7 +9,6 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteBulkAction;
-use Filament\Actions\EditAction;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -44,12 +43,11 @@ class BlocksRelationManager extends RelationManager
                 CreateAction::make()->label('Blok Ekle'),
             ])
             ->recordActions([
+                // Düzenle modalı kaldırıldı — blok ayarları "Daireler" ile içeri girilip ⚙ Ayarlar'dan düzenlenir.
                 Action::make('manageUnits')
                     ->label('Daireler')
                     ->icon(Heroicon::OutlinedBuildingOffice2)
                     ->url(fn (PropertyTaxBlock $record) => PropertyTaxBlockResource::getUrl('edit', ['record' => $record])),
-
-                EditAction::make()->label('Düzenle'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
