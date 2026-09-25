@@ -12,6 +12,28 @@
         :description="$statementDesc"
         collapsible
     >
+        {{-- Yeni hareket girişi — tek liste (grid kaldırıldı) --}}
+        <div class="mb-4 flex flex-wrap gap-2">
+            <x-filament::button color="info" icon="heroicon-o-shopping-cart"
+                wire:click="mountAction('newLedgerEntry', { type: 'satis' })">
+                Satış
+            </x-filament::button>
+            <x-filament::button color="success" icon="heroicon-o-arrow-down-circle"
+                wire:click="mountAction('newLedgerEntry', { type: 'tahsilat' })">
+                Tahsilat
+            </x-filament::button>
+            @if (config('modules.cari_supplier'))
+                <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
+                    wire:click="mountAction('newLedgerEntry', { type: 'alis' })">
+                    Alış / Hizmet
+                </x-filament::button>
+                <x-filament::button color="danger" icon="heroicon-o-arrow-up-circle"
+                    wire:click="mountAction('newLedgerEntry', { type: 'odeme' })">
+                    Ödeme
+                </x-filament::button>
+            @endif
+        </div>
+
         {{-- Filtreler --}}
         @php
             $hasFilter = filled($statementDateFrom) || filled($statementDateTo) || filled($statementProjectId);
@@ -87,11 +109,21 @@
                 </thead>
                 <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                     @forelse ($statement['rows'] as $r)
-                        <tr>
+                        @php $editable = ($r['editable'] ?? false) && ! empty($r['entry_id']); @endphp
+                        <tr
+                            @if ($editable)
+                                wire:click="mountAction('editLedgerEntry', { entry: {{ $r['entry_id'] }} })"
+                                class="cursor-pointer transition hover:bg-gray-50 dark:hover:bg-white/5"
+                                title="Düzenlemek / silmek için tıkla"
+                            @endif
+                        >
                             <td class="py-2 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $r['date'] }}</td>
                             <td class="py-2 px-3">
                                 <span class="text-gray-950 dark:text-white">{{ $r['desc'] }}</span>
                                 <span class="text-xs text-gray-400">· {{ $r['label'] }}</span>
+                                @if ($editable)
+                                    <span class="ml-1 text-xs text-gray-300 dark:text-gray-600">✎</span>
+                                @endif
                             </td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['borc'] > 0 ? '₺' . \App\Support\Money::format($r['borc']) : '' }}</td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['alacak'] > 0 ? '₺' . \App\Support\Money::format($r['alacak']) : '' }}</td>

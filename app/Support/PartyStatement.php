@@ -108,6 +108,9 @@ class PartyStatement
                 $isDebit ? 0.0 : $amount,
                 $entry->project_id,
                 $entry->project?->name,
+                $entry->id,
+                // Satışa/iadeye bağlı satırlar buradan düzenlenmez (kaynak = Direkt Satış).
+                $entry->sale_id === null && $entry->sale_return_id === null,
             );
         }
 
@@ -171,7 +174,7 @@ class PartyStatement
         ];
     }
 
-    protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null): array
+    protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null, ?int $entryId = null, bool $editable = false): array
     {
         return [
             'ts'           => $date ? $date->timestamp : 0,
@@ -182,6 +185,9 @@ class PartyStatement
             'alacak'       => $alacak,
             'project_id'   => $projectId,
             'project_name' => $projectName,
+            // Elle girilen cari hareketi ise düzenle/sil için id + izin.
+            'entry_id'     => $entryId,
+            'editable'     => $editable,
         ];
     }
 }

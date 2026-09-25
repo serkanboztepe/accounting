@@ -12,21 +12,113 @@ use App\Models\Invoice;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Support\PartyStatement;
+use App\Support\Forms\MoneyInput;
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Resources\Pages\EditRecord;
-use Livewire\Attributes\On;
 
 class EditParty extends EditRecord
 {
     protected static string $resource = PartyResource::class;
 
     /**
-     * Cari ledger'a satış/tahsilat/ödeme eklenince (relation manager'dan gelen event),
-     * bu boş metot sayfayı yeniden render eder → getFooter() tekrar çalışır → Cari Ekstresi canlı güncellenir.
+     * Cari Ekstresi'ndeki tek liste bunları kullanır (grid kaldırıldı):
+     *   - Üstteki butonlar → newLedgerEntry (tip argümanla)
+     *   - Satıra tıkla → editLedgerEntry (Sil pencere içinde)
+     * Aksiyonlar bu sayfada olduğu için, çalıştıktan sonra sayfa otomatik
+     * yeniden render olur → getFooter() tekrar hesaplanır → ekstre canlı güncellenir.
      */
-    #[On('ledgerUpdated')]
-    public function refreshLedgerFooter(): void
+
+    /** Elle cari hareketi için ortak form alanları (yön/tip yok — tip butondan gelir). */
+    protected function ledgerFormSchema(): array
     {
+        return [
+            DatePicker::make('entry_date')
+                ->label('Tarih')
+                ->default(now())
+                ->required(),
+
+            MoneyInput::make('amount', 'Tutar'),
+
+            Select::make('project_id')
+                ->label('Proje (opsiyonel)')
+                ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
+                ->searchable()
+                ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.'),
+
+            TextInput::make('description')
+                ->label('Açıklama')
+                ->maxLength(255)
+                ->columnSpanFull(),
+
+            Textarea::make('notes')
+                ->label('Not')
+                ->rows(2)
+                ->columnSpanFull(),
+        ];
+    }
+
+    /** Üstteki Satış/Tahsilat/Alış/Ödeme butonları bu aksiyonu tip argümanıyla mount eder. */
+    public function newLedgerEntryAction(): Action
+    {
+        return Action::make('newLedgerEntry')
+            ->modalHeading(fn (array $arguments): string => match ($arguments['type'] ?? null) {
+                'satis'    => 'Satış — Cariyi Borçlandır',
+                'tahsilat' => 'Tahsilat — Para Girişi',
+                'alis'     => 'Alış / Hizmet — Cariye Borçlan',
+                'odeme'    => 'Ödeme — Para Çıkışı',
+                default    => 'Yeni Hareket',
+            })
+            ->modalSubmitActionLabel('Kaydet')
+            ->schema($this->ledgerFormSchema())
+            ->action(function (array $data, array $arguments): void {
+                $this->record->ledgerEntries()->create([
+                    ...$data,
+                    'type' => $arguments['type'] ?? null,
+                ]);
+            });
+    }
+
+    /** Ekstre satırına tıklayınca: düzenle (Sil butonu pencere içinde). */
+    public function editLedgerEntryAction(): Action
+    {
+        return Action::make('editLedgerEntry')
+            ->modalHeading('Hareketi Düzenle')
+            ->modalSubmitActionLabel('Kaydet')
+            ->fillForm(function (array $arguments): array {
+                $entry = PartyLedgerEntry::findOrFail($arguments['entry']);
+
+                return [
+                    'entry_date'  => $entry->entry_date,
+                    'amount'      => $entry->amount,
+                    'project_id'  => $entry->project_id,
+                    'description' => $entry->description,
+                    'notes'       => $entry->notes,
+                ];
+            })
+            ->schema($this->ledgerFormSchema())
+            ->action(function (array $data, array $arguments): void {
+                $entry = PartyLedgerEntry::findOrFail($arguments['entry']);
+                // Satışa/iadeye bağlı satırlar buradan değiştirilemez.
+                abort_if($entry->sale_id !== null || $entry->sale_return_id !== null, 403);
+
+                if ($arguments['delete'] ?? false) {
+                    $entry->delete();
+
+                    return;
+                }
+
+                $entry->update($data);
+            })
+            ->extraModalFooterActions(fn (Action $action): array => [
+                $action->makeModalSubmitAction('deleteLedgerEntry', arguments: ['delete' => true])
+                    ->label('Sil')
+                    ->color('danger'),
+            ]);
     }
 
     public ?string $statementDateFrom = null;

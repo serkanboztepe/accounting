@@ -45,9 +45,9 @@ class PartyResource extends Resource
 
     public static function getRelations(): array
     {
-        return [
-            RelationManagers\LedgerEntriesRelationManager::class,
-        ];
+        // Cari hareketleri grid'i kaldırıldı — tek liste artık footer'daki "Cari Ekstresi"
+        // (yürüyen bakiyeli). Yeni kayıt üstteki butonlardan, düzenle/sil satıra tıklayınca.
+        return [];
     }
 
     public static function getPages(): array
