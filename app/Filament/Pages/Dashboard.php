@@ -28,9 +28,27 @@ class Dashboard extends BaseDashboard
 
     protected static ?int $navigationSort = 1;
 
-    public static function canAccess(): bool
+    /**
+     * Dashboard modülü kapalıysa navigasyonda gizle — ama route'u 403'lemeyiz
+     * (kök /admin buraya gelir). Erişimi mount()'ta Cariler'e yönlendirerek
+     * çözüyoruz, böylece giriş sonrası kökte 403 alınmaz.
+     */
+    public static function shouldRegisterNavigation(): bool
     {
         return config('modules.dashboard');
+    }
+
+    public function mount(): void
+    {
+        if (! config('modules.dashboard')) {
+            $this->redirect(\App\Filament\Resources\Parties\PartyResource::getUrl('index'));
+
+            return;
+        }
+
+        if (method_exists(get_parent_class($this), 'mount')) {
+            parent::mount();
+        }
     }
 
     public function getTitle(): string
