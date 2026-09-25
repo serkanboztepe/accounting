@@ -10,7 +10,6 @@
     <x-filament::section
         heading="Cari Ekstresi"
         :description="$statementDesc"
-        collapsible
     >
         {{-- Yeni hareket girişi — tek liste (grid kaldırıldı) --}}
         <div class="mb-4 flex flex-wrap gap-2">
@@ -121,9 +120,6 @@
                             <td class="py-2 px-3">
                                 <span class="text-gray-950 dark:text-white">{{ $r['desc'] }}</span>
                                 <span class="text-xs text-gray-400">· {{ $r['label'] }}</span>
-                                @if ($editable)
-                                    <span class="ml-1 text-xs text-gray-300 dark:text-gray-600">✎</span>
-                                @endif
                             </td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['borc'] > 0 ? '₺' . \App\Support\Money::format($r['borc']) : '' }}</td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['alacak'] > 0 ? '₺' . \App\Support\Money::format($r['alacak']) : '' }}</td>
