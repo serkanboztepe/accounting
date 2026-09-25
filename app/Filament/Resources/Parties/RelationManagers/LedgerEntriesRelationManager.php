@@ -120,9 +120,11 @@ class LedgerEntriesRelationManager extends RelationManager
                     ->openUrlInNewTab(),
 
                 EditAction::make()
-                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id === null),
+                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id === null)
+                    ->after(fn () => $this->dispatch('ledgerUpdated')),
                 DeleteAction::make()
-                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id === null),
+                    ->visible(fn (PartyLedgerEntry $record) => $record->sale_id === null)
+                    ->after(fn () => $this->dispatch('ledgerUpdated')),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
@@ -130,7 +132,8 @@ class LedgerEntriesRelationManager extends RelationManager
                     DeleteBulkAction::make()
                         ->action(function ($records) {
                             $records->whereNull('sale_id')->each->delete();
-                        }),
+                        })
+                        ->after(fn () => $this->dispatch('ledgerUpdated')),
                 ]),
             ]);
     }
@@ -143,6 +146,8 @@ class LedgerEntriesRelationManager extends RelationManager
             ->color($color)
             ->modalHeading($heading)
             ->modalSubmitActionLabel('Kaydet')
-            ->mutateDataUsing(fn (array $data): array => [...$data, 'type' => $type]);
+            ->mutateDataUsing(fn (array $data): array => [...$data, 'type' => $type])
+            // Kayıt sonrası üst sayfadaki Cari Ekstresi footer'ını canlı yenile.
+            ->after(fn () => $this->dispatch('ledgerUpdated'));
     }
 }

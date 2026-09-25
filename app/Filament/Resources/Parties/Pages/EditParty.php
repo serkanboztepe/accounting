@@ -14,10 +14,20 @@ use App\Models\Project;
 use App\Support\PartyStatement;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
+use Livewire\Attributes\On;
 
 class EditParty extends EditRecord
 {
     protected static string $resource = PartyResource::class;
+
+    /**
+     * Cari ledger'a satış/tahsilat/ödeme eklenince (relation manager'dan gelen event),
+     * bu boş metot sayfayı yeniden render eder → getFooter() tekrar çalışır → Cari Ekstresi canlı güncellenir.
+     */
+    #[On('ledgerUpdated')]
+    public function refreshLedgerFooter(): void
+    {
+    }
 
     public ?string $statementDateFrom = null;
 
