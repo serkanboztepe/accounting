@@ -104,8 +104,8 @@ class UnitsRelationManager extends RelationManager
     {
         return $table
             ->recordTitleAttribute('unit_no')
-            ->paginated([25, 50, 100, 'all'])
-            ->defaultPaginationPageSize(50)
+            ->paginationPageOptions([25, 50, 100, 'all'])
+            ->defaultPaginationPageOption(50)
             ->defaultSort('sort_order')
             ->modifyQueryUsing(fn ($query) => $query->with('allocations.taxpayer'))
             ->columns([
