@@ -21,19 +21,24 @@
             </td>
         </tr>
         @foreach ($byFloor as $floor => $positions)
+            @php
+                // Kattaki daireleri konum sırasına göre al, tüm genişliğe (maxPos) EŞİT dağıt:
+                // 4 genişlikte 2 daire → her biri 2 kolon; 3 daire → 2+1+1. Sola yığılmaz.
+                ksort($positions);
+                $floorUnits = array_values($positions);
+                $k = max(1, count($floorUnits));
+                $base = intdiv($maxPos, $k);
+                $rem = $maxPos % $k;
+            @endphp
             <tr>
                 <td class="kat">{{ (int) $floor === 0 ? 'ZEMİN' : $floor.'.KAT' }}</td>
-                @for ($p = 1; $p <= $maxPos; $p++)
-                    @php $u = $positions[$p] ?? null; @endphp
-                    @if ($u)
-                        <td class="dbox">
-                            <div class="no">{{ $u->unit_no }} NOLU {{ mb_strtoupper($u->effectiveUsageType() ?: 'DAİRE') }}</div>
-                            <div class="m2">{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
-                        </td>
-                    @else
-                        <td class="empty"></td>
-                    @endif
-                @endfor
+                @foreach ($floorUnits as $idx => $u)
+                    @php $span = $base + ($idx < $rem ? 1 : 0); @endphp
+                    <td class="dbox" colspan="{{ $span }}">
+                        <div class="no">{{ $u->unit_no }} NOLU {{ mb_strtoupper($u->effectiveUsageType() ?: 'DAİRE') }}</div>
+                        <div class="m2">{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
+                    </td>
+                @endforeach
             </tr>
         @endforeach
     </table>

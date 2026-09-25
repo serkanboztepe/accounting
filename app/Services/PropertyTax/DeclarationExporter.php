@@ -430,14 +430,21 @@ class DeclarationExporter
             $sheet->setCellValue('A'.($top + 1), (int) $floor === 0 ? 'ZEMİN' : $floor.'.KAT');
             $sheet->getStyle('A'.($top + 1))->getFont()->setBold(true);
 
-            for ($p = 1; $p <= $maxPos; $p++) {
-                $u = $positions[$p] ?? null;
-                if (! $u) {
-                    continue; // eksik konum: boş bırak
-                }
-                $cs = $firstCol + ($p - 1) * $boxW;
-                $c0 = $this->colLetter($cs);
-                $c1 = $this->colLetter($cs + $boxW - 1);
+            // Kattaki daireleri konum sırasına göre al, tüm genişliğe (maxPos*boxW sütun) EŞİT dağıt:
+            // 2 dükkan → her biri yarım satır; 3 daire → 2+1+1 sütun grubu. Sola yığılmaz.
+            ksort($positions);
+            $floorUnits = array_values($positions);
+            $k = max(1, count($floorUnits));
+            $totalW = $maxPos * $boxW;
+            $base = intdiv($totalW, $k);
+            $rem = $totalW % $k;
+
+            $col = $firstCol;
+            foreach ($floorUnits as $idx => $u) {
+                $w = $base + ($idx < $rem ? 1 : 0);
+                $c0 = $this->colLetter($col);
+                $c1 = $this->colLetter($col + $w - 1);
+                $col += $w;
 
                 $labelRange = $c0.$top.':'.$c1.($top + 2);
                 $areaRange = $c0.($top + 3).':'.$c1.($top + 5);
