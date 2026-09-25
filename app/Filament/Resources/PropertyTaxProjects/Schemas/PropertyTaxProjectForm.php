@@ -26,6 +26,10 @@ class PropertyTaxProjectForm
                         ->label('Proje / Bina Adı')
                         ->required()
                         ->placeholder('Hocabey Apartmanı'),
+                    TextInput::make('building_owner')
+                        ->label('Yapı Sahibi')
+                        ->placeholder('Ör. Boztepeler İnşaat')
+                        ->helperText('Bina krokisinde (en altta) "YAPI SAHİBİ" olarak görünür.'),
                     TextInput::make('land_area')
                         ->label('Arsa Alanı (m²)')
                         ->numeric()

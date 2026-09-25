@@ -73,15 +73,24 @@ class DeclarationExporter
 
         $master = new Spreadsheet();
         $i = 0;
+        $krokiBlocks = collect(); // id => block (mükellef başına DEĞİL, en altta bir kez)
         foreach ($project->taxpayers as $taxpayer) {
             if ($taxpayer->allocations()->count() === 0) {
                 continue; // atanmış dairesi olmayan mükellefi atla
             }
             $i++;
-            $ss = $this->buildWorkbookForTaxpayer($taxpayer);
+            // Kroki dahil etme — proje çıktısında krokiler en alta toplu eklenir.
+            $ss = $this->buildWorkbookForTaxpayer($taxpayer, includeKroki: false);
             foreach ($ss->getAllSheets() as $sheet) {
                 $sheet->setTitle(mb_substr('M'.$i.'-'.$sheet->getTitle(), 0, 31), false);
                 $master->addExternalSheet($sheet);
+            }
+
+            $taxpayer->loadMissing('allocations.unit.block');
+            foreach ($taxpayer->allocations as $a) {
+                if ($a->unit && $a->unit->block) {
+                    $krokiBlocks->put($a->unit->block->id, $a->unit->block);
+                }
             }
         }
 
@@ -92,6 +101,20 @@ class DeclarationExporter
             $master->getActiveSheet()->setCellValue('A1', 'Beyanname üretilecek mükellef/daire yok.');
         }
 
+        // Kroki(ler) EN ALTA — blok başına bir kez. YAPI SAHİBİ = proje.building_owner.
+        $owner = (string) ($project->building_owner ?? '');
+        $k = 0;
+        foreach ($krokiBlocks as $block) {
+            $k++;
+            $block->loadMissing('units');
+            $kss = $this->buildKrokiSpreadsheet($block, $block->units, $owner);
+            $krokiSheet = $kss->getSheetByName('KROKİ');
+            if ($krokiSheet) {
+                $krokiSheet->setTitle(mb_substr('KROKİ-'.$k, 0, 31), false);
+                $master->addExternalSheet($krokiSheet);
+            }
+        }
+
         $master->setActiveSheetIndex(0);
 
         $path = tempnam(sys_get_temp_dir(), 'property_tax_').'.xlsx';
@@ -100,7 +123,7 @@ class DeclarationExporter
         return $path;
     }
 
-    private function buildWorkbookForTaxpayer(PropertyTaxTaxpayer $taxpayer): Spreadsheet
+    private function buildWorkbookForTaxpayer(PropertyTaxTaxpayer $taxpayer, bool $includeKroki = true): Spreadsheet
     {
         $taxpayer->loadMissing(['project', 'allocations.unit.block.project']);
         $project = $taxpayer->project;
@@ -134,11 +157,12 @@ class DeclarationExporter
             }
         }
 
-        // Kroki (tek/sabit): mükellefin ilk dairesinin bloğu, tam bina.
+        // Kroki (tek/sabit): mükellefin ilk dairesinin bloğu, tam bina. YAPI SAHİBİ = proje.building_owner.
+        // Proje çıktısında $includeKroki=false → kroki en alta bir kez eklenir (bkz. exportForProject).
         $firstBlock = $allocations->first()?->unit->block;
-        if ($firstBlock) {
+        if ($includeKroki && $firstBlock) {
             $firstBlock->loadMissing('units');
-            $this->buildKroki($ss, $firstBlock, $firstBlock->units, $taxpayer->fullName());
+            $this->buildKroki($ss, $firstBlock, $firstBlock->units, (string) ($project->building_owner ?? ''));
         } elseif ($ss->getSheetByName('Sayfa1')) {
             $ss->removeSheetByIndex($ss->getIndex($ss->getSheetByName('Sayfa1')));
         }
@@ -284,6 +308,27 @@ class DeclarationExporter
     private const KROKI_BOX_COLS = 3;   // kutu genişliği (referans: B:D)
     private const KROKI_FLOOR_ROWS = 6; // kat yüksekliği (isim 3 + m² 3)
 
+    /**
+     * Tek başına kroki çalışma kitabı (yalnız KROKİ sayfası) — proje çıktısında
+     * krokiyi en alta blok başına bir kez eklemek için.
+     */
+    private function buildKrokiSpreadsheet(PropertyTaxBlock $block, $units, string $ownerName = ''): Spreadsheet
+    {
+        $reader = IOFactory::createReader('Xls');
+        $ss = $reader->load($this->templatePath());
+
+        // Beyanname sayfalarını sil — şablonun Sayfa1'i kroki için kullanılacak.
+        foreach (self::TEMPLATE_SHEETS as $name) {
+            if ($ss->sheetNameExists($name)) {
+                $ss->removeSheetByIndex($ss->getIndex($ss->getSheetByName($name)));
+            }
+        }
+
+        $this->buildKroki($ss, $block, $units, $ownerName);
+
+        return $ss;
+    }
+
     private function buildKroki(Spreadsheet $ss, PropertyTaxBlock $block, $units, string $ownerName = ''): void
     {
         // Sayfa1'i kroki için yeniden kullan: içeriği temizle, birleştirmeleri boz.
@@ -408,7 +453,10 @@ class DeclarationExporter
         $kps->setFitToHeight(1);
         $kps->setFitToPage(true);
 
-        $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
+        // Tek başına kroki kitabında BEYANNAME sayfaları olmayabilir.
+        if ($ss->getSheetByName('BEYANNAME 1')) {
+            $ss->setActiveSheetIndex($ss->getIndex($ss->getSheetByName('BEYANNAME 1')));
+        }
     }
 
     private function buildKrokiSummary(Worksheet $sheet, PropertyTaxBlock $block, $units, int $row, string $ownerName = ''): void

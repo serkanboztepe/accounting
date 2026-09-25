@@ -14,6 +14,7 @@ class PropertyTaxProject extends Model
 {
     protected $fillable = [
         'name',
+        'building_owner',
         'project_id',
         'taxpayer_surname',
         'taxpayer_first_name',

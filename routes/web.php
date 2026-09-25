@@ -121,7 +121,7 @@ Route::get('/emlak-beyani-proje/{project}/pdf', function (\App\Models\PropertyTa
     $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
     $name = 'Beyannameler-'.$slug($project->name ?? 'proje').'.pdf';
 
-    return \Barryvdh\DomPDF\Facade\Pdf::loadView('property-tax.declaration-project', ['taxpayers' => $taxpayers])
+    return \Barryvdh\DomPDF\Facade\Pdf::loadView('property-tax.declaration-project', ['taxpayers' => $taxpayers, 'project' => $project])
         ->setPaper('a4', 'portrait')
         ->download($name);
 })->middleware('auth')->name('property-tax.project.pdf');
