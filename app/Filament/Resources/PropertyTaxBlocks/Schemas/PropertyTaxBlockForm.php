@@ -16,9 +16,17 @@ class PropertyTaxBlockForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema->components([
+        return $schema->components(self::components());
+    }
+
+    /** Ortak kullanım (resource formu + "Blok Ayarları" modalı). */
+    public static function components(): array
+    {
+        return [
             Section::make('Blok')
                 ->columns(2)
+                ->collapsible()
+                ->collapsed(fn (string $operation): bool => $operation === 'edit')
                 ->schema([
                     TextInput::make('name')
                         ->label('Blok Adı')
@@ -40,6 +48,8 @@ class PropertyTaxBlockForm
             Section::make('Bina Ortak Özellikleri')
                 ->description('Bu alanlar tüm dairelerce devralınır — daire eklerken tekrar sorulmaz. Gerekirse daire bazında ezebilirsiniz.')
                 ->columns(2)
+                ->collapsible()
+                ->collapsed(fn (string $operation): bool => $operation === 'edit')
                 ->schema([
                     TextInput::make('construction_type')
                         ->label('İnşaat Türü')
@@ -74,6 +84,6 @@ class PropertyTaxBlockForm
                     Toggle::make('has_elevator')
                         ->label('Asansörlü'),
                 ]),
-        ]);
+        ];
     }
 }

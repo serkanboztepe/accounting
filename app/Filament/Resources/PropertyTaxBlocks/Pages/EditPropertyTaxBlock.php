@@ -16,10 +16,6 @@ class EditPropertyTaxBlock extends EditRecord
         return $this->record->name.' — Daireler';
     }
 
-    /**
-     * Blok kaynağının index sayfası yok (navigasyonda gizli). Breadcrumb ve
-     * yönlendirmeleri parent projeye bağla — aksi halde Filament index route arar.
-     */
     public function getBreadcrumbs(): array
     {
         $project = $this->record->project;
