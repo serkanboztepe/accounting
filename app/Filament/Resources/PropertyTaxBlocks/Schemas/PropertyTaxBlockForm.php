@@ -30,7 +30,6 @@ class PropertyTaxBlockForm
                 ->schema([
                     TextInput::make('name')
                         ->label('Blok Adı')
-                        ->required()
                         ->placeholder('A Blok'),
                     TextInput::make('building_door_no')
                         ->label('Bina / Kapı No')

@@ -444,7 +444,7 @@ class DeclarationExporter
                 $sheet->mergeCells($labelRange);
                 $sheet->mergeCells($areaRange);
 
-                $sheet->setCellValue($c0.$top, $u->unit_no.' NOLU DAİRE');
+                $sheet->setCellValue($c0.$top, $u->unit_no.' NOLU '.mb_strtoupper($u->effectiveUsageType() ?: 'DAİRE'));
                 $sheet->setCellValue($c0.($top + 3), $this->areaText($u->area));
 
                 foreach ([$labelRange, $areaRange] as $rg) {

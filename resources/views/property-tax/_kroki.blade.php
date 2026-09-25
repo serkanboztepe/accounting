@@ -27,7 +27,7 @@
                     @php $u = $positions[$p] ?? null; @endphp
                     @if ($u)
                         <td class="dbox">
-                            <div class="no">{{ $u->unit_no }} NOLU DAİRE</div>
+                            <div class="no">{{ $u->unit_no }} NOLU {{ mb_strtoupper($u->effectiveUsageType() ?: 'DAİRE') }}</div>
                             <div class="m2">{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
                         </td>
                     @else

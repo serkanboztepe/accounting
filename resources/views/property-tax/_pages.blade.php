@@ -67,7 +67,10 @@
                     ['Kapı ve Daire No', fn($a) => trim(($a->unit->block->building_door_no ?? '').' / '.$a->unit->unit_no)],
                     ['Ada / Parsel', fn($a) => $project->cadastral_parcel],
                     ['Bina Arsasının Alanı (m²)', fn($a) => $fmtNum($project->land_area)],
-                    ['Arsa Payı (Oran / m²)', fn($a) => trim(($a->unit->landShareRatioText() ?? '').'  '.($a->unit->landShareArea() !== null ? $fmtNum($a->unit->landShareArea()).' m²' : ''))],
+                    ['Arsa Payı (Oran / m²)', fn($a) => implode(' - ', array_filter([
+                        $a->unit->landShareRatioText(),
+                        $a->unit->landShareArea() !== null ? $fmtNum($a->unit->landShareArea()).' m²' : null,
+                    ]))],
                     ['İnşaatın Türü', fn($a) => $a->unit->block->construction_type],
                     ['İnşaatın Sınıfı', fn($a) => $a->unit->effectiveConstructionClass()],
                     ['Kullanış Şekli', fn($a) => $a->unit->effectiveUsageType()],
