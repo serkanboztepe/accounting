@@ -168,6 +168,14 @@ class EditParty extends EditRecord
 
     public ?string $statementProjectId = null;
 
+    public function mount(int | string $record): void
+    {
+        parent::mount($record);
+
+        // Ekstre sabit: bu yılın 01.01'inden bugüne (bitiş açık). Önceki yıllar Açılış/Devir olur.
+        $this->statementDateFrom = now()->startOfYear()->toDateString();
+    }
+
     /**
      * Filtreli ekstre yazdırma URL'i (footer'daki butona verilir).
      */

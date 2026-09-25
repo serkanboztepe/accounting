@@ -33,46 +33,8 @@
             @endif
         </div>
 
-        {{-- Filtreler --}}
-        @php
-            $hasFilter = filled($statementDateFrom) || filled($statementDateTo) || filled($statementProjectId);
-        @endphp
-        <div class="mb-4 flex flex-wrap items-end gap-3">
-            <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Başlangıç</label>
-                <x-filament::input.wrapper>
-                    <x-filament::input type="date" wire:model.live="statementDateFrom" />
-                </x-filament::input.wrapper>
-            </div>
-            <div>
-                <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Bitiş</label>
-                <x-filament::input.wrapper>
-                    <x-filament::input type="date" wire:model.live="statementDateTo" />
-                </x-filament::input.wrapper>
-            </div>
-            @if (count($statementProjects) > 0)
-                <div class="min-w-[12rem]">
-                    <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Proje</label>
-                    <x-filament::input.wrapper>
-                        <x-filament::input.select wire:model.live="statementProjectId">
-                            <option value="">Tüm projeler</option>
-                            @foreach ($statementProjects as $id => $name)
-                                <option value="{{ $id }}">{{ $name }}</option>
-                            @endforeach
-                        </x-filament::input.select>
-                    </x-filament::input.wrapper>
-                </div>
-            @endif
-            @if ($hasFilter)
-                <x-filament::button
-                    color="gray"
-                    icon="heroicon-o-x-mark"
-                    wire:click="clearStatementFilters"
-                >
-                    Temizle
-                </x-filament::button>
-            @endif
-
+        {{-- Filtre kaldırıldı: ekstre sabit "bu yılın 01.01'inden bugüne" (bitiş açık); önceki yıllar Açılış/Devir olarak. --}}
+        <div class="mb-4 flex">
             {{-- Yazdır: yeni sekme açmadan doğrudan yazdır penceresi (gizli iframe) --}}
             <x-filament::button
                 icon="heroicon-o-printer"
@@ -113,7 +75,6 @@
                             @if ($editable)
                                 wire:click="mountAction('editLedgerEntry', { entry: {{ $r['entry_id'] }} })"
                                 class="cursor-pointer transition hover:bg-gray-50 dark:hover:bg-white/5"
-                                title="Düzenlemek / silmek için tıkla"
                             @endif
                         >
                             <td class="py-2 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $r['date'] }}</td>
