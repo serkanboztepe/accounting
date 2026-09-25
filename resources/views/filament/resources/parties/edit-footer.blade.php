@@ -1,4 +1,4 @@
-<div class="space-y-6 mt-0">
+<div class="space-y-6 -mt-[30px]">
 
     {{-- Cari Ekstresi --}}
     @php
