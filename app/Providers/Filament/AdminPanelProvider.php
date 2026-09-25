@@ -26,6 +26,10 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
+            // Dashboard kapalıysa giriş/ana sayfa Cariler'e gitsin
+            ->homeUrl(fn (): ?string => config('modules.dashboard')
+                ? null
+                : \App\Filament\Resources\Parties\PartyResource::getUrl('index'))
             ->brandName('İnşaat Yönetimi')
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()

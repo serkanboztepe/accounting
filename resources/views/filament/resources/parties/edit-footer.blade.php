@@ -172,7 +172,8 @@
         </x-filament::section>
     @endif
 
-    {{-- Sözleşmeler --}}
+    {{-- Sözleşmeler — sözleşme modülü kapalıysa gizli --}}
+    @if (config('modules.contracts'))
     <x-filament::section heading="Sözleşmeler">
         <div class="space-y-3">
             @forelse ($contracts as $row)
@@ -269,6 +270,7 @@
             @endforelse
         </div>
     </x-filament::section>
+    @endif
 
     {{-- Faturalar --}}
     @if (count($invoices) > 0)

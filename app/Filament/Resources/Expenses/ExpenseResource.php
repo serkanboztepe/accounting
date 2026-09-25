@@ -28,6 +28,11 @@ class ExpenseResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Giderler';
 
+    public static function canAccess(): bool
+    {
+        return config('modules.expenses');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return ExpenseForm::configure($schema);

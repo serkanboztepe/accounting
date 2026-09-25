@@ -31,6 +31,11 @@ class ExpenseCategoryResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Gider Kategorileri';
 
+    public static function canAccess(): bool
+    {
+        return config('modules.expenses');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return ExpenseCategoryForm::configure($schema);

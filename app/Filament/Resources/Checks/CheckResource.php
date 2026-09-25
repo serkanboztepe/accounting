@@ -68,6 +68,11 @@ class CheckResource extends Resource
         return 'Vadesi geçmiş + 7 gün içinde gelecek çekler';
     }
 
+    public static function canAccess(): bool
+    {
+        return config('modules.checks');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return CheckForm::configure($schema);

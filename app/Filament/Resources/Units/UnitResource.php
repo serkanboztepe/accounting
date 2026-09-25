@@ -33,6 +33,12 @@ class UnitResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    public static function canAccess(): bool
+    {
+        // Birimler sözleşme/teslimat ve stok/satışta kullanılır.
+        return config('modules.contracts') || config('modules.direct_sales') || config('modules.stock');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return UnitForm::configure($schema);

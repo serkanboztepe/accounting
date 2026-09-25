@@ -50,7 +50,6 @@ class LedgerEntriesRelationManager extends RelationManager
 
             TextInput::make('description')
                 ->label('Açıklama')
-                ->required()
                 ->maxLength(255)
                 ->columnSpanFull(),
 
@@ -64,7 +63,6 @@ class LedgerEntriesRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->description('Çift yönlü cari hareketleri. Cari ekstresinde görünür; proje maliyet raporlarına GİRMEZ. 🔒 satırlar Direkt Satış’tan gelir — düzenleme/silme satış ekranından yapılır.')
             ->columns([
                 TextColumn::make('sale_id')
                     ->label('')
@@ -99,14 +97,18 @@ class LedgerEntriesRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('entry_date')
-            ->headerActions([
+            ->headerActions(array_values(array_filter([
                 // Bize doğru (cari müşteri): Satış + Tahsilat
                 $this->entryAction('satis', 'Satış', Heroicon::OutlinedShoppingCart, 'info', 'Satış — Cariyi Borçlandır'),
                 $this->entryAction('tahsilat', 'Tahsilat', Heroicon::OutlinedArrowDownCircle, 'success', 'Tahsilat — Para Girişi'),
-                // Bizden doğru (cari tedarikçi): Alış + Ödeme
-                $this->entryAction('alis', 'Alış / Hizmet', Heroicon::OutlinedShoppingBag, 'warning', 'Alış / Hizmet — Cariye Borçlan'),
-                $this->entryAction('odeme', 'Ödeme', Heroicon::OutlinedArrowUpCircle, 'danger', 'Ödeme — Para Çıkışı'),
-            ])
+                // Bizden doğru (cari tedarikçi): Alış + Ödeme — tedarikçi modülü kapalıysa gizli
+                config('modules.cari_supplier')
+                    ? $this->entryAction('alis', 'Alış / Hizmet', Heroicon::OutlinedShoppingBag, 'warning', 'Alış / Hizmet — Cariye Borçlan')
+                    : null,
+                config('modules.cari_supplier')
+                    ? $this->entryAction('odeme', 'Ödeme', Heroicon::OutlinedArrowUpCircle, 'danger', 'Ödeme — Para Çıkışı')
+                    : null,
+            ])))
             ->recordActions([
                 // Direkt Satış'tan gelen satırlar salt-okunur — satışa yönlendir.
                 Action::make('openSale')

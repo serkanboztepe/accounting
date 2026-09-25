@@ -33,6 +33,19 @@ return [
     'quotes'             => (bool) env('MOD_QUOTES', true),
     'property_tax'       => (bool) env('MOD_PROPERTY_TAX', true), // Emlak Vergisi Bildirimi (proje→blok→daire, Excel çıktı)
 
+    // Çekirdek modüller — artık aç/kapa edilebilir (basit kurulumlar için).
+    // Varsayılan true (mevcut kurulumlar etkilenmez). .env ile kapatılır:
+    //   MOD_CONTRACTS=false     # Sözleşmeler + Teslimat/Hakediş + Ödemeler + Faturalar (İşlemler)
+    //   MOD_CHECKS=false        # Çekler
+    //   MOD_EXPENSES=false      # Direkt Giderler + Gider Kategorileri
+    //   MOD_DASHBOARD=false     # Ana sayfa (Genel/Dashboard); kapalıysa giriş Cariler'e gider
+    //   MOD_CARI_SUPPLIER=false # Cari'de tedarikçi tarafı (Alış + Ödeme butonları); Satış+Tahsilat kalır
+    'contracts'          => (bool) env('MOD_CONTRACTS', true),
+    'checks'             => (bool) env('MOD_CHECKS', true),
+    'expenses'           => (bool) env('MOD_EXPENSES', true),
+    'dashboard'          => (bool) env('MOD_DASHBOARD', true),
+    'cari_supplier'      => (bool) env('MOD_CARI_SUPPLIER', true),
+
     // Raporlar (menüde "Raporlar" grubu) — her biri ayrı aç/kapa.
     // Stok/Satış raporu ilgili modül de açıksa görünür.
     'report_project'     => (bool) env('MOD_REPORT_PROJECT', true),

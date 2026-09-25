@@ -41,6 +41,11 @@ class ContractResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Sözleşmeler';
 
+    public static function canAccess(): bool
+    {
+        return config('modules.contracts');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return ContractForm::configure($schema);

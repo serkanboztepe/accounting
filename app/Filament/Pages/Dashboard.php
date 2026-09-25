@@ -28,6 +28,11 @@ class Dashboard extends BaseDashboard
 
     protected static ?int $navigationSort = 1;
 
+    public static function canAccess(): bool
+    {
+        return config('modules.dashboard');
+    }
+
     public function getTitle(): string
     {
         return 'Genel Rapor';
