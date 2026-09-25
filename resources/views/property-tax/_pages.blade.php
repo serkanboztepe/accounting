@@ -3,9 +3,18 @@
     $project = $taxpayer->project;
     $allocations = $taxpayer->allocations
         ->filter(fn ($a) => $a->unit && $a->unit->block)
-        ->sortBy([['unit.block.id', 'asc'], ['unit.sort_order', 'asc'], ['unit.id', 'asc']])
         ->values();
-    $pages = $allocations->chunk(3)->map(fn ($c) => $c->values());
+    // Her blok AYRI beyanname (bloklar aynı sayfada karışmaz); blok içinde daire no'ya
+    // göre (id değil — ekle/çıkar olunca kaymaz); her blok kendi içinde 3'erli sayfalara bölünür.
+    $pages = $allocations
+        ->groupBy(fn ($a) => $a->unit->block_id)
+        ->sortBy(fn ($group) => (string) $group->first()->unit->block->name, SORT_NATURAL | SORT_FLAG_CASE)
+        ->flatMap(fn ($group) => $group
+            ->sortBy(fn ($a) => (string) $a->unit->unit_no, SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->chunk(3)
+            ->map(fn ($c) => $c->values()))
+        ->values();
 
     $fmtNum = fn ($v) => $v === null || $v === '' ? '' : rtrim(rtrim(number_format((float) $v, 2, ',', '.'), '0'), ',');
     $fmtDate = fn ($d) => $d ? \Illuminate\Support\Carbon::parse($d)->format('d.m.Y') : '';

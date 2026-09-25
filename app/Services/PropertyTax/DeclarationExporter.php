@@ -130,16 +130,16 @@ class DeclarationExporter
 
         $allocations = $taxpayer->allocations
             ->filter(fn ($a) => $a->unit && $a->unit->block)
-            ->sortBy([
-                ['unit.block.id', 'asc'],
-                ['unit.sort_order', 'asc'],
-                ['unit.id', 'asc'],
-            ])->values();
+            ->values();
+
+        // Her blok AYRI beyanname (bloklar aynı sayfada karışmaz); blok içinde daire no'ya
+        // göre sıralanır (id değil — ekle/çıkar olunca kaymaz); her blok kendi içinde 3'erli sayfalara bölünür.
+        $pages = $this->pagesByBlock($allocations);
 
         $reader = IOFactory::createReader('Xls');
         $ss = $reader->load($this->templatePath());
 
-        $sheetCount = max(1, (int) ceil($allocations->count() / self::UNITS_PER_SHEET));
+        $sheetCount = max(1, $pages->count());
         $this->ensureBeyannameSheets($ss, $sheetCount);
 
         for ($i = 0; $i < $sheetCount; $i++) {
@@ -147,8 +147,9 @@ class DeclarationExporter
             $this->normalizePageSetup($sheet);
             $this->fillHeader($sheet, $taxpayer, $project);
 
+            $pageAllocs = $pages->get($i) ?? collect();
             for ($slot = 0; $slot < self::UNITS_PER_SHEET; $slot++) {
-                $alloc = $allocations->get($i * self::UNITS_PER_SHEET + $slot);
+                $alloc = $pageAllocs->get($slot);
                 if ($alloc) {
                     $this->fillAllocation($sheet, $slot, $alloc);
                 } else {
@@ -170,6 +171,26 @@ class DeclarationExporter
         $ss->setActiveSheetIndex(0);
 
         return $ss;
+    }
+
+    /**
+     * Atamaları BLOK BAŞINA ayrı sayfalara böler: blok içinde daire no'ya göre
+     * (doğal sıra — id değil), her blok kendi içinde UNITS_PER_SHEET'erli.
+     *
+     * @param  \Illuminate\Support\Collection  $allocations
+     * @return \Illuminate\Support\Collection  her eleman: o sayfanın atamaları (≤ UNITS_PER_SHEET)
+     */
+    private function pagesByBlock($allocations)
+    {
+        return $allocations
+            ->groupBy(fn ($a) => $a->unit->block_id)
+            ->sortBy(fn ($group) => (string) $group->first()->unit->block->name, SORT_NATURAL | SORT_FLAG_CASE)
+            ->flatMap(fn ($group) => $group
+                ->sortBy(fn ($a) => (string) $a->unit->unit_no, SORT_NATURAL | SORT_FLAG_CASE)
+                ->values()
+                ->chunk(self::UNITS_PER_SHEET)
+                ->map(fn ($c) => $c->values()))
+            ->values();
     }
 
     public function downloadNameForTaxpayer(PropertyTaxTaxpayer $taxpayer): string
