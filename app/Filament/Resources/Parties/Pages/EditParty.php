@@ -20,10 +20,51 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Schemas\Schema;
 
 class EditParty extends EditRecord
 {
     protected static string $resource = PartyResource::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            // Cari bilgileri (isim/telefon/not) artık üstteki ⚙ Ayarlar modalından düzenlenir —
+            // sayfa gövdesi tamamen Cari Ekstresi'ne ayrıldı.
+            Action::make('settings')
+                ->label('Ayarlar')
+                ->icon('heroicon-o-cog-6-tooth')
+                ->color('gray')
+                ->modalHeading('Cari Bilgileri')
+                ->modalSubmitActionLabel('Kaydet')
+                ->fillForm(fn (): array => [
+                    'name'  => $this->record->name,
+                    'phone' => $this->record->phone,
+                    'notes' => $this->record->notes,
+                ])
+                ->schema([
+                    TextInput::make('name')->label('İsim')->required()->maxLength(255),
+                    TextInput::make('phone')->label('Telefon')->maxLength(255),
+                    Textarea::make('notes')->label('Notlar')->columnSpanFull(),
+                ])
+                ->action(function (array $data): void {
+                    $this->record->update($data);
+                }),
+
+            DeleteAction::make(),
+        ];
+    }
+
+    /**
+     * Sayfa gövdesinden inline form + alttaki Kaydet bar'ı kaldır — düzenleme ⚙ Ayarlar modalından.
+     * Gövde sadece ilişki yöneticileri (yok) kalır; Cari Ekstresi getFooter()'dan gelir.
+     */
+    public function content(Schema $schema): Schema
+    {
+        return $schema->components([
+            $this->getRelationManagersContentComponent(),
+        ]);
+    }
 
     /**
      * Cari Ekstresi'ndeki tek liste bunları kullanır (grid kaldırıldı):
@@ -126,13 +167,6 @@ class EditParty extends EditRecord
     public ?string $statementDateTo = null;
 
     public ?string $statementProjectId = null;
-
-    protected function getHeaderActions(): array
-    {
-        return [
-            DeleteAction::make(),
-        ];
-    }
 
     /**
      * Filtreli ekstre yazdırma URL'i (footer'daki butona verilir).
