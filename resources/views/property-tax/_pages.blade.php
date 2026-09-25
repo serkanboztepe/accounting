@@ -7,7 +7,7 @@
     // Her blok AYRI beyanname (bloklar aynı sayfada karışmaz); blok içinde daire no'ya
     // göre (id değil — ekle/çıkar olunca kaymaz); her blok kendi içinde 3'erli sayfalara bölünür.
     $pages = $allocations
-        ->groupBy(fn ($a) => $a->unit->block_id)
+        ->groupBy(fn ($a) => $a->unit->property_tax_block_id)
         ->sortBy(fn ($group) => (string) $group->first()->unit->block->name, SORT_NATURAL | SORT_FLAG_CASE)
         ->flatMap(fn ($group) => $group
             ->sortBy(fn ($a) => (string) $a->unit->unit_no, SORT_NATURAL | SORT_FLAG_CASE)

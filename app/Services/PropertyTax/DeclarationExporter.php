@@ -183,7 +183,7 @@ class DeclarationExporter
     private function pagesByBlock($allocations)
     {
         return $allocations
-            ->groupBy(fn ($a) => $a->unit->block_id)
+            ->groupBy(fn ($a) => $a->unit->property_tax_block_id)
             ->sortBy(fn ($group) => (string) $group->first()->unit->block->name, SORT_NATURAL | SORT_FLAG_CASE)
             ->flatMap(fn ($group) => $group
                 ->sortBy(fn ($a) => (string) $a->unit->unit_no, SORT_NATURAL | SORT_FLAG_CASE)
