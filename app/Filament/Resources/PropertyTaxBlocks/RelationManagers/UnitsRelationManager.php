@@ -20,6 +20,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Collection;
@@ -103,6 +104,8 @@ class UnitsRelationManager extends RelationManager
     {
         return $table
             ->recordTitleAttribute('unit_no')
+            ->paginated([25, 50, 100, 'all'])
+            ->defaultPaginationPageSize(50)
             ->defaultSort('sort_order')
             ->modifyQueryUsing(fn ($query) => $query->with('allocations.taxpayer'))
             ->columns([
@@ -110,7 +113,8 @@ class UnitsRelationManager extends RelationManager
                 TextColumn::make('floor_no')->label('Kat')->sortable()
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->floorLabel()),
                 TextColumn::make('floor_position')->label('Sıra'),
-                TextColumn::make('area')->label('Yüzölçümü')->numeric(2)->suffix(' m²'),
+                TextColumn::make('area')->label('Yüzölçümü')->numeric(2)->suffix(' m²')
+                    ->summarize(Sum::make()->label('Toplam')->numeric(2)->suffix(' m²')),
                 TextColumn::make('land_share')
                     ->label('Arsa Payı')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->landShareRatioText() ?? '—'),
