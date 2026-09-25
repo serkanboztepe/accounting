@@ -176,6 +176,21 @@ class EditParty extends EditRecord
         $this->statementDateFrom = now()->startOfYear()->toDateString();
     }
 
+    // Başlıkta "… düzenle" yerine sadece cari adı.
+    public function getTitle(): string
+    {
+        return $this->record->name;
+    }
+
+    // Breadcrumb: "Cariler › {ad}" — sondaki "Düzenle" kaldırıldı.
+    public function getBreadcrumbs(): array
+    {
+        return [
+            PartyResource::getUrl('index') => 'Cariler',
+            $this->record->name,
+        ];
+    }
+
     /**
      * Filtreli ekstre yazdırma URL'i (footer'daki butona verilir).
      */
@@ -199,9 +214,10 @@ class EditParty extends EditRecord
         ], fn ($v) => filled($v));
     }
 
+    /** "Standart" — filtreyi varsayılana döndür: bu yılın 01.01'i → açık, proje yok. */
     public function clearStatementFilters(): void
     {
-        $this->statementDateFrom = null;
+        $this->statementDateFrom = now()->startOfYear()->toDateString();
         $this->statementDateTo = null;
         $this->statementProjectId = null;
     }

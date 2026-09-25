@@ -1,4 +1,4 @@
-<div class="space-y-6 mt-6">
+<div class="space-y-6 mt-0">
 
     {{-- Cari Ekstresi --}}
     @php
@@ -33,28 +33,69 @@
             @endif
         </div>
 
-        {{-- Filtre kaldırıldı: ekstre sabit "bu yılın 01.01'inden bugüne" (bitiş açık); önceki yıllar Açılış/Devir olarak. --}}
-        <div class="mb-4 flex">
-            {{-- Yazdır: yeni sekme açmadan doğrudan yazdır penceresi (gizli iframe) --}}
-            <x-filament::button
-                icon="heroicon-o-printer"
-                color="primary"
-                class="ml-auto"
-                :data-print-url="$this->statementPrintUrl()"
-                x-on:click="
-                    let f = document.getElementById('statement-print-frame');
-                    if (! f) {
-                        f = document.createElement('iframe');
-                        f.id = 'statement-print-frame';
-                        f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0;';
-                        document.body.appendChild(f);
-                    }
-                    f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); };
-                    f.src = $el.dataset.printUrl;
-                "
-            >
-                Ekstre Yazdır
-            </x-filament::button>
+        {{-- Filtre: varsayılan gizli, "Filtre" ile açılır. Standart: bu yılın 01.01'i → açık (öncesi Devir). --}}
+        <div x-data="{ open: false }" class="mb-4">
+            <div class="flex items-center gap-2">
+                <x-filament::button color="gray" icon="heroicon-o-funnel" size="sm" x-on:click="open = ! open">
+                    Filtre
+                </x-filament::button>
+
+                {{-- Yazdır: yeni sekme açmadan doğrudan yazdır penceresi (gizli iframe) --}}
+                <x-filament::button
+                    icon="heroicon-o-printer"
+                    color="primary"
+                    class="ml-auto"
+                    :data-print-url="$this->statementPrintUrl()"
+                    x-on:click="
+                        let f = document.getElementById('statement-print-frame');
+                        if (! f) {
+                            f = document.createElement('iframe');
+                            f.id = 'statement-print-frame';
+                            f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0;';
+                            document.body.appendChild(f);
+                        }
+                        f.onload = () => { f.contentWindow.focus(); f.contentWindow.print(); };
+                        f.src = $el.dataset.printUrl;
+                    "
+                >
+                    Ekstre Yazdır
+                </x-filament::button>
+            </div>
+
+            <div x-show="open" x-collapse class="mt-3 flex flex-wrap items-end gap-3">
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Başlangıç</label>
+                    <x-filament::input.wrapper>
+                        <x-filament::input type="date" wire:model.live="statementDateFrom" />
+                    </x-filament::input.wrapper>
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Bitiş</label>
+                    <x-filament::input.wrapper>
+                        <x-filament::input type="date" wire:model.live="statementDateTo" />
+                    </x-filament::input.wrapper>
+                </div>
+                @if (count($statementProjects) > 0)
+                    <div class="min-w-[12rem]">
+                        <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Proje</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input.select wire:model.live="statementProjectId">
+                                <option value="">Tüm projeler</option>
+                                @foreach ($statementProjects as $id => $name)
+                                    <option value="{{ $id }}">{{ $name }}</option>
+                                @endforeach
+                            </x-filament::input.select>
+                        </x-filament::input.wrapper>
+                    </div>
+                @endif
+                <x-filament::button
+                    color="gray"
+                    icon="heroicon-o-arrow-uturn-left"
+                    wire:click="clearStatementFilters"
+                >
+                    Standart
+                </x-filament::button>
+            </div>
         </div>
 
         <div class="overflow-x-auto">
