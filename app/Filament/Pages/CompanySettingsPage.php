@@ -66,6 +66,7 @@ class CompanySettingsPage extends Page implements HasSchemas
 
                 Section::make('Teklif Şablonu')
                     ->description($placeholderHint)
+                    ->visible(fn (): bool => (bool) config('modules.quotes'))
                     ->schema([
                         Textarea::make('quote_template')
                             ->label('Teklif çıktı metni')
@@ -75,6 +76,9 @@ class CompanySettingsPage extends Page implements HasSchemas
 
                 Section::make('Sözleşme Şablonu')
                     ->description($placeholderHint)
+                    ->visible(fn (): bool => (bool) (config('modules.contracts')
+                        || config('modules.sales_contracts')
+                        || config('modules.purchase_contracts')))
                     ->schema([
                         Textarea::make('contract_template')
                             ->label('Sözleşme çıktı metni')
