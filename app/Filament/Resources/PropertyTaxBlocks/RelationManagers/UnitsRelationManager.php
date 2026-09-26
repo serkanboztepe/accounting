@@ -160,21 +160,32 @@ class UnitsRelationManager extends RelationManager
                     ->label('Toplu Daire Oluştur')
                     ->icon(Heroicon::OutlinedSquares2x2)
                     ->modalHeading('Toplu Daire Oluştur')
-                    ->modalDescription('Kat ve daire sayısını gir; daireler otomatik oluşturulur (numaralandırma + kat/sıra).')
+                    ->modalDescription('Mesken katları + (varsa) zemin dükkan girilir; daireler otomatik oluşturulur.')
                     ->modalSubmitActionLabel('Oluştur')
                     ->schema([
-                        TextInput::make('floors')->label('Kat Sayısı')
-                            ->numeric()->minValue(1)->required()->default(4)
-                            ->helperText('Zemin dahil ise Zemin de bu sayıya dahildir.'),
-                        Toggle::make('ground_floor')->label('Zemin katı olsun')->default(true),
-                        TextInput::make('per_floor')->label('Katta Kaç Daire')
+                        TextInput::make('residential_floors')->label('Mesken Kat Sayısı')
+                            ->numeric()->minValue(0)->required()->default(4)
+                            ->helperText('Zemin dükkan açıksa 1.KAT’tan yukarı; kapalıysa Zemin de mesken.'),
+                        TextInput::make('per_floor')->label('Katta Kaç Mesken')
                             ->numeric()->minValue(1)->required()->default(2),
-                        TextInput::make('start_no')->label('Başlangıç Daire No')
-                            ->numeric()->minValue(1)->required()->default(1),
-                        Toggle::make('number_from_bottom')->label('Numaralandırma Zemin’den (alttan) başlasın')
-                            ->default(true)->helperText('Kapalı ise en üst kattan aşağı numaralandırır.'),
-                        TextInput::make('area')->label('Standart Yüzölçümü (m²)')->numeric()
+                        TextInput::make('area')->label('Standart Mesken Yüzölçümü (m²)')->numeric()
                             ->helperText('Boş bırakılabilir; sonra daire bazında girilir.'),
+                        Toggle::make('ground_shops')->label('Zemin katı dükkan olsun')
+                            ->live()->default(false)
+                            ->helperText('Açıksa: meskenler alttan (1.KAT) yukarı numaralanır, DÜKKANLAR EN SON (zemine).'),
+
+                        // Yön seçimi yalnız zemin dükkan KAPALIYKEN anlamlı — açıkken meskenler zaten 1.KAT'tan yukarı.
+                        Toggle::make('mesken_from_bottom')->label('Numaralar alttan başlasın')
+                            ->default(true)->helperText('Kapalı ise en üst kattan aşağı numaralandırır.')
+                            ->visible(fn ($get) => ! (bool) $get('ground_shops')),
+                        TextInput::make('shop_count')->label('Kaç Dükkan')
+                            ->numeric()->minValue(1)->default(2)
+                            ->visible(fn ($get) => (bool) $get('ground_shops')),
+                        TextInput::make('shop_area')->label('Standart Dükkan Yüzölçümü (m²)')->numeric()
+                            ->visible(fn ($get) => (bool) $get('ground_shops')),
+
+                        TextInput::make('start_no')->label('Başlangıç No')
+                            ->numeric()->minValue(1)->required()->default(1),
                     ])
                     ->action(fn (array $data) => $this->bulkCreateUnits($data)),
             ])
@@ -259,36 +270,59 @@ class UnitsRelationManager extends RelationManager
     private function bulkCreateUnits(array $data): void
     {
         $block = $this->getOwnerRecord();
-        $floorCount = (int) $data['floors'];
-        $hasGround = (bool) ($data['ground_floor'] ?? true);
-        $fromBottom = (bool) ($data['number_from_bottom'] ?? true);
-        $perFloor = (int) $data['per_floor'];
-        $no = (int) $data['start_no'];
-        $area = $data['area'] !== null && $data['area'] !== '' ? (float) $data['area'] : null;
+        $residentialFloors = max(0, (int) ($data['residential_floors'] ?? 0));
+        $perFloor = max(1, (int) ($data['per_floor'] ?? 1));
+        $groundShops = (bool) ($data['ground_shops'] ?? false);
+        // Zemin dükkan açıkken yön seçimi gizli → meskenler her zaman 1.KAT'tan yukarı.
+        $fromBottom = $groundShops ? true : (bool) ($data['mesken_from_bottom'] ?? true);
+        $shopCount = $groundShops ? max(0, (int) ($data['shop_count'] ?? 0)) : 0;
+        $no = (int) ($data['start_no'] ?? 1);
+        $area = ($data['area'] ?? '') !== '' ? (float) $data['area'] : null;
+        $shopArea = ($data['shop_area'] ?? '') !== '' ? (float) $data['shop_area'] : null;
         $sort = (int) ($block->units()->max('sort_order') ?? 0);
 
-        $floors = $hasGround ? range(0, $floorCount - 1) : range(1, $floorCount);
+        // Zemin dükkansa meskenler 1.KAT'tan yukarı (zemin dükkana ayrıldı); değilse Zemin de mesken (0'dan).
+        $baseFloor = $groundShops ? 1 : 0;
+        $residFloorNos = $residentialFloors > 0
+            ? range($baseFloor, $baseFloor + $residentialFloors - 1)
+            : [];
         if (! $fromBottom) {
-            $floors = array_reverse($floors);
+            $residFloorNos = array_reverse($residFloorNos);
         }
 
         $created = 0;
-        foreach ($floors as $floor) {
+
+        // 1) Meskenler önce numaralanır
+        foreach ($residFloorNos as $floor) {
             for ($pos = 1; $pos <= $perFloor; $pos++) {
                 $block->units()->create([
                     'unit_no'        => (string) $no,
                     'floor_no'       => $floor,
                     'floor_position' => $pos,
                     'area'           => $area,
+                    'usage_type'     => null, // bloktan (MESKEN) devralır
                     'sort_order'     => ++$sort,
-                    // arsa payı pay/payda boş → bloğun varsayılanını devralır
                 ]);
                 $no++;
                 $created++;
             }
         }
 
-        Notification::make()->title($created.' daire oluşturuldu')->success()->send();
+        // 2) Zemin dükkanlar EN SON numaralanır (floor_no = 0, tip = DÜKKAN)
+        for ($pos = 1; $pos <= $shopCount; $pos++) {
+            $block->units()->create([
+                'unit_no'        => (string) $no,
+                'floor_no'       => 0,
+                'floor_position' => $pos,
+                'area'           => $shopArea,
+                'usage_type'     => 'DÜKKAN',
+                'sort_order'     => ++$sort,
+            ]);
+            $no++;
+            $created++;
+        }
+
+        Notification::make()->title($created.' daire/dükkan oluşturuldu')->success()->send();
     }
 
 }
