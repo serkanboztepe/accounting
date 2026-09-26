@@ -18,10 +18,17 @@ class PropertyTaxProjectsTable
                     ->label('Proje / Bina')
                     ->searchable()
                     ->sortable(),
-                TextColumn::make('taxpayer_surname')
+                // Mükellefler artık ayrı tabloda (property_tax_taxpayers) — eski proje seviyesi
+                // taxpayer_surname alanı boştu. Mükellef SAYISINI göster.
+                TextColumn::make('taxpayers_count')
                     ->label('Mükellef')
-                    ->formatStateUsing(fn ($state, $record) => trim($state.' '.$record->taxpayer_first_name))
-                    ->searchable(),
+                    ->counts('taxpayers')
+                    ->badge()
+                    ->color('success'),
+                TextColumn::make('building_owner')
+                    ->label('Yapı Sahibi')
+                    ->toggleable()
+                    ->placeholder('—'),
                 TextColumn::make('cadastral_parcel')
                     ->label('Ada/Parsel'),
                 TextColumn::make('city')
