@@ -32,6 +32,9 @@ class UnitsRelationManager extends RelationManager
 
     protected static ?string $title = 'Daireler';
 
+    /** Daire formu kaydedilirken seçilen mükellef id'leri (mutateFormDataUsing → after arası taşıma). */
+    public array $pendingTaxpayerIds = [];
+
     public function form(Schema $schema): Schema
     {
         return $schema->components([
@@ -65,26 +68,26 @@ class UnitsRelationManager extends RelationManager
                         ->helperText('Ör. 5/120 için buraya 120.'),
                 ]),
 
-            Section::make('Mükellef Atamaları (Hisse)')
-                ->description('Bu daireyi paylaşan mükellef(ler) ve hisseleri. Tam sahiplik için pay=payda (ör. 1/1). Beyanname her mükellef için ayrı üretilir.')
+            Section::make('Mükellef Atamaları')
+                ->description('Bu daireyi paylaşan mükellef(ler)i seç — hisse otomatik EŞİT bölünür (tek → 1/1, iki → 1/2…). Beyanname her mükellef için ayrı üretilir. (Toplu atama ile tutarlı.)')
                 ->schema([
-                    Repeater::make('allocations')
+                    // Açılır dropdown/repeater yerine satır içi CheckboxList — toplu atama ile aynı UX.
+                    // Kaydetmede hisse otomatik eşit bölünür (aşağıdaki mutate/after).
+                    CheckboxList::make('taxpayer_ids')
                         ->hiddenLabel()
-                        ->relationship()
-                        ->addActionLabel('Mükellef Ata')
-                        ->columns(3)
-                        ->schema([
-                            Select::make('property_tax_taxpayer_id')
-                                ->label('Mükellef')
-                                ->options(fn () => PropertyTaxTaxpayer::query()
-                                    ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
-                                    ->orderBy('sort_order')->orderBy('id')
-                                    ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
-                                ->required()
-                                ->columnSpan(1),
-                            TextInput::make('pay')->label('Hisse Pay')->numeric()->default(1)->required(),
-                            TextInput::make('payda')->label('Hisse Payda')->numeric()->default(1)->required(),
-                        ]),
+                        ->options(fn () => PropertyTaxTaxpayer::query()
+                            ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
+                            ->orderBy('sort_order')->orderBy('id')
+                            ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
+                        ->columns(2)
+                        ->searchable()
+                        ->bulkToggleable()
+                        // Bir DB kolonu değil; mutateFormDataUsing id'leri alıp $data'dan çıkarır, after eşit böler.
+                        ->afterStateHydrated(function (CheckboxList $component, $state, $record) {
+                            if ($record && blank($state)) {
+                                $component->state($record->allocations->pluck('property_tax_taxpayer_id')->all());
+                            }
+                        }),
                 ]),
 
             Section::make('Bloktan Farklıysa (İsteğe Bağlı)')
@@ -149,7 +152,9 @@ class UnitsRelationManager extends RelationManager
                     ->placeholder('—'),
             ])
             ->headerActions([
-                CreateAction::make()->label('Daire Ekle'),
+                CreateAction::make()->label('Daire Ekle')
+                    ->mutateFormDataUsing(fn (array $data): array => $this->stashTaxpayerIds($data))
+                    ->after(fn ($record) => $this->syncAllocationsEqual($record)),
 
                 Action::make('bulkCreateUnits')
                     ->label('Toplu Daire Oluştur')
@@ -184,7 +189,9 @@ class UnitsRelationManager extends RelationManager
                     ->action(fn () => $this->distributeSharesEqually()),
             ])
             ->recordActions([
-                EditAction::make(),
+                EditAction::make()
+                    ->mutateFormDataUsing(fn (array $data): array => $this->stashTaxpayerIds($data))
+                    ->after(fn ($record) => $this->syncAllocationsEqual($record)),
                 DeleteAction::make(),
             ])
             ->toolbarActions([
@@ -232,6 +239,31 @@ class UnitsRelationManager extends RelationManager
                     DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    /** Daire formundaki seçili mükellef id'lerini sakla ve $data'dan çıkar (DB kolonu değil). */
+    private function stashTaxpayerIds(array $data): array
+    {
+        $this->pendingTaxpayerIds = array_values(array_filter(array_map('intval', $data['taxpayer_ids'] ?? [])));
+        unset($data['taxpayer_ids']);
+
+        return $data;
+    }
+
+    /** Daire kaydedildikten sonra seçili mükellefler arasında hisseyi EŞİT böl (toplu atama ile tutarlı). */
+    private function syncAllocationsEqual($unit): void
+    {
+        $ids = $this->pendingTaxpayerIds;
+        $unit->allocations()->delete();
+        $n = count($ids);
+        foreach ($ids as $tid) {
+            $unit->allocations()->create([
+                'property_tax_taxpayer_id' => $tid,
+                'pay'   => 1,
+                'payda' => $n,
+            ]);
+        }
+        $this->pendingTaxpayerIds = [];
     }
 
     private function bulkCreateUnits(array $data): void
