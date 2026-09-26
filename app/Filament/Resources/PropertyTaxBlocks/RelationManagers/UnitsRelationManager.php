@@ -32,9 +32,6 @@ class UnitsRelationManager extends RelationManager
 
     protected static ?string $title = 'Daireler';
 
-    /** Daire formu kaydedilirken seçilen mükellef id'leri (mutateFormDataUsing → after arası taşıma). */
-    public array $pendingTaxpayerIds = [];
-
     public function form(Schema $schema): Schema
     {
         return $schema->components([
@@ -68,31 +65,11 @@ class UnitsRelationManager extends RelationManager
                         ->helperText('Ör. 5/120 için buraya 120.'),
                 ]),
 
-            Section::make('Mükellef Atamaları')
-                ->description('Bu daireyi paylaşan mükellef(ler)i seç — hisse otomatik EŞİT bölünür (tek → 1/1, iki → 1/2…). Beyanname her mükellef için ayrı üretilir. (Toplu atama ile tutarlı.)')
-                ->schema([
-                    // Açılır dropdown/repeater yerine satır içi CheckboxList — toplu atama ile aynı UX.
-                    // Kaydetmede hisse otomatik eşit bölünür (aşağıdaki mutate/after).
-                    CheckboxList::make('taxpayer_ids')
-                        ->hiddenLabel()
-                        ->options(fn () => PropertyTaxTaxpayer::query()
-                            ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
-                            ->orderBy('sort_order')->orderBy('id')
-                            ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
-                        ->columns(2)
-                        ->searchable()
-                        ->bulkToggleable()
-                        // Bir DB kolonu değil; mutateFormDataUsing id'leri alıp $data'dan çıkarır, after eşit böler.
-                        ->afterStateHydrated(function (CheckboxList $component, $state, $record) {
-                            if ($record && blank($state)) {
-                                $component->state($record->allocations->pluck('property_tax_taxpayer_id')->all());
-                            }
-                        }),
-                ]),
+            // Mükellef ataması buradan KALDIRILDI — tabloda "Sahibi" hücresine tıklayınca ayrı modaldan yapılır.
+            // (Daire düzenleme = daire özellikleri; mükellef atama = ayrı, temiz.)
 
             Section::make('Bloktan Farklıysa (İsteğe Bağlı)')
                 ->description('Boş bırakılırsa blok değerleri kullanılır. Sadece bu daire farklıysa doldur (ör. zemin dükkan).')
-                ->collapsed()
                 ->columns(2)
                 ->schema([
                     TextInput::make('usage_type')->label('Kullanış Şekli')->placeholder('bloktan devralır'),
@@ -148,16 +125,36 @@ class UnitsRelationManager extends RelationManager
                         ? $record->allocations
                             ->map(fn ($a) => $a->taxpayer?->fullName().' ('.$a->shareText().')')
                             ->filter()->implode(', ')
-                        : null),
+                        : null)
+                    // Hücreye tıkla → ayrı modalda mükellef seç (hisse otomatik eşit), kaydet+kapat.
+                    ->action(
+                        Action::make('assignOwners')
+                            ->modalHeading(fn (PropertyTaxUnit $record) => 'Daire '.$record->unit_no.' — Mükellef Ata')
+                            ->modalSubmitActionLabel('Kaydet')
+                            ->fillForm(fn (PropertyTaxUnit $record): array => [
+                                'taxpayer_ids' => $record->allocations->pluck('property_tax_taxpayer_id')->all(),
+                            ])
+                            ->schema([
+                                CheckboxList::make('taxpayer_ids')
+                                    ->label('Mükellef(ler)')
+                                    ->options(fn () => PropertyTaxTaxpayer::query()
+                                        ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
+                                        ->orderBy('sort_order')->orderBy('id')
+                                        ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
+                                    ->columns(2)
+                                    ->searchable()
+                                    ->bulkToggleable()
+                                    ->helperText('Seçilenler arasında hisse EŞİT bölünür (tek → 1/1, iki → 1/2…).'),
+                            ])
+                            ->action(fn (array $data, PropertyTaxUnit $record) => $this->assignOwnersEqually($record, $data['taxpayer_ids'] ?? [])),
+                    ),
                 TextColumn::make('usage_type')
                     ->label('Kullanış')
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->effectiveUsageType())
                     ->placeholder('—'),
             ])
             ->headerActions([
-                CreateAction::make()->label('Daire Ekle')
-                    ->mutateFormDataUsing(fn (array $data): array => $this->stashTaxpayerIds($data))
-                    ->after(fn ($record) => $this->syncAllocationsEqual($record)),
+                CreateAction::make()->label('Daire Ekle'),
 
                 Action::make('bulkCreateUnits')
                     ->label('Toplu Daire Oluştur')
@@ -194,9 +191,7 @@ class UnitsRelationManager extends RelationManager
                     ->action(fn (array $data) => $this->bulkCreateUnits($data)),
             ])
             ->recordActions([
-                EditAction::make()
-                    ->mutateFormDataUsing(fn (array $data): array => $this->stashTaxpayerIds($data))
-                    ->after(fn ($record) => $this->syncAllocationsEqual($record)),
+                EditAction::make(),
                 DeleteAction::make(),
             ])
             ->toolbarActions([
@@ -246,19 +241,10 @@ class UnitsRelationManager extends RelationManager
             ]);
     }
 
-    /** Daire formundaki seçili mükellef id'lerini sakla ve $data'dan çıkar (DB kolonu değil). */
-    private function stashTaxpayerIds(array $data): array
+    /** "Sahibi" modalından: seçili mükellefler arasında hisseyi EŞİT böl (tek → 1/1). */
+    private function assignOwnersEqually($unit, array $ids): void
     {
-        $this->pendingTaxpayerIds = array_values(array_filter(array_map('intval', $data['taxpayer_ids'] ?? [])));
-        unset($data['taxpayer_ids']);
-
-        return $data;
-    }
-
-    /** Daire kaydedildikten sonra seçili mükellefler arasında hisseyi EŞİT böl (toplu atama ile tutarlı). */
-    private function syncAllocationsEqual($unit): void
-    {
-        $ids = $this->pendingTaxpayerIds;
+        $ids = array_values(array_filter(array_map('intval', $ids)));
         $unit->allocations()->delete();
         $n = count($ids);
         foreach ($ids as $tid) {
@@ -268,7 +254,6 @@ class UnitsRelationManager extends RelationManager
                 'payda' => $n,
             ]);
         }
-        $this->pendingTaxpayerIds = [];
     }
 
     private function bulkCreateUnits(array $data): void
