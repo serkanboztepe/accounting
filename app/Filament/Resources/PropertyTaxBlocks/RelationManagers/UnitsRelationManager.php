@@ -179,15 +179,11 @@ class UnitsRelationManager extends RelationManager
                             ->visible(fn ($get) => (bool) $get('ground_shops')),
 
                         // Zemin DÜKKAN seçilince sorulur: numaralandırma bir üst kattan mı başlasın?
+                        // (Zemin dükkan değilse soru YOK — standart alttan başlar.)
                         Toggle::make('start_above')->label('Numaralandırmayı bir üst kattan başlat')
                             ->default(true)
                             ->helperText('Evet: 1.KAT’tan 1, 2… başlar, DÜKKANLAR EN SON. Hayır: alttan (zemin/dükkan) başlar.')
                             ->visible(fn ($get) => (bool) $get('ground_shops')),
-
-                        // Zemin dükkan KAPALIYKEN yön seçimi.
-                        Toggle::make('mesken_from_bottom')->label('Numaralar alttan başlasın')
-                            ->default(true)->helperText('Kapalı ise en üst kattan aşağı numaralandırır.')
-                            ->visible(fn ($get) => ! (bool) $get('ground_shops')),
 
                         TextInput::make('start_no')->label('Başlangıç No')
                             ->numeric()->minValue(1)->required()->default(1),
@@ -320,11 +316,8 @@ class UnitsRelationManager extends RelationManager
                 }
             }
         } else {
-            // Zemin de mesken (floor 0..N-1); yön toggle'ı.
+            // Zemin dükkan değil → zemin de mesken (floor 0..N-1), standart ALTTAN başlar.
             $meskenFloors = $residentialFloors > 0 ? range(0, $residentialFloors - 1) : [];
-            if (! (bool) ($data['mesken_from_bottom'] ?? true)) {
-                $meskenFloors = array_reverse($meskenFloors);
-            }
             foreach ($meskenFloors as $floor) {
                 $makeUnits($floor, $perFloor, null, $area);
             }
