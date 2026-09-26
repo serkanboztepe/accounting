@@ -113,10 +113,13 @@ class UnitsRelationManager extends RelationManager
             ->defaultSort('sort_order')
             ->modifyQueryUsing(fn ($query) => $query->with('allocations.taxpayer'))
             ->columns([
-                TextColumn::make('unit_no')->label('Daire')->sortable(),
+                TextColumn::make('unit_no')->label('Daire No')->sortable(),
                 TextColumn::make('floor_no')->label('Kat')->sortable()
                     ->getStateUsing(fn (PropertyTaxUnit $record) => $record->floorLabel()),
-                TextColumn::make('floor_position')->label('Sıra'),
+                // Kattaki soldan-sağa konum — SADECE kroki çizimi için (beyanname numarası değil).
+                // Kafa karıştırmasın diye listede varsayılan GİZLİ; kolon menüsünden açılabilir.
+                TextColumn::make('floor_position')->label('Konum (kroki)')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('area')->label('Yüzölçümü')->numeric(2)->suffix(' m²')
                     ->summarize(Sum::make()->label('Toplam')->numeric(2)->suffix(' m²')),
                 TextColumn::make('land_share')
