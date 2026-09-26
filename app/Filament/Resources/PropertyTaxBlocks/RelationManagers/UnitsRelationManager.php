@@ -171,18 +171,23 @@ class UnitsRelationManager extends RelationManager
                         TextInput::make('area')->label('Standart Mesken Yüzölçümü (m²)')->numeric()
                             ->helperText('Boş bırakılabilir; sonra daire bazında girilir.'),
                         Toggle::make('ground_shops')->label('Zemin katı dükkan olsun')
-                            ->live()->default(false)
-                            ->helperText('Açıksa: meskenler alttan (1.KAT) yukarı numaralanır, DÜKKANLAR EN SON (zemine).'),
-
-                        // Yön seçimi yalnız zemin dükkan KAPALIYKEN anlamlı — açıkken meskenler zaten 1.KAT'tan yukarı.
-                        Toggle::make('mesken_from_bottom')->label('Numaralar alttan başlasın')
-                            ->default(true)->helperText('Kapalı ise en üst kattan aşağı numaralandırır.')
-                            ->visible(fn ($get) => ! (bool) $get('ground_shops')),
+                            ->live()->default(false),
                         TextInput::make('shop_count')->label('Kaç Dükkan')
                             ->numeric()->minValue(1)->default(2)
                             ->visible(fn ($get) => (bool) $get('ground_shops')),
                         TextInput::make('shop_area')->label('Standart Dükkan Yüzölçümü (m²)')->numeric()
                             ->visible(fn ($get) => (bool) $get('ground_shops')),
+
+                        // Zemin DÜKKAN seçilince sorulur: numaralandırma bir üst kattan mı başlasın?
+                        Toggle::make('start_above')->label('Numaralandırmayı bir üst kattan başlat')
+                            ->default(true)
+                            ->helperText('Evet: 1.KAT’tan 1, 2… başlar, DÜKKANLAR EN SON. Hayır: alttan (zemin/dükkan) başlar.')
+                            ->visible(fn ($get) => (bool) $get('ground_shops')),
+
+                        // Zemin dükkan KAPALIYKEN yön seçimi.
+                        Toggle::make('mesken_from_bottom')->label('Numaralar alttan başlasın')
+                            ->default(true)->helperText('Kapalı ise en üst kattan aşağı numaralandırır.')
+                            ->visible(fn ($get) => ! (bool) $get('ground_shops')),
 
                         TextInput::make('start_no')->label('Başlangıç No')
                             ->numeric()->minValue(1)->required()->default(1),
@@ -273,53 +278,56 @@ class UnitsRelationManager extends RelationManager
         $residentialFloors = max(0, (int) ($data['residential_floors'] ?? 0));
         $perFloor = max(1, (int) ($data['per_floor'] ?? 1));
         $groundShops = (bool) ($data['ground_shops'] ?? false);
-        // Zemin dükkan açıkken yön seçimi gizli → meskenler her zaman 1.KAT'tan yukarı.
-        $fromBottom = $groundShops ? true : (bool) ($data['mesken_from_bottom'] ?? true);
         $shopCount = $groundShops ? max(0, (int) ($data['shop_count'] ?? 0)) : 0;
         $no = (int) ($data['start_no'] ?? 1);
         $area = ($data['area'] ?? '') !== '' ? (float) $data['area'] : null;
         $shopArea = ($data['shop_area'] ?? '') !== '' ? (float) $data['shop_area'] : null;
         $sort = (int) ($block->units()->max('sort_order') ?? 0);
 
-        // Zemin dükkansa meskenler 1.KAT'tan yukarı (zemin dükkana ayrıldı); değilse Zemin de mesken (0'dan).
-        $baseFloor = $groundShops ? 1 : 0;
-        $residFloorNos = $residentialFloors > 0
-            ? range($baseFloor, $baseFloor + $residentialFloors - 1)
-            : [];
-        if (! $fromBottom) {
-            $residFloorNos = array_reverse($residFloorNos);
-        }
-
         $created = 0;
-
-        // 1) Meskenler önce numaralanır
-        foreach ($residFloorNos as $floor) {
-            for ($pos = 1; $pos <= $perFloor; $pos++) {
+        // Ortak üretici — sıra: unit_no + sort_order artan.
+        $makeUnits = function (int $floor, int $count, ?string $usage, ?float $unitArea) use (&$no, &$sort, &$created, $block): void {
+            for ($pos = 1; $pos <= $count; $pos++) {
                 $block->units()->create([
                     'unit_no'        => (string) $no,
                     'floor_no'       => $floor,
                     'floor_position' => $pos,
-                    'area'           => $area,
-                    'usage_type'     => null, // bloktan (MESKEN) devralır
+                    'area'           => $unitArea,
+                    'usage_type'     => $usage,
                     'sort_order'     => ++$sort,
                 ]);
                 $no++;
                 $created++;
             }
-        }
+        };
 
-        // 2) Zemin dükkanlar EN SON numaralanır (floor_no = 0, tip = DÜKKAN)
-        for ($pos = 1; $pos <= $shopCount; $pos++) {
-            $block->units()->create([
-                'unit_no'        => (string) $no,
-                'floor_no'       => 0,
-                'floor_position' => $pos,
-                'area'           => $shopArea,
-                'usage_type'     => 'DÜKKAN',
-                'sort_order'     => ++$sort,
-            ]);
-            $no++;
-            $created++;
+        if ($groundShops) {
+            // Meskenler 1.KAT'tan yukarı (floor 1..N), dükkanlar zemin (floor 0).
+            $meskenFloors = $residentialFloors > 0 ? range(1, $residentialFloors) : [];
+            $startAbove = (bool) ($data['start_above'] ?? true);
+
+            if ($startAbove) {
+                // Evet: meskenler önce (1.KAT'tan yukarı 1,2…), DÜKKANLAR EN SON.
+                foreach ($meskenFloors as $floor) {
+                    $makeUnits($floor, $perFloor, null, $area);
+                }
+                $makeUnits(0, $shopCount, 'DÜKKAN', $shopArea);
+            } else {
+                // Hayır: alttan başla → zemin (dükkan) önce, sonra meskenler yukarı.
+                $makeUnits(0, $shopCount, 'DÜKKAN', $shopArea);
+                foreach ($meskenFloors as $floor) {
+                    $makeUnits($floor, $perFloor, null, $area);
+                }
+            }
+        } else {
+            // Zemin de mesken (floor 0..N-1); yön toggle'ı.
+            $meskenFloors = $residentialFloors > 0 ? range(0, $residentialFloors - 1) : [];
+            if (! (bool) ($data['mesken_from_bottom'] ?? true)) {
+                $meskenFloors = array_reverse($meskenFloors);
+            }
+            foreach ($meskenFloors as $floor) {
+                $makeUnits($floor, $perFloor, null, $area);
+            }
         }
 
         Notification::make()->title($created.' daire/dükkan oluşturuldu')->success()->send();
