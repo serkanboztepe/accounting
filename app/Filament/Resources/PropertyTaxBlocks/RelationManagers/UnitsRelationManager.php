@@ -11,6 +11,7 @@ use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -18,6 +19,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -126,27 +128,15 @@ class UnitsRelationManager extends RelationManager
                             ->map(fn ($a) => $a->taxpayer?->fullName().' ('.$a->shareText().')')
                             ->filter()->implode(', ')
                         : null)
-                    // Hücreye tıkla → ayrı modalda mükellef seç (hisse otomatik eşit), kaydet+kapat.
+                    // Hücreye tıkla → ayrı modalda mükellefi tikle + hissesini (pay/payda) yaz, kaydet+kapat.
                     ->action(
                         Action::make('assignOwners')
                             ->modalHeading(fn (PropertyTaxUnit $record) => 'Daire '.$record->unit_no.' — Mükellef Ata')
+                            ->modalDescription('Mükellefi tikle, yanına hissesini (pay/payda) yaz. Boş bırakılan tikli mükellefler eşit bölüşür — tek mükellefe boş = 1/1 (TAM).')
                             ->modalSubmitActionLabel('Kaydet')
-                            ->fillForm(fn (PropertyTaxUnit $record): array => [
-                                'taxpayer_ids' => $record->allocations->pluck('property_tax_taxpayer_id')->all(),
-                            ])
-                            ->schema([
-                                CheckboxList::make('taxpayer_ids')
-                                    ->label('Mükellef(ler)')
-                                    ->options(fn () => PropertyTaxTaxpayer::query()
-                                        ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
-                                        ->orderBy('sort_order')->orderBy('id')
-                                        ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
-                                    ->columns(2)
-                                    ->searchable()
-                                    ->bulkToggleable()
-                                    ->helperText('Seçilenler arasında hisse EŞİT bölünür (tek → 1/1, iki → 1/2…).'),
-                            ])
-                            ->action(fn (array $data, PropertyTaxUnit $record) => $this->assignOwnersEqually($record, $data['taxpayer_ids'] ?? [])),
+                            ->fillForm(fn (PropertyTaxUnit $record): array => $this->ownerFormState($record))
+                            ->schema(fn (): array => $this->ownerShareSchema())
+                            ->action(fn (array $data, PropertyTaxUnit $record) => $this->assignOwnersWithShares($record, $data)),
                     ),
                 TextColumn::make('usage_type')
                     ->label('Kullanış')
@@ -241,17 +231,80 @@ class UnitsRelationManager extends RelationManager
             ]);
     }
 
-    /** "Sahibi" modalından: seçili mükellefler arasında hisseyi EŞİT böl (tek → 1/1). */
-    private function assignOwnersEqually($unit, array $ids): void
+    /** Projenin mükellefleri (sıralı) — "Sahibi" modalı için. */
+    private function projectTaxpayers(): Collection
     {
-        $ids = array_values(array_filter(array_map('intval', $ids)));
+        return PropertyTaxTaxpayer::query()
+            ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
+            ->orderBy('sort_order')->orderBy('id')
+            ->get();
+    }
+
+    /** "Sahibi" modal şeması: her mükellef bir satır = ✓ (ad) + Pay + Payda. */
+    private function ownerShareSchema(): array
+    {
+        return $this->projectTaxpayers()
+            ->map(fn (PropertyTaxTaxpayer $t): Grid => Grid::make(12)->schema([
+                Checkbox::make("owner_{$t->id}_inc")
+                    ->label($t->fullName())
+                    ->columnSpan(6),
+                TextInput::make("owner_{$t->id}_pay")
+                    ->hiddenLabel()->placeholder('pay')
+                    ->numeric()->minValue(1)
+                    ->columnSpan(3),
+                TextInput::make("owner_{$t->id}_payda")
+                    ->hiddenLabel()->prefix('/')->placeholder('payda')
+                    ->numeric()->minValue(1)
+                    ->columnSpan(3),
+            ]))
+            ->all();
+    }
+
+    /** Mevcut atamaları modal alanlarına doldur (tikli + pay/payda). */
+    private function ownerFormState(PropertyTaxUnit $unit): array
+    {
+        $state = [];
+        foreach ($unit->allocations as $a) {
+            $id = $a->property_tax_taxpayer_id;
+            $state["owner_{$id}_inc"]   = true;
+            $state["owner_{$id}_pay"]   = $a->pay;
+            $state["owner_{$id}_payda"] = $a->payda;
+        }
+
+        return $state;
+    }
+
+    /**
+     * "Sahibi" modalından: tikli mükellefleri girilen pay/payda ile ata.
+     * Pay+payda boş bırakılan tikli mükellefler eşit bölüşür (tek → 1/1 = TAM).
+     */
+    private function assignOwnersWithShares(PropertyTaxUnit $unit, array $data): void
+    {
+        // Tikli mükellefleri ve (varsa) girilen hisselerini topla.
+        $selected = [];
+        foreach ($data as $key => $val) {
+            if (! preg_match('/^owner_(\d+)_inc$/', $key, $m) || ! $val) {
+                continue;
+            }
+            $id    = (int) $m[1];
+            $pay   = $data["owner_{$id}_pay"]   ?? null;
+            $payda = $data["owner_{$id}_payda"] ?? null;
+            $selected[$id] = [
+                'pay'   => ($pay   !== null && $pay   !== '') ? (int) $pay   : null,
+                'payda' => ($payda !== null && $payda !== '') ? (int) $payda : null,
+            ];
+        }
+
         $unit->allocations()->delete();
-        $n = count($ids);
-        foreach ($ids as $tid) {
+
+        $n = count($selected);
+        foreach ($selected as $id => $share) {
+            // Pay+payda girildiyse onları kullan; boşsa eşit böl (tek mükellef → 1/1 = TAM).
+            $useCustom = $share['pay'] && $share['payda'];
             $unit->allocations()->create([
-                'property_tax_taxpayer_id' => $tid,
-                'pay'   => 1,
-                'payda' => $n,
+                'property_tax_taxpayer_id' => $id,
+                'pay'   => $useCustom ? $share['pay']   : 1,
+                'payda' => $useCustom ? $share['payda'] : $n,
             ]);
         }
     }
