@@ -177,16 +177,6 @@ class UnitsRelationManager extends RelationManager
                             ->helperText('Boş bırakılabilir; sonra daire bazında girilir.'),
                     ])
                     ->action(fn (array $data) => $this->bulkCreateUnits($data)),
-
-                Action::make('distributeShares')
-                    ->label('Hisseleri Eşit Böl')
-                    ->icon(Heroicon::OutlinedScale)
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading('Hisseleri Eşit Böl')
-                    ->modalDescription('Bu bloktaki her dairenin hissesi, atanmış mükellefler arasında EŞİT bölünür (N mükellef → 1/N; tek mükellef → TAM).')
-                    ->modalSubmitActionLabel('Eşit Böl')
-                    ->action(fn () => $this->distributeSharesEqually()),
             ])
             ->recordActions([
                 EditAction::make()
@@ -301,22 +291,4 @@ class UnitsRelationManager extends RelationManager
         Notification::make()->title($created.' daire oluşturuldu')->success()->send();
     }
 
-    private function distributeSharesEqually(): void
-    {
-        $units = $this->getOwnerRecord()->units()->with('allocations')->get();
-
-        $count = 0;
-        foreach ($units as $unit) {
-            $n = $unit->allocations->count();
-            if ($n === 0) {
-                continue;
-            }
-            foreach ($unit->allocations as $alloc) {
-                $alloc->update(['pay' => 1, 'payda' => $n]);
-            }
-            $count++;
-        }
-
-        Notification::make()->title($count.' dairenin hissesi eşit bölündü')->success()->send();
-    }
 }
