@@ -11,6 +11,7 @@ use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -194,13 +195,17 @@ class UnitsRelationManager extends RelationManager
                     ->modalHeading('Seçili Daireleri Mükellef(ler)e Ata')
                     ->modalDescription('Bir mükellef seçersen tam sahiplik (1/1). Birden fazla seçersen daireler hisseli olur, hisse EŞİT bölünür (2 mükellef → her biri 1/2). Mevcut atamaların yerini alır.')
                     ->schema([
-                        Select::make('taxpayer_ids')
+                        // Açılır dropdown yerine satır içi CheckboxList: liste kapanmaz/üste binmez,
+                        // "Tamam" butonu hep erişilebilir. Tek/çoklu seçim aynı şekilde çalışır.
+                        CheckboxList::make('taxpayer_ids')
                             ->label('Mükellef(ler)')
-                            ->multiple()
                             ->options(fn () => PropertyTaxTaxpayer::query()
                                 ->where('property_tax_project_id', $this->getOwnerRecord()->property_tax_project_id)
                                 ->orderBy('sort_order')->orderBy('id')
                                 ->get()->mapWithKeys(fn ($t) => [$t->id => $t->fullName()]))
+                            ->columns(2)
+                            ->searchable()
+                            ->bulkToggleable()
                             ->required(),
                     ])
                     ->action(function (array $data, Collection $records) {
