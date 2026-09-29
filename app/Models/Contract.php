@@ -141,13 +141,15 @@ class Contract extends Model
 
     public function paidAmount(): float
     {
-        return (float) $this->payments()->sum('amount');
+        // Yalnız gerçekten ödenenler "kalan"ı düşürür; ödenmedi (plan) sayılmaz.
+        return (float) $this->payments()->where('status', 'paid')->sum('amount');
     }
 
     public function cashPaidAmount(): float
     {
         $nonCheck = (float) $this->payments()
             ->where('payment_type', '!=', 'check')
+            ->where('status', 'paid')
             ->sum('amount');
 
         $collectedChecks = (float) Check::query()

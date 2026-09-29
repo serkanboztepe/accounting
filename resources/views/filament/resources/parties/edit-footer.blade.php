@@ -13,14 +13,30 @@
     >
         {{-- Yeni hareket girişi — tek liste (grid kaldırıldı) --}}
         <div class="mb-4 flex flex-wrap gap-2">
-            <x-filament::button color="info" icon="heroicon-o-shopping-cart"
-                wire:click="mountAction('newLedgerEntry', { type: 'satis' })">
-                Satış
-            </x-filament::button>
+            @if (config('modules.direct_sales'))
+                {{-- Takipli: kalemli satış (stok düşer + cari borç) --}}
+                <x-filament::button color="info" icon="heroicon-o-shopping-cart"
+                    wire:click="mountAction('newSale')">
+                    Satış
+                </x-filament::button>
+            @else
+                {{-- Basit: kalemsiz tek tutar (sadece cari borç) --}}
+                <x-filament::button color="info" icon="heroicon-o-shopping-cart"
+                    wire:click="mountAction('newLedgerEntry', { type: 'satis' })">
+                    Satış
+                </x-filament::button>
+            @endif
             <x-filament::button color="success" icon="heroicon-o-arrow-down-circle"
-                wire:click="mountAction('newLedgerEntry', { type: 'tahsilat' })">
+                wire:click="mountAction('newCollection')">
                 Tahsilat
             </x-filament::button>
+            @if (config('modules.direct_sales'))
+                {{-- Müşteri-merkezli iade: tüm satışlarının iade edilebilir kalemleri tek listede --}}
+                <x-filament::button color="warning" icon="heroicon-o-arrow-uturn-left"
+                    wire:click="mountAction('returnEntry')">
+                    İade Al
+                </x-filament::button>
+            @endif
             @if (config('modules.cari_supplier'))
                 <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
                     wire:click="mountAction('newLedgerEntry', { type: 'alis' })">
@@ -122,6 +138,23 @@
                             <td class="py-2 px-3">
                                 <span class="text-gray-950 dark:text-white">{{ $r['desc'] }}</span>
                                 <span class="text-xs text-gray-400">· {{ $r['label'] }}</span>
+                                @if (! empty($r['sale_id']))
+                                    <span class="ml-2 inline-flex gap-3 align-middle">
+                                        @if (! ($r['sale_has_returns'] ?? false))
+                                            <button type="button" class="text-xs text-gray-600 hover:underline dark:text-gray-300"
+                                                wire:click="mountAction('editSale', { sale: {{ $r['sale_id'] }} })">Düzenle</button>
+                                        @else
+                                            <span class="text-xs text-amber-600" title="İadesi var — düzenlemek için önce iadeyi geri alın">İadeli 🔒</span>
+                                        @endif
+                                        <a href="{{ \App\Filament\Resources\Sales\SaleResource::getUrl('edit', ['record' => $r['sale_id']]) }}"
+                                            class="text-xs text-primary-600 hover:underline">Aç</a>
+                                    </span>
+                                @elseif (! empty($r['sale_return_id']))
+                                    <span class="ml-2 inline-flex align-middle">
+                                        <button type="button" class="text-xs font-medium text-danger-600 hover:underline"
+                                            wire:click="mountAction('cancelReturn', { sale_return: {{ $r['sale_return_id'] }} })">Geri Al</button>
+                                    </span>
+                                @endif
                             </td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['borc'] > 0 ? '₺' . \App\Support\Money::format($r['borc']) : '' }}</td>
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['alacak'] > 0 ? '₺' . \App\Support\Money::format($r['alacak']) : '' }}</td>

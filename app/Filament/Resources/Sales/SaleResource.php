@@ -36,6 +36,15 @@ class SaleResource extends Resource
         return config('modules.direct_sales');
     }
 
+    /**
+     * Satış artık Cari Ekstresi (cari kartı) içinden oluşturulur/düzenlenir.
+     * Resource kayıtlı kalır (ekstredeki "Satışı Aç" edit-linki için) ama menüde görünmez.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return SaleForm::configure($schema);

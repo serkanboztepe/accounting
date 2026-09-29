@@ -35,4 +35,18 @@ return [
         ],
     ],
 
+    // WhatsApp gider asistanı (Faz 0 ispat).
+    'anthropic' => [
+        'api_key' => env('ANTHROPIC_API_KEY'),
+        // Metin girişleri için ucuz model.
+        'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-5'),
+        // Fotoğraf (el yazısı çek/fiş) için güçlü vision modeli — okuma kalitesi kritik.
+        'vision_model' => env('ANTHROPIC_VISION_MODEL', 'claude-opus-4-8'),
+    ],
+
+    'twilio' => [
+        'sid' => env('TWILIO_SID'),
+        'token' => env('TWILIO_TOKEN'),
+    ],
+
 ];

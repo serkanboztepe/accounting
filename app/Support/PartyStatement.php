@@ -96,9 +96,16 @@ class PartyStatement
         }
 
         // --- Çift yönlü cari hareketleri (elle) ---
-        foreach ($party->ledgerEntries()->with('project')->get() as $entry) {
+        $ledgerEntries = $party->ledgerEntries()->with('project')->get();
+        // İadesi olan satışlar (iade satırları sale_id taşır) → o satış artık düzenlenemez.
+        $returnedSaleIds = $ledgerEntries
+            ->where('type', PartyLedgerEntry::TYPE_SALE_RETURN)
+            ->pluck('sale_id')->filter()->unique()->all();
+
+        foreach ($ledgerEntries as $entry) {
             $amount  = (float) $entry->amount;
             $isDebit = $entry->direction === PartyLedgerEntry::DIRECTION_DEBIT;
+            $isSaleRow = $entry->type === PartyLedgerEntry::TYPE_SALE;
 
             $rows[] = self::row(
                 $entry->entry_date,
@@ -111,6 +118,12 @@ class PartyStatement
                 $entry->id,
                 // Satışa/iadeye bağlı satırlar buradan düzenlenmez (kaynak = Direkt Satış).
                 $entry->sale_id === null && $entry->sale_return_id === null,
+                // Yalnız satış (borç) satırına Düzenle / Aç bağla — iade satırına değil.
+                $isSaleRow ? $entry->sale_id : null,
+                // İadesi varsa düzenleme kilitli.
+                $isSaleRow && in_array($entry->sale_id, $returnedSaleIds, true),
+                // İade (satis_iade) satırına Geri Al bağla.
+                $entry->type === PartyLedgerEntry::TYPE_SALE_RETURN ? $entry->sale_return_id : null,
             );
         }
 
@@ -174,7 +187,7 @@ class PartyStatement
         ];
     }
 
-    protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null, ?int $entryId = null, bool $editable = false): array
+    protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null, ?int $entryId = null, bool $editable = false, ?int $saleId = null, bool $saleHasReturns = false, ?int $saleReturnId = null): array
     {
         return [
             'ts'           => $date ? $date->timestamp : 0,
@@ -188,6 +201,12 @@ class PartyStatement
             // Elle girilen cari hareketi ise düzenle/sil için id + izin.
             'entry_id'     => $entryId,
             'editable'     => $editable,
+            // Direkt satış satırıysa satış id'si (ekstreden Düzenle / Aç için).
+            'sale_id'      => $saleId,
+            // İadesi olan satış → Düzenle kilitli (önce iade geri alınmalı).
+            'sale_has_returns' => $saleHasReturns,
+            // İade (satis_iade) satırıysa SaleReturn id'si (Geri Al için).
+            'sale_return_id'   => $saleReturnId,
         ];
     }
 }

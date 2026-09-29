@@ -75,51 +75,7 @@ class SalesTable
                         'return_date' => now()->toDateString(),
                         'lines' => $record->returnFormLines(),
                     ])
-                    ->schema([
-                        DatePicker::make('return_date')
-                            ->label('İade Tarihi')
-                            ->required(),
-
-                        Repeater::make('lines')
-                            ->label('İade edilecek ürünler')
-                            ->addable(false)
-                            ->deletable(false)
-                            ->reorderable(false)
-                            ->columns(5)
-                            ->columnSpanFull()
-                            ->schema([
-                                Hidden::make('product_id'),
-                                Hidden::make('unit_price'),
-                                Hidden::make('remaining'),
-
-                                TextInput::make('product_label')
-                                    ->label('Ürün')
-                                    ->disabled()
-                                    ->columnSpan(2),
-
-                                TextInput::make('sold')
-                                    ->label('Satılan')
-                                    ->disabled(),
-
-                                TextInput::make('returned_before')
-                                    ->label('Önce iade')
-                                    ->disabled(),
-
-                                TextInput::make('return_qty')
-                                    ->label('İade')
-                                    ->numeric()
-                                    ->step(0.01)
-                                    ->default(0)
-                                    ->minValue(0)
-                                    ->maxValue(fn (Get $get) => (float) $get('remaining'))
-                                    ->helperText(fn (Get $get) => 'Kalan: ' . number_format((float) $get('remaining'), 2, ',', '.')),
-                            ]),
-
-                        Textarea::make('return_notes')
-                            ->label('İade notu')
-                            ->rows(2)
-                            ->columnSpanFull(),
-                    ])
+                    ->schema(\App\Filament\Resources\Sales\Schemas\SaleReturnForm::components())
                     ->action(function (array $data, Sale $record) {
                         $record->processReturn(
                             $data['lines'] ?? [],

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ContractPayments\Tables;
 
+use App\Models\ContractPayment;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -17,17 +18,9 @@ class ContractPaymentsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('payment_type')
-                    ->label('Ödeme Türü')
+                    ->label('Yöntem')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'cash'             => 'Nakit',
-                        'eft'              => 'EFT',
-                        'bank_transfer'    => 'Havale',
-                        'check'            => 'Çek',
-                        'promissory_note'  => 'Senet',
-                        'other'            => 'Diğer',
-                        default            => $state,
-                    }),
+                    ->formatStateUsing(fn (string $state): string => ContractPayment::PAYMENT_TYPES[$state] ?? $state),
                 TextColumn::make('amount')
                     ->label('Tutar')
                     ->money('TRY')
@@ -35,19 +28,8 @@ class ContractPaymentsTable
                 TextColumn::make('status')
                     ->label('Durum')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'pending' => 'Bekliyor',
-                        'paid'    => 'Ödendi',
-                        'partial' => 'Kısmi',
-                        'cancelled' => 'İptal',
-                        default   => $state,
-                    })
-                    ->color(fn (string $state): string => match ($state) {
-                        'paid'      => 'success',
-                        'partial'   => 'warning',
-                        'cancelled' => 'danger',
-                        default     => 'gray',
-                    }),
+                    ->formatStateUsing(fn (?string $state): string => ContractPayment::STATUSES[$state] ?? '—')
+                    ->color(fn (?string $state): string => $state === 'paid' ? 'success' : 'gray'),
                 TextColumn::make('payment_date')
                     ->label('Ödeme Tarihi')
                     ->date('d.m.Y')

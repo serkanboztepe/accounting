@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PartyLedgerEntry extends Model
 {
@@ -16,18 +17,20 @@ class PartyLedgerEntry extends Model
     ];
 
     // Çift yönlü hareket tipleri → yön (borç/alacak) buradan türetilir.
-    public const TYPE_SALE        = 'satis';       // biz sattık → cari borçlanır
-    public const TYPE_SALE_RETURN = 'satis_iade';  // satış iadesi → cari alacak (borcu azaltır)
-    public const TYPE_PURCHASE    = 'alis';        // biz aldık → biz borçlanırız (cari alacak)
-    public const TYPE_COLLECTION  = 'tahsilat';    // para girdi → cari alacak
-    public const TYPE_PAYMENT     = 'odeme';       // para çıktı → cari borç
+    public const TYPE_SALE          = 'satis';          // biz sattık → cari borçlanır
+    public const TYPE_SALE_RETURN   = 'satis_iade';     // satış iadesi → cari alacak (borcu azaltır)
+    public const TYPE_PURCHASE      = 'alis';           // biz aldık → biz borçlanırız (cari alacak)
+    public const TYPE_COLLECTION    = 'tahsilat';       // para girdi → cari alacak
+    public const TYPE_PAYMENT       = 'odeme';          // para çıktı → cari borç
+    public const TYPE_CHECK_BOUNCED = 'cek_karsiliksiz'; // çek karşılıksız → tahsilatı geri alan ters borç
 
     public const TYPES = [
-        self::TYPE_SALE        => ['label' => 'Satış',         'direction' => self::DIRECTION_DEBIT],
-        self::TYPE_SALE_RETURN => ['label' => 'Satış İadesi',  'direction' => self::DIRECTION_CREDIT],
-        self::TYPE_PURCHASE    => ['label' => 'Alış / Hizmet', 'direction' => self::DIRECTION_CREDIT],
-        self::TYPE_COLLECTION  => ['label' => 'Tahsilat',      'direction' => self::DIRECTION_CREDIT],
-        self::TYPE_PAYMENT     => ['label' => 'Ödeme',         'direction' => self::DIRECTION_DEBIT],
+        self::TYPE_SALE          => ['label' => 'Satış',          'direction' => self::DIRECTION_DEBIT],
+        self::TYPE_SALE_RETURN   => ['label' => 'Satış İadesi',   'direction' => self::DIRECTION_CREDIT],
+        self::TYPE_PURCHASE      => ['label' => 'Alış / Hizmet',  'direction' => self::DIRECTION_CREDIT],
+        self::TYPE_COLLECTION    => ['label' => 'Tahsilat',       'direction' => self::DIRECTION_CREDIT],
+        self::TYPE_PAYMENT       => ['label' => 'Ödeme',          'direction' => self::DIRECTION_DEBIT],
+        self::TYPE_CHECK_BOUNCED => ['label' => 'Karşılıksız Çek', 'direction' => self::DIRECTION_DEBIT],
     ];
 
     protected $fillable = [
@@ -38,6 +41,7 @@ class PartyLedgerEntry extends Model
         'entry_date',
         'description',
         'type',
+        'payment_type',
         'direction',
         'amount',
         'notes',
@@ -74,5 +78,11 @@ class PartyLedgerEntry extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /** Bu tahsilat çekle yapıldıysa bağlı çek (vade/durum ekstrede gösterilebilsin). */
+    public function check(): HasOne
+    {
+        return $this->hasOne(Check::class, 'party_ledger_entry_id');
     }
 }

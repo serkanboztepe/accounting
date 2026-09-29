@@ -106,7 +106,6 @@ class Quote extends Model
                 'total_amount'  => Money::store($this->reportableTotal()) ?? '0.00',
                 'status'        => 'draft',
                 'notes'         => $this->notes,
-                'payment_plan'  => $this->payment_plan, // ödeme planı (belge) kopyalanır, tahsilat sayılmaz
             ]);
 
             foreach ($this->items as $item) {
@@ -118,6 +117,26 @@ class Quote extends Model
                     'amount'      => $item->amount,
                     'notes'       => $item->notes,
                 ]);
+            }
+
+            // Ödeme planı satırları → doğrudan Ödemeler (plan yok). Hepsi "ödenmedi" gelir;
+            // çek satırı bağlı Check kaydı açar (durum senkronu). Yöntem 3'e indirgenir.
+            foreach ($this->payment_plan ?? [] as $line) {
+                $type = match ($line['payment_type'] ?? null) {
+                    'cash'  => 'cash',
+                    'check' => 'check',
+                    default => 'bank_transfer', // eft/havale/senet/diğer → havale-eft
+                };
+
+                $payment = $contract->payments()->create([
+                    'payment_date' => $line['date'] ?? $contract->contract_date,
+                    'payment_type' => $type,
+                    'status'       => 'unpaid',
+                    'amount'       => Money::store($line['amount'] ?? 0) ?? '0.00',
+                    'notes'        => $line['note'] ?? null,
+                ]);
+
+                $payment->syncCheck($line['date'] ?? null);
             }
 
             $this->update([

@@ -4,6 +4,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/admin');
 
+// WhatsApp gider asistanı — Twilio webhook (Faz 0). CSRF muaf (bkz. bootstrap/app.php).
+Route::post('/whatsapp/webhook', \App\Http\Controllers\WhatsappWebhookController::class)
+    ->name('whatsapp.webhook');
+
 Route::get('/land-share-studies/{study}/yazdir', function (\App\Models\LandShareStudy $study) {
     $data = $study->toStudyData();
     $method = (new \App\Services\LandShare\StudyValidator())->defaultMethod($data);

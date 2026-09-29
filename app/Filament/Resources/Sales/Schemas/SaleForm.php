@@ -20,14 +20,27 @@ class SaleForm
 {
     public static function configure(Schema $schema): Schema
     {
-        return $schema->components([
-            Select::make('party_id')
+        return $schema->components(self::components())->columns(3);
+    }
+
+    /**
+     * Form bileşenleri — hem Direkt Satış resource'unda hem Cari Ekstresi'ndeki
+     * "Satış" modalında kullanılır.
+     *
+     * @param  bool  $withParty       Müşteri seçimi göster (cari içinden çağrılınca gizli — party bağlamdan gelir).
+     * @param  bool  $dehydrateLines  Kalemler $data'ya girsin mi (Action closure'ı için true; CreateRecord için false).
+     * @return array<int, \Filament\Schemas\Components\Component>
+     */
+    public static function components(bool $withParty = true, bool $dehydrateLines = false): array
+    {
+        return array_values(array_filter([
+            $withParty ? Select::make('party_id')
                 ->label('Müşteri (cari)')
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->preload()
                 ->required()
-                ->live(),
+                ->live() : null,
 
             Select::make('project_id')
                 ->label('Şantiye / Proje')
@@ -52,7 +65,7 @@ class SaleForm
 
             Repeater::make('lines')
                 ->label('Satış Kalemleri')
-                ->dehydrated(false) // model kolonu değil; afterCreate/afterSave'de işlenir
+                ->dehydrated($dehydrateLines) // CreateRecord: false (afterCreate $this->data'dan okur) · Action: true ($data'ya girsin)
                 ->addActionLabel('Ürün Ekle')
                 ->columns(4)
                 ->columnSpanFull()
@@ -115,6 +128,6 @@ class SaleForm
                 ->label('Not')
                 ->rows(2)
                 ->columnSpanFull(),
-        ])->columns(3);
+        ]));
     }
 }

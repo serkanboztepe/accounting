@@ -4,8 +4,6 @@ namespace App\Filament\Resources\Contracts\Schemas;
 
 use App\Models\Contract;
 use App\Support\Forms\MoneyInput;
-use App\Support\Forms\PaymentPlanRepeater;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -39,7 +37,18 @@ class ContractForm
                 ->collapsible()
                 ->collapsed()
                 ->persistCollapsed()
-                ->schema([
+                ->schema(static::fields()),
+        ]);
+    }
+
+    /**
+     * Sözleşmenin kendi alanları (party/proje/başlık/durum/tarih/tutar/tür/not).
+     * Create ekranında Section içinde, Edit ekranında ⚙ Ayarlar modalında kullanılır.
+     * 'direction' burada YOK — edit'te modaldan yanlışlıkla değiştirilmesin (satış→alım kazası).
+     */
+    public static function fields(): array
+    {
+        return [
                     Select::make('party_id')
                         ->label('Cari')
                         ->relationship('party', 'name')
@@ -60,19 +69,10 @@ class ContractForm
                         ->maxLength(255)
                         ->columnSpanFull(),
 
-                    Select::make('status')
-                        ->label('Durum')
-                        ->options([
-                            'draft'     => 'Taslak',
-                            'active'    => 'Aktif',
-                            'completed' => 'Tamamlandı',
-                            'cancelled' => 'İptal',
-                        ])
-                        ->default('active')
-                        ->required(),
-
-                    DatePicker::make('contract_date')
-                        ->label('Sözleşme Tarihi'),
+                    // Durum: oluştururken otomatik 'active' (CreateContract), sonradan
+                    // "Kapat/Bitir" butonuyla değişecek — formda yer kaplamasın.
+                    // Sözleşme tarihi + başlangıç tarihi = oluşturma tarihi (otomatik);
+                    // bitiş tarihi sözleşme kapatılınca dolar. Hepsi formdan çıkarıldı.
 
                     Select::make('contract_type')
                         ->label('Sözleşme Türü')
@@ -85,25 +85,10 @@ class ContractForm
                         ->dehydrateStateUsing(fn ($state) => \App\Support\Money::store($state) ?? '0.00')
                         ->helperText('Anlaşılan götürü bedel. Boş bırakırsan kalemlerden otomatik hesap yapılmaz; bu alan dolu olduğunda kalem tutarları kilitlenir.'),
 
-                    DatePicker::make('start_date')
-                        ->label('Başlangıç Tarihi'),
-
-                    DatePicker::make('end_date')
-                        ->label('Bitiş Tarihi'),
-
                     Textarea::make('notes')
                         ->label('Notlar')
                         ->rows(3)
                         ->columnSpanFull(),
-                ]),
-
-            Section::make('Ödeme Planı')
-                ->description('Çıktıda görünecek ödeme takvimi. Bu bir plandır — gerçek tahsilat/ödeme "Ödemeler" sekmesinden işlenir.')
-                ->collapsible()
-                ->collapsed()
-                ->schema([
-                    PaymentPlanRepeater::make(),
-                ]),
-        ]);
+        ];
     }
 }

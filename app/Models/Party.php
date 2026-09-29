@@ -40,4 +40,33 @@ class Party extends Model
     {
         return $this->hasMany(PartyLedgerEntry::class);
     }
+
+    public function sales(): HasMany
+    {
+        return $this->hasMany(Sale::class);
+    }
+
+    /**
+     * Müşterinin TÜM satışlarındaki iade edilebilir kalemler — üstteki "İade Al" listesi.
+     * Her satır kendi satışına + fiyatına bağlı (LIFO/tahmin yok). En yeni satış üstte.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function returnableLines(): array
+    {
+        $rows = [];
+
+        foreach ($this->sales()->orderByDesc('sale_date')->orderByDesc('id')->get() as $sale) {
+            foreach ($sale->returnFormLines() as $line) {
+                $rows[] = array_merge($line, [
+                    'sale_id'          => $sale->id,
+                    'sale_ref'         => '#' . $sale->id,
+                    'sale_date'        => $sale->sale_date?->format('d.m.Y'),
+                    'unit_price_label' => $line['unit_price'] !== null ? $line['unit_price'] . ' ₺' : '—',
+                ]);
+            }
+        }
+
+        return $rows;
+    }
 }

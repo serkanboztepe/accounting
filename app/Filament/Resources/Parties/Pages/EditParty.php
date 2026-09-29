@@ -11,7 +11,13 @@ use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\Sale;
+use App\Models\SaleReturn;
+use App\Filament\Resources\Sales\Schemas\SaleForm;
+use App\Filament\Resources\Sales\Schemas\SaleReturnForm;
+use App\Support\Money;
 use App\Support\PartyStatement;
+use Filament\Notifications\Notification;
 use App\Support\Forms\MoneyInput;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -19,7 +25,9 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 
 class EditParty extends EditRecord
@@ -121,6 +129,242 @@ class EditParty extends EditRecord
                     ...$data,
                     'type' => $arguments['type'] ?? null,
                 ]);
+            });
+    }
+
+    /**
+     * Kompleks (kalemli) satış — Cari Ekstresi içinden. direct_sales açıkken "Satış" butonu buna bağlanır.
+     * Sale::rebuildFromLines() stok çıkışı + cari borç satırını (tek doğruluk noktası) kendisi yazar.
+     */
+    public function newSaleAction(): Action
+    {
+        return Action::make('newSale')
+            ->modalHeading('Satış')
+            ->modalSubmitActionLabel('Kaydet')
+            ->schema(array_merge(
+                SaleForm::components(withParty: false, dehydrateLines: true),
+                [
+                    // Faz 2 — peşin: işaretlenirse satış toplamı kadar tahsilat (alacak) aynı anda düşer.
+                    Toggle::make('collected_now')->label('Tahsil edildi (peşin)')->default(false)->live(),
+                    Select::make('payment_type')->label('Ödeme Yöntemi')
+                        ->options(array_filter([
+                            'cash'          => 'Nakit',
+                            'bank_transfer' => 'Havale',
+                            'eft'           => 'EFT',
+                            'check'         => config('modules.checks') ? 'Çek' : null,
+                            'other'         => 'Diğer',
+                        ]))
+                        ->default('cash')
+                        ->live()
+                        ->visible(fn (Get $get) => (bool) $get('collected_now')),
+                    TextInput::make('check_number')->label('Çek No')
+                        ->visible(fn (Get $get) => $get('collected_now') && $get('payment_type') === 'check'),
+                    TextInput::make('bank_name')->label('Banka')
+                        ->visible(fn (Get $get) => $get('collected_now') && $get('payment_type') === 'check'),
+                    DatePicker::make('due_date')->label('Vade')
+                        ->visible(fn (Get $get) => $get('collected_now') && $get('payment_type') === 'check')
+                        ->required(fn (Get $get) => $get('collected_now') && $get('payment_type') === 'check'),
+                ]
+            ))
+            ->action(function (array $data): void {
+                $sale = Sale::create([
+                    'party_id'   => $this->record->id,
+                    'project_id' => $data['project_id'] ?? null,
+                    'sale_date'  => $data['sale_date'],
+                    'notes'      => $data['notes'] ?? null,
+                ]);
+
+                $sale->rebuildFromLines($data['lines'] ?? []);
+
+                // Peşin: satış toplamı kadar tahsilat (net bakiye 0). Çekse portföye ekle.
+                if (! empty($data['collected_now']) && (float) $sale->total_amount > 0) {
+                    $entry = $this->record->ledgerEntries()->create([
+                        'entry_date'   => $data['sale_date'],
+                        'amount'       => $sale->total_amount,
+                        'project_id'   => $data['project_id'] ?? null,
+                        'description'  => 'Peşin tahsilat — Satış #' . $sale->id,
+                        'type'         => PartyLedgerEntry::TYPE_COLLECTION,
+                        'payment_type' => $data['payment_type'] ?? 'cash',
+                    ]);
+
+                    if (($data['payment_type'] ?? null) === 'check') {
+                        Check::create([
+                            'party_id'              => $this->record->id,
+                            'project_id'            => $data['project_id'] ?? null,
+                            'party_ledger_entry_id' => $entry->id,
+                            'check_number'          => $data['check_number'] ?? null,
+                            'bank_name'             => $data['bank_name'] ?? null,
+                            'due_date'              => $data['due_date'] ?? $data['sale_date'],
+                            'amount'                => $sale->total_amount,
+                            'status'                => 'portfolio',
+                        ]);
+                    }
+                }
+            });
+    }
+
+    /**
+     * Tahsilat — ödeme yöntemi seçilir; "Çek" ise çek portföye eklenir (party_ledger_entry_id ile bağlı).
+     * Model A: çek alınınca ekstre HEMEN düşer (tahsilat=alacak). Karşılıksız/tahsil Çekler ekranından yönetilir.
+     */
+    public function newCollectionAction(): Action
+    {
+        return Action::make('newCollection')
+            ->modalHeading('Tahsilat — Para Girişi')
+            ->modalSubmitActionLabel('Kaydet')
+            ->schema([
+                DatePicker::make('entry_date')->label('Tarih')->default(now())->required(),
+                MoneyInput::make('amount', 'Tutar'),
+                Select::make('payment_type')
+                    ->label('Ödeme Yöntemi')
+                    ->options(array_filter([
+                        'cash'          => 'Nakit',
+                        'bank_transfer' => 'Havale',
+                        'eft'           => 'EFT',
+                        'check'         => config('modules.checks') ? 'Çek' : null,
+                        'other'         => 'Diğer',
+                    ]))
+                    ->default('cash')
+                    ->required()
+                    ->live(),
+                // Çek alanları — yalnız "Çek" seçilince.
+                TextInput::make('check_number')->label('Çek No')
+                    ->visible(fn (Get $get) => $get('payment_type') === 'check'),
+                TextInput::make('bank_name')->label('Banka')
+                    ->visible(fn (Get $get) => $get('payment_type') === 'check'),
+                DatePicker::make('due_date')->label('Vade')
+                    ->visible(fn (Get $get) => $get('payment_type') === 'check')
+                    ->required(fn (Get $get) => $get('payment_type') === 'check'),
+                Select::make('project_id')
+                    ->label('Proje (opsiyonel)')
+                    ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
+                    ->searchable()
+                    ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.'),
+                TextInput::make('description')->label('Açıklama')->maxLength(255)->columnSpanFull(),
+                Textarea::make('notes')->label('Not')->rows(2)->columnSpanFull(),
+            ])
+            ->action(function (array $data): void {
+                $entry = $this->record->ledgerEntries()->create([
+                    'entry_date'   => $data['entry_date'],
+                    'amount'       => $data['amount'],
+                    'project_id'   => $data['project_id'] ?? null,
+                    'description'  => $data['description'] ?? null,
+                    'notes'        => $data['notes'] ?? null,
+                    'type'         => PartyLedgerEntry::TYPE_COLLECTION,
+                    'payment_type' => $data['payment_type'] ?? null,
+                ]);
+
+                if (($data['payment_type'] ?? null) === 'check') {
+                    Check::create([
+                        'party_id'              => $this->record->id,
+                        'project_id'            => $data['project_id'] ?? null,
+                        'party_ledger_entry_id' => $entry->id,
+                        'check_number'          => $data['check_number'] ?? null,
+                        'bank_name'             => $data['bank_name'] ?? null,
+                        'due_date'              => $data['due_date'] ?? $data['entry_date'],
+                        'amount'                => $data['amount'],
+                        'status'                => 'portfolio',
+                    ]);
+                }
+            });
+    }
+
+    /**
+     * İade Al (ÜST buton) — müşteri-merkezli. Tüm satışlarının iade edilebilir kalemleri tek liste;
+     * her satır kendi satışına + fiyatına bağlı (LIFO/tahmin yok). Kaydederken satışa göre gruplanıp
+     * her satış için processReturn çağrılır → stok geri + satis_iade (alacak) → ekstrede belirir.
+     */
+    public function returnEntryAction(): Action
+    {
+        return Action::make('returnEntry')
+            ->modalHeading('İade Al')
+            ->modalSubmitActionLabel('İadeyi Kaydet')
+            ->fillForm(fn (): array => [
+                'return_date' => now()->toDateString(),
+                'lines'       => $this->record->returnableLines(),
+            ])
+            ->schema(SaleReturnForm::partyComponents())
+            ->action(function (array $data): void {
+                // Adet > 0 satırları satışa göre grupla → her satışa kendi iadesi.
+                $bySale = [];
+                foreach ($data['lines'] ?? [] as $line) {
+                    if ((float) ($line['return_qty'] ?? 0) <= 0) {
+                        continue;
+                    }
+                    $saleId = (int) ($line['sale_id'] ?? 0);
+                    if ($saleId) {
+                        $bySale[$saleId][] = $line;
+                    }
+                }
+
+                foreach ($bySale as $saleId => $lines) {
+                    Sale::find($saleId)?->processReturn($lines, $data['return_date'], $data['return_notes'] ?? null);
+                }
+            });
+    }
+
+    /**
+     * İadeyi Geri Al — ekstredeki iade (satis_iade) satırından. SaleReturn silinir;
+     * cascadeOnDelete ile stok girişi + satis_iade alacağı geri alınır (stok düşer, borç geri gelir).
+     */
+    public function cancelReturnAction(): Action
+    {
+        return Action::make('cancelReturn')
+            ->requiresConfirmation()
+            ->modalHeading('İadeyi Geri Al')
+            ->modalDescription('Bu iadenin stok girişi ve cari alacağı geri alınacak (stok tekrar düşer, cari borç geri gelir). Emin misiniz?')
+            ->modalSubmitActionLabel('Evet, geri al')
+            ->action(function (array $arguments): void {
+                SaleReturn::find($arguments['sale_return'])?->delete();
+            });
+    }
+
+    /**
+     * Satışı Düzenle — ekstre içinden (kalem/adet/fiyat). SaleForm dolu gelir, rebuildFromLines yeniden kurar.
+     * İadesi olan satış düzenlenemez (stok/bakiye bozulmasın) — önce iade "Satışı Aç"tan geri alınmalı.
+     */
+    public function editSaleAction(): Action
+    {
+        return Action::make('editSale')
+            ->modalHeading('Satışı Düzenle')
+            ->modalSubmitActionLabel('Kaydet')
+            ->fillForm(function (array $arguments): array {
+                $sale = Sale::findOrFail($arguments['sale']);
+
+                return [
+                    'project_id' => $sale->project_id,
+                    'sale_date'  => $sale->sale_date,
+                    'notes'      => $sale->notes,
+                    'lines'      => $sale->lines()->orderBy('id')->get()->map(fn ($m) => [
+                        'product_id' => $m->product_id,
+                        'quantity'   => number_format((float) $m->quantity, 2, '.', ''),
+                        'unit_price' => $m->unit_price !== null ? Money::format((float) $m->unit_price) : null,
+                        'amount'     => $m->amount !== null ? Money::format((float) $m->amount) : null,
+                    ])->toArray(),
+                ];
+            })
+            ->schema(SaleForm::components(withParty: false, dehydrateLines: true))
+            ->action(function (array $data, array $arguments): void {
+                $sale = Sale::findOrFail($arguments['sale']);
+
+                // Güvenlik ağı: iadesi olan satış düzenlenemez (buton zaten gizli ama sunucu tarafı da korur).
+                if ($sale->saleReturns()->exists()) {
+                    Notification::make()
+                        ->danger()
+                        ->title('Bu satışın iadesi var')
+                        ->body('Önce iadeyi geri alın (Satışı Aç → geçmiş iadeler), sonra düzenleyin.')
+                        ->send();
+
+                    return;
+                }
+
+                $sale->update([
+                    'project_id' => $data['project_id'] ?? null,
+                    'sale_date'  => $data['sale_date'],
+                    'notes'      => $data['notes'] ?? null,
+                ]);
+
+                $sale->rebuildFromLines($data['lines'] ?? []);
             });
     }
 

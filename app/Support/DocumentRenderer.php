@@ -42,7 +42,10 @@ class DocumentRenderer
             '<<proje_ad>>'      => e($doc->project?->name ?? '-'),
             '<<kalem_tablosu>>' => self::itemsTable($doc),
             '<<toplam>>'        => e(Money::format((float) $doc->reportableTotal()) . ' ₺'),
-            '<<odeme_plani>>'   => self::paymentPlanTable($doc->payment_plan ?? []),
+            // Sözleşme: gerçek ödemeler (durumlu). Teklif: ödeme planı (belge).
+            '<<odeme_plani>>'   => $doc instanceof Contract
+                ? self::contractPaymentsTable($doc)
+                : self::paymentPlanTable($doc->payment_plan ?? []),
             '<<imza_alani>>'    => self::signatureBlock($company->title, $doc->party?->name),
         ];
 
@@ -100,6 +103,42 @@ class DocumentRenderer
             . '</tr></thead><tbody>' . $rows . '</tbody></table>';
     }
 
+    /**
+     * Sözleşme ödemeleri (gerçek ContractPayment kayıtları) — tarih, yöntem, tutar, durum.
+     * Çek satırında vade yöntemin yanında gösterilir.
+     */
+    protected static function contractPaymentsTable(Contract $contract): string
+    {
+        $payments = $contract->payments()->with('checks')->orderBy('payment_date')->get();
+
+        if ($payments->isEmpty()) {
+            return '<em>—</em>';
+        }
+
+        $rows = '';
+        foreach ($payments as $payment) {
+            $date   = $payment->payment_date ? e($payment->payment_date->format('d.m.Y')) : '';
+            $type   = e(ContractPayment::PAYMENT_TYPES[$payment->payment_type] ?? $payment->payment_type);
+            $status = e(ContractPayment::STATUSES[$payment->status] ?? '');
+            $amount = Money::format((float) $payment->amount) . ' ₺';
+
+            if ($payment->payment_type === 'check' && ($due = $payment->checks->first()?->due_date)) {
+                $type .= ' <small>(Vade: ' . e($due->format('d.m.Y')) . ')</small>';
+            }
+
+            $rows .= '<tr>'
+                . '<td>' . $date . '</td>'
+                . '<td>' . $type . '</td>'
+                . '<td style="text-align:right">' . $amount . '</td>'
+                . '<td>' . $status . '</td>'
+                . '</tr>';
+        }
+
+        return '<table class="doc-table"><thead><tr>'
+            . '<th>Tarih</th><th>Yöntem</th><th style="text-align:right">Tutar</th><th>Durum</th>'
+            . '</tr></thead><tbody>' . $rows . '</tbody></table>';
+    }
+
     protected static function signatureBlock(?string $companyTitle, ?string $partyName): string
     {
         return '<table class="doc-sign"><tr>'
@@ -122,7 +161,7 @@ class DocumentRenderer
         return "<<baslik>>\n\n"
             . "İşbu sözleşme <<tarih>> tarihinde <<firma_ad>> ile <<cari_ad>> arasında aşağıdaki kalemler için akdedilmiştir.\n\n"
             . "<<kalem_tablosu>>\n\n"
-            . "Ödeme Planı:\n<<odeme_plani>>\n\n"
+            . "Ödemeler:\n<<odeme_plani>>\n\n"
             . "<<imza_alani>>";
     }
 }
