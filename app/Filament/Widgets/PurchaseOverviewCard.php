@@ -36,6 +36,18 @@ class PurchaseOverviewCard extends Widget
             fn (Contract $c) => max(0, $c->reportableTotal() - $c->cashPaidAmount()),
         );
 
+        // Nakit-açık ve çek-fazlası SÖZLEŞME BAZINDA hesaplanır, sonra toplanır.
+        // (Global netleme yanlıştı: bir sözleşmenin fazla çeki, çek yazılmamış başka
+        //  sözleşmenin nakit borcunu yutup "Ödenecek Nakit"i sıfırlıyordu — bkz Düzgün Yıldırım.)
+        $cashDue = 0.0;
+        $checkExcess = 0.0;
+        foreach ($contracts as $c) {
+            $remaining = max(0, $c->reportableTotal() - $c->cashPaidAmount());
+            $contractChecks = $c->pendingCheckAmount();
+            $cashDue     += max(0, $remaining - $contractChecks);   // çeki yazılmamış açık kısım
+            $checkExcess += max(0, $contractChecks - $remaining);   // sözleşme borcunu aşan çek
+        }
+
         $expensesTotal = (float) Expense::query()->sum('amount');
         $totalCashOut  = $cashPaid + $expensesTotal;
 
@@ -50,13 +62,12 @@ class PurchaseOverviewCard extends Widget
             'cash_paid'       => $cashPaid,
             'unpaid_balance'  => $unpaidBalance,
             'pending_checks'  => $pendingAmount,
-            // Ödenecek nakit = kalan borcun çeki yazılmamış (açık) kısmı
-            'cash_due'        => max(0, $unpaidBalance - $pendingAmount),
-            // Toplam ödenecek = nakit-açık + bekleyen çek → denklem HER ZAMAN tutar.
-            // (çek ≤ borç iken = kalan borç; çek borcu aşarsa = çek toplamı)
-            'total_due'       => max($unpaidBalance, $pendingAmount),
-            // Yazılan çek, kayıtlı kalan borcu aşıyorsa fark (sözleşme tutarı eksik girilmiş sinyali)
-            'check_excess'    => max(0, $pendingAmount - $unpaidBalance),
+            // Ödenecek nakit = sözleşme bazında çeki yazılmamış açık kısımların toplamı
+            'cash_due'        => $cashDue,
+            // Toplam ödenecek = nakit-açık + bekleyen çek → denklem her zaman tutar
+            'total_due'       => $cashDue + $pendingAmount,
+            // Sözleşme borcunu aşan çeklerin toplamı (sözleşme tutarı eksik girilmiş sinyali)
+            'check_excess'    => $checkExcess,
             'overdue_amount'  => $overdueAmount,
             'overdue_count'   => $overdueCount,
             'pending_note'    => $overdueCount > 0
