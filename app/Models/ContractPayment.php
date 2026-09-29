@@ -29,12 +29,14 @@ class ContractPayment extends Model
         'payment_date',
         'payment_type',
         'status',
+        'due_date',
         'amount',
         'notes',
     ];
 
     protected $casts = [
         'payment_date' => 'date',
+        'due_date' => 'date',
         'amount' => 'decimal:2',
     ];
 

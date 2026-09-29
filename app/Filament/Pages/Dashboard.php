@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Widgets\MonthlyCheckPaymentsChart;
 use App\Filament\Widgets\OverdueChecksTable;
+use App\Filament\Widgets\PayablesReminderWidget;
 use App\Filament\Widgets\ProjectComparisonTable;
 use App\Filament\Widgets\PurchaseOverviewCard;
 use App\Filament\Widgets\ReceivablesTable;
@@ -99,6 +100,7 @@ class Dashboard extends BaseDashboard
         return [
             PurchaseOverviewCard::class,
             UnpaidContractBalancesTable::class,
+            PayablesReminderWidget::class,
             MonthlyCheckPaymentsChart::class,
             ProjectComparisonTable::class,
             TopSuppliersTable::class,

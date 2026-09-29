@@ -44,7 +44,8 @@ class PaymentsRelationManager extends RelationManager
                     ->label('Ödeme Durumu')
                     ->options(ContractPayment::STATUSES)
                     ->default('unpaid')
-                    ->required(),
+                    ->required()
+                    ->live(),
 
                 MoneyInput::make('amount'),
 
@@ -54,6 +55,12 @@ class PaymentsRelationManager extends RelationManager
                     ->default(fn (Get $get) => $get('payment_date'))
                     ->visible(fn (Get $get): bool => $get('payment_type') === 'check')
                     ->required(fn (Get $get): bool => $get('payment_type') === 'check'),
+
+                // Çek dışı ödenmemiş taahhüt → opsiyonel vade (hatırlatma için).
+                DatePicker::make('due_date')
+                    ->label('Vade (opsiyonel)')
+                    ->helperText('Ödeme için planlanan tarih. Vade yaklaşınca/geçince panelde hatırlatılır.')
+                    ->visible(fn (Get $get): bool => $get('status') === 'unpaid' && $get('payment_type') !== 'check'),
 
                 Textarea::make('notes')
                     ->label('Notlar')
@@ -106,6 +113,11 @@ class PaymentsRelationManager extends RelationManager
 
                 TextColumn::make('checks.due_date')
                     ->label('Çek Vadesi')
+                    ->date('d.m.Y')
+                    ->placeholder('—'),
+
+                TextColumn::make('due_date')
+                    ->label('Vade')
                     ->date('d.m.Y')
                     ->placeholder('—'),
             ])

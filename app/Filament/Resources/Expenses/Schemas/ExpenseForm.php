@@ -7,6 +7,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 
 class ExpenseForm
@@ -43,7 +44,13 @@ class ExpenseForm
                     'partial' => 'Kısmi Ödendi',
                 ])
                 ->default('paid')
-                ->required(),
+                ->required()
+                ->live(),
+            // Ödenmemiş/kısmi ise opsiyonel vade — hatırlatma için (boş bırakılabilir).
+            DatePicker::make('due_date')
+                ->label('Vade (opsiyonel)')
+                ->helperText('Ödeme için planlanan tarih. Vade yaklaşınca/geçince panelde hatırlatılır.')
+                ->visible(fn (Get $get): bool => in_array($get('payment_status'), ['unpaid', 'partial'], true)),
             TextInput::make('description')
                 ->label('Açıklama')
                 ->maxLength(255),

@@ -170,6 +170,7 @@ class WhatsappWebhookController extends Controller
             'party_id' => $partyId,
             'expense_category_id' => $categoryId,
             'expense_date' => $d['date'] ?? now()->format('Y-m-d'),
+            'due_date' => $d['due_date'] ?? null,
             'amount' => Money::store((float) ($d['amount'] ?? 0)),
             'payment_status' => ($d['paid'] ?? true) ? 'paid' : 'unpaid',
             'description' => $d['description'] ?? null,
@@ -209,6 +210,10 @@ class WhatsappWebhookController extends Controller
         $lines[] = '• Kategori: ' . $categoryText;
 
         $lines[] = '• Durum: ' . (($d['paid'] ?? true) ? 'Ödendi' : 'Ödenmedi (borç)');
+
+        if (! empty($d['due_date'])) {
+            $lines[] = '• Vade: ' . $d['due_date'];
+        }
 
         // Proje boşsa numaralı menü — müteahhit sadece "2" yazsın.
         if (! $project && empty($d['project_name'])) {

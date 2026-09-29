@@ -17,12 +17,14 @@ class Expense extends Model
         'expense_date',
         'amount',
         'payment_status',
+        'due_date',
         'description',
         'notes',
     ];
 
     protected $casts = [
         'expense_date' => 'date',
+        'due_date' => 'date',
         'amount' => 'decimal:2',
     ];
 

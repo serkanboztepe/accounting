@@ -10,7 +10,7 @@ use RuntimeException;
  * Uses the Claude Messages API with tool-use (guaranteed structured output).
  *
  * Returns:
- *   amount (float), date (Y-m-d), description (string),
+ *   amount (float), date (Y-m-d), due_date (Y-m-d|null), description (string),
  *   project_id (int|null), party_id (int|null),
  *   category_id (int|null), category_name (string|null),
  *   paid (bool), confidence ('high'|'low'),
@@ -161,8 +161,17 @@ class ExpenseExtractor
         kim olduğunu yazar mısın?" yaz. Yanlış/saçma bir isim yazmaktansa sormak daha iyi.
 
         Tutarı (`amount`) Türk Lirası olarak, sayı biçiminde döndür (binlik ayraç/simge yok).
-        Ödendiyse `paid` = true. El yazısı/bulanık nedeniyle tutardan emin değilsen
-        `confidence` = "low" yap.
+        El yazısı/bulanık nedeniyle tutardan emin değilsen `confidence` = "low" yap.
+
+        ÖDEME DURUMU ve VADE:
+        - Varsayılan: ödeme YAPILMIŞ (`paid`=true). Mesaj ödemeye dair bir şey söylemiyorsa ödendi say.
+        - Gelecek zaman/niyet ("ödeyeceğim", "ödenecek", "vereceğim", "kalan/borç") veya açıkça
+          "ödenmedi" deniyorsa: `paid`=false.
+        - `due_date` (YYYY-MM-DD): ödemenin planlandığı/söz verildiği vade. Örn "…ödemesi 12.05.2026'da"
+          veya "12.05.2026'da ödeyeceğim" → `due_date`=2026-05-12, `paid`=false. Vade yoksa null bırak.
+        - ÖNEMLİ: `date` (harcamanın/giderin OLUŞTUĞU tarih) ile `due_date` (ödeme VADESİ) farklıdır.
+          Ödeme ileride yapılacaksa gider tarihi bugündür (`date`=bugün) ve verilen tarih `due_date`'tir.
+          Geçmişte "aldım/harcadım/ödedim" denen bir tarih ise o `date`'tir, `due_date`=null, `paid`=true.
 
         {$context}
         PROMPT;
@@ -177,7 +186,8 @@ class ExpenseExtractor
                 'type' => 'object',
                 'properties' => [
                     'amount' => ['type' => 'number', 'description' => 'Expense amount (TRY, numeric)'],
-                    'date' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD; today if absent'],
+                    'date' => ['type' => ['string', 'null'], 'description' => 'Date the expense occurred (YYYY-MM-DD); today if absent. NOT the payment due date.'],
+                    'due_date' => ['type' => ['string', 'null'], 'description' => 'Payment due date (YYYY-MM-DD) when payment is planned for the future / promised; null if paid or no due date given'],
                     'description' => ['type' => 'string', 'description' => 'What the expense is for (short)'],
                     'project_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing project id or null'],
                     'project_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW project name if the user named one that is not in the list; null if matched or none named'],
@@ -200,6 +210,7 @@ class ExpenseExtractor
         return [
             'amount' => isset($input['amount']) ? (float) $input['amount'] : 0.0,
             'date' => $input['date'] ?? now()->format('Y-m-d'),
+            'due_date' => ! empty($input['due_date']) ? (string) $input['due_date'] : null,
             'description' => (string) ($input['description'] ?? ''),
             'project_id' => isset($input['project_id']) ? (int) $input['project_id'] : null,
             'project_name' => ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
