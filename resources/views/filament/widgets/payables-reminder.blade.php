@@ -1,21 +1,21 @@
 <x-filament-widgets::widget>
     <x-filament::section>
         <x-slot name="heading">Ödeme Hatırlatıcı</x-slot>
-        <x-slot name="description">Ödenmemiş borçlar — vadeye göre (çekler ayrı widget'larda)</x-slot>
+        <x-slot name="description">Vadeli ödemeler (takvim) + açık cari hesapları (ekstre net) — çekler ayrı widget'larda</x-slot>
 
         @if ($isEmpty)
-            <p class="text-sm text-gray-500 dark:text-gray-400">Bekleyen ödeme yok. 🎉</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Bekleyen ödeme / açık hesap yok. 🎉</p>
         @else
             @php
                 $sections = [
                     'gecikmis' => ['Gecikmiş', 'text-danger-600 dark:text-danger-400'],
                     'bugun'    => ['Bugün Vadesi', 'text-warning-600 dark:text-warning-400'],
                     'yaklasan' => ['Yaklaşan (14 gün)', 'text-info-600 dark:text-info-400'],
-                    'vadesiz'  => ['Vadesiz Açık Borçlar', 'text-gray-600 dark:text-gray-400'],
                 ];
             @endphp
 
             <div class="space-y-6">
+                {{-- 1) VADELİ ÖDEMELER (kalem-bazlı, vade girilmiş) --}}
                 @foreach ($sections as $key => $meta)
                     @php
                         [$label, $labelClass] = $meta;
@@ -60,10 +60,8 @@
                                                     <a href="{{ $row['url'] }}" class="font-medium text-primary-600 hover:underline dark:text-primary-400">
                                                         {{ $row['title'] }}
                                                     </a>
-                                                    @if ($row['party'] || $row['project'])
-                                                        <div class="text-xs text-gray-400">
-                                                            {{ collect([$row['party'], $row['project']])->filter()->implode(' · ') }}
-                                                        </div>
+                                                    @if ($row['party'])
+                                                        <div class="text-xs text-gray-400">{{ $row['party'] }}</div>
                                                     @endif
                                                 </td>
                                                 <td class="whitespace-nowrap py-2 text-right font-medium tabular-nums">
@@ -77,6 +75,81 @@
                         </div>
                     @endif
                 @endforeach
+
+                {{-- 2) AÇIK CARİ HESAPLARI (ekstre net) --}}
+                @if (count($openAccounts))
+                    <div>
+                        <h3 class="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                            Açık Cari Hesapları
+                            <span class="font-normal text-gray-400">({{ count($openAccounts) }})</span>
+                        </h3>
+                        <p class="mb-2 text-xs text-gray-400">Cari ekstresi net bakiyesine göre biz borçluyuz.</p>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-xs text-gray-500 dark:text-gray-400">
+                                    <tr class="border-b border-gray-200 dark:border-white/10">
+                                        <th class="py-1 pr-3 text-left font-medium">Cari</th>
+                                        <th class="py-1 text-right font-medium">Net Borç</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                                    @foreach ($openAccounts as $acc)
+                                        <tr class="hover:bg-gray-50 dark:hover:bg-white/5">
+                                            <td class="py-2 pr-3">
+                                                <a href="{{ $acc['url'] }}" class="font-medium text-primary-600 hover:underline dark:text-primary-400">
+                                                    {{ $acc['party'] }}
+                                                </a>
+                                            </td>
+                                            <td class="whitespace-nowrap py-2 text-right font-medium tabular-nums">
+                                                {{ \App\Support\Money::format($acc['amount']) }} ₺
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- 3) CARİ'SİZ AÇIK GİDERLER (vadesiz, netlenecek hesap yok) --}}
+                @if (count($orphanExpenses))
+                    <div>
+                        <h3 class="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                            Cari'siz Açık Giderler
+                            <span class="font-normal text-gray-400">({{ count($orphanExpenses) }})</span>
+                        </h3>
+                        <p class="mb-2 text-xs text-gray-400">Cariye bağlı değil — ödeyince "Ödendi" işaretle.</p>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-xs text-gray-500 dark:text-gray-400">
+                                    <tr class="border-b border-gray-200 dark:border-white/10">
+                                        <th class="py-1 pr-3 text-left font-medium">Açıklama</th>
+                                        <th class="py-1 text-right font-medium">Tutar</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                                    @foreach ($orphanExpenses as $row)
+                                        <tr class="hover:bg-gray-50 dark:hover:bg-white/5">
+                                            <td class="py-2 pr-3">
+                                                <a href="{{ $row['url'] }}" class="font-medium text-primary-600 hover:underline dark:text-primary-400">
+                                                    {{ $row['title'] }}
+                                                </a>
+                                                @if ($row['project'])
+                                                    <div class="text-xs text-gray-400">{{ $row['project'] }}</div>
+                                                @endif
+                                            </td>
+                                            <td class="whitespace-nowrap py-2 text-right font-medium tabular-nums">
+                                                {{ \App\Support\Money::format($row['amount']) }} ₺
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @endif
             </div>
         @endif
     </x-filament::section>
