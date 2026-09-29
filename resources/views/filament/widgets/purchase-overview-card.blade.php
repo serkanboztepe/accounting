@@ -29,6 +29,9 @@
         .pc-total .pc-k, .pc-total .pc-v { color: var(--pc-accent); }
         .pc-foot { margin-top: 14px; font-size: 12px; color: var(--pc-muted); }
         .pc-foot b { color: var(--pc-ink); font-weight: 600; }
+        .pc-warn-row { margin-top: 14px; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.4;
+            background: rgba(194,65,12,.08); border: 1px solid rgba(194,65,12,.25); color: var(--pc-warn); }
+        .pc-warn-row b { font-weight: 700; }
         @media (max-width: 640px) {
             .pc-grid { grid-template-columns: 1fr; }
             .pc-cell + .pc-cell { border-left: 0; border-top: 1px solid var(--pc-border); padding-left: 0; }
@@ -57,10 +60,16 @@
             </div>
             <div class="pc-cell pc-total">
                 <div class="pc-k"><span class="pc-op">=</span>Toplam Ödenecek</div>
-                <div class="pc-v tnum">{{ $m($d['unpaid_balance']) }}</div>
-                <div class="pc-sub">Kalan toplam borç</div>
+                <div class="pc-v tnum">{{ $m($d['total_due']) }}</div>
+                <div class="pc-sub">Nakit-açık + bekleyen çek</div>
             </div>
         </div>
+
+        @if ($d['check_excess'] > 0.01)
+            <div class="pc-warn-row">
+                ⚠️ Yazılan çekler kayıtlı borcu <b>{{ $m($d['check_excess']) }}</b> aşıyor — ilgili sözleşmelerin tutarı eksik girilmiş olabilir, kontrol et.
+            </div>
+        @endif
 
         <div class="pc-foot tnum">Gerçek ödenen = nakit/EFT + tahsil edilmiş çek · Toplam çıkış = gerçek ödenen + {{ $m($d['expenses_total']) }} direkt gider = <b>{{ $m($d['total_cash_out']) }}</b></div>
     </div>

@@ -52,6 +52,11 @@ class PurchaseOverviewCard extends Widget
             'pending_checks'  => $pendingAmount,
             // Ödenecek nakit = kalan borcun çeki yazılmamış (açık) kısmı
             'cash_due'        => max(0, $unpaidBalance - $pendingAmount),
+            // Toplam ödenecek = nakit-açık + bekleyen çek → denklem HER ZAMAN tutar.
+            // (çek ≤ borç iken = kalan borç; çek borcu aşarsa = çek toplamı)
+            'total_due'       => max($unpaidBalance, $pendingAmount),
+            // Yazılan çek, kayıtlı kalan borcu aşıyorsa fark (sözleşme tutarı eksik girilmiş sinyali)
+            'check_excess'    => max(0, $pendingAmount - $unpaidBalance),
             'overdue_amount'  => $overdueAmount,
             'overdue_count'   => $overdueCount,
             'pending_note'    => $overdueCount > 0
