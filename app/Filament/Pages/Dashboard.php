@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\DashboardStatTiles;
 use App\Filament\Widgets\MonthlyCheckPaymentsChart;
 use App\Filament\Widgets\OverdueChecksTable;
 use App\Filament\Widgets\PayablesReminderWidget;
@@ -98,6 +99,7 @@ class Dashboard extends BaseDashboard
         }
 
         return [
+            DashboardStatTiles::class,
             PurchaseOverviewCard::class,
             UnpaidContractBalancesTable::class,
             PayablesReminderWidget::class,
