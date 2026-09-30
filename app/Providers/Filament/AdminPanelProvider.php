@@ -33,8 +33,10 @@ class AdminPanelProvider extends PanelProvider
             ->brandName('İnşaat Yönetimi')
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
+            // Amber marka + sıcak nötr (Stone) → amber ile en iyi eşleşen premium his.
             ->colors([
                 'primary' => Color::Amber,
+                'gray'    => Color::Stone,
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')

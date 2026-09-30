@@ -7,3 +7,54 @@
 .fi-sidebar-nav-groups {
     gap: 0.5rem;
 }
+
+/* ============================================================
+   Premium amber teması — sıcak zemin, yumuşak köşe, ince gölge.
+   Nötrler panelde Stone (sıcak gri) olarak ayarlı; burada kart
+   yüzeylerini ve derinliği inceltiyoruz.
+   ============================================================ */
+
+/* Sıcak kırık-beyaz zemin (açık) / derin sıcak kömür (koyu) */
+.fi-body {
+    background-color: #FAF6EF;
+}
+.dark .fi-body {
+    background-color: #16130D;
+}
+
+/* Kartlar / bölümler / widget'lar: daha yuvarlak köşe + yumuşak gölge */
+.fi-section,
+.fi-wi-stats-overview-stat,
+.fi-ta-ctn,
+.fi-fo-tabs,
+.fi-modal-window {
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(60, 45, 20, 0.04), 0 10px 26px -16px rgba(60, 45, 20, 0.12);
+}
+.dark .fi-section,
+.dark .fi-wi-stats-overview-stat,
+.dark .fi-ta-ctn,
+.dark .fi-modal-window {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 12px 32px -18px rgba(0, 0, 0, 0.6);
+}
+
+/* Birincil butonlar: hafif amber degrade + yumuşak gölge (premium tokunuş) */
+.fi-btn.fi-color-primary {
+    box-shadow: 0 1px 2px rgba(180, 83, 9, 0.18), 0 6px 16px -8px rgba(180, 83, 9, 0.35);
+}
+
+/* İstatistik kartı sayıları: hizalı rakamlar */
+.fi-wi-stats-overview-stat-value {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/* Üst bar: zeminle yumuşak ayrım */
+.fi-topbar {
+    backdrop-filter: saturate(1.05);
+}
+
+/* Sol menü aktif öğe: amber marka zaten primary'den geliyor; köşeyi yuvarla */
+.fi-sidebar-item-button {
+    border-radius: 0.6rem;
+}

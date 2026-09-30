@@ -21,15 +21,17 @@ class PartyResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUserGroup;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Tanımlar';
+    // Cari operasyonel bir varlık (ekstre/tahsilat/ödeme) — "Tanımlar"dan çıkıp
+    // "İşlemler"in en üstüne alındı, daha erişilebilir olsun.
+    protected static string|UnitEnum|null $navigationGroup = 'İşlemler';
+
+    protected static ?int $navigationSort = 0;
 
     protected static ?string $navigationLabel = 'Cariler';
 
     protected static ?string $modelLabel = 'Cari';
 
     protected static ?string $pluralModelLabel = 'Cariler';
-
-    protected static ?int $navigationSort = 1;
 
     protected static ?string $recordTitleAttribute = 'name';
 
