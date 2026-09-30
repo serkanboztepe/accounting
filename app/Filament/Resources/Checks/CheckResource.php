@@ -22,7 +22,7 @@ class CheckResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
 
-    protected static string|UnitEnum|null $navigationGroup = 'İşlemler';
+    protected static string|UnitEnum|null $navigationGroup = 'Gider & Çek';
 
     protected static ?int $navigationSort = 4;
 

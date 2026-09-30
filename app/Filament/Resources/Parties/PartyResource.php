@@ -21,8 +21,8 @@ class PartyResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUserGroup;
 
-    // Cari operasyonel varlık → İşlemler'in en üstünde.
-    protected static string|UnitEnum|null $navigationGroup = 'İşlemler';
+    // Cari kendi başına ayrı bir bölüm.
+    protected static string|UnitEnum|null $navigationGroup = 'Cari';
 
     protected static ?string $navigationLabel = 'Cariler';
 

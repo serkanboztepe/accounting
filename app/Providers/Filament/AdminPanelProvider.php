@@ -7,6 +7,7 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use App\Filament\Pages\Dashboard;
+use Filament\Navigation\NavigationGroup;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
@@ -38,12 +39,18 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
+            // Kümeler collapsible; Ayarlar (Sistem) varsayılan kapalı — yalnız
+            // içindeyken açılır (Filament aktif grubu otomatik açar).
+            ->collapsibleNavigationGroups()
             ->navigationGroups([
                 'Genel',
-                'İşlemler',
+                'Cari',
+                'Sözleşmeler',
+                'Gider & Çek',
+                'Ürün & Stok',
                 'Mimar',
                 'Raporlar',
-                'Sistem',
+                NavigationGroup::make('Sistem')->collapsed(),
             ])
             ->pages([
                 Dashboard::class,

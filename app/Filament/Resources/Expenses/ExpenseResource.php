@@ -18,7 +18,7 @@ class ExpenseResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBanknotes;
 
-    protected static string|\UnitEnum|null $navigationGroup = 'İşlemler';
+    protected static string|\UnitEnum|null $navigationGroup = 'Gider & Çek';
 
     protected static ?int $navigationSort = 5;
 

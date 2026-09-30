@@ -21,8 +21,7 @@ class ProductResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCube;
 
-    // Katalog → operasyonel; İşlemler grubunda (stok/satışla birlikte).
-    protected static string|UnitEnum|null $navigationGroup = 'İşlemler';
+    protected static string|UnitEnum|null $navigationGroup = 'Ürün & Stok';
 
     protected static ?string $navigationLabel = 'Hizmet / Ürün';
 
