@@ -50,6 +50,14 @@ class ProductResource extends Resource
         return ProductsTable::configure($table);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            // Ürünü açınca o ürünün stok giriş/çıkışları (salt-okunur).
+            RelationManagers\StockMovementsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
