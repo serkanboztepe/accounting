@@ -21,7 +21,8 @@ class UnitResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedScale;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Tanımlar';
+    // Nadir tanım → Ayarlar (Sistem) grubuna saklandı.
+    protected static string|UnitEnum|null $navigationGroup = 'Sistem';
 
     protected static ?string $navigationLabel = 'Birimler';
 
@@ -29,7 +30,7 @@ class UnitResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Birimler';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 10;
 
     protected static ?string $recordTitleAttribute = 'name';
 

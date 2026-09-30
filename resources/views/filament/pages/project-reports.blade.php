@@ -1,4 +1,5 @@
 <x-filament-panels::page>
+    @include('filament.pages.partials.report-tabs', ['active' => 'project'])
     <div class="space-y-6">
         <x-filament::section>
             {{ $this->form }}

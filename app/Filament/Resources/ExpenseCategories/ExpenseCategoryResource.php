@@ -21,9 +21,10 @@ class ExpenseCategoryResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedTag;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Tanımlar';
+    // Nadir tanım → Ayarlar (Sistem) grubuna saklandı.
+    protected static string|UnitEnum|null $navigationGroup = 'Sistem';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 11;
 
     protected static ?string $navigationLabel = 'Gider Kategorileri';
 

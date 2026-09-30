@@ -25,6 +25,12 @@ class StockReport extends Page
         return config('modules.stock') && config('modules.report_stock');
     }
 
+    // Menüde gizli — "Raporlar" (Proje Raporları) sayfasındaki sekmeden açılır.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public function getRows(): array
     {
         return StockReporting::stockRows();

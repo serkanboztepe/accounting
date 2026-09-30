@@ -28,6 +28,12 @@ class SalesSummary extends Page
         return config('modules.direct_sales') && config('modules.report_sales');
     }
 
+    // Menüde gizli — "Raporlar" (Proje Raporları) sayfasındaki sekmeden açılır.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public function getRows(): array
     {
         return StockReporting::salesSummary($this->groupBy);

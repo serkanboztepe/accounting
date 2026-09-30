@@ -26,11 +26,12 @@ class ProjectReports extends Page implements HasSchemas
 
     protected static string|\UnitEnum|null $navigationGroup = 'Raporlar';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $title = 'Proje Raporları';
 
-    protected static ?string $navigationLabel = 'Proje Raporları';
+    // Tek "Raporlar" menü girişi — Stok/Satış sekmeden açılır (menüde gizli).
+    protected static ?string $navigationLabel = 'Raporlar';
 
     protected string $view = 'filament.pages.project-reports';
 

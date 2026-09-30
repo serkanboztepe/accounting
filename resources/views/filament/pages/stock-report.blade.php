@@ -1,4 +1,5 @@
 <x-filament-panels::page>
+    @include('filament.pages.partials.report-tabs', ['active' => 'stock'])
     @php $rows = $this->getRows(); @endphp
 
     <div style="text-align:right;margin-bottom:10px;">

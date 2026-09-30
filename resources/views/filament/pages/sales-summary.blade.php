@@ -1,4 +1,5 @@
 <x-filament-panels::page>
+    @include('filament.pages.partials.report-tabs', ['active' => 'sales'])
     @php
         $rows = $this->getRows();
         $groupLabel = $groupBy === 'project' ? 'Şantiye / Proje' : 'Müşteri';
