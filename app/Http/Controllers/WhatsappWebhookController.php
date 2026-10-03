@@ -134,7 +134,7 @@ class WhatsappWebhookController extends Controller
 
         // 2) Yeni gider girişi (metin ve/veya fotoğraf)
         if ($image === null && $body === '') {
-            return $this->twiml('Bir gider/ödeme yazabilir veya fiş/dekont fotoğrafı gönderebilirsin. 📄');
+            return $this->twiml($this->helpText());
         }
 
         try {
@@ -441,6 +441,25 @@ class WhatsappWebhookController extends Controller
         return $balance < 0
             ? 'borcun ' . Money::format(abs($balance))
             : 'alacağın ' . Money::format($balance);
+    }
+
+    /** Boş mesaja cevap — yalnız bu kurulumda açık işlemleri örnekler (mimar'a "gider" denmesin). */
+    private function helpText(): string
+    {
+        $examples = [
+            ExpenseExtractor::KIND_EXPENSE => "• Gider: \"Kuşak Beton'dan 50 bin beton aldım\" (ya da fiş/dekont fotoğrafı)",
+            ExpenseExtractor::KIND_PAYMENT => "• Ödeme: \"Ahmet ustaya 100 bin ödedim\"",
+            ExpenseExtractor::KIND_SALE => "• Satış: \"Ahmet Bey'e 80 bine proje yaptım\"",
+            ExpenseExtractor::KIND_COLLECTION => "• Tahsilat: \"Ahmet Bey 50 bin ödedi\"",
+            ExpenseExtractor::KIND_BALANCE_QUERY => "• Bakiye: \"Ahmet Bey'in borcu ne?\"",
+        ];
+
+        $lines = ['Şunları yazabilirsin:'];
+        foreach (ExpenseExtractor::allowedKinds() as $kind) {
+            $lines[] = $examples[$kind];
+        }
+
+        return implode("\n", $lines);
     }
 
     private function kind(array $d): string

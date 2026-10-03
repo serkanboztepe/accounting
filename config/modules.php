@@ -22,16 +22,25 @@
 |   - Hizmet/Ürün kartı (katalog) direct_sales VEYA stock açıksa görünür.
 |   - Envantersiz satış: MOD_DIRECT_SALES=true + MOD_STOCK=false (ör. mimar hizmet satışı).
 |   - Alım/satış butonlarının ikisi birden kapalıysa sözleşme oluşturulamaz (liste yine gösterir).
+|
+| MOD (APP_PROFILE) — tek satırla hazır set, bkz App\Support\ModuleProfiles:
+|   APP_PROFILE=mimar       # Mimar grubu (Kat Karşılığı + Emlak Beyanı) + basit cari Satış/Tahsilat
+|   APP_PROFILE=muteahhit   # Proje maliyeti: sözleşme, gider, çek, cari alış/ödeme
+|   APP_PROFILE=toptanci    # Stoklu satış: direkt satış, teklif, satış sözleşmesi; alış tarafı yok
+| Boşsa her şey açık. Tek tek MOD_* satırı her zaman profili ezer (ör. APP_PROFILE=toptanci + MOD_QUOTES=false).
 */
 
+$profile = \App\Support\ModuleProfiles::defaults(env('APP_PROFILE'));
+$mod = fn (string $key) => (bool) env('MOD_' . strtoupper($key), $profile[$key] ?? true);
+
 return [
-    'land_share'         => (bool) env('MOD_LAND_SHARE', true),
-    'direct_sales'       => (bool) env('MOD_DIRECT_SALES', true),
-    'stock'              => (bool) env('MOD_STOCK', true),
-    'purchase_contracts' => (bool) env('MOD_PURCHASE_CONTRACTS', true),
-    'sales_contracts'    => (bool) env('MOD_SALES_CONTRACTS', true),
-    'quotes'             => (bool) env('MOD_QUOTES', true),
-    'property_tax'       => (bool) env('MOD_PROPERTY_TAX', true), // Emlak Vergisi Bildirimi (proje→blok→daire, Excel çıktı)
+    'land_share'         => $mod('land_share'),
+    'direct_sales'       => $mod('direct_sales'),
+    'stock'              => $mod('stock'),
+    'purchase_contracts' => $mod('purchase_contracts'),
+    'sales_contracts'    => $mod('sales_contracts'),
+    'quotes'             => $mod('quotes'),
+    'property_tax'       => $mod('property_tax'), // Emlak Vergisi Bildirimi (proje→blok→daire, Excel çıktı)
 
     // Çekirdek modüller — artık aç/kapa edilebilir (basit kurulumlar için).
     // Varsayılan true (mevcut kurulumlar etkilenmez). .env ile kapatılır:
@@ -40,15 +49,15 @@ return [
     //   MOD_EXPENSES=false      # Direkt Giderler + Gider Kategorileri
     //   MOD_DASHBOARD=false     # Ana sayfa (Genel/Dashboard); kapalıysa giriş Cariler'e gider
     //   MOD_CARI_SUPPLIER=false # Cari'de tedarikçi tarafı (Alış + Ödeme butonları); Satış+Tahsilat kalır
-    'contracts'          => (bool) env('MOD_CONTRACTS', true),
-    'checks'             => (bool) env('MOD_CHECKS', true),
-    'expenses'           => (bool) env('MOD_EXPENSES', true),
-    'dashboard'          => (bool) env('MOD_DASHBOARD', true),
-    'cari_supplier'      => (bool) env('MOD_CARI_SUPPLIER', true),
+    'contracts'          => $mod('contracts'),
+    'checks'             => $mod('checks'),
+    'expenses'           => $mod('expenses'),
+    'dashboard'          => $mod('dashboard'),
+    'cari_supplier'      => $mod('cari_supplier'),
 
     // Raporlar (menüde "Raporlar" grubu) — her biri ayrı aç/kapa.
     // Stok/Satış raporu ilgili modül de açıksa görünür.
-    'report_project'     => (bool) env('MOD_REPORT_PROJECT', true),
-    'report_stock'       => (bool) env('MOD_REPORT_STOCK', true),
-    'report_sales'       => (bool) env('MOD_REPORT_SALES', true),
+    'report_project'     => $mod('report_project'),
+    'report_stock'       => $mod('report_stock'),
+    'report_sales'       => $mod('report_sales'),
 ];

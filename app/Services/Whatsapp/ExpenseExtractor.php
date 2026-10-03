@@ -43,8 +43,10 @@ class ExpenseExtractor
     ];
 
     /**
-     * Kurulumda açık modüllere göre izinli türler. Tedarikçi tarafı kapalıysa (MOD_CARI_SUPPLIER=false)
-     * "payment" yok; gider modülü kapalıysa "expense" yok.
+     * Kurulumda açık modüllere göre izinli türler (APP_PROFILE ile):
+     *   mimar: sale, collection, balance_query · müteahhit: hepsi · toptancı: expense, collection, balance_query.
+     * Tedarikçi tarafı kapalı → "payment" yok; gider kapalı → "expense" yok; Direkt Satış açık → "sale" yok
+     * (satış kalemli/stoklu Direkt Satış'tan girilir — iki ayrı satış yolu olmasın).
      *
      * @return list<string>
      */
@@ -53,7 +55,7 @@ class ExpenseExtractor
         return array_values(array_filter([
             config('modules.expenses') ? self::KIND_EXPENSE : null,
             config('modules.cari_supplier') ? self::KIND_PAYMENT : null,
-            self::KIND_SALE,
+            config('modules.direct_sales') ? null : self::KIND_SALE,
             self::KIND_COLLECTION,
             self::KIND_BALANCE_QUERY,
         ]));
@@ -133,6 +135,9 @@ class ExpenseExtractor
     {
         $today = now()->format('Y-m-d');
         $context = ExpenseContext::build();
+        $photoRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
+            ? '- Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense".'
+            : '- Fotoğraf (dekont/çek) → belgeden yönü çıkar: bize gelen para → "collection".';
         $kinds = implode("\n", array_map(
             fn (string $k) => self::KIND_HINTS[$k],
             self::allowedKinds(),
@@ -167,7 +172,7 @@ class ExpenseExtractor
         {$refine}
         İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
         {$kinds}
-        - Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense".
+        {$photoRule}
         - `payment` / `sale` / `collection` / `balance_query` için CARİ zorunludur (kime/kimden).
           Kullanıcı cari söylemediyse `question`'a "Kime ödedin?" / "Kimden?" gibi kısa bir soru yaz.
           Sadece genel bir unvan/meslek söylendiyse ("ustaya", "işçiye", "kamyoncuya") — İSİM yoksa —
