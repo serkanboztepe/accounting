@@ -143,6 +143,11 @@ class ExpenseExtractor
     {
         $today = now()->format('Y-m-d');
         $context = ExpenseContext::build();
+        // Fiilsiz/yönü belirsiz mesaj ("Abdullah Uçar 2 milyon kaba inşaat"): müteahhitte bu bir
+        // maliyettir; satış yalnız açık fiille. Gider kapalıysa (mimar) varsayılan satış.
+        $ambiguousRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
+            ? '- Fiil YOKSA ya da yön belirsizse ("Abdullah Uçar 2 milyon kaba inşaat", "Ahmet 50 bin sıva") → "expense" (yaptırdığımız iş = maliyet). "sale" SADECE açık fiille: "yaptım", "sattım", "fatura kestim", "iş yaptım" — cari daha önce müşteri olarak görünse bile fiil yoksa satış SEÇME.'
+            : '- Fiil YOKSA ("Ali Bey 80 bin proje") → "sale" (yaptığımız iş).';
         $photoRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
             ? '- Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense".'
             : '- Fotoğraf (dekont/çek) → belgeden yönü çıkar: bize gelen para → "collection".';
@@ -181,6 +186,7 @@ class ExpenseExtractor
         İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
         {$kinds}
         {$photoRule}
+        {$ambiguousRule}
         - `payment` / `sale` / `collection` / `balance_query` / `statement` için CARİ zorunludur (kime/kimden).
           Kullanıcı cari söylemediyse `question`'a "Kime ödedin?" / "Kimden?" gibi kısa bir soru yaz.
           Sadece genel bir unvan/meslek söylendiyse ("ustaya", "işçiye", "kamyoncuya") — İSİM yoksa —
