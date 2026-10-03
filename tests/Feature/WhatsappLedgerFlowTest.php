@@ -9,6 +9,7 @@ use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Support\PartyStatement;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\URL;
 use Mockery;
 use Tests\TestCase;
@@ -29,6 +30,8 @@ class WhatsappLedgerFlowTest extends TestCase
         parent::setUp();
         // İmza doğrulaması ayrı testte; akış testlerinde kapalı.
         config(['services.twilio.verify_signature' => false]);
+        // Dışarı (Twilio) istek gitmesin; "yazıyor…" çağrısı burada yakalanır.
+        Http::fake();
     }
 
     private function fakeAi(array ...$responses): void
@@ -283,5 +286,20 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertStringContainsString('Durum: Ödendi', $this->send('5 bin yakıt'));
         $this->send('evet');
         $this->assertSame('paid', Expense::where('description', 'Yakıt Varsayılan')->sole()->payment_status);
+    }
+
+    public function test_typing_indicator_sent_before_ai_but_not_for_quick_replies(): void
+    {
+        config(['services.twilio.sid' => 'ACtest', 'services.twilio.token' => 'tok']);
+        $party = Party::create(['name' => 'Zz Yazıyor']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_BALANCE_QUERY, 'party_id' => $party->id]));
+
+        $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'Zz Yazıyor borcu ne', 'NumMedia' => 0, 'MessageSid' => 'SMabc'])->assertOk();
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/v3/Indicators/Typing.json')
+            && $req['messageId'] === 'SMabc' && $req['channel'] === 'whatsapp');
+
+        Http::fake();
+        $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'evet', 'NumMedia' => 0, 'MessageSid' => 'SMdef'])->assertOk();
+        Http::assertNothingSent();
     }
 }

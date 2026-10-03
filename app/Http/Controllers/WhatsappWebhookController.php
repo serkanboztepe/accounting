@@ -46,6 +46,12 @@ class WhatsappWebhookController extends Controller
             ->latest('id')
             ->first();
 
+        // Hızlı cevaplar (evet/iptal/numara) dışında AI çağrılacak → "yazıyor…" göster.
+        $quickReply = $numMedia === 0 && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body));
+        if (! $quickReply && ($body !== '' || $numMedia > 0)) {
+            $this->sendTypingIndicator((string) $request->input('MessageSid', ''));
+        }
+
         $image = $numMedia > 0 ? $this->downloadMedia($request) : null;
 
         // Bekleyen taslak yokken gelen "evet"/"iptal"/numara: yeni kayıt SANMA (0 ₺'lik gider açılıyordu).
@@ -614,6 +620,36 @@ class WhatsappWebhookController extends Controller
         $party = $this->existingParty($d);
 
         return ! $party || PartyStatement::build($party)['balance'] > -0.01;
+    }
+
+    /**
+     * WhatsApp'ta "yazıyor…" + mavi tik (Twilio Typing Indicator, Public Beta). 25 sn ya da cevap
+     * gidene kadar görünür. Fotoğraf okuma 10-15 sn sürebiliyor; müteahhit "gitmedi mi" diye
+     * tekrar atmasın. Başarısızsa sessizce geçilir — asıl akışı asla durdurmaz.
+     */
+    private function sendTypingIndicator(string $messageSid): void
+    {
+        $sid = (string) config('services.twilio.sid');
+        $token = (string) config('services.twilio.token');
+        if ($messageSid === '' || $sid === '' || $token === '') {
+            return;
+        }
+
+        try {
+            $response = Http::withBasicAuth($sid, $token)
+                ->asJson()
+                ->timeout(2)
+                ->post('https://messaging.twilio.com/v3/Indicators/Typing.json', [
+                    'messageId' => $messageSid,
+                    'channel' => 'whatsapp',
+                ]);
+
+            if ($response->failed()) {
+                Log::warning('WhatsApp yazıyor göstergesi gönderilemedi', ['status' => $response->status(), 'body' => $response->body()]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WhatsApp yazıyor göstergesi hatası', ['msg' => $e->getMessage()]);
+        }
     }
 
     /**
