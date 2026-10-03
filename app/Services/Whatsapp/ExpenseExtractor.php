@@ -23,7 +23,7 @@ use RuntimeException;
  *   amount (float), date (Y-m-d), due_date (Y-m-d|null), description (string),
  *   project_id (int|null), party_id (int|null),
  *   category_id (int|null), category_name (string|null),
- *   paid (bool), confidence ('high'|'low'),
+ *   paid (bool|null — null: not stated, default applied by caller), confidence ('high'|'low'),
  *   question (string|null)  — asked back to the user when a match is missing
  */
 class ExpenseExtractor
@@ -241,14 +241,18 @@ class ExpenseExtractor
         El yazısı/bulanık nedeniyle tutardan emin değilsen `confidence` = "low" yap.
 
         ÖDEME DURUMU ve VADE (yalnız `expense` için):
-        - Varsayılan: ödeme YAPILMIŞ (`paid`=true). Mesaj ödemeye dair bir şey söylemiyorsa ödendi say.
-        - Gelecek zaman/niyet ("ödeyeceğim", "ödenecek", "vereceğim", "kalan/borç") veya açıkça
-          "ödenmedi" deniyorsa: `paid`=false.
+        - `paid`'i SADECE açıkça belliyse doldur, yoksa null bırak (varsayılanı sistem uygular):
+          · true: "ödedim", "ödendi", "peşin", "nakit verdim", "kartla ödedim", "havale ettim"; ya da belge
+            bir ÖDEME KANITI ise (banka dekontu, POS/kredi kartı slipi, çek).
+          · false: gelecek zaman/niyet ("ödeyeceğim", "ödenecek", "vereceğim", "kalan/borç"), "ödemedim",
+            "ödenmedi", "veresiye", "hesaba yaz".
+          · null: ödemeye dair hiçbir şey yok ("Ahmet'ten 100 bin malzeme aldım", "5 bin yakıt"). "aldım"
+            ödeme DEĞİLDİR — mal almaktır.
         - `due_date` (YYYY-MM-DD): ödemenin planlandığı/söz verildiği vade. Örn "…ödemesi 12.05.2026'da"
           veya "12.05.2026'da ödeyeceğim" → `due_date`=2026-05-12, `paid`=false. Vade yoksa null bırak.
         - ÖNEMLİ: `date` (harcamanın/giderin OLUŞTUĞU tarih) ile `due_date` (ödeme VADESİ) farklıdır.
           Ödeme ileride yapılacaksa gider tarihi bugündür (`date`=bugün) ve verilen tarih `due_date`'tir.
-          Geçmişte "aldım/harcadım/ödedim" denen bir tarih ise o `date`'tir, `due_date`=null, `paid`=true.
+          Geçmişte "aldım/harcadım/ödedim" denen bir tarih ise o `date`'tir, `due_date`=null.
 
         {$context}
         PROMPT;
@@ -289,7 +293,7 @@ class ExpenseExtractor
                     'party_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW party name if the user named one that is not in the list; null if matched or none named'],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
-                    'paid' => ['type' => 'boolean', 'description' => 'Paid already? true if unclear'],
+                    'paid' => ['type' => ['boolean', 'null'], 'description' => 'true only if explicitly paid / payment proof document, false if explicitly unpaid or future, null if not stated'],
                     'confidence' => ['type' => 'string', 'enum' => ['high', 'low']],
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
                     'is_new_entry' => ['type' => 'boolean', 'description' => 'Only meaningful when a previous draft is provided: true if the new message is a brand-new separate entry or a balance question (extract from scratch, ignore previous), false if it refines the previous draft. Default false.'],
@@ -337,7 +341,8 @@ class ExpenseExtractor
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
             'category_id' => isset($input['category_id']) ? (int) $input['category_id'] : null,
             'category_name' => ! empty($input['category_name']) ? trim((string) $input['category_name']) : null,
-            'paid' => (bool) ($input['paid'] ?? true),
+            // null = belirtilmedi → varsayılan kontrolcüde (carili: ödenmedi, carisiz: ödendi).
+            'paid' => isset($input['paid']) ? (bool) $input['paid'] : null,
             'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? $input['confidence'] : 'high',
             'question' => ! empty($input['question']) ? (string) $input['question'] : null,
             'is_new_entry' => (bool) ($input['is_new_entry'] ?? false),

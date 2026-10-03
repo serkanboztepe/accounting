@@ -267,4 +267,21 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_TOTALS_QUERY, 'totals_side' => 'receivable']));
         $this->assertStringNotContainsString('Toplam borcun', $this->send('Toplam alacağım ne kadar?'));
     }
+
+    public function test_unstated_payment_defaults_unpaid_with_party_paid_without(): void
+    {
+        $party = Party::create(['name' => 'Zz Varsayılan Cari']);
+        $this->fakeAi(
+            $this->entry(['amount' => 100000, 'party_id' => $party->id, 'paid' => null, 'description' => 'Malzeme']),
+            $this->entry(['amount' => 5000, 'paid' => null, 'description' => 'Yakıt Varsayılan', 'is_new_entry' => true]),
+        );
+
+        $this->assertStringContainsString('Durum: Ödenmedi (borç)', $this->send("Ahmet'ten 100 bin malzeme aldım"));
+        $this->send('evet');
+        $this->assertSame('unpaid', Expense::where('party_id', $party->id)->sole()->payment_status);
+
+        $this->assertStringContainsString('Durum: Ödendi', $this->send('5 bin yakıt'));
+        $this->send('evet');
+        $this->assertSame('paid', Expense::where('description', 'Yakıt Varsayılan')->sole()->payment_status);
+    }
 }

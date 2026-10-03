@@ -242,7 +242,7 @@ class WhatsappWebhookController extends Controller
             'expense_date' => $d['date'] ?? now()->format('Y-m-d'),
             'due_date' => $d['due_date'] ?? null,
             'amount' => Money::store((float) ($d['amount'] ?? 0)),
-            'payment_status' => ($d['paid'] ?? true) ? 'paid' : 'unpaid',
+            'payment_status' => $this->isPaid($d) ? 'paid' : 'unpaid',
             'description' => $d['description'] ?? null,
             'notes' => 'WhatsApp üzerinden girildi.',
         ]);
@@ -330,7 +330,8 @@ class WhatsappWebhookController extends Controller
             ?? (! empty($d['category_name']) ? $d['category_name'] . ' (yeni)' : '—');
         $lines[] = '• Kategori: ' . $categoryText;
 
-        $lines[] = '• Durum: ' . (($d['paid'] ?? true) ? 'Ödendi' : 'Ödenmedi (borç)');
+        $lines[] = '• Durum: ' . ($this->isPaid($d) ? 'Ödendi' : 'Ödenmedi (borç)')
+            . (($d['paid'] ?? null) === null ? '  (değilse *ödendi* / *ödenmedi* yaz)' : '');
 
         if (! empty($d['due_date'])) {
             $lines[] = '• Vade: ' . $d['due_date'];
@@ -563,6 +564,20 @@ class WhatsappWebhookController extends Controller
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Gider ödendi mi? Mesaj açıkça söylediyse o; söylemediyse: carili → ödenmedi (veresiye, borç
+     * cari ekstresinde, "ödedim" ile kapanır), carisiz → ödendi (kime borçlu olunduğu belli değil,
+     * WhatsApp'tan kapatılamaz). Kullanıcı kararı.
+     */
+    private function isPaid(array $d): bool
+    {
+        if (($d['paid'] ?? null) !== null) {
+            return (bool) $d['paid'];
+        }
+
+        return ! ($this->existingParty($d) || ! empty($d['party_name']));
     }
 
     private function kind(array $d): string
