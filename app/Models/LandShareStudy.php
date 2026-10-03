@@ -28,28 +28,44 @@ class LandShareStudy extends Model
         'land_share_denominator' => 'integer',
     ];
 
-    /**
-     * Üstte girilen "Blok Sayısı" ve "Blok Başına Daire" değerlerine göre
-     * blokları (A, B, ...) ve bağımsız bölümleri (1..N) otomatik oluşturur.
-     * Idempotent: eksikleri tamamlar, mevcut BB/atamaları asla silmez
-     * (sayı azaltılsa bile veri kaybı olmaz).
-     */
-    public function syncStructure(): void
+    /** Blok adları: A, B, C, ... (en fazla 26). */
+    public static function blockNames(int $count): array
     {
-        $blockCount = (int) $this->block_count;
-        $perBlock = (int) $this->units_per_block;
+        $count = min($count, 26);
 
-        if ($blockCount <= 0 || $perBlock <= 0) {
-            return;
+        return $count > 0 ? array_map(fn ($i) => chr(65 + $i), range(0, $count - 1)) : [];
+    }
+
+    /**
+     * "Blok Sayısı" ve blok başına BB sayılarına göre blokları (A, B, ...) ve
+     * bağımsız bölümleri (1..N) otomatik oluşturur. Bloklar farklı sayıda BB
+     * içerebilir; sayı verilmeyen blok, kayıtlı sayısını ya da units_per_block'u kullanır.
+     *
+     * Idempotent. Sayı azaltılınca fazla BB/blok yalnız BOŞSA silinir (atama ya
+     * da arsa payı varsa korunur, veri kaybı olmaz) — korunanlar uyarı olarak döner.
+     *
+     * @param  array<string, int|string|null>  $unitCounts  blok adı => BB sayısı
+     * @return array<int, string>  silinemeyip korunan BB/blok uyarıları
+     */
+    public function syncStructure(array $unitCounts = []): array
+    {
+        $names = self::blockNames((int) $this->block_count);
+        if ($names === []) {
+            return [];
         }
 
-        for ($i = 0; $i < min($blockCount, 26); $i++) {
-            $name = chr(65 + $i); // A, B, C, ...
+        $kept = [];
 
-            $block = $this->blocks()->firstOrCreate(
-                ['name' => $name],
-                ['sort' => $i, 'planned_unit_count' => $perBlock],
-            );
+        foreach ($names as $i => $name) {
+            $block = $this->blocks()->firstOrCreate(['name' => $name], ['sort' => $i]);
+
+            $perBlock = (int) (filled($unitCounts[$name] ?? null)
+                ? $unitCounts[$name]
+                : ($block->planned_unit_count ?? $this->units_per_block));
+
+            if ($perBlock <= 0) {
+                continue;
+            }
 
             if ((int) $block->planned_unit_count !== $perBlock) {
                 $block->update(['planned_unit_count' => $perBlock]);
@@ -66,7 +82,34 @@ class LandShareStudy extends Model
                     ]);
                 }
             }
+
+            // Sayı azaltıldıysa fazla BB'leri temizle (yalnız boş olanları).
+            foreach ($block->sections()->get() as $section) {
+                if (! ctype_digit((string) $section->bb_no) || (int) $section->bb_no <= $perBlock) {
+                    continue;
+                }
+                if ($section->allocations()->exists() || $section->arsa_pay !== null) {
+                    $kept[] = "{$name}-{$section->bb_no}";
+                } else {
+                    $section->delete();
+                }
+            }
         }
+
+        // Blok sayısı azaltıldıysa fazla blokları temizle (yalnız boş olanları).
+        foreach ($this->blocks()->whereNotIn('name', $names)->get() as $block) {
+            $used = $block->sections()
+                ->where(fn ($q) => $q->whereHas('allocations')->orWhereNotNull('arsa_pay'))
+                ->exists();
+            if ($used) {
+                $kept[] = "{$block->name} Blok";
+            } else {
+                $block->sections()->delete();
+                $block->delete();
+            }
+        }
+
+        return $kept;
     }
 
     public function project(): BelongsTo

@@ -86,7 +86,7 @@
             @if ($arsa['state'] === 'complete')
                 Hisseler bağımsız bölümlerin arsa paylarına göre hesaplanmıştır.
             @elseif ($arsa['state'] === 'incomplete')
-                <strong>Not: Arsa payları eksik girildiğinden (toplam {{ $arsa['sum']->toStringOver($study->land_share_denominator) }}) her bağımsız bölüm eşit sayılmıştır.</strong>
+                <strong>Not: Arsa payları eksik girildiğinden (toplam {{ $arsa['sum']->toStringOver($study->land_share_denominator ?? $arsa['denominator']) }}) her bağımsız bölüm eşit sayılmıştır.</strong>
             @endif
         </div>
 
@@ -120,7 +120,7 @@
                 <tfoot>
                     <tr>
                         <td colspan="2">TOPLAM</td>
-                        <td class="num">{{ $arsa['sum']->toStringOver($study->land_share_denominator) }}</td>
+                        <td class="num">{{ $arsa['sum']->toStringOver($study->land_share_denominator ?? $arsa['denominator']) }}</td>
                         <td></td>
                     </tr>
                 </tfoot>

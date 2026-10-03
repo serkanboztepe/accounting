@@ -4,6 +4,7 @@ namespace App\Filament\Resources\LandShareStudies\Pages;
 
 use App\Filament\Resources\LandShareStudies\LandShareStudyResource;
 use App\Models\LandSection;
+use App\Models\LandShareStudy;
 use App\Services\LandShare\ShareCalculator;
 use App\Services\LandShare\StudyData;
 use App\Services\LandShare\StudyValidator;
@@ -21,6 +22,7 @@ use Filament\Resources\Pages\Concerns\InteractsWithRecord;
 use Filament\Resources\Pages\Page;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Components\Wizard;
 use Filament\Schemas\Components\Wizard\Step;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
@@ -50,6 +52,7 @@ class StudyBuilder extends Page implements HasSchemas
             'parsel'          => $this->record->parsel,
             'block_count'     => $this->record->block_count,
             'units_per_block' => $this->record->units_per_block,
+            'block_units'     => $this->blockUnitsState(),
             'land_share_denominator' => $this->record->land_share_denominator,
             'notes'           => $this->record->notes,
             'shareholders'    => $this->record->shareholders()->orderBy('sort')->orderBy('id')->get()
@@ -112,6 +115,18 @@ class StudyBuilder extends Page implements HasSchemas
                 ->schema(fn (): array => $this->landShareFormSchema())
                 ->action(fn (array $data) => $this->applyLandShares($data)),
 
+            Action::make('fillRemainingLandShare')
+                ->label('Kalan Arsa Payını Boşlara Dağıt')
+                ->icon('heroicon-o-arrows-pointing-out')
+                ->color('gray')
+                ->visible(fn () => collect($this->data['sections'] ?? [])->contains(fn ($s) => filled($s['arsa_pay'] ?? null))
+                    && collect($this->data['sections'] ?? [])->contains(fn ($s) => ! filled($s['arsa_pay'] ?? null)))
+                ->requiresConfirmation()
+                ->modalHeading('Kalan Arsa Payını Boşlara Dağıt')
+                ->modalDescription(fn () => $this->remainingLandSharePreview())
+                ->modalSubmitActionLabel('Dağıt')
+                ->action(fn () => $this->fillRemainingLandShare()),
+
             Action::make('fillContractor')
                 ->label('Boş BB\'leri Müteahhide Ver')
                 ->icon('heroicon-o-user-plus')
@@ -159,11 +174,20 @@ class StudyBuilder extends Page implements HasSchemas
                 TextInput::make('ada')->label('Ada'),
                 TextInput::make('parsel')->label('Parsel'),
                 TextInput::make('block_count')->label('Blok Sayısı')
-                    ->numeric()->minValue(0)->maxValue(26)->required()
-                    ->helperText('Bloklar A, B, C… olarak oluşur.'),
-                TextInput::make('units_per_block')->label('Blok Başına Daire Sayısı')
-                    ->numeric()->minValue(1)->required()
-                    ->helperText('"Tamam" deyince BB\'ler otomatik oluşur.'),
+                    ->numeric()->minValue(1)->maxValue(26)->required()
+                    ->live(debounce: 400)
+                    ->afterStateUpdated(fn ($state, Get $get, Set $set) => $set('block_units', $this->extendBlockUnits((int) $state, $get('block_units') ?? [])))
+                    ->helperText('Bloklar A, B, C… olarak oluşur; her bloğun BB sayısını aşağıya yazın.')
+                    ->columnSpanFull(),
+
+                Grid::make(['default' => 2, 'md' => 4])
+                    ->columnSpanFull()
+                    ->schema(fn (Get $get): array => array_map(
+                        fn (string $name) => TextInput::make("block_units.{$name}")
+                            ->label("{$name} Blok — BB Sayısı")
+                            ->numeric()->minValue(1)->required(),
+                        LandShareStudy::blockNames((int) $get('block_count')),
+                    )),
                 TextInput::make('land_share_denominator')->label('Arsa Payı Paydası (ops.)')
                     ->numeric()->minValue(1)
                     ->placeholder('ör. 1000')
@@ -303,7 +327,7 @@ class StudyBuilder extends Page implements HasSchemas
         }
         $this->record->shareholders()->whereNotIn('id', $keep ?: [0])->delete();
 
-        $this->record->syncStructure();
+        $kept = $this->record->syncStructure($d['block_units'] ?? []);
 
         // Atama adımını taze yapıyla doldur.
         $this->data['sections'] = $this->buildAssignState();
@@ -318,7 +342,15 @@ class StudyBuilder extends Page implements HasSchemas
         // yeniden kur — aksi halde getItemLabel/getStateSnapshot null olur.
         $this->form->fill($this->data);
 
+        $this->data['block_units'] = $this->blockUnitsState();
+
         Notification::make()->title('Bilgiler kaydedildi · bağımsız bölümler oluşturuldu')->success()->send();
+
+        if ($kept !== []) {
+            Notification::make()->title('Bazı BB\'ler silinmedi')
+                ->body('Sayı azaltıldı ama şu BB\'lerde atama/arsa payı var, korundu: ' . implode(', ', $kept) . '. Silmek için önce atamalarını kaldırın.')
+                ->warning()->persistent()->send();
+        }
     }
 
     public function saveStep2(): void
@@ -511,6 +543,79 @@ class StudyBuilder extends Page implements HasSchemas
             ->success()->send();
     }
 
+    /**
+     * Saf hesap: girilmiş arsa paylarının 1/1'e kalanını arsa payı boş BB'lere
+     * eşit böler. Ör. 2 BB × 2/18 girilmiş, 14 BB boş → her boşa 1/18.
+     *
+     * @return array{0: array, 1: int, 2: ?string}  [sections, doldurulan BB sayısı, BB başına pay "1/18"]
+     */
+    public function applyRemainingLandShare(array $sections): array
+    {
+        $sum = Fraction::zero();
+        $den = $this->record->land_share_denominator ?? 1;
+        $empty = [];
+
+        foreach ($sections as $key => $item) {
+            $attrs = $this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null);
+            if ($attrs['arsa_pay'] === null) {
+                $empty[] = $key;
+
+                continue;
+            }
+            $sum = $sum->add(Fraction::of($attrs['arsa_pay'], $attrs['arsa_payda']));
+            $den = Fraction::lcm($den, $attrs['arsa_payda']);
+        }
+
+        $remaining = Fraction::of(1)->sub($sum);
+        if ($empty === [] || $remaining->isZero() || $remaining->isNegative()) {
+            return [$sections, 0, null];
+        }
+
+        $each = $remaining->div(Fraction::of(count($empty)));
+        $den = Fraction::lcm($den, $each->den);   // mümkünse kullanıcının paydasıyla (1/18 → 1/18)
+
+        foreach ($empty as $key) {
+            $sections[$key]['arsa_pay'] = $each->numeratorOver($den);
+            $sections[$key]['arsa_payda'] = $den;
+        }
+
+        return [$sections, count($empty), $each->numeratorOver($den) . '/' . $den];
+    }
+
+    private function remainingLandSharePreview(): string
+    {
+        [$sections, $count, $each] = $this->applyRemainingLandShare($this->data['sections'] ?? []);
+
+        if ($count === 0) {
+            return 'Dağıtılacak kalan pay yok (girilen arsa payları zaten 1/1 ya da aşıyor).';
+        }
+
+        return "Arsa payı boş {$count} BB'nin her birine {$each} yazılacak; toplam 1/1 olacak.";
+    }
+
+    public function fillRemainingLandShare(): void
+    {
+        [$sections, $count] = $this->applyRemainingLandShare($this->data['sections'] ?? []);
+
+        if ($count === 0) {
+            Notification::make()->title('Dağıtılacak kalan pay yok')->warning()->send();
+
+            return;
+        }
+
+        foreach ($sections as $item) {
+            LandSection::whereKey($item['section_id'])
+                ->update($this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null));
+        }
+
+        $this->data['sections'] = $sections;
+        $this->form->fill($this->data);
+
+        Notification::make()->title("{$count} BB'ye arsa payı dağıtıldı")
+            ->body(strip_tags((string) $this->landShareBadge($sections)))
+            ->success()->send();
+    }
+
     /** Form state'inden canlı arsa payı rozeti (② adım üstü). */
     private function landShareBadge(array $sections): HtmlString
     {
@@ -518,19 +623,47 @@ class StudyBuilder extends Page implements HasSchemas
             'sec' . $i => $this->landShareAttributes($s['arsa_pay'] ?? null, $s['arsa_payda'] ?? null),
         ])->all());
 
-        ['state' => $state, 'sum' => $sum, 'missing' => $missing] = (new StudyValidator())->arsaSharesState($data);
-        $total = $sum->toStringOver($this->record->land_share_denominator);
+        ['state' => $state, 'sum' => $sum, 'missing' => $missing, 'denominator' => $den] = (new StudyValidator())->arsaSharesState($data);
+        $total = $sum->toStringOver($this->record->land_share_denominator ?? $den);
+        $hint = $missing > 0 ? ' Kalanların hepsi aynıysa sağ üstteki "Kalan Arsa Payını Boşlara Dağıt" düğmesini kullanın.' : '';
 
         return match ($state) {
             'none'     => new HtmlString('<span class="text-gray-500 dark:text-gray-400">Arsa payı girilmedi — her BB eşit sayılır.</span>'),
             'complete' => new HtmlString('<span class="text-success-600 dark:text-success-400">✓ Arsa payları tam — toplam ' . $total . ' (1/1). Hisseler arsa payına göre hesaplanacak.</span>'),
             default    => new HtmlString('<span class="text-warning-600 dark:text-warning-400">⚠ Arsa payları toplamı ' . $total
                 . ($missing > 0 ? ' · ' . $missing . ' BB\'nin arsa payı boş' : '')
-                . ' — 1/1 olmalı. Tamamlanana kadar her BB eşit sayılır.</span>'),
+                . ' — 1/1 olmalı. Tamamlanana kadar her BB eşit sayılır.' . $hint . '</span>'),
         };
     }
 
     // ── Yardımcılar ───────────────────────────────────────────────
+    /** Kayıtlı blokların BB sayıları: ['A' => 8, 'B' => 6]. */
+    private function blockUnitsState(): array
+    {
+        $state = [];
+        foreach (LandShareStudy::blockNames((int) $this->record->block_count) as $name) {
+            $block = $this->record->blocks()->where('name', $name)->first();
+            $state[$name] = $block?->planned_unit_count
+                ?? ($block ? $block->sections()->count() : null)
+                ?: $this->record->units_per_block;
+        }
+
+        return $state;
+    }
+
+    /** Blok sayısı artınca yeni bloklar bir öncekinin BB sayısıyla önerilir; azalınca fazlası düşer. */
+    public function extendBlockUnits(int $count, array $units): array
+    {
+        $out = [];
+        $last = null;
+        foreach (LandShareStudy::blockNames($count) as $name) {
+            $out[$name] = filled($units[$name] ?? null) ? $units[$name] : $last;
+            $last = $out[$name];
+        }
+
+        return $out;
+    }
+
     private function initialStep(): int
     {
         if (! $this->record->blocks()->exists()) {

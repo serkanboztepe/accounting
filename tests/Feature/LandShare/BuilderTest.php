@@ -98,7 +98,7 @@ class BuilderTest extends TestCase
             ->set('data.project_id', $project->id)
             ->set('data.name', 'Next')
             ->set('data.block_count', 2)
-            ->set('data.units_per_block', 3)
+            ->set('data.block_units', ['A' => 4, 'B' => 2])
             ->set('data.shareholders', [
                 ['id' => null, 'name' => 'Müteahhit', 'party_id' => null, 'current_pay' => 1, 'current_payda' => 1, 'is_contractor' => true, 'group_key' => null],
             ])
@@ -108,6 +108,8 @@ class BuilderTest extends TestCase
         $study->refresh();
         $this->assertSame(2, $study->blocks()->count());
         $this->assertSame(6, LandSection::whereIn('block_id', $study->blocks()->pluck('id'))->count());
+        $this->assertSame(4, $study->blocks()->where('name', 'A')->first()->sections()->count());
+        $this->assertSame(2, $study->blocks()->where('name', 'B')->first()->sections()->count());
     }
 
     public function test_distribute_by_existing_shares(): void

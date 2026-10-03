@@ -193,6 +193,55 @@ class LandShareInputTest extends TestCase
         $this->get("/admin/land-share-studies/{$study->id}/olustur")
             ->assertOk()
             ->assertSee('Arsa Payı Paydası')
+            ->assertSee('A Blok — BB Sayısı')
             ->assertSee('Arsa payı kontrolü');
+    }
+
+    public function test_yildiz_case_remaining_share_fills_empty_sections_with_one_eighteenth(): void
+    {
+        // Canlıdaki #8: 16 BB, sadece A-13 ve A-14 = 2/18, ortak payda girilmemiş.
+        $project = Project::create(['name' => 'Hışır P', 'status' => 'active']);
+        $study = LandShareStudy::create(['project_id' => $project->id, 'name' => 'Hışır', 'status' => 'draft',
+            'block_count' => 1, 'units_per_block' => 16]);
+        $holder = $study->shareholders()->create(['name' => 'Taner', 'current_pay' => 1, 'current_payda' => 1, 'is_contractor' => true]);
+        $study->syncStructure();
+        $sections = LandSection::whereIn('block_id', $study->blocks()->pluck('id'))->orderBy('sort')->get();
+        foreach ($sections as $s) {
+            $s->allocations()->create(['shareholder_id' => $holder->id, 'pay' => 1, 'payda' => 1]);
+        }
+        $sections[12]->update(['arsa_pay' => 2, 'arsa_payda' => 18]);
+        $sections[13]->update(['arsa_pay' => 2, 'arsa_payda' => 18]);
+
+        // Uyarı kullanıcının paydasıyla: 2/9 değil 4/18.
+        $state = (new StudyValidator())->arsaSharesState($study->fresh()->toStudyData());
+        $this->assertSame('incomplete', $state['state']);
+        $this->assertSame(14, $state['missing']);
+        $this->assertSame('4/18', $state['sum']->toStringOver($state['denominator']));
+        $this->get("/admin/land-share-studies/{$study->id}/cetvel")->assertSee('toplam 4/18, 14 BB boş)');
+
+        $inst = Livewire::test(StudyBuilder::class, ['record' => $study->id])->instance();
+        [, $count, $each] = $inst->applyRemainingLandShare($inst->data['sections']);
+        $this->assertSame(14, $count);
+        $this->assertSame('1/18', $each);
+
+        $inst->fillRemainingLandShare();
+
+        $this->assertSame([2, 18], [$sections[12]->fresh()->arsa_pay, $sections[12]->fresh()->arsa_payda]);
+        $this->assertSame([1, 18], [$sections[0]->fresh()->arsa_pay, $sections[0]->fresh()->arsa_payda]);
+        $this->assertSame([1, 18], [$sections[15]->fresh()->arsa_pay, $sections[15]->fresh()->arsa_payda]);
+
+        $data = $study->fresh()->toStudyData();
+        $this->assertSame('complete', (new StudyValidator())->arsaSharesState($data)['state']);
+        $this->assertSame(ShareCalculator::ARSA_PAYLI, (new StudyValidator())->defaultMethod($data));
+    }
+
+    public function test_remaining_share_does_nothing_when_already_full(): void
+    {
+        [$study, $sections] = $this->makeStudy();
+        $sections[0]->update(['arsa_pay' => 1000, 'arsa_payda' => 1000]);
+
+        $inst = Livewire::test(StudyBuilder::class, ['record' => $study->id])->instance();
+        [, $count] = $inst->applyRemainingLandShare($inst->data['sections']);
+        $this->assertSame(0, $count);
     }
 }

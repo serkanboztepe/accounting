@@ -58,4 +58,56 @@ class GenerateSectionsTest extends TestCase
         $this->assertSame(2, $study->blocks()->first()->sections()->count());
         $this->assertSame(1, $section->fresh()->allocations()->count());
     }
+
+    private function bbCounts(LandShareStudy $study): array
+    {
+        return $study->blocks()->orderBy('name')->get()
+            ->mapWithKeys(fn ($b) => [$b->name => $b->sections()->count()])->all();
+    }
+
+    public function test_blocks_can_have_different_unit_counts(): void
+    {
+        $project = Project::create(['name' => 'Per Block', 'status' => 'active']);
+        $study = LandShareStudy::create(['project_id' => $project->id, 'name' => 'PB', 'status' => 'draft', 'block_count' => 3]);
+
+        $study->syncStructure(['A' => 8, 'B' => 6, 'C' => 4]);
+
+        $this->assertSame(['A' => 8, 'B' => 6, 'C' => 4], $this->bbCounts($study));
+        $this->assertSame(6, $study->blocks()->where('name', 'B')->first()->planned_unit_count);
+
+        // Sayı vermeden tekrar çalıştır → kayıtlı sayılar korunur.
+        $study->syncStructure();
+        $this->assertSame(['A' => 8, 'B' => 6, 'C' => 4], $this->bbCounts($study));
+    }
+
+    public function test_reducing_counts_removes_only_empty_sections_and_blocks(): void
+    {
+        $project = Project::create(['name' => 'Reduce', 'status' => 'active']);
+        $study = LandShareStudy::create(['project_id' => $project->id, 'name' => 'R', 'status' => 'draft', 'block_count' => 3]);
+        $sh = LandShareholder::create(['study_id' => $study->id, 'name' => 'X', 'current_pay' => 1, 'current_payda' => 1]);
+        $study->syncStructure(['A' => 5, 'B' => 5, 'C' => 2]);
+
+        $a5 = $study->blocks()->where('name', 'A')->first()->sections()->where('bb_no', '5')->first();
+        $a5->allocations()->create(['shareholder_id' => $sh->id, 'pay' => 1, 'payda' => 1]);
+
+        // A 5→3 (A-4 boş → silinir, A-5 atamalı → korunur), B 5→2, C bloğu boş → silinir.
+        $study->update(['block_count' => 2]);
+        $kept = $study->syncStructure(['A' => 3, 'B' => 2]);
+
+        $this->assertSame(['A-5'], $kept);
+        $this->assertSame(['A' => 4, 'B' => 2], $this->bbCounts($study));
+        $this->assertNotNull($a5->fresh());
+    }
+
+    public function test_extend_block_units_suggests_previous_count_for_new_blocks(): void
+    {
+        $project = Project::create(['name' => 'Ext', 'status' => 'active']);
+        $study = LandShareStudy::create(['project_id' => $project->id, 'name' => 'E', 'status' => 'draft']);
+        $this->actingAs(\App\Models\User::factory()->create());
+
+        $inst = \Livewire\Livewire::test(\App\Filament\Resources\LandShareStudies\Pages\StudyBuilder::class, ['record' => $study->id])->instance();
+
+        $this->assertSame(['A' => 8, 'B' => 6, 'C' => 6], $inst->extendBlockUnits(3, ['A' => 8, 'B' => 6]));
+        $this->assertSame(['A' => 8], $inst->extendBlockUnits(1, ['A' => 8, 'B' => 6]));
+    }
 }

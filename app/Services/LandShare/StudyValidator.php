@@ -73,14 +73,17 @@ final class StudyValidator
      * Arsa payı girişinin durumu — ekranlarda "arsa payına göre / eşit"
      * ibaresi ve eksik uyarısı buradan beslenir.
      *
-     * @return array{state: 'none'|'complete'|'incomplete', sum: Fraction, missing: int}
+     * @return array{state: 'none'|'complete'|'incomplete', sum: Fraction, missing: int, denominator: ?int}
      *   none: hiç girilmemiş · complete: hepsi girilmiş ve toplam 1/1 · incomplete: diğer
+     *   denominator: girilen paydaların EKOK'u — toplamı kullanıcının paydasıyla
+     *   göstermek için (2/9 değil 4/18)
      */
     public function arsaSharesState(StudyData $data): array
     {
         $sum = Fraction::zero();
         $entered = 0;
         $missing = 0;
+        $denominator = null;
 
         foreach ($data->sections as $section) {
             if ($section['arsa_pay'] === null || $section['arsa_payda'] === null) {
@@ -89,6 +92,7 @@ final class StudyValidator
                 continue;
             }
             $sum = $sum->add(Fraction::of($section['arsa_pay'], $section['arsa_payda']));
+            $denominator = Fraction::lcm($denominator ?? 1, $section['arsa_payda']);
             $entered++;
         }
 
@@ -98,7 +102,7 @@ final class StudyValidator
             default                                             => 'incomplete',
         };
 
-        return ['state' => $state, 'sum' => $sum, 'missing' => $missing];
+        return ['state' => $state, 'sum' => $sum, 'missing' => $missing, 'denominator' => $denominator];
     }
 
     /** Cetvelde seçilebilecek yöntemler — "akıllı" varsayılan için. */
