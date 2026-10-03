@@ -16,6 +16,7 @@ use RuntimeException;
  *   collection    — a party paid us → ledger "tahsilat"
  *   balance_query — "how much do I owe X?" → read-only answer, nothing is saved
  *   statement     — "send X's statement" → PDF sent back (optional date range / project), nothing is saved
+ *   totals_query  — "how much is owed to me in total?" → all parties, receivables / payables, nothing is saved
  *
  * Returns:
  *   kind (string), items (list<{description,amount}>), payment_type (string|null),
@@ -35,6 +36,7 @@ class ExpenseExtractor
     public const KIND_COLLECTION = 'collection';
     public const KIND_BALANCE_QUERY = 'balance_query';
     public const KIND_STATEMENT = 'statement';
+    public const KIND_TOTALS_QUERY = 'totals_query';
 
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
@@ -42,6 +44,7 @@ class ExpenseExtractor
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin").',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Hiçbir şey kaydedilmez; amount=0.',
+        self::KIND_TOTALS_QUERY => '- "totals_query": TÜM CARİLER için toplam SORUSU, belirli bir cari YOK ("Toplam alacağım ne kadar?", "Kimden alacağım var?", "Toplam borcum ne?", "Kime borçluyum?", "Genel durum ne?"). Hiçbir şey kaydedilmez; amount=0. `totals_side`: alacak sorusu → "receivable", borç sorusu → "payable", genel/ikisi → "both". Proje söylendiyse `project_id`.',
         self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`.',
     ];
 
@@ -62,6 +65,7 @@ class ExpenseExtractor
             self::KIND_COLLECTION,
             self::KIND_BALANCE_QUERY,
             self::KIND_STATEMENT,
+            self::KIND_TOTALS_QUERY,
         ]));
     }
 
@@ -265,6 +269,7 @@ class ExpenseExtractor
                             'required' => ['description', 'amount'],
                         ],
                     ],
+                    'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
                     'date_from' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement: period start (YYYY-MM-DD) if a period was named, else null'],
                     'date_to' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement: period end (YYYY-MM-DD) if a period was named, else null'],
                     'payment_type' => ['type' => ['string', 'null'], 'enum' => ['cash', 'bank_transfer', 'eft', 'other', null], 'description' => 'payment/collection method if stated, else null'],
@@ -310,6 +315,9 @@ class ExpenseExtractor
         return [
             'kind' => $kind,
             'items' => $kind === self::KIND_SALE ? $items : [],
+            'totals_side' => $kind === self::KIND_TOTALS_QUERY
+                ? (in_array($input['totals_side'] ?? null, ['receivable', 'payable'], true) ? $input['totals_side'] : 'both')
+                : null,
             'date_from' => $kind === self::KIND_STATEMENT ? self::validDate($input['date_from'] ?? null) : null,
             'date_to' => $kind === self::KIND_STATEMENT ? self::validDate($input['date_to'] ?? null) : null,
             'payment_type' => in_array($paymentType, ['cash', 'bank_transfer', 'eft', 'other'], true) ? $paymentType : null,

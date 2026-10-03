@@ -240,4 +240,31 @@ class WhatsappLedgerFlowTest extends TestCase
 
         $this->post('/whatsapp/webhook', $params, ['X-Twilio-Signature' => $signature])->assertOk();
     }
+
+    public function test_totals_query_lists_receivables_and_payables_separately(): void
+    {
+        $ali = Party::create(['name' => 'Zz Ali Toplam']);
+        $veli = Party::create(['name' => 'Zz Veli Toplam']);
+        $beton = Party::create(['name' => 'Zz Beton Toplam']);
+        PartyLedgerEntry::create(['party_id' => $ali->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 150000]);
+        PartyLedgerEntry::create(['party_id' => $veli->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 60000]);
+        Expense::create(['party_id' => $beton->id, 'expense_date' => now(), 'amount' => 42000, 'payment_status' => 'unpaid', 'description' => 'Beton']);
+
+        $receivables = \App\Support\PartyBalances::receivables();
+        $payables = \App\Support\PartyBalances::payables();
+
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_TOTALS_QUERY, 'totals_side' => 'both']));
+        $reply = $this->send('Genel durum ne?');
+
+        $this->assertStringContainsString('Toplam alacağın: ' . \App\Support\Money::format($receivables->sum('balance')), $reply);
+        $this->assertStringContainsString('Toplam borcun: ' . \App\Support\Money::format($payables->sum('balance')), $reply);
+        // Netleştirme yok: Beton borcu alacak tarafından düşülmez
+        $this->assertTrue($receivables->contains(fn ($r) => $r['party']->is($ali) && $r['balance'] === 150000.0));
+        $this->assertTrue($payables->contains(fn ($r) => $r['party']->is($beton) && $r['balance'] === 42000.0));
+        $this->assertFalse($receivables->contains(fn ($r) => $r['party']->is($beton)));
+        $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_TOTALS_QUERY, 'totals_side' => 'receivable']));
+        $this->assertStringNotContainsString('Toplam borcun', $this->send('Toplam alacağım ne kadar?'));
+    }
 }

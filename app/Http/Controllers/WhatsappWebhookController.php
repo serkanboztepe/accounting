@@ -10,6 +10,7 @@ use App\Models\Project;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Support\Money;
+use App\Support\PartyBalances;
 use App\Support\PartyStatement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -164,6 +165,11 @@ class WhatsappWebhookController extends Controller
             $pending?->update(['status' => 'superseded']);
 
             return $this->balanceAnswer($data);
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_TOTALS_QUERY) {
+            $pending?->update(['status' => 'superseded']);
+
+            return $this->totalsAnswer($data);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_STATEMENT) {
             $pending?->update(['status' => 'superseded']);
@@ -475,6 +481,47 @@ class WhatsappWebhookController extends Controller
         return [implode("\n", $lines), $url];
     }
 
+    /**
+     * "Toplam alacağım ne kadar?" → tüm carilerin ekstre bakiyesi. Alacak ve borç AYRI toplanır,
+     * netleştirilmez (Ali'den alacak ile Kuşak Beton'a borç farklı hesaplar).
+     */
+    private function totalsAnswer(array $d): string
+    {
+        $filters = array_filter(['project_id' => $d['project_id'] ?? null]);
+        $side = $d['totals_side'] ?? 'both';
+        $project = ! empty($filters['project_id']) ? Project::find($filters['project_id']) : null;
+
+        $sections = [];
+        if ($side !== 'payable') {
+            $sections[] = $this->totalsSection('Toplam alacağın', PartyBalances::receivables($filters));
+        }
+        if ($side !== 'receivable') {
+            $sections[] = $this->totalsSection('Toplam borcun', PartyBalances::payables($filters));
+        }
+
+        $head = '📊' . ($project ? ' ' . $project->name . ' projesi — ' : ' ');
+
+        return $head . implode("\n\n", $sections)
+            . ($project ? "\n\n(Sadece bu projeye etiketli hareketler.)" : '');
+    }
+
+    private function totalsSection(string $title, \Illuminate\Support\Collection $rows): string
+    {
+        if ($rows->isEmpty()) {
+            return $title . ': 0 ₺';
+        }
+
+        $lines = [$title . ': ' . Money::format($rows->sum('balance')) . ' ₺ (' . $rows->count() . ' cari)'];
+        foreach ($rows->take(5) as $row) {
+            $lines[] = '• ' . $row['party']->name . ': ' . Money::format($row['balance']);
+        }
+        if ($rows->count() > 5) {
+            $lines[] = '… ve ' . ($rows->count() - 5) . ' cari daha';
+        }
+
+        return implode("\n", $lines);
+    }
+
     private function balanceLine(string $name, float $balance): string
     {
         if (abs($balance) < 0.01) {
@@ -506,6 +553,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_SALE => "• Satış: \"Ahmet Bey'e 80 bine proje yaptım\"",
             ExpenseExtractor::KIND_COLLECTION => "• Tahsilat: \"Ahmet Bey 50 bin ödedi\"",
             ExpenseExtractor::KIND_BALANCE_QUERY => "• Bakiye: \"Ahmet Bey'in borcu ne?\"",
+            ExpenseExtractor::KIND_TOTALS_QUERY =>"• Toplam: \"Toplam alacağım ne kadar?\"",
             ExpenseExtractor::KIND_STATEMENT => "• Ekstre (PDF): \"Ahmet Bey'in ekstresini at\"",
         ];
 

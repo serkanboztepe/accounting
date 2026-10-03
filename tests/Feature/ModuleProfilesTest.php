@@ -75,9 +75,9 @@ class ModuleProfilesTest extends TestCase
     public function test_whatsapp_kinds_per_mode(): void
     {
         $expected = [
-            'mimar' => ['sale', 'collection', 'balance_query', 'statement'],
-            'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement'],
-            'toptanci' => ['expense', 'collection', 'balance_query', 'statement'],
+            'mimar' => ['sale', 'collection', 'balance_query', 'statement', 'totals_query'],
+            'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query'],
+            'toptanci' => ['expense', 'collection', 'balance_query', 'statement', 'totals_query'],
         ];
 
         foreach ($expected as $profile => $kinds) {

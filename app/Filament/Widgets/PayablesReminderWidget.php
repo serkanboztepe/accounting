@@ -5,11 +5,10 @@ namespace App\Filament\Widgets;
 use App\Filament\Resources\ContractPayments\ContractPaymentResource;
 use App\Filament\Resources\Expenses\ExpenseResource;
 use App\Filament\Resources\Parties\PartyResource;
-use App\Models\Contract;
 use App\Models\ContractPayment;
 use App\Models\Expense;
 use App\Models\Party;
-use App\Models\PartyLedgerEntry;
+use App\Support\PartyBalances;
 use App\Support\PartyStatement;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Carbon;
@@ -105,26 +104,13 @@ class PayablesReminderWidget extends Widget
         usort($buckets['yaklasan'], fn ($a, $b) => $a['due'] <=> $b['due']);
 
         // --- 2) AÇIK CARİ HESAPLARI (ekstre net < 0 → biz borçluyuz) ---
-        $partyIds = collect()
-            ->merge(Expense::query()->whereNotNull('party_id')->distinct()->pluck('party_id'))
-            ->merge(PartyLedgerEntry::query()->whereNotNull('party_id')->distinct()->pluck('party_id'))
-            ->merge(Contract::withoutGlobalScope('purchase')->whereNotNull('party_id')->distinct()->pluck('party_id'))
-            ->unique()
-            ->values();
-
-        $openAccounts = [];
-        foreach (Party::whereIn('id', $partyIds)->get() as $party) {
-            $balance = PartyStatement::build($party)['balance'];
-            // Ekstre: bakiye < 0 → biz cariye borçluyuz. |bakiye| = açık borç.
-            if ($balance < -0.01) {
-                $openAccounts[] = [
-                    'party'  => $party->name,
-                    'amount' => abs($balance),
-                    'url'    => PartyResource::getUrl('edit', ['record' => $party->id]),
-                ];
-            }
-        }
-        usort($openAccounts, fn ($a, $b) => $b['amount'] <=> $a['amount']);
+        $openAccounts = PartyBalances::payables()
+            ->map(fn ($r) => [
+                'party'  => $r['party']->name,
+                'amount' => $r['balance'],
+                'url'    => PartyResource::getUrl('edit', ['record' => $r['party']->id]),
+            ])
+            ->all();
 
         // --- 3) CARİ'SİZ AÇIK GİDERLER — netlenecek hesap yok, payment_status tek doğru kaynak.
         // Vadeliler zaten (1)'de; burada yalnız cari'siz + vadesiz ödenmemişler.
