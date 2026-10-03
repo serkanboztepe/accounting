@@ -133,8 +133,8 @@ class WhatsappLedgerFlowTest extends TestCase
         ]));
 
         $this->send("Ali'ye 5 bin verdim");
-        $this->assertStringContainsString('Gider — kontrol et', $this->send('1'));
-        $this->send('evet');
+        $this->assertStringContainsString('Ne için ödedin?', $this->send('1'));
+        $this->send('evet'); // amacı atla
 
         $expense = Expense::where('party_id', $party->id)->sole();
         $this->assertSame('paid', $expense->payment_status);

@@ -72,12 +72,15 @@ class WhatsappWebhookController extends Controller
             // Ödeme ama carinin açık borcu yok → "1) yeni masraf 2) avans" seçimi bekleniyor.
             if ($this->needsPaymentChoice($pending->extracted)) {
                 if ($body === '1') {
-                    // Yeni iş/masraf → ödenmiş gider taslağına çevir; proje/kategori için özet yeniden.
+                    // Yeni iş/masraf → ödenmiş gider taslağı. Önce "ne için?" sorulur: yoksa açıklama
+                    // sadece "Ali'ye ödeme" kalıyor, işin ne olduğu/kategorisi görünmüyordu. Cevap
+                    // düzeltme (refine) olarak işlenir → açıklama + kategori dolar, sonra özet.
                     $data = $pending->extracted;
                     $data['kind'] = ExpenseExtractor::KIND_EXPENSE;
                     $data['paid'] = true;
+                    $pending->update(['extracted' => $data]);
 
-                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                    return $this->twiml("Ne için ödedin? Kısaca yaz (ör. \"sıva işçiliği\", \"kaba inşaat\").\nAtlamak için *evet*.");
                 }
                 if ($body === '2') {
                     $data = $pending->extracted;

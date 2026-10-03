@@ -85,7 +85,7 @@ class PartyStatement
             if ($expense->payment_status === 'paid') {
                 $rows[] = self::row(
                     $expense->expense_date,
-                    'Gider Ödemesi',
+                    'Ödeme',
                     $desc,
                     $amount,
                     0.0,
