@@ -35,15 +35,17 @@ class ExpensesTable
                 TextColumn::make('payment_status')
                     ->label('Durum')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                    // Cariye bağlı ödenmemiş gider = veresiye: borç takibi o carinin ekstresinden
+                    // (ödemeler oraya girer), gider satırı "ödendi"ye çevrilmez.
+                    ->formatStateUsing(fn (string $state, $record): string => match ($state) {
                         'paid'    => 'Ödendi',
-                        'unpaid'  => 'Ödenmedi',
+                        'unpaid'  => $record->party_id ? 'Veresiye (cari)' : 'Ödenmedi',
                         'partial' => 'Kısmi Ödendi',
                         default   => $state,
                     })
-                    ->color(fn (string $state): string => match ($state) {
+                    ->color(fn (string $state, $record): string => match ($state) {
                         'paid'    => 'success',
-                        'unpaid'  => 'danger',
+                        'unpaid'  => $record->party_id ? 'warning' : 'danger',
                         'partial' => 'warning',
                         default   => 'gray',
                     }),

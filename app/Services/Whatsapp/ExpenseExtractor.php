@@ -6,10 +6,18 @@ use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 /**
- * Extracts expense data from free text and/or a document photo.
+ * Extracts an entry from free text and/or a document photo.
  * Uses the Claude Messages API with tool-use (guaranteed structured output).
  *
+ * Entry kinds (`kind`):
+ *   expense       — a cost (goods/service bought), paid or on account → Expense
+ *   payment       — we paid money to a party (settles debt / advance) → ledger "odeme"
+ *   sale          — we did work / sold to a party → ledger "satis" (one per item)
+ *   collection    — a party paid us → ledger "tahsilat"
+ *   balance_query — "how much do I owe X?" → read-only answer, nothing is saved
+ *
  * Returns:
+ *   kind (string), items (list<{description,amount}>), payment_type (string|null),
  *   amount (float), date (Y-m-d), due_date (Y-m-d|null), description (string),
  *   project_id (int|null), party_id (int|null),
  *   category_id (int|null), category_name (string|null),
@@ -19,6 +27,37 @@ use RuntimeException;
 class ExpenseExtractor
 {
     private const ENDPOINT = 'https://api.anthropic.com/v1/messages';
+
+    public const KIND_EXPENSE = 'expense';
+    public const KIND_PAYMENT = 'payment';
+    public const KIND_SALE = 'sale';
+    public const KIND_COLLECTION = 'collection';
+    public const KIND_BALANCE_QUERY = 'balance_query';
+
+    private const KIND_HINTS = [
+        self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
+        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır.',
+        self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin").',
+        self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
+        self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Hiçbir şey kaydedilmez; amount=0.',
+    ];
+
+    /**
+     * Kurulumda açık modüllere göre izinli türler. Tedarikçi tarafı kapalıysa (MOD_CARI_SUPPLIER=false)
+     * "payment" yok; gider modülü kapalıysa "expense" yok.
+     *
+     * @return list<string>
+     */
+    public static function allowedKinds(): array
+    {
+        return array_values(array_filter([
+            config('modules.expenses') ? self::KIND_EXPENSE : null,
+            config('modules.cari_supplier') ? self::KIND_PAYMENT : null,
+            self::KIND_SALE,
+            self::KIND_COLLECTION,
+            self::KIND_BALANCE_QUERY,
+        ]));
+    }
 
     /**
      * @param  array{media_type:string,data:string}|null  $image  base64 image
@@ -52,7 +91,7 @@ class ExpenseExtractor
             $content[] = [
                 'type' => 'text',
                 'text' => $userText !== ''
-                    ? "Bu gideri kaydet:\n" . $userText
+                    ? "Müteahhidin mesajı:\n" . $userText
                     : 'Ekteki belgeden gideri çıkar ve kaydet.',
             ];
         }
@@ -71,7 +110,7 @@ class ExpenseExtractor
             'max_tokens' => 1024,
             'system' => $this->systemPrompt($previous),
             'tools' => [$this->tool()],
-            'tool_choice' => ['type' => 'tool', 'name' => 'save_expense'],
+            'tool_choice' => ['type' => 'tool', 'name' => 'save_entry'],
             'messages' => [
                 ['role' => 'user', 'content' => $content],
             ],
@@ -82,7 +121,7 @@ class ExpenseExtractor
         }
 
         foreach ($response->json('content', []) as $block) {
-            if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'save_expense') {
+            if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'save_entry') {
                 return $this->normalize($block['input'] ?? []);
             }
         }
@@ -94,6 +133,10 @@ class ExpenseExtractor
     {
         $today = now()->format('Y-m-d');
         $context = ExpenseContext::build();
+        $kinds = implode("\n", array_map(
+            fn (string $k) => self::KIND_HINTS[$k],
+            self::allowedKinds(),
+        ));
 
         $refine = '';
         if ($previous !== null) {
@@ -102,12 +145,12 @@ class ExpenseExtractor
 
             ÖNEMLİ — Aşağıda ONAY BEKLEYEN önceki bir taslak var. Kullanıcının yeni mesajı ya
             (a) bu taslağa bir DÜZELTME/EK BİLGİdir ("proje Cumhuriyet", "tutar 6000", "nakit"),
-            ya da (b) TAMAMEN YENİ, ayrı bir giderdir. Karar ver ve `is_new_expense`'i doldur:
-            - Düzeltme/ek bilgi ise: `is_new_expense`=false; önceki değerleri KORU, yalnızca yeni
+            ya da (b) TAMAMEN YENİ, ayrı bir kayıttır. Karar ver ve `is_new_entry`'yi doldur:
+            - Düzeltme/ek bilgi ise (tür düzeltmesi dahil: "bu ödeme değil masraf"): `is_new_entry`=false; önceki değerleri KORU, yalnızca yeni
               mesajın belirttiği alanları güncelle (ör. önceki tutar 12000 ve mesaj sadece projeyi
               söylüyorsa tutarı 12000 bırak).
-            - Yeni mesaj kendi başına ayrı bir gider tanımlıyorsa (kendi tutarı var, önceki gideri
-              düzeltmiyor): `is_new_expense`=true; önceki taslağı YOK SAY, gideri SIFIRDAN çıkar —
+            - Yeni mesaj kendi başına ayrı bir kayıt tanımlıyorsa (kendi tutarı var, önceki taslağı
+              düzeltmiyor) ya da bir bakiye sorusuysa: `is_new_entry`=true; önceki taslağı YOK SAY, SIFIRDAN çıkar —
               önceki proje/cari/kategori/tutarı ASLA taşıma.
 
             ÖNCEKİ TASLAK: {$prevJson}
@@ -116,12 +159,26 @@ class ExpenseExtractor
         }
 
         return <<<PROMPT
-        Sen bir inşaat şirketinin gider kayıt asistanısın. Müteahhit sana bir gideri
-        yazarak veya belge (fiş, fatura, dekont) fotoğrafı atarak bildirir. Görevin
-        `save_expense` aracını çağırarak gider bilgisini çıkarmak.
+        Sen bir inşaat şirketinin kayıt asistanısın. Kullanıcı (müteahhit ya da mimar) sana
+        yazarak veya belge (fiş, fatura, dekont) fotoğrafı atarak bir işlem bildirir. Görevin
+        `save_entry` aracını çağırarak işlemi çıkarmak.
 
         Bugünün tarihi: {$today}. Tarih belirtilmemişse `date` alanına bugünü koy.
         {$refine}
+        İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
+        {$kinds}
+        - Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense".
+        - `payment` / `sale` / `collection` / `balance_query` için CARİ zorunludur (kime/kimden).
+          Kullanıcı cari söylemediyse `question`'a "Kime ödedin?" / "Kimden?" gibi kısa bir soru yaz.
+          Sadece genel bir unvan/meslek söylendiyse ("ustaya", "işçiye", "kamyoncuya") — İSİM yoksa —
+          mevcut bir cariyle EŞLEŞTİRME (adında "Usta" geçen cari olsa bile): `party_id` ve `party_name`
+          null, `question`="Hangi usta? Adını yazar mısın?". Para yanlış kişinin hesabına yazılmasın.
+        - `sale`'de birden fazla iş sayılırsa ("80 bine proje, 30 bine şantiye şefliği") her birini
+          `items`'a ayrı yaz (description + amount); `amount` = toplamları.
+        - `payment`/`collection`'da ödeme şekli söylendiyse `payment_type`: cash (nakit),
+          bank_transfer (havale), eft, other (çek/senet/diğer). Söylenmediyse null.
+        - `payment`/`sale`/`collection`'da kategori YOK (null bırak); proje sadece söylendiyse.
+        
         PROJE ve CARİ için: önce aşağıdaki mevcut listelerle eşleştir (`project_id` / `party_id`).
         El yazısı bir isim, mevcut cari listesindeki bir isme makul ölçüde yakınsa (özellikle
         ilk ad tutuyorsa), harf harf yeniden okumaya çalışma — o mevcut cariyle EŞLEŞTİR
@@ -141,6 +198,7 @@ class ExpenseExtractor
         ve mümkün olan en GENİŞ olanı tercih et. Somut yapı malzemeleri — boya, çimento, demir,
         kum, çakıl, tuğla, alçı, seramik, fayans, kereste, kablo, boru, vida, hırdavat vb. — hepsi
         "Malzeme" kategorisine girer; bunlar için AYRI kategori açma (mevcut "Malzeme" varsa onu seç).
+        (Kategori yalnız `expense` içindir.)
         Sadece mevcut hiçbir geniş türe girmeyen, gerçekten YENİ bir gider türü varsa `category_name`'e
         kısa bir ad öner; aksi halde uygun mevcut kategoriyle eşleştir ve `category_name`'i boş bırak.
         Kararsızsan yeni açmaktansa en yakın mevcut kategoriyi seç — mükerrer/aşırı ince kategori açma.
@@ -163,7 +221,7 @@ class ExpenseExtractor
         Tutarı (`amount`) Türk Lirası olarak, sayı biçiminde döndür (binlik ayraç/simge yok).
         El yazısı/bulanık nedeniyle tutardan emin değilsen `confidence` = "low" yap.
 
-        ÖDEME DURUMU ve VADE:
+        ÖDEME DURUMU ve VADE (yalnız `expense` için):
         - Varsayılan: ödeme YAPILMIŞ (`paid`=true). Mesaj ödemeye dair bir şey söylemiyorsa ödendi say.
         - Gelecek zaman/niyet ("ödeyeceğim", "ödenecek", "vereceğim", "kalan/borç") veya açıkça
           "ödenmedi" deniyorsa: `paid`=false.
@@ -180,12 +238,26 @@ class ExpenseExtractor
     private function tool(): array
     {
         return [
-            'name' => 'save_expense',
-            'description' => 'Çıkarılan gider bilgisini yapılandırılmış olarak döndürür.',
+            'name' => 'save_entry',
+            'description' => 'Çıkarılan işlem bilgisini yapılandırılmış olarak döndürür.',
             'input_schema' => [
                 'type' => 'object',
                 'properties' => [
-                    'amount' => ['type' => 'number', 'description' => 'Expense amount (TRY, numeric)'],
+                    'kind' => ['type' => 'string', 'enum' => self::allowedKinds(), 'description' => 'Entry kind; see system prompt'],
+                    'items' => [
+                        'type' => 'array',
+                        'description' => 'Only for kind=sale with several jobs: one item per job',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'description' => ['type' => 'string'],
+                                'amount' => ['type' => 'number'],
+                            ],
+                            'required' => ['description', 'amount'],
+                        ],
+                    ],
+                    'payment_type' => ['type' => ['string', 'null'], 'enum' => ['cash', 'bank_transfer', 'eft', 'other', null], 'description' => 'payment/collection method if stated, else null'],
+                    'amount' => ['type' => 'number', 'description' => 'Amount (TRY, numeric); total for sale items; 0 for balance_query'],
                     'date' => ['type' => ['string', 'null'], 'description' => 'Date the expense occurred (YYYY-MM-DD); today if absent. NOT the payment due date.'],
                     'due_date' => ['type' => ['string', 'null'], 'description' => 'Payment due date (YYYY-MM-DD) when payment is planned for the future / promised; null if paid or no due date given'],
                     'description' => ['type' => 'string', 'description' => 'What the expense is for (short)'],
@@ -198,16 +270,31 @@ class ExpenseExtractor
                     'paid' => ['type' => 'boolean', 'description' => 'Paid already? true if unclear'],
                     'confidence' => ['type' => 'string', 'enum' => ['high', 'low']],
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
-                    'is_new_expense' => ['type' => 'boolean', 'description' => 'Only meaningful when a previous draft is provided: true if the new message is a brand-new separate expense (extract from scratch, ignore previous), false if it refines the previous draft. Default false.'],
+                    'is_new_entry' => ['type' => 'boolean', 'description' => 'Only meaningful when a previous draft is provided: true if the new message is a brand-new separate entry or a balance question (extract from scratch, ignore previous), false if it refines the previous draft. Default false.'],
                 ],
-                'required' => ['amount', 'description', 'paid', 'confidence'],
+                'required' => ['kind', 'amount', 'description', 'paid', 'confidence'],
             ],
         ];
     }
 
     private function normalize(array $input): array
     {
+        $kind = in_array($input['kind'] ?? null, self::allowedKinds(), true) ? $input['kind'] : self::KIND_EXPENSE;
+
+        $items = [];
+        foreach ((array) ($input['items'] ?? []) as $item) {
+            $amount = (float) ($item['amount'] ?? 0);
+            if ($amount > 0) {
+                $items[] = ['description' => trim((string) ($item['description'] ?? '')), 'amount' => $amount];
+            }
+        }
+
+        $paymentType = $input['payment_type'] ?? null;
+
         return [
+            'kind' => $kind,
+            'items' => $kind === self::KIND_SALE ? $items : [],
+            'payment_type' => in_array($paymentType, ['cash', 'bank_transfer', 'eft', 'other'], true) ? $paymentType : null,
             'amount' => isset($input['amount']) ? (float) $input['amount'] : 0.0,
             'date' => $input['date'] ?? now()->format('Y-m-d'),
             'due_date' => ! empty($input['due_date']) ? (string) $input['due_date'] : null,
@@ -221,7 +308,7 @@ class ExpenseExtractor
             'paid' => (bool) ($input['paid'] ?? true),
             'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? $input['confidence'] : 'high',
             'question' => ! empty($input['question']) ? (string) $input['question'] : null,
-            'is_new_expense' => (bool) ($input['is_new_expense'] ?? false),
+            'is_new_entry' => (bool) ($input['is_new_entry'] ?? false),
         ];
     }
 }

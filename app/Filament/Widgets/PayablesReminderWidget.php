@@ -40,6 +40,15 @@ class PayablesReminderWidget extends Widget
         // --- 1) VADELİ ÖDEMELER (yalnız vade girilmiş ödenmemiş kalemler) ---
         $dueRows = collect();
 
+        // Cariye bağlı veresiye gider, cariye yapılan Ödeme ile kapanır (gider satırı "ödenmedi"
+        // kalır). Ekstrede borcumuz yoksa vade hatırlatması da gösterilmez — ekstreyle çelişmesin.
+        $balances = [];
+        $owesParty = function (Party $party) use (&$balances): bool {
+            $balances[$party->id] ??= PartyStatement::build($party)['balance'];
+
+            return $balances[$party->id] < -0.01;
+        };
+
         foreach (
             Expense::query()
                 ->with(['party', 'project', 'category'])
@@ -47,6 +56,9 @@ class PayablesReminderWidget extends Widget
                 ->whereNotNull('due_date')
                 ->get() as $e
         ) {
+            if ($e->party && ! $owesParty($e->party)) {
+                continue;
+            }
             $dueRows->push([
                 'type'  => 'Gider',
                 'title' => $e->description ?: ($e->category?->name ?? 'Gider'),

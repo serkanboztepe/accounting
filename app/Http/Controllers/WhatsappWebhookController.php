@@ -5,20 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Party;
+use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Support\Money;
+use App\Support\PartyStatement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * Twilio WhatsApp Sandbox webhook'u (Faz 0 — sadece giderler).
+ * Twilio WhatsApp Sandbox webhook'u.
  *
  * Akış: müteahhit fotoğraf/metin atar → AI çıkarır → teyit metni döner →
- * müteahhit "evet" der → Expense kaydı yazılır. Cevap TwiML olarak döner
+ * müteahhit "evet" der → kayıt yazılır. Tür (kind) AI'dan gelir:
+ *   expense → Expense; payment/sale/collection → cari hareketi (party_ledger_entries);
+ *   balance_query → sadece cevap, kayıt yok.
+ * Ödeme (payment) maliyet DEĞİLDİR — borcu düşürür. Carinin açık borcu yoksa
+ * "yeni masraf mı, avans mı?" sorulur (çift sayımı önler). Cevap TwiML olarak döner
  * (aynı sohbette görünür, REST gönderime gerek yok).
  */
 class WhatsappWebhookController extends Controller
@@ -50,9 +56,31 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml('İptal edildi. ✖️');
             }
 
-            // Sadece sayı → proje menüsünden seçim. Kullanıcı tüm özeti ilk mesajda
+            // Ödeme ama carinin açık borcu yok → "1) yeni masraf 2) avans" seçimi bekleniyor.
+            if ($this->needsPaymentChoice($pending->extracted)) {
+                if ($body === '1') {
+                    // Yeni iş/masraf → ödenmiş gider taslağına çevir; proje/kategori için özet yeniden.
+                    $data = $pending->extracted;
+                    $data['kind'] = ExpenseExtractor::KIND_EXPENSE;
+                    $data['paid'] = true;
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+                if ($body === '2') {
+                    $data = $pending->extracted;
+                    $data['advance'] = true;
+                    $pending->update(['extracted' => $data]);
+
+                    return $this->twiml($this->commit($pending));
+                }
+                if ($this->isConfirm($body)) {
+                    return $this->twiml('Önce seç: *1* yeni masraf, *2* avans.');
+                }
+            }
+
+            // Sadece sayı → proje menüsünden seçim (yalnız gider taslağında menü gösterilir). Kullanıcı tüm özeti ilk mesajda
             // zaten gördü; numara = "her şey doğru + proje bu" → direkt kaydet (tek adım).
-            if (ctype_digit($body)) {
+            if (ctype_digit($body) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE) {
                 $projects = $this->activeProjects();
                 $chosen = $projects->get((int) $body - 1);
                 if ($chosen) {
@@ -67,8 +95,8 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml('Listede o numara yok. Tekrar bir numara yaz ya da proje adını yaz.');
             }
 
-            // Metin (fotoğrafsız): önceki taslağa düzeltme mi, yoksa tamamen yeni bir gider mi?
-            // Kararı AI verir (is_new_expense) — kurallar kırılgan. Yeni giderse eski taslağın
+            // Metin (fotoğrafsız): önceki taslağa düzeltme mi, yoksa tamamen yeni bir kayıt mı?
+            // Kararı AI verir (is_new_entry) — kurallar kırılgan. Yeni giderse eski taslağın
             // proje/cari/kategorisi SIZMASIN diye taze taslak açılır.
             if ($image === null && $body !== '') {
                 try {
@@ -79,7 +107,7 @@ class WhatsappWebhookController extends Controller
                     return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
                 }
 
-                if (! empty($data['is_new_expense'])) {
+                if (! empty($data['is_new_entry'])) {
                     // Yeni gider → eski taslağı kapat ve SIFIRDAN çıkar: previous verilince model
                     // önceki proje/cari'yi sızdırabiliyor; temiz çıkarım için previous=null ile yeniden.
                     $pending->update(['status' => 'superseded']);
@@ -91,22 +119,11 @@ class WhatsappWebhookController extends Controller
                         return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
                     }
 
-                    $summary = $this->buildSummary($data);
-                    WhatsappPendingExpense::create([
-                        'phone' => $phone,
-                        'extracted' => $data,
-                        'summary' => $summary,
-                        'status' => 'awaiting_confirmation',
-                    ]);
-
-                    return $this->twiml($summary . "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.");
+                    return $this->twiml($this->saveDraft(null, $phone, $data));
                 }
 
                 // Düzeltme/ek bilgi → mevcut taslağı güncelle.
-                $summary = $this->buildSummary($data);
-                $pending->update(['extracted' => $data, 'summary' => $summary]);
-
-                return $this->twiml($summary . "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.");
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
             // Yeni fotoğraf → yeni gider (düzeltme değil). Eski taslağı geç, aşağıda taze başla.
@@ -117,7 +134,7 @@ class WhatsappWebhookController extends Controller
 
         // 2) Yeni gider girişi (metin ve/veya fotoğraf)
         if ($image === null && $body === '') {
-            return $this->twiml('Bir gider yazabilir veya fiş/dekont fotoğrafı gönderebilirsin. 📄');
+            return $this->twiml('Bir gider/ödeme yazabilir veya fiş/dekont fotoğrafı gönderebilirsin. 📄');
         }
 
         try {
@@ -128,25 +145,61 @@ class WhatsappWebhookController extends Controller
             return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
         }
 
-        $summary = $this->buildSummary($data);
-
-        WhatsappPendingExpense::create([
-            'phone' => $phone,
-            'extracted' => $data,
-            'summary' => $summary,
-            'media_url' => $numMedia > 0 ? (string) $request->input('MediaUrl0') : null,
-            'status' => 'awaiting_confirmation',
-        ]);
-
-        return $this->twiml($summary . "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.");
+        return $this->twiml($this->saveDraft(null, $phone, $data, $numMedia > 0 ? (string) $request->input('MediaUrl0') : null));
     }
 
     /**
-     * Onaylanan taslaktan Expense oluştur.
+     * Taslağı kaydet/güncelle ve müteahhide gidecek metni döndür.
+     * Bakiye sorusu taslak açmaz — direkt cevaplanır.
+     */
+    private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string
+    {
+        if ($this->kind($data) === ExpenseExtractor::KIND_BALANCE_QUERY) {
+            $pending?->update(['status' => 'superseded']);
+
+            return $this->balanceAnswer($data);
+        }
+
+        $summary = $this->buildSummary($data);
+        $footer = match (true) {
+            $this->needsPaymentChoice($data) => "\n\n*1* veya *2* yaz, vazgeçmek için *iptal*.",
+            $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
+            default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
+        };
+
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $summary]);
+        } else {
+            WhatsappPendingExpense::create([
+                'phone' => $phone,
+                'extracted' => $data,
+                'summary' => $summary,
+                'media_url' => $mediaUrl,
+                'status' => 'awaiting_confirmation',
+            ]);
+        }
+
+        return $summary . $footer;
+    }
+
+    /**
+     * Onaylanan taslaktan kaydı oluştur (türe göre Expense veya cari hareketi).
      */
     private function commit(WhatsappPendingExpense $pending): string
     {
         $d = $pending->extracted;
+        $kind = $this->kind($d);
+
+        if ($kind !== ExpenseExtractor::KIND_EXPENSE) {
+            if ($this->missingParty($d)) {
+                return '❓ Kime/kimden olduğunu yazar mısın? (cari adı)';
+            }
+            if ($this->needsPaymentChoice($d)) {
+                return 'Önce seç: *1* yeni masraf, *2* avans.';
+            }
+
+            return $this->commitLedger($pending, $d, $kind);
+        }
 
         // Match-first; if no existing match but the AI proposed a name, create it on confirm
         // (firstOrCreate guards against duplicates).
@@ -183,10 +236,61 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
-     * Teyit metni — id'leri okunur isme çevirir.
+     * Ödeme / satış / tahsilat → cari hareketi. Maliyete GİRMEZ; sadece cari bakiyesini değiştirir.
+     */
+    private function commitLedger(WhatsappPendingExpense $pending, array $d, string $kind): string
+    {
+        $party = $this->resolveParty($d);
+        $projectId = $d['project_id'] ?? null;
+        if ($projectId === null && ! empty($d['project_name'])) {
+            $projectId = Project::firstOrCreate(['name' => $d['project_name']], ['status' => 'active'])->id;
+        }
+
+        $type = self::LEDGER_TYPES[$kind];
+        $description = $d['description'] ?? null;
+        if ($kind === ExpenseExtractor::KIND_PAYMENT && ! empty($d['advance'])) {
+            $description = 'Avans' . ($description ? ' — ' . $description : '');
+        }
+
+        // Satışta birden fazla iş sayıldıysa her biri ayrı satır; yoksa tek satır.
+        $rows = ($kind === ExpenseExtractor::KIND_SALE && ! empty($d['items']))
+            ? $d['items']
+            : [['description' => $description, 'amount' => (float) ($d['amount'] ?? 0)]];
+
+        foreach ($rows as $row) {
+            PartyLedgerEntry::create([
+                'party_id' => $party->id,
+                'project_id' => $projectId,
+                'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
+                'type' => $type,
+                'payment_type' => $kind === ExpenseExtractor::KIND_SALE ? null : ($d['payment_type'] ?? null),
+                'description' => $row['description'] ?: null,
+                'amount' => Money::store((float) $row['amount']),
+                'notes' => 'WhatsApp üzerinden girildi.',
+            ]);
+        }
+
+        $pending->update(['status' => 'confirmed']);
+
+        return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+    }
+
+    private const LEDGER_TYPES = [
+        ExpenseExtractor::KIND_PAYMENT => PartyLedgerEntry::TYPE_PAYMENT,
+        ExpenseExtractor::KIND_SALE => PartyLedgerEntry::TYPE_SALE,
+        ExpenseExtractor::KIND_COLLECTION => PartyLedgerEntry::TYPE_COLLECTION,
+    ];
+
+    /**
+     * Teyit metni — tür gider değilse cari hareketi özeti (yön + bakiye öncesi/sonrası).
      */
     private function buildSummary(array $d): string
     {
+        $kind = $this->kind($d);
+        if ($kind !== ExpenseExtractor::KIND_EXPENSE) {
+            return $this->buildLedgerSummary($d, $kind);
+        }
+
         $lines = [];
         $lines[] = '📝 *Gider — kontrol et:*';
         $lines[] = '• Tutar: ' . Money::format((float) ($d['amount'] ?? 0)) . ' ₺'
@@ -234,6 +338,145 @@ class WhatsappWebhookController extends Controller
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Ödeme/satış/tahsilat teyidi. Yön açıkça yazılır ("Sen → Ahmet" / "Ahmet → sana") —
+     * "ödedim" ile "ödedi" tek harf; AI yanlış anlarsa müteahhit burada görür.
+     */
+    private function buildLedgerSummary(array $d, string $kind): string
+    {
+        $amount = (float) ($d['amount'] ?? 0);
+        $party = $this->existingParty($d);
+        $name = $party?->name ?? ($d['party_name'] ?? null);
+
+        if ($name === null) {
+            return '❓ ' . ($d['question'] ?: 'Kime/kimden olduğunu yazar mısın? (cari adı)');
+        }
+
+        $label = $party ? $name : $name . ' (yeni cari)';
+        $before = $party ? PartyStatement::build($party)['balance'] : 0.0;
+        // Ekstre konvansiyonu: bakiye > 0 → cari bize borçlu, < 0 → biz cariye borçluyuz.
+        $after = match ($kind) {
+            ExpenseExtractor::KIND_PAYMENT => $before + $amount,
+            ExpenseExtractor::KIND_SALE => $before + $amount,
+            ExpenseExtractor::KIND_COLLECTION => $before - $amount,
+        };
+
+        $lines = [];
+        if ($kind === ExpenseExtractor::KIND_PAYMENT) {
+            $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ ödedin';
+            if ($this->needsPaymentChoice($d)) {
+                $lines[] = 'Bu cariye açık borcun görünmüyor. Bu ne için?';
+                $lines[] = '   1) Yeni iş / malzeme (masraf olarak yazılır)';
+                $lines[] = '   2) Avans (iş sonra yapılacak)';
+
+                return implode("\n", $lines);
+            }
+        } elseif ($kind === ExpenseExtractor::KIND_SALE) {
+            $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺ iş yaptın';
+            foreach ($d['items'] ?? [] as $item) {
+                $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
+            }
+        } else {
+            $lines[] = '💰 ' . $label . ' → *sana*: ' . Money::format($amount) . ' ₺ ödedi';
+        }
+
+        if (! empty($d['description']) && $kind !== ExpenseExtractor::KIND_SALE) {
+            $lines[] = '• Açıklama: ' . $d['description'];
+        }
+        $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
+        if (! empty($d['payment_type'])) {
+            $lines[] = '• Şekli: ' . (self::PAYMENT_TYPE_LABELS[$d['payment_type']] ?? $d['payment_type']);
+        }
+        $project = ! empty($d['project_id']) ? Project::find($d['project_id']) : null;
+        $projectText = $project?->name ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : null);
+        if ($projectText) {
+            $lines[] = '• Proje: ' . $projectText;
+        }
+        $lines[] = '• Bakiye: ' . $this->balancePhrase($before) . ' → ' . $this->balancePhrase($after);
+
+        return implode("\n", $lines);
+    }
+
+    private const PAYMENT_TYPE_LABELS = [
+        'cash' => 'Nakit',
+        'bank_transfer' => 'Havale',
+        'eft' => 'EFT',
+        'other' => 'Diğer',
+    ];
+
+    /** "Ahmet'e ne kadar borcum var?" → kayıt açmadan cevap. */
+    private function balanceAnswer(array $d): string
+    {
+        $party = $this->existingParty($d);
+        if (! $party) {
+            $name = $d['party_name'] ?? null;
+
+            return $name
+                ? '"' . $name . '" adında bir cari bulamadım.'
+                : 'Hangi carinin bakiyesini soruyorsun?';
+        }
+
+        return '📊 ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+    }
+
+    private function balanceLine(string $name, float $balance): string
+    {
+        if (abs($balance) < 0.01) {
+            return $name . ': hesap kapalı (bakiye 0).';
+        }
+
+        return $balance < 0
+            ? $name . ': borcun ' . Money::format(abs($balance)) . ' ₺'
+            : $name . ': sana borcu ' . Money::format($balance) . ' ₺';
+    }
+
+    private function balancePhrase(float $balance): string
+    {
+        if (abs($balance) < 0.01) {
+            return '0';
+        }
+
+        return $balance < 0
+            ? 'borcun ' . Money::format(abs($balance))
+            : 'alacağın ' . Money::format($balance);
+    }
+
+    private function kind(array $d): string
+    {
+        return $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
+    }
+
+    private function existingParty(array $d): ?Party
+    {
+        return ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+    }
+
+    private function resolveParty(array $d): Party
+    {
+        return $this->existingParty($d) ?? Party::firstOrCreate(['name' => $d['party_name']]);
+    }
+
+    private function missingParty(array $d): bool
+    {
+        return $this->kind($d) !== ExpenseExtractor::KIND_EXPENSE
+            && ! $this->existingParty($d)
+            && empty($d['party_name']);
+    }
+
+    /**
+     * Ödeme ama cariye açık borcumuz yok (yeni cari dahil) → bu para yeni bir masraf mı,
+     * avans mı? Sormadan yazarsak ya maliyet kaçar ya da çift sayılır.
+     */
+    private function needsPaymentChoice(array $d): bool
+    {
+        if ($this->kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || $this->missingParty($d)) {
+            return false;
+        }
+        $party = $this->existingParty($d);
+
+        return ! $party || PartyStatement::build($party)['balance'] > -0.01;
     }
 
     /**
