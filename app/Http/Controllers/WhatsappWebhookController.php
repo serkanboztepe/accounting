@@ -14,6 +14,7 @@ use App\Support\PartyStatement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 
 /**
@@ -45,6 +46,11 @@ class WhatsappWebhookController extends Controller
             ->first();
 
         $image = $numMedia > 0 ? $this->downloadMedia($request) : null;
+
+        // Bekleyen taslak yokken gelen "evet"/"iptal"/numara: yeni kayıt SANMA (0 ₺'lik gider açılıyordu).
+        if (! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
+            return $this->twiml('Onay bekleyen bir kayıt yok (taslaklar 30 dk geçerli). Yeni bir işlem yazabilirsin.');
+        }
 
         if ($pending) {
             if ($this->isConfirm($body)) {
@@ -152,12 +158,17 @@ class WhatsappWebhookController extends Controller
      * Taslağı kaydet/güncelle ve müteahhide gidecek metni döndür.
      * Bakiye sorusu taslak açmaz — direkt cevaplanır.
      */
-    private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string
+    private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         if ($this->kind($data) === ExpenseExtractor::KIND_BALANCE_QUERY) {
             $pending?->update(['status' => 'superseded']);
 
             return $this->balanceAnswer($data);
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_STATEMENT) {
+            $pending?->update(['status' => 'superseded']);
+
+            return $this->statementAnswer($data);
         }
 
         $summary = $this->buildSummary($data);
@@ -421,6 +432,49 @@ class WhatsappWebhookController extends Controller
         return '📊 ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
     }
 
+    /**
+     * "Ali'nin ekstresini at" → kısa özet + PDF eki. PDF linki imzalı ve 10 dk geçerli
+     * (Twilio indirebilsin, başkası tahmin edemesin / sonra açamasın).
+     *
+     * @return array{0:string,1:string}|string  [metin, medya URL] ya da sadece metin
+     */
+    private function statementAnswer(array $d): array|string
+    {
+        $party = $this->existingParty($d);
+        if (! $party) {
+            $name = $d['party_name'] ?? null;
+
+            return $name
+                ? '"' . $name . '" adında bir cari bulamadım.'
+                : 'Hangi carinin ekstresini istiyorsun?';
+        }
+
+        $filters = array_filter([
+            'date_from' => $d['date_from'] ?? null,
+            'date_to' => $d['date_to'] ?? null,
+            'project_id' => $d['project_id'] ?? null,
+        ]);
+        $statement = PartyStatement::build($party, $filters);
+
+        $lines = ['📄 ' . $party->name . ' — Cari Ekstresi'];
+        if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {
+            $lines[] = 'Dönem: ' . ($filters['date_from'] ?? '…') . ' – ' . ($filters['date_to'] ?? '…');
+        }
+        if (! empty($filters['project_id'])) {
+            $lines[] = 'Proje: ' . (Project::find($filters['project_id'])?->name ?? '—');
+            $lines[] = 'Bu projedeki fark: ' . Money::format(abs($statement['balance'])) . ' ₺';
+        } else {
+            $lines[] = $this->balanceLine($party->name, $statement['balance']);
+        }
+
+        $url = URL::temporarySignedRoute('whatsapp.statement.pdf', now()->addMinutes(10), [
+            'party' => $party->id,
+            'file' => 'Ekstre-' . (Str::slug($party->name) ?: $party->id) . '.pdf',
+        ] + $filters);
+
+        return [implode("\n", $lines), $url];
+    }
+
     private function balanceLine(string $name, float $balance): string
     {
         if (abs($balance) < 0.01) {
@@ -452,6 +506,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_SALE => "• Satış: \"Ahmet Bey'e 80 bine proje yaptım\"",
             ExpenseExtractor::KIND_COLLECTION => "• Tahsilat: \"Ahmet Bey 50 bin ödedi\"",
             ExpenseExtractor::KIND_BALANCE_QUERY => "• Bakiye: \"Ahmet Bey'in borcu ne?\"",
+            ExpenseExtractor::KIND_STATEMENT => "• Ekstre (PDF): \"Ahmet Bey'in ekstresini at\"",
         ];
 
         $lines = ['Şunları yazabilirsin:'];
@@ -549,12 +604,19 @@ class WhatsappWebhookController extends Controller
         return in_array(Str::lower($body), ['iptal', 'hayır', 'hayir', 'vazgeç', 'vazgec', 'h'], true);
     }
 
-    private function twiml(string $message)
+    /**
+     * @param  string|array{0:string,1:string}  $message  metin ya da [metin, medya URL] (PDF eki)
+     */
+    private function twiml(string|array $message)
     {
-        $escaped = htmlspecialchars($message, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        [$text, $media] = is_array($message) ? $message : [$message, null];
+        $esc = fn (string $v) => htmlspecialchars($v, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $inner = $media === null
+            ? $esc($text)
+            : '<Body>' . $esc($text) . '</Body><Media>' . $esc($media) . '</Media>';
 
         return response(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>{$escaped}</Message></Response>",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>{$inner}</Message></Response>",
             200,
             ['Content-Type' => 'text/xml']
         );

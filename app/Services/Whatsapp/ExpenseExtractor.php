@@ -15,6 +15,7 @@ use RuntimeException;
  *   sale          — we did work / sold to a party → ledger "satis" (one per item)
  *   collection    — a party paid us → ledger "tahsilat"
  *   balance_query — "how much do I owe X?" → read-only answer, nothing is saved
+ *   statement     — "send X's statement" → PDF sent back (optional date range / project), nothing is saved
  *
  * Returns:
  *   kind (string), items (list<{description,amount}>), payment_type (string|null),
@@ -33,6 +34,7 @@ class ExpenseExtractor
     public const KIND_SALE = 'sale';
     public const KIND_COLLECTION = 'collection';
     public const KIND_BALANCE_QUERY = 'balance_query';
+    public const KIND_STATEMENT = 'statement';
 
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
@@ -40,6 +42,7 @@ class ExpenseExtractor
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin").',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Hiçbir şey kaydedilmez; amount=0.',
+        self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`.',
     ];
 
     /**
@@ -58,6 +61,7 @@ class ExpenseExtractor
             config('modules.direct_sales') ? null : self::KIND_SALE,
             self::KIND_COLLECTION,
             self::KIND_BALANCE_QUERY,
+            self::KIND_STATEMENT,
         ]));
     }
 
@@ -173,7 +177,7 @@ class ExpenseExtractor
         İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
         {$kinds}
         {$photoRule}
-        - `payment` / `sale` / `collection` / `balance_query` için CARİ zorunludur (kime/kimden).
+        - `payment` / `sale` / `collection` / `balance_query` / `statement` için CARİ zorunludur (kime/kimden).
           Kullanıcı cari söylemediyse `question`'a "Kime ödedin?" / "Kimden?" gibi kısa bir soru yaz.
           Sadece genel bir unvan/meslek söylendiyse ("ustaya", "işçiye", "kamyoncuya") — İSİM yoksa —
           mevcut bir cariyle EŞLEŞTİRME (adında "Usta" geçen cari olsa bile): `party_id` ve `party_name`
@@ -261,6 +265,8 @@ class ExpenseExtractor
                             'required' => ['description', 'amount'],
                         ],
                     ],
+                    'date_from' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement: period start (YYYY-MM-DD) if a period was named, else null'],
+                    'date_to' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement: period end (YYYY-MM-DD) if a period was named, else null'],
                     'payment_type' => ['type' => ['string', 'null'], 'enum' => ['cash', 'bank_transfer', 'eft', 'other', null], 'description' => 'payment/collection method if stated, else null'],
                     'amount' => ['type' => 'number', 'description' => 'Amount (TRY, numeric); total for sale items; 0 for balance_query'],
                     'date' => ['type' => ['string', 'null'], 'description' => 'Date the expense occurred (YYYY-MM-DD); today if absent. NOT the payment due date.'],
@@ -282,6 +288,11 @@ class ExpenseExtractor
         ];
     }
 
+    private static function validDate(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : null;
+    }
+
     private function normalize(array $input): array
     {
         $kind = in_array($input['kind'] ?? null, self::allowedKinds(), true) ? $input['kind'] : self::KIND_EXPENSE;
@@ -299,6 +310,8 @@ class ExpenseExtractor
         return [
             'kind' => $kind,
             'items' => $kind === self::KIND_SALE ? $items : [],
+            'date_from' => $kind === self::KIND_STATEMENT ? self::validDate($input['date_from'] ?? null) : null,
+            'date_to' => $kind === self::KIND_STATEMENT ? self::validDate($input['date_to'] ?? null) : null,
             'payment_type' => in_array($paymentType, ['cash', 'bank_transfer', 'eft', 'other'], true) ? $paymentType : null,
             'amount' => isset($input['amount']) ? (float) $input['amount'] : 0.0,
             'date' => $input['date'] ?? now()->format('Y-m-d'),

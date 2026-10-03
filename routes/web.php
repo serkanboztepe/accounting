@@ -6,7 +6,18 @@ Route::redirect('/', '/admin');
 
 // WhatsApp gider asistanı — Twilio webhook (Faz 0). CSRF muaf (bkz. bootstrap/app.php).
 Route::post('/whatsapp/webhook', \App\Http\Controllers\WhatsappWebhookController::class)
+    ->middleware(\App\Http\Middleware\VerifyTwilioSignature::class)
     ->name('whatsapp.webhook');
+
+// WhatsApp'a gönderilen ekstre PDF'i — Twilio indirebilsin diye girişsiz, ama imzalı + 10 dk süreli link.
+// {file} sadece WhatsApp'ta görünen dosya adı için.
+Route::get('/whatsapp/ekstre/{party}/{file}', function (\App\Models\Party $party, \Illuminate\Http\Request $request) {
+    $data = \App\Support\PartyStatementView::data($party, $request->only(['date_from', 'date_to', 'project_id']));
+
+    return \Barryvdh\DomPDF\Facade\Pdf::loadView('print.party-statement', $data + ['pdf' => true])
+        ->setPaper('a4', 'portrait')
+        ->stream('Ekstre.pdf');
+})->middleware('signed')->name('whatsapp.statement.pdf');
 
 Route::get('/land-share-studies/{study}/yazdir', function (\App\Models\LandShareStudy $study) {
     $data = $study->toStudyData();
@@ -53,23 +64,10 @@ Route::get('/sozlesmeler/{contract}/yazdir', function (string $contract) {
 })->middleware('auth')->name('contract.print');
 
 Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party, \Illuminate\Http\Request $request) {
-    $filters = array_filter([
-        'date_from'  => $request->query('date_from'),
-        'date_to'    => $request->query('date_to'),
-        'project_id' => $request->query('project_id'),
-    ], fn ($v) => filled($v));
-
-    $projectName = ! empty($filters['project_id'])
-        ? \App\Models\Project::find($filters['project_id'])?->name
-        : null;
-
-    return view('print.party-statement', [
-        'party'       => $party,
-        'company'     => \App\Models\CompanySettings::current(),
-        'statement'   => \App\Support\PartyStatement::build($party, $filters),
-        'filters'     => $filters,
-        'projectName' => $projectName,
-    ]);
+    return view('print.party-statement', \App\Support\PartyStatementView::data(
+        $party,
+        $request->only(['date_from', 'date_to', 'project_id']),
+    ));
 })->middleware('auth')->name('party.statement.print');
 
 Route::get('/stok-raporu/yazdir', function () {

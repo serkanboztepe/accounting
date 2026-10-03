@@ -33,9 +33,11 @@
     </style>
 </head>
 <body>
-    <div class="toolbar">
-        <button class="btn" onclick="window.print()">Yazdır / PDF Kaydet</button>
-    </div>
+    @if (empty($pdf))
+        <div class="toolbar">
+            <button class="btn" onclick="window.print()">Yazdır / PDF Kaydet</button>
+        </div>
+    @endif
 
     <div class="sheet">
         <div class="letterhead">

@@ -47,6 +47,8 @@ return [
     'twilio' => [
         'sid' => env('TWILIO_SID'),
         'token' => env('TWILIO_TOKEN'),
+        // Webhook isteklerinde X-Twilio-Signature doğrulaması (yalnız yerel denemede kapatılır).
+        'verify_signature' => (bool) env('TWILIO_VERIFY_SIGNATURE', true),
     ],
 
 ];

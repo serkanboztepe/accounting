@@ -9,6 +9,7 @@ use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Support\PartyStatement;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\URL;
 use Mockery;
 use Tests\TestCase;
 
@@ -22,6 +23,13 @@ class WhatsappLedgerFlowTest extends TestCase
     use DatabaseTransactions;
 
     private const PHONE = 'whatsapp:+905550000000';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // İmza doğrulaması ayrı testte; akış testlerinde kapalı.
+        config(['services.twilio.verify_signature' => false]);
+    }
 
     private function fakeAi(array ...$responses): void
     {
@@ -174,5 +182,62 @@ class WhatsappLedgerFlowTest extends TestCase
 
         $this->assertStringContainsString('Kuşak Beton: borcun 42.000,00', $reply);
         $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+    }
+
+    public function test_confirm_without_pending_draft_does_not_create_expense(): void
+    {
+        $this->fakeAi(); // AI hiç çağrılmamalı
+        $reply = $this->send('evet');
+
+        $this->assertStringContainsString('Onay bekleyen bir kayıt yok', $reply);
+        $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+    }
+
+    public function test_statement_request_returns_signed_pdf_link(): void
+    {
+        $party = Party::create(['name' => 'Ali Boztepe']);
+        PartyLedgerEntry::create([
+            'party_id' => $party->id, 'entry_date' => '2026-09-10', 'type' => PartyLedgerEntry::TYPE_SALE,
+            'amount' => 80000, 'description' => 'Proje',
+        ]);
+        $this->fakeAi($this->entry([
+            'kind' => ExpenseExtractor::KIND_STATEMENT, 'party_id' => $party->id,
+            'date_from' => '2026-09-01', 'date_to' => '2026-09-30',
+        ]));
+
+        $reply = $this->send("Ali'nin Eylül ekstresini at");
+
+        $this->assertStringContainsString('<Body>📄 Ali Boztepe — Cari Ekstresi', $reply);
+        $this->assertStringContainsString('Dönem: 2026-09-01 – 2026-09-30', $reply);
+        $this->assertSame(1, preg_match('#<Media>(.+)</Media>#', $reply, $m));
+        $url = html_entity_decode($m[1], ENT_XML1 | ENT_QUOTES);
+        $this->assertStringContainsString('/whatsapp/ekstre/' . $party->id . '/Ekstre-ali-boztepe.pdf', $url);
+        $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+
+        // Girişsiz ama imzalı link → PDF; imzasız → 403
+        $pdf = $this->get($url);
+        $pdf->assertOk();
+        $this->assertSame('application/pdf', $pdf->headers->get('Content-Type'));
+        $this->get('/whatsapp/ekstre/' . $party->id . '/Ekstre.pdf')->assertForbidden();
+    }
+
+    public function test_twilio_signature_is_enforced(): void
+    {
+        config(['services.twilio.verify_signature' => true, 'services.twilio.token' => 'test-token']);
+        $this->fakeAi();
+        $params = ['From' => self::PHONE, 'Body' => 'evet', 'NumMedia' => '0'];
+
+        $this->post('/whatsapp/webhook', $params, ['X-Twilio-Signature' => 'yanlis'])->assertForbidden();
+        $this->post('/whatsapp/webhook', $params)->assertForbidden();
+
+        $url = URL::to('/whatsapp/webhook');
+        ksort($params);
+        $payload = $url;
+        foreach ($params as $k => $v) {
+            $payload .= $k . $v;
+        }
+        $signature = base64_encode(hash_hmac('sha1', $payload, 'test-token', true));
+
+        $this->post('/whatsapp/webhook', $params, ['X-Twilio-Signature' => $signature])->assertOk();
     }
 }
