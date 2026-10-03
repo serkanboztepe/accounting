@@ -5,6 +5,7 @@ namespace App\Filament\Resources\LandShareStudies\Pages;
 use App\Filament\Resources\LandShareStudies\LandShareStudyResource;
 use App\Models\LandSection;
 use App\Services\LandShare\ShareCalculator;
+use App\Services\LandShare\StudyData;
 use App\Services\LandShare\StudyValidator;
 use App\Support\Fraction;
 use Filament\Actions\Action;
@@ -18,6 +19,7 @@ use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Concerns\InteractsWithRecord;
 use Filament\Resources\Pages\Page;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Wizard;
 use Filament\Schemas\Components\Wizard\Step;
@@ -48,6 +50,7 @@ class StudyBuilder extends Page implements HasSchemas
             'parsel'          => $this->record->parsel,
             'block_count'     => $this->record->block_count,
             'units_per_block' => $this->record->units_per_block,
+            'land_share_denominator' => $this->record->land_share_denominator,
             'notes'           => $this->record->notes,
             'shareholders'    => $this->record->shareholders()->orderBy('sort')->orderBy('id')->get()
                 ->map(fn ($s) => [
@@ -95,6 +98,19 @@ class StudyBuilder extends Page implements HasSchemas
                 ->modalDescription('Paylaşımlı her bağımsız bölümdeki paylar, o BB\'ye eklenen kişilerin mevcut hisse oranına göre otomatik hesaplanır ve 1/1\'e tamamlanır. Tek kişilik BB\'ler 1/1 kalır.')
                 ->modalSubmitActionLabel('Paylaştır')
                 ->action(fn () => $this->distributeByExistingShares()),
+
+            Action::make('landShares')
+                ->label('Arsa Payları')
+                ->icon('heroicon-o-map')
+                ->color('gray')
+                ->visible(fn () => ($this->data['sections'] ?? []) !== [])
+                ->modalHeading('Arsa Payları')
+                ->modalDescription('Mimari projedeki arsa payı cetvelinden her BB\'nin payını girin. Tüm BB\'ler aşağıdaki paydayla kaydedilir. Boş bırakılan BB\'nin arsa payı silinir.')
+                ->modalSubmitActionLabel('Kaydet')
+                ->modalWidth('4xl')
+                ->fillForm(fn (): array => $this->landShareFormState())
+                ->schema(fn (): array => $this->landShareFormSchema())
+                ->action(fn (array $data) => $this->applyLandShares($data)),
 
             Action::make('fillContractor')
                 ->label('Boş BB\'leri Müteahhide Ver')
@@ -148,6 +164,11 @@ class StudyBuilder extends Page implements HasSchemas
                 TextInput::make('units_per_block')->label('Blok Başına Daire Sayısı')
                     ->numeric()->minValue(1)->required()
                     ->helperText('"Tamam" deyince BB\'ler otomatik oluşur.'),
+                TextInput::make('land_share_denominator')->label('Arsa Payı Paydası (ops.)')
+                    ->numeric()->minValue(1)
+                    ->placeholder('ör. 1000')
+                    ->helperText('Mimari projedeki arsa payı cetvelinin paydası. Girerseniz ② adımda her BB\'ye sadece payını yazarsınız; hisseler arsa payına göre hesaplanır. Boş bırakırsanız her BB eşit sayılır.')
+                    ->columnSpanFull(),
 
                 Placeholder::make('current_sum')
                     ->label('Mevcut hisse kontrolü')
@@ -187,14 +208,30 @@ class StudyBuilder extends Page implements HasSchemas
                         ? new HtmlString('<span class="text-warning-600">Önce ① adımda blok/daire sayısını girip "Tamam" deyin.</span>')
                         : new HtmlString('Boş bırakılan BB\'leri sonradan "Kaydet & Bitir" öncesi müteahhide toplu verebilirsiniz.')),
 
+                Placeholder::make('arsa_sum')
+                    ->label('Arsa payı kontrolü')
+                    ->content(fn (Get $get) => $this->landShareBadge($get('sections') ?? [])),
+
                 Repeater::make('sections')->label(false)
                     ->addable(false)->deletable(false)->reorderable(false)
                     ->collapsible()->collapsed()
                     ->itemLabel(fn (array $state): string => ($state['label'] ?? 'BB')
+                        . (filled($state['arsa_pay'] ?? null) ? ' — Arsa ' . $state['arsa_pay'] . '/' . ($state['arsa_payda'] ?? '?') : '')
                         . ' — ' . $this->itemAssignSummary($state))
                     ->schema([
                         Hidden::make('section_id'),
                         Hidden::make('label'),
+
+                        Grid::make(12)->schema([
+                            TextInput::make('arsa_pay')->label('Arsa Payı')
+                                ->numeric()->minValue(1)->live(debounce: 400)
+                                ->helperText('Mimari projedeki arsa payı cetvelinden (ops.)')
+                                ->columnSpan(6),
+                            TextInput::make('arsa_payda')->label('Arsa Payı Paydası')
+                                ->numeric()->minValue(1)->live(debounce: 400)
+                                ->required(fn (Get $get) => filled($get('arsa_pay')))
+                                ->columnSpan(6),
+                        ]),
 
                         Placeholder::make('alloc_sum')
                             ->label('Dağılım kontrolü')
@@ -239,6 +276,7 @@ class StudyBuilder extends Page implements HasSchemas
             'parsel'          => $d['parsel'] ?? null,
             'block_count'     => $d['block_count'] ?? null,
             'units_per_block' => $d['units_per_block'] ?? null,
+            'land_share_denominator' => filled($d['land_share_denominator'] ?? null) ? (int) $d['land_share_denominator'] : null,
             'notes'           => $d['notes'] ?? null,
         ]);
 
@@ -290,6 +328,8 @@ class StudyBuilder extends Page implements HasSchemas
             if (! $section) {
                 continue;
             }
+
+            $section->update($this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null));
 
             $section->allocations()->delete();
             foreach ($item['allocations'] ?? [] as $a) {
@@ -406,6 +446,90 @@ class StudyBuilder extends Page implements HasSchemas
         return [$sections, $touched];
     }
 
+    // ── Arsa payı ─────────────────────────────────────────────────
+    /** Boş pay → arsa payı yok (ikisi de null); payda boşsa ortak payda. */
+    private function landShareAttributes(mixed $pay, mixed $payda): array
+    {
+        $payda = filled($payda) ? (int) $payda : $this->record->land_share_denominator;
+
+        if (! filled($pay) || ! $payda) {
+            return ['arsa_pay' => null, 'arsa_payda' => null];
+        }
+
+        return ['arsa_pay' => (int) $pay, 'arsa_payda' => (int) $payda];
+    }
+
+    private function landShareFormState(): array
+    {
+        $state = [
+            'denominator' => $this->record->land_share_denominator
+                ?? collect($this->data['sections'] ?? [])->pluck('arsa_payda')->filter()->first(),
+        ];
+
+        foreach ($this->data['sections'] ?? [] as $item) {
+            $state['bb_' . $item['section_id']] = $item['arsa_pay'] ?? null;
+        }
+
+        return $state;
+    }
+
+    private function landShareFormSchema(): array
+    {
+        $fields = [];
+        foreach ($this->data['sections'] ?? [] as $item) {
+            $fields[] = TextInput::make('bb_' . $item['section_id'])
+                ->label($item['label'] ?? 'BB')
+                ->numeric()->minValue(1);
+        }
+
+        return [
+            TextInput::make('denominator')->label('Ortak Payda')
+                ->numeric()->minValue(1)->required()->placeholder('ör. 1000'),
+            Grid::make(['default' => 2, 'md' => 4])->schema($fields),
+        ];
+    }
+
+    /** Toplu arsa payı girişini kaydeder; bekleyen (kaydedilmemiş) atamalara dokunmaz. */
+    public function applyLandShares(array $input): void
+    {
+        $denominator = (int) $input['denominator'];
+        $this->record->update(['land_share_denominator' => $denominator]);
+
+        foreach ($this->data['sections'] ?? [] as $i => $item) {
+            $attrs = $this->landShareAttributes($input['bb_' . $item['section_id']] ?? null, $denominator);
+
+            LandSection::whereKey($item['section_id'])->update($attrs);
+            $this->data['sections'][$i]['arsa_pay'] = $attrs['arsa_pay'];
+            $this->data['sections'][$i]['arsa_payda'] = $attrs['arsa_payda'] ?? $denominator;
+        }
+
+        $this->data['land_share_denominator'] = $denominator;
+        $this->form->fill($this->data);
+
+        Notification::make()->title('Arsa payları kaydedildi')
+            ->body(strip_tags((string) $this->landShareBadge($this->data['sections'])))
+            ->success()->send();
+    }
+
+    /** Form state'inden canlı arsa payı rozeti (② adım üstü). */
+    private function landShareBadge(array $sections): HtmlString
+    {
+        $data = new StudyData([], [], collect($sections)->mapWithKeys(fn ($s, $i) => [
+            'sec' . $i => $this->landShareAttributes($s['arsa_pay'] ?? null, $s['arsa_payda'] ?? null),
+        ])->all());
+
+        ['state' => $state, 'sum' => $sum, 'missing' => $missing] = (new StudyValidator())->arsaSharesState($data);
+        $total = $sum->toStringOver($this->record->land_share_denominator);
+
+        return match ($state) {
+            'none'     => new HtmlString('<span class="text-gray-500 dark:text-gray-400">Arsa payı girilmedi — her BB eşit sayılır.</span>'),
+            'complete' => new HtmlString('<span class="text-success-600 dark:text-success-400">✓ Arsa payları tam — toplam ' . $total . ' (1/1). Hisseler arsa payına göre hesaplanacak.</span>'),
+            default    => new HtmlString('<span class="text-warning-600 dark:text-warning-400">⚠ Arsa payları toplamı ' . $total
+                . ($missing > 0 ? ' · ' . $missing . ' BB\'nin arsa payı boş' : '')
+                . ' — 1/1 olmalı. Tamamlanana kadar her BB eşit sayılır.</span>'),
+        };
+    }
+
     // ── Yardımcılar ───────────────────────────────────────────────
     private function initialStep(): int
     {
@@ -427,6 +551,9 @@ class StudyBuilder extends Page implements HasSchemas
                 $items[] = [
                     'section_id'  => $section->id,
                     'label'       => 'Blok ' . $block->name . ' · BB ' . $section->bb_no,
+                    'arsa_pay'    => $section->arsa_pay,
+                    // Payda boşsa çalışmanın ortak paydası önerilir.
+                    'arsa_payda'  => $section->arsa_payda ?? $this->record->land_share_denominator,
                     'allocations' => $section->allocations->map(fn ($a) => [
                         'shareholder_id' => $a->shareholder_id,
                         'pay'            => $a->pay,
@@ -511,9 +638,11 @@ class StudyBuilder extends Page implements HasSchemas
         $result = (new ShareCalculator())->calculate($data, $method);
 
         return new HtmlString(view('filament.land-share._cetvel', [
-            'result' => $result,
-            'common' => $result->commonDenominator(),
-            'method' => $method,
+            'result'      => $result,
+            'common'      => $result->commonDenominator(),
+            'method'      => $method,
+            'arsa'        => (new StudyValidator())->arsaSharesState($data),
+            'denominator' => $this->record->land_share_denominator,
         ])->render());
     }
 }

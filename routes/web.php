@@ -16,11 +16,16 @@ Route::get('/land-share-studies/{study}/yazdir', function (\App\Models\LandShare
 
     $result = (new \App\Services\LandShare\ShareCalculator())->calculate($data, $method);
 
+    $study->load(['blocks' => fn ($q) => $q->orderBy('sort')->orderBy('id'),
+        'blocks.sections' => fn ($q) => $q->orderBy('sort')->orderBy('id'),
+        'blocks.sections.allocations.shareholder']);
+
     return view('land-share.print', [
         'study'  => $study,
         'result' => $result,
         'common' => $result->commonDenominator(),
         'method' => $method,
+        'arsa'   => (new \App\Services\LandShare\StudyValidator())->arsaSharesState($data),
     ]);
 })->middleware('auth')->name('land-share.print');
 

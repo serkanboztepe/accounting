@@ -149,6 +149,19 @@ final class Fraction
         return $lcm;
     }
 
+    /**
+     * Mümkünse verilen paydayla yazar ("947/1000"), bölünmüyorsa sade halini
+     * döner. Arsa payı toplamlarını mimarın paydasıyla göstermek için.
+     */
+    public function toStringOver(?int $denominator): string
+    {
+        if ($denominator === null || $denominator <= 0 || $denominator % $this->den !== 0) {
+            return (string) $this;
+        }
+
+        return $this->numeratorOver($denominator) . '/' . $denominator;
+    }
+
     /** Verilen ortak paydaya göre pay değeri (den bu paydaya bölünebilmeli). */
     public function numeratorOver(int $commonDenominator): int
     {

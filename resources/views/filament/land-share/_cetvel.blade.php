@@ -1,4 +1,5 @@
 <div class="overflow-x-auto">
+    @include('filament.land-share._method_note', ['arsa' => $arsa, 'denominator' => $denominator])
     <div class="mb-2 text-sm text-gray-500 dark:text-gray-400">
         Ortak payda: {{ $common }}
     </div>

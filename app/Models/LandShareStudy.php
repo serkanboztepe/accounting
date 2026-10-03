@@ -16,6 +16,7 @@ class LandShareStudy extends Model
         'parsel',
         'block_count',
         'units_per_block',
+        'land_share_denominator',
         'method',
         'status',
         'notes',
@@ -24,6 +25,7 @@ class LandShareStudy extends Model
     protected $casts = [
         'block_count'     => 'integer',
         'units_per_block' => 'integer',
+        'land_share_denominator' => 'integer',
     ];
 
     /**

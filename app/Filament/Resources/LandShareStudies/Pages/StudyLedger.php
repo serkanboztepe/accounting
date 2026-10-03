@@ -98,6 +98,11 @@ class StudyLedger extends Page
         return (new StudyValidator())->defaultMethod($this->data());
     }
 
+    public function getLandShareState(): array
+    {
+        return (new StudyValidator())->arsaSharesState($this->data());
+    }
+
     public function getResult(): ?ShareResult
     {
         $method = $this->effectiveMethod();

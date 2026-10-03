@@ -40,6 +40,11 @@
                 Ortak payda: {{ $common }}
             </x-slot>
 
+            @include('filament.land-share._method_note', [
+                'arsa'        => $this->getLandShareState(),
+                'denominator' => $this->record->land_share_denominator,
+            ])
+
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>

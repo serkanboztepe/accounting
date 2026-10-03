@@ -20,7 +20,8 @@
         .tag { font-size: 10px; background: #e5efff; color: #1d4ed8; padding: 1px 5px; border-radius: 4px; }
         .toolbar { max-width: 800px; margin: 0 auto 16px; text-align: right; }
         .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #b45309; color: #fff; cursor: pointer; }
-        .foot-note { max-width: 800px; margin: 14px auto 0; color: #666; font-size: 11px; }
+        h2.sub { font-size: 14px; text-align: center; margin: 28px 0 0; letter-spacing: .5px; page-break-after: avoid; }
+        .foot-note {max-width: 800px; margin: 14px auto 0; color: #666; font-size: 11px; }
         .signs { display: flex; justify-content: space-between; margin-top: 48px; gap: 40px; }
         .signs div { flex: 1; text-align: center; border-top: 1px solid #333; padding-top: 6px; font-size: 12px; }
         @media print {
@@ -82,7 +83,49 @@
 
         <div class="foot-note">
             Mevcut hisseler ile satış sonu kalan hisseler toplamı 1/1'dir. Devredilen sütunu, her hissedarın müteahhide / yeni hak sahibine aktardığı payı gösterir.
+            @if ($arsa['state'] === 'complete')
+                Hisseler bağımsız bölümlerin arsa paylarına göre hesaplanmıştır.
+            @elseif ($arsa['state'] === 'incomplete')
+                <strong>Not: Arsa payları eksik girildiğinden (toplam {{ $arsa['sum']->toStringOver($study->land_share_denominator) }}) her bağımsız bölüm eşit sayılmıştır.</strong>
+            @endif
         </div>
+
+        @if ($arsa['state'] === 'complete')
+            <h2 class="sub">BAĞIMSIZ BÖLÜM ARSA PAYLARI</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Blok</th>
+                        <th>BB No</th>
+                        <th class="num">Arsa Payı</th>
+                        <th>Hak Sahibi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach ($study->blocks as $block)
+                        @foreach ($block->sections as $section)
+                            <tr>
+                                <td>{{ $block->name }}</td>
+                                <td>{{ $section->bb_no }}</td>
+                                <td class="num">{{ $section->arsa_pay }}/{{ $section->arsa_payda }}</td>
+                                <td>
+                                    @foreach ($section->allocations as $alloc)
+                                        {{ $alloc->shareholder?->name }}@if ($section->allocations->count() > 1) ({{ \App\Support\Fraction::of((int) $alloc->pay, max(1, (int) $alloc->payda)) }})@endif{{ $loop->last ? '' : ', ' }}
+                                    @endforeach
+                                </td>
+                            </tr>
+                        @endforeach
+                    @endforeach
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="2">TOPLAM</td>
+                        <td class="num">{{ $arsa['sum']->toStringOver($study->land_share_denominator) }}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        @endif
 
         <div class="signs">
             <div>Hazırlayan</div>
