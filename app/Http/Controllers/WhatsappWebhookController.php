@@ -183,6 +183,12 @@ class WhatsappWebhookController extends Controller
             return $this->statementAnswer($data);
         }
 
+        // Tutarsız kayıt taslağı açma (anlaşılmayan mesaj 0 ₺'lik gider oluyordu). Bekleyen taslağa dokunma.
+        if ((float) ($data['amount'] ?? 0) <= 0) {
+            return '❓ ' . ($data['question']
+                ?: "Tutarı anlayamadım. Örnek: \"Kuşak Beton'dan 50 bin beton aldım\"");
+        }
+
         $summary = $this->buildSummary($data);
         $footer = match (true) {
             $this->needsPaymentChoice($data) => "\n\n*1* veya *2* yaz, vazgeçmek için *iptal*.",
@@ -695,12 +701,23 @@ class WhatsappWebhookController extends Controller
 
     private function isConfirm(string $body): bool
     {
-        return in_array(Str::lower($body), ['evet', 'onayla', 'tamam', 'ok', 'e', 'onay'], true);
+        return in_array($this->word($body), ['evet', 'onayla', 'tamam', 'ok', 'e', 'onay'], true);
     }
 
     private function isCancel(string $body): bool
     {
-        return in_array(Str::lower($body), ['iptal', 'hayır', 'hayir', 'vazgeç', 'vazgec', 'h'], true);
+        return in_array($this->word($body), ['iptal', 'hayır', 'hayir', 'vazgeç', 'vazgec', 'h'], true);
+    }
+
+    /**
+     * Tek kelimelik cevabı karşılaştırmaya hazırla. Türkçe büyük harf: mb_strtolower('İ') "i̇"
+     * (i + birleşik nokta) üretir → "İptal" eşleşmiyordu. Önce İ→i, I→ı; uçtaki noktalama/boşluk atılır.
+     */
+    private function word(string $body): string
+    {
+        $lower = mb_strtolower(strtr($body, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+
+        return preg_replace('/^[\s\p{P}]+|[\s\p{P}]+$/u', '', $lower) ?? $lower;
     }
 
     /**

@@ -302,4 +302,28 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'evet', 'NumMedia' => 0, 'MessageSid' => 'SMdef'])->assertOk();
         Http::assertNothingSent();
     }
+
+    public function test_turkish_capital_cancel_and_punctuation_confirm(): void
+    {
+        $this->fakeAi(
+            $this->entry(['amount' => 1000, 'description' => 'Yakıt İptal Testi']),
+            $this->entry(['amount' => 2000, 'description' => 'Yakıt Onay Testi', 'is_new_entry' => true]),
+        );
+
+        $this->send('1000 yakıt');
+        $this->assertStringContainsString('İptal edildi', $this->send('İptal'));
+        $this->assertSame(0, Expense::where('description', 'Yakıt İptal Testi')->count());
+
+        $this->send('2000 yakıt');
+        $this->send(' Evet. ');
+        $this->assertSame(1, Expense::where('description', 'Yakıt Onay Testi')->count());
+    }
+
+    public function test_zero_amount_does_not_open_draft(): void
+    {
+        $this->fakeAi($this->entry(['amount' => 0, 'description' => 'Belirsiz']));
+
+        $this->assertStringContainsString('Tutarı anlayamadım', $this->send('asdf qwe'));
+        $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+    }
 }
