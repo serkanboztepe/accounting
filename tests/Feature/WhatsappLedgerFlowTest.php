@@ -296,7 +296,7 @@ class WhatsappLedgerFlowTest extends TestCase
 
         $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'Zz Yazıyor borcu ne', 'NumMedia' => 0, 'MessageSid' => 'SMabc'])->assertOk();
         Http::assertSent(fn ($req) => str_contains($req->url(), '/v3/Indicators/Typing.json')
-            && $req['messageId'] === 'SMabc' && $req['channel'] === 'whatsapp');
+            && $req['messageId'] === 'SMabc' && $req['channel'] === 'WHATSAPP');
 
         Http::fake();
         $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'evet', 'NumMedia' => 0, 'MessageSid' => 'SMdef'])->assertOk();

@@ -641,7 +641,7 @@ class WhatsappWebhookController extends Controller
                 ->timeout(2)
                 ->post('https://messaging.twilio.com/v3/Indicators/Typing.json', [
                     'messageId' => $messageSid,
-                    'channel' => 'whatsapp',
+                    'channel' => 'WHATSAPP', // büyük harf şart: 'whatsapp' → 400 (doküman metni yanıltıcı)
                 ]);
 
             if ($response->failed()) {
