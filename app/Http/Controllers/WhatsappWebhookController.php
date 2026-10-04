@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Contract;
+use App\Models\ContractPayment;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Party;
@@ -67,6 +69,18 @@ class WhatsappWebhookController extends Controller
                 $pending->update(['status' => 'cancelled']);
 
                 return $this->twiml('İptal edildi. ✖️');
+            }
+
+            // Sözleşmeli cariye ödeme, birden fazla aktif sözleşme → hangisi?
+            if ($this->needsContractChoice($pending->extracted) && ctype_digit($body)) {
+                $contract = $this->activeContracts($this->existingParty($pending->extracted))->get((int) $body - 1);
+                if (! $contract) {
+                    return $this->twiml('Listede o numara yok. Sözleşme numarasını yaz.');
+                }
+                $data = $pending->extracted;
+                $data['contract_id'] = $contract->id;
+
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
             // Ödeme ama carinin açık borcu yok → "1) yeni masraf 2) avans" seçimi bekleniyor.
@@ -138,7 +152,12 @@ class WhatsappWebhookController extends Controller
                     return $this->twiml($this->saveDraft(null, $phone, $data));
                 }
 
-                // Düzeltme/ek bilgi → mevcut taslağı güncelle.
+                // Düzeltme/ek bilgi → mevcut taslağı güncelle. AI'ın bilmediği seçimler (sözleşme,
+                // avans) aynı cari için korunur — "nakit" diye düzeltince sözleşme tekrar sorulmasın.
+                if (($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
+                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true]);
+                }
+
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
@@ -194,6 +213,7 @@ class WhatsappWebhookController extends Controller
 
         $summary = $this->buildSummary($data);
         $footer = match (true) {
+            $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",
             $this->needsPaymentChoice($data) => "\n\n*1* veya *2* yaz, vazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
@@ -226,8 +246,14 @@ class WhatsappWebhookController extends Controller
             if ($this->missingParty($d)) {
                 return '❓ Kime/kimden olduğunu yazar mısın? (cari adı)';
             }
+            if ($this->needsContractChoice($d)) {
+                return 'Önce hangi sözleşmeye ödendiğini seç (numara yaz).';
+            }
             if ($this->needsPaymentChoice($d)) {
                 return 'Önce seç: *1* yeni masraf, *2* avans.';
+            }
+            if ($kind === ExpenseExtractor::KIND_PAYMENT && $this->paymentContract($d)) {
+                return $this->commitContractPayment($pending, $d, $this->paymentContract($d));
             }
 
             return $this->commitLedger($pending, $d, $kind);
@@ -265,6 +291,38 @@ class WhatsappWebhookController extends Controller
         $pending->update(['status' => 'confirmed']);
 
         return '✅ Kaydedildi: ' . Money::format((float) ($d['amount'] ?? 0)) . ' ₺ — ' . ($d['description'] ?? 'gider');
+    }
+
+    /**
+     * Sözleşmeli cariye ödeme → sözleşme ödemesi (contract_payments). Böylece sözleşme raporundaki
+     * "Kalan Bakiye", dashboard ve cari ekstre AYNI rakamı gösterir (cari hareketine yazılsaydı
+     * sadece ekstre düşerdi). Sözleşme oluşturma panelden; ödeme WhatsApp'tan.
+     */
+    private function commitContractPayment(WhatsappPendingExpense $pending, array $d, Contract $contract): string
+    {
+        if (($d['payment_type'] ?? null) === 'other') {
+            return 'Çekle/senetle sözleşme ödemesini şimdilik panelden gir (Sözleşme → Ödemeler): vade ve çek no gerekiyor. Nakit/havale ise *nakit* ya da *havale* yaz.';
+        }
+
+        ContractPayment::create([
+            'contract_id' => $contract->id,
+            'payment_date' => $d['date'] ?? now()->format('Y-m-d'),
+            'payment_type' => $this->contractPaymentType($d),
+            'status' => 'paid',
+            'amount' => Money::store((float) ($d['amount'] ?? 0)),
+            'notes' => trim(($d['description'] ?? '') . ' (WhatsApp üzerinden girildi.)'),
+        ]);
+
+        $pending->update(['status' => 'confirmed']);
+
+        return '✅ Kaydedildi. ' . $contract->title . ' — kalan: '
+            . Money::format($contract->remainingPaymentAmount()) . ' ₺';
+    }
+
+    /** WhatsApp ödeme şekli → sözleşme ödeme tipi (Nakit / Havale-EFT). Söylenmediyse havale. */
+    private function contractPaymentType(array $d): string
+    {
+        return ($d['payment_type'] ?? null) === 'cash' ? 'cash' : 'bank_transfer';
     }
 
     /**
@@ -352,6 +410,13 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Vade: ' . $d['due_date'];
         }
 
+        // Sözleşmeli cariye gider: işin maliyeti zaten sözleşmede → çift maliyet riski.
+        if ($party && $this->activeContracts($party)->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '⚠️ ' . $party->name . ' ile sözleşmen var. Bu, sözleşmedeki işin parasıysa *iptal* yaz ve '
+                . 'ödeme olarak gönder (ör. "… ödedim"), yoksa maliyet iki kez sayılır. Sözleşme dışı ek işse devam et.';
+        }
+
         // Proje boşsa numaralı menü — müteahhit sadece "2" yazsın.
         if (! $project && empty($d['project_name'])) {
             $projects = $this->activeProjects();
@@ -399,6 +464,24 @@ class WhatsappWebhookController extends Controller
         $lines = [];
         if ($kind === ExpenseExtractor::KIND_PAYMENT) {
             $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ ödedin';
+            if ($this->needsContractChoice($d)) {
+                $lines[] = $name . ' ile birden fazla sözleşmen var. Hangisine ödedin?';
+                foreach ($this->activeContracts($party) as $i => $c) {
+                    $lines[] = '   ' . ($i + 1) . ') ' . $c->title . ' — kalan ' . Money::format($c->remainingPaymentAmount());
+                }
+
+                return implode("\n", $lines);
+            }
+            if ($contract = $this->paymentContract($d)) {
+                $remaining = $contract->remainingPaymentAmount();
+                $lines[] = '📄 Sözleşme: ' . $contract->title . ' (kalan ' . Money::format($remaining)
+                    . ' → ' . Money::format(max(0, $remaining - $amount)) . ')';
+                $lines[] = '• Şekli: ' . ContractPayment::PAYMENT_TYPES[$this->contractPaymentType($d)]
+                    . (empty($d['payment_type']) ? '  (nakitse *nakit* yaz)' : '');
+                if ($amount > $remaining + 0.01) {
+                    $lines[] = '⚠️ Ödeme sözleşmenin kalanından fazla.';
+                }
+            }
             if ($this->needsPaymentChoice($d)) {
                 $lines[] = 'Bu cariye açık borcun görünmüyor. Bu ne için?';
                 $lines[] = '   1) Yeni iş / malzeme (masraf olarak yazılır)';
@@ -419,7 +502,7 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Açıklama: ' . $d['description'];
         }
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
-        if (! empty($d['payment_type'])) {
+        if (! empty($d['payment_type']) && ! $this->paymentContract($d)) {
             $lines[] = '• Şekli: ' . (self::PAYMENT_TYPE_LABELS[$d['payment_type']] ?? $d['payment_type']);
         }
         $project = ! empty($d['project_id']) ? Project::find($d['project_id']) : null;
@@ -618,13 +701,49 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
+     * Carinin aktif ALIM sözleşmeleri (satış sözleşmeleri global scope ile hariç), sabit sıra.
+     *
+     * @return \Illuminate\Support\Collection<int, Contract>
+     */
+    private function activeContracts(?Party $party): \Illuminate\Support\Collection
+    {
+        if (! $party) {
+            return collect();
+        }
+
+        return Contract::where('party_id', $party->id)->where('status', 'active')->orderBy('id')->get()->values();
+    }
+
+    /** Ödemenin yazılacağı sözleşme: seçildiyse o, tek aktif sözleşme varsa o, yoksa null. */
+    private function paymentContract(array $d): ?Contract
+    {
+        if ($this->kind($d) !== ExpenseExtractor::KIND_PAYMENT) {
+            return null;
+        }
+        $contracts = $this->activeContracts($this->existingParty($d));
+        if (! empty($d['contract_id'])) {
+            return $contracts->firstWhere('id', $d['contract_id']);
+        }
+
+        return $contracts->count() === 1 ? $contracts->first() : null;
+    }
+
+    private function needsContractChoice(array $d): bool
+    {
+        return $this->kind($d) === ExpenseExtractor::KIND_PAYMENT
+            && empty($d['contract_id'])
+            && $this->activeContracts($this->existingParty($d))->count() > 1;
+    }
+
+    /**
      * Ödeme ama cariye açık borcumuz yok (yeni cari dahil) → bu para yeni bir masraf mı,
      * avans mı? Sormadan yazarsak ya maliyet kaçar ya da çift sayılır.
      */
     private function needsPaymentChoice(array $d): bool
     {
-        if ($this->kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || $this->missingParty($d)) {
-            return false;
+        if ($this->kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || $this->missingParty($d)
+            || $this->activeContracts($this->existingParty($d))->isNotEmpty()) {
+            return false; // sözleşmeli cari: ödeme sözleşmeye gider
         }
         $party = $this->existingParty($d);
 

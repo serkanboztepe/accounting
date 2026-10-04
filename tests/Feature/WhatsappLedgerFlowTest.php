@@ -326,4 +326,60 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertStringContainsString('Tutarı anlayamadım', $this->send('asdf qwe'));
         $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
     }
+
+    private function contract(Party $party, string $title, float $total): \App\Models\Contract
+    {
+        $project = \App\Models\Project::firstOrCreate(['name' => 'Zz Sözleşme Projesi'], ['status' => 'active']);
+
+        return \App\Models\Contract::create([
+            'project_id' => $project->id, 'party_id' => $party->id, 'title' => $title,
+            'contract_type' => 'supply', 'direction' => \App\Models\Contract::DIRECTION_PURCHASE,
+            'total_amount' => $total, 'status' => 'active',
+        ]);
+    }
+
+    public function test_payment_to_contracted_party_goes_to_contract(): void
+    {
+        $party = Party::create(['name' => 'Zz Beton Sözleşmeli']);
+        $contract = $this->contract($party, 'Hazır Beton', 320000);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 50000, 'party_id' => $party->id]));
+
+        $reply = $this->send('Beton 50 bin ödedim');
+        $this->assertStringContainsString('Sözleşme: Hazır Beton (kalan 320.000,00 → 270.000,00)', $reply);
+        $this->send('evet');
+
+        $this->assertSame(0, PartyLedgerEntry::where('party_id', $party->id)->count(), 'cari hareketine değil');
+        $payment = $contract->payments()->sole();
+        $this->assertSame('paid', $payment->status);
+        $this->assertSame('bank_transfer', $payment->payment_type);
+        $this->assertSame(270000.0, $contract->fresh()->remainingPaymentAmount());
+        $this->assertSame(-270000.0, $this->balance($party)); // ekstre ile sözleşme aynı rakam
+    }
+
+    public function test_multiple_contracts_ask_which_one(): void
+    {
+        $party = Party::create(['name' => 'Zz Çok Sözleşmeli']);
+        $this->contract($party, 'Birinci İş', 100000);
+        $second = $this->contract($party, 'İkinci İş', 200000);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 30000, 'party_id' => $party->id, 'payment_type' => 'cash']));
+
+        $reply = $this->send('30 bin nakit ödedim');
+        $this->assertStringContainsString('birden fazla sözleşmen var', $reply);
+        $this->assertStringContainsString('Önce hangi sözleşmeye', $this->send('evet'));
+
+        $this->assertStringContainsString('Sözleşme: İkinci İş', $this->send('2'));
+        $this->send('evet');
+
+        $this->assertSame(30000.0, (float) $second->payments()->sole()->amount);
+        $this->assertSame('cash', $second->payments()->sole()->payment_type);
+    }
+
+    public function test_expense_to_contracted_party_warns_double_cost(): void
+    {
+        $party = Party::create(['name' => 'Zz Taşeron Sözleşmeli']);
+        $this->contract($party, 'Sıva İşi', 500000);
+        $this->fakeAi($this->entry(['amount' => 50000, 'party_id' => $party->id, 'description' => 'Sıva']));
+
+        $this->assertStringContainsString('ile sözleşmen var', $this->send('Taşeron 50 bin sıva'));
+    }
 }
