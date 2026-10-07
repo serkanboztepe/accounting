@@ -6,6 +6,7 @@ use App\Models\HubPhone;
 use App\Support\HubSignature;
 use App\Support\Phone;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -23,6 +24,27 @@ class HubRouter
     /** Twilio 15 sn bekler; foto okuma uzun sürebilir, bu yüzden biraz pay bırakıyoruz. */
     private const TIMEOUT_SECONDS = 14;
 
+    /** Kayıtsız numaraya tanıtım — yazan kişi potansiyel müşteri, kapıyı kapatma. */
+    public const UNKNOWN_PHONE_REPLY = "Merhaba! 👋 Ben *Hesap Asistanım*: verdiğini, aldığını, harcadığını WhatsApp'tan yazarsın, hesabını ben tutarım.\n\n"
+        . "Bu numara henüz bir hesaba bağlı değil.\n"
+        . "✅ Kullanmak istersen bize yaz: wa.me/905453606783\n"
+        . "🌐 Nasıl çalıştığını gör: hesapasistanim.com";
+
+    /**
+     * Kayıtsız numaraya tanıtım günde bir kez gider; aynı gün tekrar yazarsa sessiz
+     * (boş TwiML) — kişiyi bıktırmasın, mesaj ücreti boşa gitmesin.
+     */
+    public static function unknownPhoneResponse(string $from)
+    {
+        $key = 'wa-unknown-intro:' . Phone::normalize($from);
+
+        if (! Cache::add($key, true, now()->addDay())) {
+            return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
+        }
+
+        return self::twimlMessage(self::UNKNOWN_PHONE_REPLY);
+    }
+
     public function forward(Request $request)
     {
         $phone = Phone::normalize((string) $request->input('From', ''));
@@ -35,7 +57,7 @@ class HubRouter
             ->first();
 
         if (! $route) {
-            return $this->twiml("Bu numara Hesap Asistanım'a kayıtlı değil.\nBilgi için: hesapasistanim.com");
+            return self::unknownPhoneResponse((string) $request->input('From', ''));
         }
 
         $params = $request->post();
@@ -64,6 +86,11 @@ class HubRouter
     }
 
     private function twiml(string $text)
+    {
+        return self::twimlMessage($text);
+    }
+
+    private static function twimlMessage(string $text)
     {
         $esc = htmlspecialchars($text, ENT_XML1 | ENT_QUOTES, 'UTF-8');
 

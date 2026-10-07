@@ -393,7 +393,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $res = $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+15551234567', 'Body' => 'toplam alacağım ne', 'NumMedia' => 0])
             ->assertOk()->getContent();
 
-        $this->assertStringContainsString('kayıtlı değil', $res);
+        $this->assertStringContainsString('bir hesaba bağlı değil', $res);
         $this->assertSame(0, WhatsappPendingExpense::where('phone', 'whatsapp:+15551234567')->count());
     }
 
@@ -402,7 +402,7 @@ class WhatsappLedgerFlowTest extends TestCase
         config(['services.twilio.allowed_phones' => []]);
         $this->fakeAi($this->entry(['amount' => 100]));
 
-        $this->assertStringContainsString('kayıtlı değil', $this->send('mazot 100'));
+        $this->assertStringContainsString('bir hesaba bağlı değil', $this->send('mazot 100'));
     }
 
     public function test_phone_formats_are_normalized(): void

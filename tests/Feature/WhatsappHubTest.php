@@ -47,7 +47,7 @@ class WhatsappHubTest extends TestCase
         $res = $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+905001112233', 'Body' => 'merhaba'])
             ->assertOk()->getContent();
 
-        $this->assertStringContainsString('kayıtlı değil', $res);
+        $this->assertStringContainsString('bir hesaba bağlı değil', $res);
         Http::assertNothingSent();
     }
 
@@ -78,7 +78,7 @@ class WhatsappHubTest extends TestCase
 
         $res = $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+905321234567', 'Body' => 'x'])->getContent();
 
-        $this->assertStringContainsString('kayıtlı değil', $res);
+        $this->assertStringContainsString('bir hesaba bağlı değil', $res);
         Http::assertNothingSent();
     }
 
@@ -112,7 +112,7 @@ class WhatsappHubTest extends TestCase
             ->post('/whatsapp/webhook', $params)
             ->assertOk()->getContent();
 
-        $this->assertStringNotContainsString('kayıtlı değil', $res);
+        $this->assertStringNotContainsString('bir hesaba bağlı değil', $res);
     }
 
     public function test_firm_rejects_wrong_or_stale_hub_signature(): void
@@ -135,5 +135,19 @@ class WhatsappHubTest extends TestCase
         $this->assertSame('905321234567', $phone->phone);
         $this->assertSame('https://yildiz.test', $firm->url);
         $this->assertSame(48, strlen($firm->secret));
+    }
+
+    public function test_unknown_phone_gets_intro_once_a_day_then_silence(): void
+    {
+        $this->hubRole();
+        Http::fake();
+        $params = ['From' => 'whatsapp:+905009998877', 'Body' => 'merhaba'];
+
+        $first = $this->post('/whatsapp/webhook', $params)->getContent();
+        $second = $this->post('/whatsapp/webhook', $params)->getContent();
+
+        $this->assertStringContainsString('hesapasistanim.com', $first);
+        $this->assertStringContainsString('wa.me/905453606783', $first);
+        $this->assertStringNotContainsString('<Message>', $second);
     }
 }

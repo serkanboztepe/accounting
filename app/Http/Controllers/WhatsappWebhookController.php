@@ -48,7 +48,7 @@ class WhatsappWebhookController extends Controller
 
         // 0) Sadece kayıtlı telefonlar — yabancı numara AI'ya da veriye de ulaşmasın.
         if (! $this->isAllowedPhone($request, $phone)) {
-            return $this->twiml("Bu numara Hesap Asistanım'a kayıtlı değil.\nBilgi için: hesapasistanim.com");
+            return HubRouter::unknownPhoneResponse($phone);
         }
 
         // 1) Onay / iptal — bekleyen taslağa cevap mı? Yalnızca SON 30 DK içindeki taslak
