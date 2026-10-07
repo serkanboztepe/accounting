@@ -30,6 +30,7 @@ class WhatsappLedgerFlowTest extends TestCase
         parent::setUp();
         // İmza doğrulaması ayrı testte; akış testlerinde kapalı.
         config(['services.twilio.verify_signature' => false]);
+        config(['services.twilio.allowed_phones' => ['0555 000 00 00']]);
         // Dışarı (Twilio) istek gitmesin; "yazıyor…" çağrısı burada yakalanır.
         Http::fake();
     }
@@ -381,5 +382,33 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->fakeAi($this->entry(['amount' => 50000, 'party_id' => $party->id, 'description' => 'Sıva']));
 
         $this->assertStringContainsString('ile sözleşmen var', $this->send('Taşeron 50 bin sıva'));
+    }
+
+    public function test_unknown_phone_is_rejected_without_ai_or_data(): void
+    {
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldNotReceive('extract');
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $res = $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+15551234567', 'Body' => 'toplam alacağım ne', 'NumMedia' => 0])
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('kayıtlı değil', $res);
+        $this->assertSame(0, WhatsappPendingExpense::where('phone', 'whatsapp:+15551234567')->count());
+    }
+
+    public function test_empty_allowlist_rejects_everyone(): void
+    {
+        config(['services.twilio.allowed_phones' => []]);
+        $this->fakeAi($this->entry(['amount' => 100]));
+
+        $this->assertStringContainsString('kayıtlı değil', $this->send('mazot 100'));
+    }
+
+    public function test_phone_formats_are_normalized(): void
+    {
+        foreach (['whatsapp:+905453606783', '0545 360 67 83', '+90 545 360 6783', '5453606783', '905453606783'] as $p) {
+            $this->assertSame('905453606783', \App\Http\Controllers\WhatsappWebhookController::normalizePhone($p), $p);
+        }
     }
 }

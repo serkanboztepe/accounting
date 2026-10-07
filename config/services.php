@@ -49,6 +49,9 @@ return [
         'token' => env('TWILIO_TOKEN'),
         // Webhook isteklerinde X-Twilio-Signature doğrulaması (yalnız yerel denemede kapatılır).
         'verify_signature' => (bool) env('TWILIO_VERIFY_SIGNATURE', true),
+        // Asistanı kullanabilecek telefonlar (virgülle; 0545..., +90545..., 90545... hepsi olur).
+        // Boşsa KİMSE kullanamaz — üretim numarasına herkes yazabilir, finansal veri sızmasın.
+        'allowed_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ALLOWED_PHONES', ''))))),
     ],
 
 ];
