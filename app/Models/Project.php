@@ -14,18 +14,30 @@ class Project extends Model
     protected $fillable = [
         'name',
         'party_id',
-        'code',
-        'location',
+        'cadastral_parcel',
+        'address',
         'status',
         'start_date',
         'end_date',
         'notes',
     ];
 
+    protected $attributes = [
+        'status' => 'active',
+    ];
+
     protected $casts = [
         'start_date' => 'date',
         'end_date' => 'date',
     ];
+
+    /** Başlangıç tarihi sorulmaz — oluşturma günüdür. */
+    protected static function booted(): void
+    {
+        static::creating(function (Project $project) {
+            $project->start_date ??= now()->toDateString();
+        });
+    }
 
     /** Projenin sahibi müşteri (opsiyonel) — "bu proje bu müşteriye ait". */
     public function party(): BelongsTo

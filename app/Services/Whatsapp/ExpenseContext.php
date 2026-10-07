@@ -20,7 +20,7 @@ class ExpenseContext
         $projects = Project::query()
             ->whereNotIn('status', ['cancelled'])
             ->orderBy('name')
-            ->get(['id', 'name', 'code']);
+            ->get(['id', 'name', 'cadastral_parcel']);
 
         $parties = Party::query()->orderBy('name')->get(['id', 'name']);
 
@@ -28,10 +28,10 @@ class ExpenseContext
 
         $lines = [];
 
-        $lines[] = 'PROJELER (id: isim [kod]):';
+        $lines[] = 'PROJELER (id: isim [ada/parsel]):';
         $lines[] = $projects->isEmpty()
             ? '  (kayıtlı proje yok)'
-            : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->code ? " [{$p->code}]" : ''))->implode("\n");
+            : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->cadastral_parcel ? " [{$p->cadastral_parcel}]" : ''))->implode("\n");
 
         $lines[] = '';
         $lines[] = 'CARİLER (id: isim):';

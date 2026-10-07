@@ -14,11 +14,27 @@ class ModuleProfilesTest extends TestCase
 {
     private const ENV_KEYS = ['APP_PROFILE', 'MOD_QUOTES', 'MOD_STOCK'];
 
+    /** Test öncesi değerler — silmek yerine geri yüklenir (yoksa sonraki testler .env profiline düşer). */
+    private array $originalEnv = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        foreach (self::ENV_KEYS as $key) {
+            $this->originalEnv[$key] = getenv($key);
+        }
+    }
+
     protected function tearDown(): void
     {
-        foreach (self::ENV_KEYS as $key) {
-            unset($_ENV[$key], $_SERVER[$key]);
-            putenv($key);
+        foreach ($this->originalEnv as $key => $value) {
+            if ($value === false) {
+                unset($_ENV[$key], $_SERVER[$key]);
+                putenv($key);
+            } else {
+                $_ENV[$key] = $_SERVER[$key] = $value;
+                putenv("{$key}={$value}");
+            }
         }
         parent::tearDown();
     }
