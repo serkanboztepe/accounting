@@ -5,9 +5,8 @@ namespace App\Filament\Pages;
 use App\Filament\Resources\Parties\PartyResource;
 use App\Support\CariLock;
 use Filament\Pages\Page;
-use Illuminate\Support\Facades\Hash;
 
-/** Cari kilidi şifre ekranı — menüde görünmez, RequireCariUnlock buraya yönlendirir. */
+/** Cari kilidi ekranı — menüde görünmez, RequireCariUnlock buraya yönlendirir. */
 class CariUnlock extends Page
 {
     protected static ?string $slug = 'cari-kilidi';
@@ -18,7 +17,7 @@ class CariUnlock extends Page
 
     protected string $view = 'filament.pages.cari-unlock';
 
-    public string $password = '';
+    public string $secret = '';
 
     public ?string $redirect = null;
 
@@ -32,15 +31,22 @@ class CariUnlock extends Page
         $this->redirect = request()->query('redirect');
     }
 
+    public function usesPin(): bool
+    {
+        return CariLock::hasPin();
+    }
+
     public function unlock(): void
     {
-        $this->validate(['password' => ['required', 'string']], [
-            'password.required' => 'Şifrenizi girin.',
+        $label = $this->usesPin() ? 'PIN' : 'Şifre';
+
+        $this->validate(['secret' => ['required', 'string']], [
+            'secret.required' => "{$label} girin.",
         ]);
 
-        if (! Hash::check($this->password, auth()->user()->getAuthPassword())) {
-            $this->password = '';
-            $this->addError('password', 'Şifre yanlış.');
+        if (! CariLock::attempt($this->secret)) {
+            $this->secret = '';
+            $this->addError('secret', CariLock::lastAttemptMessage());
 
             return;
         }

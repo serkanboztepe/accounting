@@ -17,6 +17,9 @@ class CompanySettings extends Model
         'contract_template',
     ];
 
+    // Cari PIN'i sadece CariLock üzerinden (hash'li) yazılır/okunur.
+    protected $hidden = ['cari_pin'];
+
     /**
      * Tek satırlık ayar kaydını döndürür (yoksa oluşturur).
      */

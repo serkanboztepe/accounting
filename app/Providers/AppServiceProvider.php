@@ -38,8 +38,13 @@ class AppServiceProvider extends ServiceProvider
     /** Cari kilidi (CARI_LOCK) — bkz. App\Support\CariLock. */
     private function bootCariLock(): void
     {
-        // Panele giriş şifresi az önce girildi → Cariler hemen açık gelsin.
-        Event::listen(Login::class, fn () => CariLock::touch());
+        // PIN yoksa kilit giriş şifresini sorar; o şifre az önce girildi → açık gelsin.
+        // PIN varsa açılmaz: kayıtlı şifreyle giren biri Carileri göremesin.
+        Event::listen(Login::class, function () {
+            if (CariLock::enabled() && ! CariLock::hasPin()) {
+                CariLock::touch();
+            }
+        });
 
         // Cari sayfasındaki işlemler (Livewire) de süreyi yenilesin.
         Livewire::addPersistentMiddleware([RequireCariUnlock::class]);
