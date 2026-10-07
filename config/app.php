@@ -18,6 +18,11 @@ return [
     // Kurulum modu (mimar|muteahhit|toptanci) — modül setleri config/modules.php'de; bu ham ad form alanlarını profile göre gizlemek için.
     'profile' => env('APP_PROFILE'),
 
+    // Cari kilidi — açıkken Cariler sayfaları ve ekstre giriş şifresi ister;
+    // bu kadar dakika işlem yapılmazsa tekrar kilitlenir. Kurulum başına .env'den.
+    'cari_lock' => (bool) env('CARI_LOCK', false),
+    'cari_lock_minutes' => (int) env('CARI_LOCK_MINUTES', 5),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

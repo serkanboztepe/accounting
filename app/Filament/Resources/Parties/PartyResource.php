@@ -7,7 +7,9 @@ use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Filament\Resources\Parties\Pages\ListParties;
 use App\Filament\Resources\Parties\Schemas\PartyForm;
 use App\Filament\Resources\Parties\Tables\PartiesTable;
+use App\Http\Middleware\RequireCariUnlock;
 use App\Models\Party;
+use App\Support\CariLock;
 use BackedEnum;
 use UnitEnum;
 use Filament\Resources\Resource;
@@ -33,6 +35,15 @@ class PartyResource extends Resource
     protected static ?int $navigationSort = 0;
 
     protected static ?string $recordTitleAttribute = 'name';
+
+    // Cari kilidi açıksa (CARI_LOCK) tüm Cariler sayfaları şifre ister.
+    protected static string|array $routeMiddleware = [RequireCariUnlock::class];
+
+    // Kilitliyken üstteki aramada cariler çıkmasın.
+    public static function canGloballySearch(): bool
+    {
+        return parent::canGloballySearch() && CariLock::isOpen();
+    }
 
     public static function form(Schema $schema): Schema
     {

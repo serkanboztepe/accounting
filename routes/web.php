@@ -68,7 +68,7 @@ Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party, \Illum
         $party,
         $request->only(['date_from', 'date_to', 'project_id']),
     ));
-})->middleware('auth')->name('party.statement.print');
+})->middleware(['auth', \App\Http\Middleware\RequireCariUnlock::class])->name('party.statement.print');
 
 Route::get('/stok-raporu/yazdir', function () {
     return view('print.stock-report', [
