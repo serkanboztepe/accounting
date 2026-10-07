@@ -16,3 +16,6 @@ Artisan::command('inspire', function () {
 Schedule::command('backup:clean')->daily()->at('02:30');
 Schedule::command('backup:run')->daily()->at('03:00');
 Schedule::command('backup:monitor')->daily()->at('04:00');
+
+// Çek vadesi hatırlatması (WhatsApp). Ayarlı değilse komut sessizce çıkar.
+Schedule::command('checks:remind')->dailyAt('09:00')->timezone('Europe/Istanbul');

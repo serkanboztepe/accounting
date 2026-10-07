@@ -54,6 +54,16 @@ return [
         'allowed_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ALLOWED_PHONES', ''))))),
     ],
 
+    // WhatsApp'tan bizim başlattığımız mesajlar (Meta onaylı şablonla).
+    'whatsapp' => [
+        'from' => env('WHATSAPP_FROM'),                                     // +14786665916
+        'check_reminder_content_sid' => env('WHATSAPP_CHECK_REMINDER_SID'), // Twilio Content SID (HX…)
+        // Çek hatırlatması kime gider (virgülle). Boşsa gönderilmez.
+        'reminder_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_REMINDER_PHONES', ''))))),
+        // Vadeden kaç gün önce hatırlatılsın (0 = vade günü).
+        'check_reminder_days' => array_map('intval', array_filter(array_map('trim', explode(',', (string) env('CHECK_REMINDER_DAYS', '3,0'))), 'strlen')),
+    ],
+
     // WhatsApp hub'ı: firma kurulumu, hub'dan gelen mesajı bu anahtarla doğrular.
     // Hub'daki "Firmalar" ekranında bu firmanın anahtarıyla aynı olmalı.
     'hub' => [

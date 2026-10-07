@@ -12,6 +12,7 @@ use App\Models\Project;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
+use App\Support\CheckReminders;
 use App\Support\Money;
 use App\Support\PartyBalances;
 use App\Support\PartyStatement;
@@ -49,6 +50,12 @@ class WhatsappWebhookController extends Controller
         // 0) Sadece kayıtlı telefonlar — yabancı numara AI'ya da veriye de ulaşmasın.
         if (! $this->isAllowedPhone($request, $phone)) {
             return HubRouter::unknownPhoneResponse($phone);
+        }
+
+        // "çekler" — vadesi yaklaşan çek listesi (hatırlatmanın devamı). AI'sız, doğrudan veriden.
+        if ($numMedia === 0 && config('modules.checks')
+            && in_array($this->word($body), ['çekler', 'cekler', 'çeklerim', 'ceklerim', 'çek', 'cek'], true)) {
+            return $this->twiml(CheckReminders::listText());
         }
 
         // 1) Onay / iptal — bekleyen taslağa cevap mı? Yalnızca SON 30 DK içindeki taslak
