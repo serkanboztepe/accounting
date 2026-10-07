@@ -6,6 +6,8 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use App\Filament\Hub\HubFirms\HubFirmResource;
+use App\Filament\Hub\HubPhones\HubPhoneResource;
 use App\Filament\Pages\Dashboard;
 use Filament\Navigation\NavigationGroup;
 use Filament\Panel;
@@ -23,14 +25,10 @@ class AdminPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
     {
-        return $panel
+        $panel = $panel
             ->default()
             ->id('admin')
             ->path('admin')
-            // Dashboard kapalıysa giriş/ana sayfa Cariler'e gitsin
-            ->homeUrl(fn (): ?string => config('modules.dashboard')
-                ? null
-                : \App\Filament\Resources\Parties\PartyResource::getUrl('index'))
             ->brandName('Hesap Asistanım')
             ->brandLogo(fn () => view('filament.brand'))
             ->brandLogoHeight('2rem')
@@ -41,6 +39,33 @@ class AdminPanelProvider extends PanelProvider
                 'primary' => Color::hex('#0E8A5F'), // hesapasistanim.com yeşili
                 'gray'    => Color::Zinc,
             ])
+            ->middleware([
+                EncryptCookies::class,
+                AddQueuedCookiesToResponse::class,
+                StartSession::class,
+                AuthenticateSession::class,
+                ShareErrorsFromSession::class,
+                VerifyCsrfToken::class,
+                SubstituteBindings::class,
+                DisableBladeIconComponents::class,
+                DispatchServingFilamentEvent::class,
+            ])
+            ->authMiddleware([
+                Authenticate::class,
+            ]);
+
+        // WhatsApp hub'ı (APP_ROLE=hub): sadece telefon → firma yönetimi.
+        if (config('app.role') === 'hub') {
+            return $panel
+                ->resources([HubPhoneResource::class, HubFirmResource::class])
+                ->homeUrl(fn (): string => HubPhoneResource::getUrl('index'));
+        }
+
+        return $panel
+            // Dashboard kapalıysa giriş/ana sayfa Cariler'e gitsin
+            ->homeUrl(fn (): ?string => config('modules.dashboard')
+                ? null
+                : \App\Filament\Resources\Parties\PartyResource::getUrl('index'))
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             // Kümeler collapsible; Ayarlar (Sistem) varsayılan kapalı — yalnız
@@ -62,20 +87,6 @@ class AdminPanelProvider extends PanelProvider
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
                 AccountWidget::class,
-            ])
-            ->middleware([
-                EncryptCookies::class,
-                AddQueuedCookiesToResponse::class,
-                StartSession::class,
-                AuthenticateSession::class,
-                ShareErrorsFromSession::class,
-                VerifyCsrfToken::class,
-                SubstituteBindings::class,
-                DisableBladeIconComponents::class,
-                DispatchServingFilamentEvent::class,
-            ])
-            ->authMiddleware([
-                Authenticate::class,
             ]);
     }
 }

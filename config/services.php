@@ -54,4 +54,10 @@ return [
         'allowed_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ALLOWED_PHONES', ''))))),
     ],
 
+    // WhatsApp hub'ı: firma kurulumu, hub'dan gelen mesajı bu anahtarla doğrular.
+    // Hub'daki "Firmalar" ekranında bu firmanın anahtarıyla aynı olmalı.
+    'hub' => [
+        'secret' => env('HUB_SECRET'),
+    ],
+
 ];

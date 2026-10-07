@@ -408,7 +408,7 @@ class WhatsappLedgerFlowTest extends TestCase
     public function test_phone_formats_are_normalized(): void
     {
         foreach (['whatsapp:+905453606783', '0545 360 67 83', '+90 545 360 6783', '5453606783', '905453606783'] as $p) {
-            $this->assertSame('905453606783', \App\Http\Controllers\WhatsappWebhookController::normalizePhone($p), $p);
+            $this->assertSame('905453606783', \App\Support\Phone::normalize($p), $p);
         }
     }
 }

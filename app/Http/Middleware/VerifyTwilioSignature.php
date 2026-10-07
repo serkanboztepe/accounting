@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\HubSignature;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -18,6 +19,24 @@ class VerifyTwilioSignature
     {
         if (! config('services.twilio.verify_signature')) {
             return $next($request);
+        }
+
+        // Firma kurulumu: hub'dan imzalı iletilen mesaj (telefon hub'da kontrol edildi).
+        if ($request->hasHeader(HubSignature::HEADER) && config('app.role') !== 'hub') {
+            if (HubSignature::verify(
+                $request->post(),
+                (string) config('services.hub.secret'),
+                (string) $request->header(HubSignature::HEADER),
+                (string) $request->header(HubSignature::TIMESTAMP_HEADER, ''),
+            )) {
+                $request->attributes->set('via_hub', true);
+
+                return $next($request);
+            }
+
+            Log::warning('WhatsApp webhook: geçersiz hub imzası', ['ip' => $request->ip()]);
+
+            return response('Forbidden', 403);
         }
 
         $token = (string) config('services.twilio.token');

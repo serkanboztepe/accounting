@@ -11,9 +11,11 @@ use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
+use App\Services\Whatsapp\HubRouter;
 use App\Support\Money;
 use App\Support\PartyBalances;
 use App\Support\PartyStatement;
+use App\Support\Phone;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -39,8 +41,13 @@ class WhatsappWebhookController extends Controller
         $body = trim((string) $request->input('Body', ''));
         $numMedia = (int) $request->input('NumMedia', 0);
 
+        // Hub kurulumu (APP_ROLE=hub) kayıt tutmaz: mesajı telefonun firmasına iletir.
+        if (config('app.role') === 'hub') {
+            return app(HubRouter::class)->forward($request);
+        }
+
         // 0) Sadece kayıtlı telefonlar — yabancı numara AI'ya da veriye de ulaşmasın.
-        if (! $this->isAllowedPhone($phone)) {
+        if (! $this->isAllowedPhone($request, $phone)) {
             return $this->twiml("Bu numara Hesap Asistanım'a kayıtlı değil.\nBilgi için: hesapasistanim.com");
         }
 
@@ -850,35 +857,25 @@ class WhatsappWebhookController extends Controller
     /**
      * @param  string|array{0:string,1:string}  $message  metin ya da [metin, medya URL] (PDF eki)
      */
-    private function isAllowedPhone(string $from): bool
+    private function isAllowedPhone(Request $request, string $from): bool
     {
-        $mine = self::normalizePhone($from);
+        // Hub'dan imzalı geldiyse telefon hub'da zaten kontrol edildi (telefon → firma tablosu).
+        if ($request->attributes->get('via_hub')) {
+            return true;
+        }
+
+        $mine = Phone::normalize($from);
         if ($mine === '') {
             return false;
         }
 
         foreach (config('services.twilio.allowed_phones', []) as $allowed) {
-            if (self::normalizePhone($allowed) === $mine) {
+            if (Phone::normalize($allowed) === $mine) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    /** "whatsapp:+90 545 ..." / "0545..." / "90545..." → "90545..." (sadece rakam, TR için 90 önekli). */
-    public static function normalizePhone(string $phone): string
-    {
-        $digits = preg_replace('/\D+/', '', $phone) ?? '';
-
-        if (strlen($digits) === 11 && str_starts_with($digits, '0')) {
-            return '90' . substr($digits, 1);
-        }
-        if (strlen($digits) === 10 && str_starts_with($digits, '5')) {
-            return '90' . $digits;
-        }
-
-        return $digits;
     }
 
     private function twiml(string|array $message)

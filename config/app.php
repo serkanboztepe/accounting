@@ -18,6 +18,10 @@ return [
     // Kurulum modu (mimar|muteahhit|toptanci) — modül setleri config/modules.php'de; bu ham ad form alanlarını profile göre gizlemek için.
     'profile' => env('APP_PROFILE'),
 
+    // Kurulum rolü: boş = normal firma; 'hub' = sadece WhatsApp yönlendirici
+    // (telefon → firma tablosu; panelde yalnız Firmalar/Telefonlar).
+    'role' => env('APP_ROLE'),
+
     // Cari kilidi — açıkken Cariler sayfaları ve ekstre giriş şifresi ister;
     // bu kadar dakika işlem yapılmazsa tekrar kilitlenir. Kurulum başına .env'den.
     'cari_lock' => (bool) env('CARI_LOCK', false),
