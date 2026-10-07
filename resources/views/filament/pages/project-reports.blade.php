@@ -21,15 +21,15 @@
             {{-- Defter tablo özet — kendi style bloğuyla, Tailwind derlemesinden bağımsız --}}
             <style>
                 .pr-summary {
-                    --pr-card: #ffffff; --pr-border: #e9e4db; --pr-ink: #1b1915;
-                    --pr-muted: #8b8474; --pr-accent: #b45309;
+                    --pr-card: #ffffff; --pr-border: #e4eae7; --pr-ink: #1b1915;
+                    --pr-muted: #6b7570; --pr-accent: #0B7350;
                     --pr-good: #15803d; --pr-warn: #c2410c; --pr-pend: #b7791f;
                     background: var(--pr-card); border: 1px solid var(--pr-border);
                     border-radius: 14px; padding: 22px 24px; color: var(--pr-ink);
                 }
                 .dark .pr-summary {
                     --pr-card: rgba(255,255,255,.03); --pr-border: rgba(255,255,255,.1); --pr-ink: #f2efe7;
-                    --pr-muted: #9a9280; --pr-accent: #f5a524;
+                    --pr-muted: #9aaba4; --pr-accent: #f5a524;
                     --pr-good: #4ade80; --pr-warn: #fb923c; --pr-pend: #e0b04a;
                 }
                 .pr-summary .tnum { font-variant-numeric: tabular-nums; }

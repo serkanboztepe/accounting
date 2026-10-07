@@ -15,7 +15,7 @@
             </select>
         </label>
         <a href="{{ route('sales-summary.print', ['group' => $groupBy]) }}" target="_blank"
-           style="display:inline-block;padding:8px 16px;border-radius:8px;background:#b45309;color:#fff;font-size:13px;text-decoration:none;">
+           style="display:inline-block;padding:8px 16px;border-radius:8px;background:#0B7350;color:#fff;font-size:13px;text-decoration:none;">
             Yazdır / PDF
         </a>
     </div>

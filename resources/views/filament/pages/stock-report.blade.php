@@ -4,7 +4,7 @@
 
     <div style="text-align:right;margin-bottom:10px;">
         <a href="{{ route('stock-report.print') }}" target="_blank"
-           style="display:inline-block;padding:8px 16px;border-radius:8px;background:#b45309;color:#fff;font-size:13px;text-decoration:none;">
+           style="display:inline-block;padding:8px 16px;border-radius:8px;background:#0B7350;color:#fff;font-size:13px;text-decoration:none;">
             Yazdır / PDF
         </a>
     </div>

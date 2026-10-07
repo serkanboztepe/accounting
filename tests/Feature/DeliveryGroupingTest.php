@@ -26,7 +26,7 @@ class DeliveryGroupingTest extends TestCase
 
         $party   = Party::create(['name' => 'Beton A.Ş.']);
         $project = Project::create(['name' => 'A Blok', 'party_id' => $party->id, 'status' => 'active']);
-        $unit    = Unit::create(['name' => 'Metrekare', 'code' => 'm²']);
+        $unit    = Unit::firstOrCreate(['code' => 'm²'], ['name' => 'Metrekare']);
 
         $contract = Contract::create([
             'project_id'    => $project->id,
@@ -92,8 +92,8 @@ class DeliveryGroupingTest extends TestCase
 
         $party   = Party::create(['name' => 'Beton A.Ş.']);
         $project = Project::create(['name' => 'A Blok', 'party_id' => $party->id, 'status' => 'active']);
-        $m2      = Unit::create(['name' => 'Metrekare', 'code' => 'm²']);
-        $ton     = Unit::create(['name' => 'Ton', 'code' => 'ton']);
+        $m2      = Unit::firstOrCreate(['code' => 'm²'], ['name' => 'Metrekare']);
+        $ton     = Unit::firstOrCreate(['code' => 'ton'], ['name' => 'Ton']);
 
         $contract = Contract::create([
             'project_id'    => $project->id,

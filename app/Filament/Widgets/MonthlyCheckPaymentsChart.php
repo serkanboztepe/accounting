@@ -41,8 +41,8 @@ class MonthlyCheckPaymentsChart extends ChartWidget
             $date     = Carbon::createFromFormat('Y-m', $row->period);
             $labels[] = $date->locale('tr')->isoFormat('MMM YYYY');
             $values[] = (float) $row->total_amount;
-            // Vadesi geçmiş aylar kırmızı, gelecek aylar amber (panel primary).
-            $colors[] = $date->endOfMonth()->lt($today) ? '#ef4444' : '#f59e0b';
+            // Vadesi geçmiş aylar kırmızı, gelecek aylar mavi (çek = mavi).
+            $colors[] = $date->endOfMonth()->lt($today) ? '#ef4444' : '#3b82f6';
         }
 
         return [

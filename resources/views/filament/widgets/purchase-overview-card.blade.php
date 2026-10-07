@@ -4,14 +4,14 @@
 
     <style>
         .pc-summary {
-            --pc-card: #ffffff; --pc-border: #e9e4db; --pc-ink: #1b1915;
-            --pc-muted: #8b8474; --pc-accent: #b45309; --pc-good: #15803d; --pc-warn: #c2410c; --pc-pend: #b7791f;
+            --pc-card: #ffffff; --pc-border: #e4eae7; --pc-ink: #1b1915;
+            --pc-muted: #6b7570; --pc-accent: #0B7350; --pc-good: #15803d; --pc-warn: #c2410c; --pc-pend: #b7791f;
             background: var(--pc-card); border: 1px solid var(--pc-border);
             border-radius: 14px; padding: 22px 24px; color: var(--pc-ink);
         }
         .dark .pc-summary {
             --pc-card: rgba(255,255,255,.03); --pc-border: rgba(255,255,255,.1); --pc-ink: #f2efe7;
-            --pc-muted: #9a9280; --pc-accent: #f5a524; --pc-good: #4ade80; --pc-warn: #fb923c; --pc-pend: #e0b04a;
+            --pc-muted: #9aaba4; --pc-accent: #4CD39B; --pc-good: #4ade80; --pc-warn: #fb923c; --pc-pend: #e0b04a;
         }
         .pc-summary .tnum { font-variant-numeric: tabular-nums; }
         .pc-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; }

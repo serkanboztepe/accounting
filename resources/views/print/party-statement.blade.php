@@ -24,7 +24,7 @@
         .balance { margin-top: 14px; text-align: right; font-size: 14px; }
         .balance strong { font-size: 16px; }
         .toolbar { max-width: 820px; margin: 0 auto 16px; text-align: right; }
-        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #b45309; color: #fff; cursor: pointer; }
+        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #0B7350; color: #fff; cursor: pointer; }
         @media print {
             .toolbar { display: none; }
             body { padding: 0; }

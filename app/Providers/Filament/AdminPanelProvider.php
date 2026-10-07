@@ -31,12 +31,15 @@ class AdminPanelProvider extends PanelProvider
             ->homeUrl(fn (): ?string => config('modules.dashboard')
                 ? null
                 : \App\Filament\Resources\Parties\PartyResource::getUrl('index'))
-            ->brandName('İnşaat Yönetimi')
+            ->brandName('Hesap Asistanım')
+            ->brandLogo(fn () => view('filament.brand'))
+            ->brandLogoHeight('2rem')
+            ->favicon(asset('brand-icon.svg'))
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
             ->colors([
-                'primary' => Color::Amber,
-                'gray'    => Color::Stone, // amber ile uyumlu sıcak nötr
+                'primary' => Color::hex('#0E8A5F'), // hesapasistanim.com yeşili
+                'gray'    => Color::Zinc,
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')

@@ -27,7 +27,7 @@ class ProductResourceRenderTest extends TestCase
     public function test_index_page_renders_with_product_and_service(): void
     {
         $user = User::factory()->create();
-        $unit = Unit::create(['name' => 'ton', 'code' => 'ton']);
+        $unit = Unit::firstOrCreate(['code' => 'ton'], ['name' => 'ton']);
 
         Product::create([
             'name' => 'Çimento 50kg', 'type' => Product::TYPE_PRODUCT,

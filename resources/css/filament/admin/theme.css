@@ -4,26 +4,26 @@
 @source '../../../../resources/views/filament/**/*';
 
 /* ================================================================
-   PREMIUM AMBER TEMA — tüm uygulama (sidebar, kartlar, zemin, aktif menü)
+   YEŞİL TEMA (hesapasistanim.com ile aynı marka rengi) — tüm uygulama (sidebar, kartlar, zemin, aktif menü)
    Nötrler panelde Stone (sıcak gri). Burada yüzeyleri, derinliği ve
    sol menüyü mockup diline çekiyoruz. Açık + koyu tema.
    ================================================================ */
 
-/* ---- Sıcak zemin ---- */
+/* ---- Zemin ---- */
 .fi-body {
-    background-color: #FAF6EF;
+    background-color: #F6F8F7;
 }
 .dark .fi-body {
-    background-color: #14110B;
+    background-color: #0E1412;
 }
 
 /* ---- Sol menü ---- */
 .fi-sidebar {
     background-color: #FFFFFF;
-    border-right: 1px solid #ECE3D4;
+    border-right: 1px solid #E4EAE7;
 }
 .dark .fi-sidebar {
-    background-color: #1A160F;
+    background-color: #111917;
     border-right-color: rgba(255, 255, 255, 0.06);
 }
 
@@ -36,10 +36,10 @@
     text-transform: uppercase;
     letter-spacing: 0.09em;
     font-weight: 700;
-    color: #A89B86;
+    color: #8A9A93;
 }
 .dark .fi-sidebar-group-label {
-    color: #857A68;
+    color: #6E817A;
 }
 
 /* Menü öğeleri: yuvarlak, yumuşak hover */
@@ -48,29 +48,29 @@
     transition: background-color 0.12s ease, color 0.12s ease;
 }
 .fi-sidebar-item-btn:hover {
-    background-color: #FBF7F0;
+    background-color: #F1F6F3;
 }
 .dark .fi-sidebar-item-btn:hover {
     background-color: rgba(255, 255, 255, 0.04);
 }
 
-/* Aktif menü öğesi: amber yumuşak zemin + amber metin/ikon */
+/* Aktif menü öğesi: yeşil yumuşak zemin + yeşil metin/ikon */
 .fi-sidebar-item.fi-active > .fi-sidebar-item-btn {
-    background-color: #FDF2E2;
-    color: #B45309;
+    background-color: #E3F4EC;
+    color: #0B7350;
     font-weight: 600;
-    box-shadow: inset 2px 0 0 #D97706;
+    box-shadow: inset 2px 0 0 #0E8A5F;
 }
 .dark .fi-sidebar-item.fi-active > .fi-sidebar-item-btn {
-    background-color: rgba(245, 165, 36, 0.13);
-    color: #F5A524;
-    box-shadow: inset 2px 0 0 #F5A524;
+    background-color: rgba(47, 191, 134, 0.14);
+    color: #4CD39B;
+    box-shadow: inset 2px 0 0 #4CD39B;
 }
 .fi-sidebar-item.fi-active > .fi-sidebar-item-btn .fi-sidebar-item-icon {
-    color: #B45309;
+    color: #0B7350;
 }
 .dark .fi-sidebar-item.fi-active > .fi-sidebar-item-btn .fi-sidebar-item-icon {
-    color: #F5A524;
+    color: #4CD39B;
 }
 
 /* ---- Kartlar / bölümler / tablolar / widget'lar: yuvarlak + yumuşak gölge ---- */
@@ -80,8 +80,8 @@
 .fi-fo-field-wrp-field-wrapper,
 .fi-modal-window {
     border-radius: 1rem;
-    box-shadow: 0 1px 2px rgba(60, 45, 20, 0.04), 0 10px 26px -16px rgba(60, 45, 20, 0.14);
-    border-color: #ECE3D4;
+    box-shadow: 0 1px 2px rgba(16, 32, 26, 0.04), 0 10px 26px -16px rgba(16, 32, 26, 0.14);
+    border-color: #E4EAE7;
 }
 .dark .fi-section,
 .dark .fi-ta-ctn,
@@ -97,24 +97,37 @@
     letter-spacing: -0.01em;
 }
 
-/* ---- Üst bar: sıcak, cam efektli ---- */
+/* ---- Üst bar: cam efektli ---- */
 .fi-topbar > nav {
-    background-color: rgba(250, 246, 239, 0.8);
+    background-color: rgba(246, 248, 247, 0.8);
     backdrop-filter: saturate(1.1) blur(8px);
-    border-bottom: 1px solid #ECE3D4;
+    border-bottom: 1px solid #E4EAE7;
 }
 .dark .fi-topbar > nav {
-    background-color: rgba(20, 17, 11, 0.8);
+    background-color: rgba(14, 20, 18, 0.8);
     border-bottom-color: rgba(255, 255, 255, 0.06);
 }
 
-/* ---- Birincil buton: amber derinlik ---- */
+/* ---- Birincil buton: yeşil derinlik ---- */
 .fi-btn.fi-color-primary {
-    box-shadow: 0 1px 2px rgba(180, 83, 9, 0.2), 0 6px 16px -8px rgba(180, 83, 9, 0.4);
+    box-shadow: 0 1px 2px rgba(14, 138, 95, 0.2), 0 6px 16px -8px rgba(14, 138, 95, 0.4);
 }
 
 /* İstatistik/tablo rakamları hizalı */
 .fi-wi-stats-overview-stat-value,
 .fi-ta-text-item-label {
     font-variant-numeric: tabular-nums;
+}
+
+/* Birincil butonlar: Filament rengi açık tona + koyu yazıya hesaplıyor;
+   sitedeki gibi koyu yeşil zemin + beyaz yazı. */
+.fi-btn.fi-color.fi-color-primary {
+    --bg: #0E8A5F !important;
+    --text: #fff !important;
+    --hover-bg: #0B7350 !important;
+    --hover-text: #fff !important;
+    --dark-bg: #12A06E !important;
+    --dark-text: #fff !important;
+    --dark-hover-bg: #0E8A5F !important;
+    --dark-hover-text: #fff !important;
 }

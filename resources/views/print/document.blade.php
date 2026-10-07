@@ -23,7 +23,7 @@
         table.doc-sign td { width: 50%; text-align: center; font-size: 12px; padding: 0 24px; vertical-align: bottom; }
         table.doc-sign .sign-line { border-top: 1px solid #333; margin-bottom: 6px; height: 40px; }
         .toolbar { max-width: 800px; margin: 0 auto 16px; text-align: right; }
-        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #b45309; color: #fff; cursor: pointer; }
+        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #0B7350; color: #fff; cursor: pointer; }
         @media print {
             .toolbar { display: none; }
             body { padding: 0; }

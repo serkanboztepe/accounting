@@ -5,14 +5,14 @@
     @if (! empty($d))
     <style>
         .cs-summary {
-            --cs-card: #ffffff; --cs-border: #e9e4db; --cs-ink: #1b1915;
-            --cs-muted: #8b8474; --cs-accent: #b45309; --cs-good: #15803d; --cs-warn: #c2410c;
+            --cs-card: #ffffff; --cs-border: #e4eae7; --cs-ink: #1b1915;
+            --cs-muted: #6b7570; --cs-accent: #0B7350; --cs-good: #15803d; --cs-warn: #c2410c;
             background: var(--cs-card); border: 1px solid var(--cs-border);
             border-radius: 14px; padding: 22px 24px; color: var(--cs-ink);
         }
         .dark .cs-summary {
             --cs-card: rgba(255,255,255,.03); --cs-border: rgba(255,255,255,.1); --cs-ink: #f2efe7;
-            --cs-muted: #9a9280; --cs-accent: #f5a524; --cs-good: #4ade80; --cs-warn: #fb923c;
+            --cs-muted: #9aaba4; --cs-accent: #4CD39B; --cs-good: #4ade80; --cs-warn: #fb923c;
         }
         .cs-summary .tnum { font-variant-numeric: tabular-nums; }
         .cs-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px; }

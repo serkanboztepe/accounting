@@ -19,7 +19,7 @@
         tfoot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
         .tag { font-size: 10px; background: #e5efff; color: #1d4ed8; padding: 1px 5px; border-radius: 4px; }
         .toolbar { max-width: 800px; margin: 0 auto 16px; text-align: right; }
-        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #b45309; color: #fff; cursor: pointer; }
+        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #0B7350; color: #fff; cursor: pointer; }
         h2.sub { font-size: 14px; text-align: center; margin: 28px 0 0; letter-spacing: .5px; page-break-after: avoid; }
         .foot-note {max-width: 800px; margin: 14px auto 0; color: #666; font-size: 11px; }
         .signs { display: flex; justify-content: space-between; margin-top: 48px; gap: 40px; }

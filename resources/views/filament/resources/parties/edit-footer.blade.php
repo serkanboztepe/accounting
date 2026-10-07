@@ -366,7 +366,7 @@
                         </div>
                         <div class="lg:col-span-1 lg:text-right">
                             @if ($row['has_pdf'])
-                                <a href="{{ $row['pdf_url'] }}" target="_blank" class="inline-flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300">
+                                <a href="{{ $row['pdf_url'] }}" target="_blank" class="inline-flex items-center gap-1 text-sm font-medium text-primary-700 hover:text-primary-800 dark:text-primary-400 dark:hover:text-primary-300">
                                     Aç
                                 </a>
                             @else

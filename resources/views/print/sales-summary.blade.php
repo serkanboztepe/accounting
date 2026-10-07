@@ -20,7 +20,7 @@
         table.st tbody tr:nth-child(even) { background: #fafafa; }
         table.st tfoot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
         .toolbar { max-width: 820px; margin: 0 auto 16px; text-align: right; }
-        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #b45309; color: #fff; cursor: pointer; }
+        .btn { font-size: 13px; padding: 8px 16px; border: 0; border-radius: 8px; background: #0B7350; color: #fff; cursor: pointer; }
         @media print { .toolbar { display: none; } body { padding: 0; } @page { size: A4; margin: 14mm; } }
     </style>
 </head>
