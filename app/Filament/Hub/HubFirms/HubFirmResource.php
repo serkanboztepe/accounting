@@ -2,11 +2,11 @@
 
 namespace App\Filament\Hub\HubFirms;
 
-use App\Filament\Hub\HubFirms\Pages\ManageHubFirms;
+use App\Filament\Hub\HubFirms\Pages\EditHubFirm;
+use App\Filament\Hub\HubFirms\Pages\ListHubFirms;
+use App\Filament\Hub\HubFirms\RelationManagers\PhonesRelationManager;
 use App\Models\HubFirm;
 use BackedEnum;
-use Filament\Actions\DeleteAction;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -16,7 +16,10 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
-/** Hub: mesajların iletileceği firma kurulumları (sadece APP_ROLE=hub panelinde). */
+/**
+ * Hub (APP_ROLE=hub) tek ekranı: firmalar; firmaya girince altında numaraları.
+ * Burada olmayan numara WhatsApp'ta tanıtım cevabı alır.
+ */
 class HubFirmResource extends Resource
 {
     protected static ?string $model = HubFirm::class;
@@ -29,11 +32,10 @@ class HubFirmResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Firmalar';
 
-    protected static ?int $navigationSort = 2;
-
-    public static function form(Schema $schema): Schema
+    /** ⚙ Ayarlar modalı ve "Firma Oluştur" ortak alanları. */
+    public static function components(): array
     {
-        return $schema->components([
+        return [
             TextInput::make('name')->label('Firma')->required()->maxLength(255),
             TextInput::make('url')
                 ->label('Kurulum adresi')
@@ -41,33 +43,36 @@ class HubFirmResource extends Resource
                 ->helperText('Mesajlar bu adresin /whatsapp/webhook ucuna iletilir.')
                 ->required()->url()->maxLength(255),
             Toggle::make('is_active')->label('Aktif')->default(true),
-        ])->columns(1);
+        ];
+    }
+
+    public static function form(Schema $schema): Schema
+    {
+        return $schema->components(self::components())->columns(1);
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                TextColumn::make('name')->label('Firma')->searchable()->sortable(),
-                TextColumn::make('url')->label('Adres'),
-                TextColumn::make('phones_count')->label('Telefon')->counts('phones'),
-                TextColumn::make('secret')
-                    ->label('Gizli anahtar (HUB_SECRET)')
-                    ->state(fn (HubFirm $record) => substr($record->secret, 0, 6) . '…')
-                    ->copyable()
-                    ->copyableState(fn (HubFirm $record) => $record->secret)
-                    ->copyMessage('Kopyalandı — firmanın .env HUB_SECRET satırına yapıştır')
-                    ->tooltip('Tıkla, kopyala'),
+                TextColumn::make('name')->label('Firma')->searchable()->sortable()->weight('semibold'),
+                TextColumn::make('phones_count')->label('Numara')->counts('phones')->badge(),
+                TextColumn::make('url')->label('Adres')->color('gray'),
                 IconColumn::make('is_active')->label('Aktif')->boolean(),
             ])
-            ->recordActions([
-                EditAction::make(),
-                DeleteAction::make(),
-            ]);
+            ->defaultSort('name');
+    }
+
+    public static function getRelations(): array
+    {
+        return [PhonesRelationManager::class];
     }
 
     public static function getPages(): array
     {
-        return ['index' => ManageHubFirms::route('/')];
+        return [
+            'index' => ListHubFirms::route('/'),
+            'edit' => EditHubFirm::route('/{record}'),
+        ];
     }
 }

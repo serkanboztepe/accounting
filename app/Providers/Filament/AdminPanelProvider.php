@@ -7,7 +7,6 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use App\Filament\Hub\HubFirms\HubFirmResource;
-use App\Filament\Hub\HubPhones\HubPhoneResource;
 use App\Filament\Pages\Dashboard;
 use Filament\Navigation\NavigationGroup;
 use Filament\Panel;
@@ -57,8 +56,8 @@ class AdminPanelProvider extends PanelProvider
         // WhatsApp hub'ı (APP_ROLE=hub): sadece telefon → firma yönetimi.
         if (config('app.role') === 'hub') {
             return $panel
-                ->resources([HubPhoneResource::class, HubFirmResource::class])
-                ->homeUrl(fn (): string => HubPhoneResource::getUrl('index'));
+                ->resources([HubFirmResource::class])
+                ->homeUrl(fn (): string => HubFirmResource::getUrl('index'));
         }
 
         return $panel

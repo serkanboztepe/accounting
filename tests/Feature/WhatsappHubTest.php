@@ -150,4 +150,10 @@ class WhatsappHubTest extends TestCase
         $this->assertStringContainsString('wa.me/905453606783', $first);
         $this->assertStringNotContainsString('<Message>', $second);
     }
+
+    public function test_phone_display_format(): void
+    {
+        $this->assertSame('+90 532 123 45 67', \App\Support\Phone::display('905321234567'));
+        $this->assertSame('+14786665916', \App\Support\Phone::display('whatsapp:+14786665916'));
+    }
 }
