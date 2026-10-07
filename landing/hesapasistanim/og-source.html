@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<!-- og.png kaynağı: Chrome headless ile 1200x630 ekran görüntüsü alınır. Sunucuya YÜKLENMEZ. -->
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 1200px; height: 630px; overflow: hidden; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #0E8A5F; color: #fff; display: grid; grid-template-columns: 1fr 380px; align-items: center; padding: 0 80px; gap: 40px; }
+  .brand { display: flex; align-items: center; gap: 16px; font-size: 34px; font-weight: 700; margin-bottom: 44px; }
+  .logo { width: 64px; height: 64px; border-radius: 18px; background: #fff; display: grid; place-items: center; }
+  h1 { font-size: 76px; line-height: 1.02; letter-spacing: -.03em; margin-bottom: 26px; }
+  h1 em { font-style: normal; color: #B8F5D6; }
+  p { font-size: 30px; opacity: .9; }
+  .chat { background: #EFEAE2; border-radius: 28px; padding: 22px 18px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.45); }
+  .m { max-width: 92%; padding: 10px 14px; border-radius: 12px; font-size: 21px; line-height: 1.35; color: #10201A; }
+  .o { align-self: flex-end; background: #D9FDD3; border-top-right-radius: 4px; }
+  .i { align-self: flex-start; background: #fff; border-top-left-radius: 4px; }
+  .ok { color: #0E8A5F; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div>
+    <div class="brand"><span class="logo"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0E8A5F" stroke-width="2.8" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h8"/></svg></span>Hesap Asistanım</div>
+    <h1>Hesabını<br><em>WhatsApp'tan</em> tut.</h1>
+    <p>Yaz ya da fişin fotoğrafını at, asistan kaydetsin.</p>
+  </div>
+  <div class="chat">
+    <div class="m o">Ali'ye 15 bin verdim</div>
+    <div class="m i"><b>Ödeme</b> · 15.000 ₺<br>Borcun: 45.000 → <b>30.000 ₺</b><br>Kaydedeyim mi?</div>
+    <div class="m o">evet</div>
+    <div class="m i"><span class="ok">✓ Kaydedildi.</span></div>
+  </div>
+</body>
+</html>
