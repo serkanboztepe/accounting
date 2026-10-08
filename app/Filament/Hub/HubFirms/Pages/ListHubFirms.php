@@ -27,17 +27,15 @@ class ListHubFirms extends ListRecords
         ];
     }
 
-    /** Tek panel: yeni → veritabanı aç + kur + ilk kullanıcı; mevcut → bağla + migrate + kullanıcıları eşle. */
+    /** Tek panel: yeni veritabanı aç + kur + ilk kullanıcı. Eski hub'da (TENANCY kapalı): adres. */
     private function createFirm(array $data): HubFirm
     {
-        $kind = Tenancy::enabled() ? ($data['kind'] ?? 'remote') : 'remote';
-
         $firm = new HubFirm([
             'name'      => $data['name'],
             'is_active' => $data['is_active'] ?? true,
         ]);
 
-        if ($kind === 'remote') {
+        if (! Tenancy::enabled()) {
             $firm->url = $data['url'];
             $firm->save();
 
@@ -45,27 +43,16 @@ class ListHubFirms extends ListRecords
         }
 
         $firm->settings = array_merge(HubFirm::DEFAULT_SETTINGS, ['profile' => $data['profile'] ?? null]);
-        $firm->database = $kind === 'new'
-            ? FirmProvisioner::databaseNameFor($data['code'])
-            : $data['database'];
-        if ($kind === 'existing' && filled($data['db_username'] ?? null)) {
-            $firm->db_username = $data['db_username'];
-            $firm->db_password = $data['db_password'] ?? null;
-        }
+        $firm->database = FirmProvisioner::databaseNameFor($data['code']);
 
         if (HubFirm::where('database', $firm->database)->exists()) {
-            $this->fail("{$firm->database} veritabanı zaten bir firmaya bağlı.");
+            $this->fail("\"{$data['code']}\" kısa adı başka bir firmada kullanılıyor, başka bir kısa ad seç.");
         }
 
         $firm->save();
 
         try {
-            if ($kind === 'new') {
-                FirmProvisioner::create($firm, $data['user_name'], $data['user_email'], $data['user_password']);
-            } else {
-                FirmProvisioner::migrate($firm);
-                FirmProvisioner::syncUsers($firm);
-            }
+            FirmProvisioner::create($firm, $data['user_name'], $data['user_email'], $data['user_password']);
         } catch (Throwable $e) {
             $firm->delete();
             report($e);

@@ -10,12 +10,10 @@ use App\Tenancy\FirmProvisioner;
 use App\Tenancy\Tenancy;
 use App\Models\HubFirm;
 use BackedEnum;
-use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -40,13 +38,10 @@ class HubFirmResource extends Resource
 
     /**
      * ⚙ Ayarlar modalı ve "Firma Oluştur" ortak alanları.
-     * Tek panelde (TENANCY) oluştururken üç yol: yeni veritabanı / mevcut veritabanını bağla /
-     * ayrı kurulum (adres). Eski hub'da (APP_ROLE=hub) yalnız adres.
+     * Tek panelde (TENANCY) oluşturma = yeni veritabanı. Eski hub'da (APP_ROLE=hub) yalnız adres.
      */
     public static function components(bool $creating = false, ?HubFirm $record = null): array
     {
-        $kind = fn (Get $get): string => (string) ($get('kind') ?? '');
-
         if (! Tenancy::enabled()) {
             return [
                 TextInput::make('name')->label('Firma')->required()->maxLength(255),
@@ -64,55 +59,24 @@ class HubFirmResource extends Resource
             ]);
         }
 
+        // Tek panelde yeni firma = boş veritabanı + tablolar + ilk kullanıcı (FirmProvisioner).
         return [
-            TextInput::make('name')->label('Firma')->placeholder('Yıldız Mimarlık')->required()->maxLength(255),
-            Radio::make('kind')
-                ->label('Kurulum')
-                ->options([
-                    'new'      => 'Yeni firma (boş veritabanı açılır)',
-                    'existing' => 'Mevcut veritabanını bağla (eski ayrı kurulum — veri kopyalanmaz)',
-                    'remote'   => 'Ayrı sunucuda (mesajlar adrese iletilir)',
-                ])
-                ->default('new')
-                ->live()
-                ->required(),
-
-            // Yeni
+            TextInput::make('name')->label('Firma')->placeholder('Kaya Yapı Market')->required()->maxLength(255),
             TextInput::make('code')
                 ->label('Kısa ad')
-                ->placeholder('yildiz')
-                ->helperText(fn (?string $state) => 'Veritabanı: ' . ($state ? self::safeDbName($state) : config('tenancy.database_prefix') . '…'))
+                ->placeholder('kaya')
+                ->helperText(fn (?string $state) => 'Veritabanı: ' . ($state ? self::safeDbName($state) : config('tenancy.database_prefix') . '…') . ' — sonradan değişmez.')
                 ->live(onBlur: true)
-                ->visible(fn (Get $get) => $kind($get) === 'new')
-                ->required(fn (Get $get) => $kind($get) === 'new')
+                ->required()
                 ->regex('/^[A-Za-z0-9_-]+$/')
                 ->maxLength(40),
             Select::make('profile')
                 ->label('Sektör (modül seti)')
                 ->options(self::PROFILE_OPTIONS)
-                ->placeholder('Hepsi açık')
-                ->visible(fn (Get $get) => $kind($get) !== 'remote'),
-            TextInput::make('user_name')->label('İlk kullanıcı — ad soyad')
-                ->visible(fn (Get $get) => $kind($get) === 'new')->required(fn (Get $get) => $kind($get) === 'new'),
-            TextInput::make('user_email')->label('E-posta (giriş)')->email()
-                ->visible(fn (Get $get) => $kind($get) === 'new')->required(fn (Get $get) => $kind($get) === 'new'),
-            TextInput::make('user_password')->label('Geçici şifre')->password()->revealable()->minLength(8)
-                ->visible(fn (Get $get) => $kind($get) === 'new')->required(fn (Get $get) => $kind($get) === 'new'),
-
-            // Mevcut veritabanı
-            TextInput::make('database')->label('Veritabanı adı')->placeholder('yildiz_mgmt')
-                ->visible(fn (Get $get) => $kind($get) === 'existing')->required(fn (Get $get) => $kind($get) === 'existing')
-                ->regex('/^[A-Za-z0-9_]+$/')
-                ->unique(HubFirm::class, 'database'),
-            TextInput::make('db_username')->label('Veritabanı kullanıcısı')
-                ->helperText('Boş = panelin kendi veritabanı kullanıcısı (o veritabanına yetkisi olmalı).')
-                ->visible(fn (Get $get) => $kind($get) === 'existing'),
-            TextInput::make('db_password')->label('Veritabanı şifresi')->password()->revealable()
-                ->visible(fn (Get $get) => $kind($get) === 'existing'),
-
-            // Ayrı kurulum
-            self::urlField()->visible(fn (Get $get) => $kind($get) === 'remote')->required(fn (Get $get) => $kind($get) === 'remote'),
-
+                ->placeholder('Hepsi açık'),
+            TextInput::make('user_name')->label('İlk kullanıcı — ad soyad')->required(),
+            TextInput::make('user_email')->label('E-posta (giriş)')->email()->required(),
+            TextInput::make('user_password')->label('Geçici şifre')->password()->revealable()->minLength(8)->required(),
             Toggle::make('is_active')->label('Aktif')->default(true),
         ];
     }
