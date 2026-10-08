@@ -85,6 +85,7 @@ class HubFirmResource extends Resource
         'mimar'     => 'Mimar',
         'muteahhit' => 'Müteahhit',
         'toptanci'  => 'Toptancı / nalbur',
+        'alacak_verecek' => 'Alacak-verecek (esnaf: cari + gider, projesiz)',
     ];
 
     private static function urlField(): TextInput

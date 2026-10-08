@@ -339,8 +339,9 @@ class ExpenseExtractor
             'date' => $input['date'] ?? now()->format('Y-m-d'),
             'due_date' => ! empty($input['due_date']) ? (string) $input['due_date'] : null,
             'description' => (string) ($input['description'] ?? ''),
-            'project_id' => isset($input['project_id']) ? (int) $input['project_id'] : null,
-            'project_name' => ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
+            // Projesiz kurulum: AI proje uydurup yeni proje açtırmasın.
+            'project_id' => config('modules.projects') && isset($input['project_id']) ? (int) $input['project_id'] : null,
+            'project_name' => config('modules.projects') && ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
             'party_id' => isset($input['party_id']) ? (int) $input['party_id'] : null,
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
             'category_id' => isset($input['category_id']) ? (int) $input['category_id'] : null,

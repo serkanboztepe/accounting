@@ -17,7 +17,7 @@ class ExpenseContext
      */
     public static function build(): string
     {
-        $projects = Project::query()
+        $projects = ! config('modules.projects') ? collect() : Project::query()
             ->whereNotIn('status', ['cancelled'])
             ->orderBy('name')
             ->get(['id', 'name', 'cadastral_parcel']);
@@ -28,10 +28,14 @@ class ExpenseContext
 
         $lines = [];
 
-        $lines[] = 'PROJELER (id: isim [ada/parsel]):';
-        $lines[] = $projects->isEmpty()
-            ? '  (kayıtlı proje yok)'
-            : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->cadastral_parcel ? " [{$p->cadastral_parcel}]" : ''))->implode("\n");
+        if (config('modules.projects')) {
+            $lines[] = 'PROJELER (id: isim [ada/parsel]):';
+            $lines[] = $projects->isEmpty()
+                ? '  (kayıtlı proje yok)'
+                : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->cadastral_parcel ? " [{$p->cadastral_parcel}]" : ''))->implode("\n");
+        } else {
+            $lines[] = 'PROJE KULLANILMIYOR: bu işletmede proje yok — project_id ve project_name HER ZAMAN null, proje sorma.';
+        }
 
         $lines[] = '';
         $lines[] = 'CARİLER (id: isim):';

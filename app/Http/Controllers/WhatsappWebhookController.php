@@ -141,7 +141,7 @@ class WhatsappWebhookController extends Controller
 
             // Sadece sayı → proje menüsünden seçim (yalnız gider taslağında menü gösterilir). Kullanıcı tüm özeti ilk mesajda
             // zaten gördü; numara = "her şey doğru + proje bu" → direkt kaydet (tek adım).
-            if (ctype_digit($body) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE) {
+            if (config('modules.projects') && ctype_digit($body) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE) {
                 $projects = $this->activeProjects();
                 $chosen = $projects->get((int) $body - 1);
                 if ($chosen) {
@@ -419,10 +419,14 @@ class WhatsappWebhookController extends Controller
         $lines[] = '• Açıklama: ' . ($d['description'] ?: '—');
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
 
+        // Projesiz kurulumda (alacak-verecek) proje satırı ve proje menüsü yok.
+        $usesProjects = (bool) config('modules.projects');
         $project = $d['project_id'] ? Project::find($d['project_id']) : null;
-        $projectText = $project?->name
-            ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : '—');
-        $lines[] = '• Proje: ' . $projectText;
+        if ($usesProjects) {
+            $projectText = $project?->name
+                ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : '—');
+            $lines[] = '• Proje: ' . $projectText;
+        }
 
         $party = $d['party_id'] ? Party::find($d['party_id']) : null;
         $partyText = $party?->name
@@ -449,7 +453,7 @@ class WhatsappWebhookController extends Controller
         }
 
         // Proje boşsa numaralı menü — müteahhit sadece "2" yazsın.
-        if (! $project && empty($d['project_name'])) {
+        if ($usesProjects && ! $project && empty($d['project_name'])) {
             $projects = $this->activeProjects();
             if ($projects->isNotEmpty()) {
                 $lines[] = '';

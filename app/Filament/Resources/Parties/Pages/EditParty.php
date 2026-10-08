@@ -97,7 +97,8 @@ class EditParty extends EditRecord
                 ->label('Proje (opsiyonel)')
                 ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
-                ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.'),
+                ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
+                ->visible(fn () => config('modules.projects')),
 
             TextInput::make('description')
                 ->label('Açıklama')
@@ -239,7 +240,8 @@ class EditParty extends EditRecord
                     ->label('Proje (opsiyonel)')
                     ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                     ->searchable()
-                    ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.'),
+                    ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
+                    ->visible(fn () => config('modules.projects')),
                 TextInput::make('description')->label('Açıklama')->maxLength(255)->columnSpanFull(),
                 Textarea::make('notes')->label('Not')->rows(2)->columnSpanFull(),
             ])
@@ -492,6 +494,10 @@ class EditParty extends EditRecord
      */
     private function getStatementProjects(): array
     {
+        if (! config('modules.projects')) {
+            return []; // projesiz kurulum: ekstrede proje filtresi yok
+        }
+
         $party = $this->record;
 
         $ids = collect()
@@ -714,7 +720,7 @@ class EditParty extends EditRecord
         $grouped = [];
         foreach ($expenses as $expense) {
             $key  = $expense->project_id ?? 0;
-            $name = $expense->project?->name ?? 'Projesiz';
+            $name = $expense->project?->name ?? (config('modules.projects') ? 'Projesiz' : 'Giderler');
 
             if (! isset($grouped[$key])) {
                 $grouped[$key] = ['project' => $name, 'total' => 0, 'items' => []];

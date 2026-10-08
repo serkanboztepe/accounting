@@ -46,7 +46,8 @@ class LedgerEntriesRelationManager extends RelationManager
                 ->relationship('project', 'name')
                 ->searchable()
                 ->preload()
-                ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.'),
+                ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
+                ->visible(fn () => config('modules.projects')),
 
             TextInput::make('description')
                 ->label('Açıklama')

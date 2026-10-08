@@ -25,7 +25,8 @@ class ExpenseForm
                 ->relationship('project', 'name')
                 ->searchable()
                 ->preload()
-                ->helperText('Boş bırakılırsa genel gider olarak değerlendirilir.'),
+                ->helperText('Boş bırakılırsa genel gider olarak değerlendirilir.')
+                ->visible(fn () => config('modules.projects')),
             Select::make('party_id')
                 ->label('Cari')
                 ->relationship('party', 'name')

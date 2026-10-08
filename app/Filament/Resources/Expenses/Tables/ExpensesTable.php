@@ -21,7 +21,8 @@ class ExpensesTable
                 TextColumn::make('project.name')
                     ->label('Proje')
                     ->placeholder('Genel Gider')
-                    ->searchable(),
+                    ->searchable()
+                    ->visible(fn () => config('modules.projects')),
                 TextColumn::make('category.name')
                     ->label('Kategori')
                     ->searchable(),
@@ -60,7 +61,8 @@ class ExpensesTable
                     ->relationship('project', 'name')
                     ->searchable()
                     ->preload()
-                    ->placeholder('Tüm Projeler'),
+                    ->placeholder('Tüm Projeler')
+                    ->visible(fn () => config('modules.projects')),
 
                 SelectFilter::make('payment_status')
                     ->label('Ödeme Durumu')

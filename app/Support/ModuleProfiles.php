@@ -8,6 +8,7 @@ namespace App\Support;
  *   mimar     = yildiz   (sadece Mimar grubu + basit cari Satış/Tahsilat)
  *   muteahhit = muhasebe (proje maliyeti: sözleşme, gider, çek, alış/ödeme)
  *   toptanci  = yenyapi  (stoklu satış: direkt satış, teklif, satış sözleşmesi; alış tarafı yok)
+ *   alacak_verecek = esnaf defteri: sadece cari (iki yön: satış/tahsilat + alış/ödeme) + gider; proje YOK
  * Burada olmayan anahtar = açık (true). Tek tek MOD_* env satırı her zaman profili ezer.
  */
 class ModuleProfiles
@@ -38,6 +39,22 @@ class ModuleProfiles
             'report_stock'    => false,
             'report_sales'    => false,
         ],
+        'alacak_verecek' => [
+            'land_share'         => false,
+            'property_tax'       => false,
+            'projects'           => false,
+            'direct_sales'       => false,
+            'stock'              => false,
+            'purchase_contracts' => false,
+            'sales_contracts'    => false,
+            'quotes'             => false,
+            'contracts'          => false,
+            'checks'             => false,
+            'dashboard'          => false,
+            'report_project'     => false,
+            'report_stock'       => false,
+            'report_sales'       => false,
+        ],
         'toptanci' => [
             'land_share'         => false,
             'property_tax'       => false,
@@ -49,7 +66,7 @@ class ModuleProfiles
     /** config('modules') anahtarları — hub firma ayarları ekranı da bu listeyi kullanır. */
     public const KEYS = [
         'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
-        'property_tax', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
+        'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
         'report_project', 'report_stock', 'report_sales',
     ];
 
@@ -57,6 +74,7 @@ class ModuleProfiles
     public const LABELS = [
         'land_share'         => 'Kat Karşılığı / Hisse Dağıtımı',
         'property_tax'       => 'Emlak Vergisi Bildirimi',
+        'projects'           => 'Projeler (gider/caride proje seçimi)',
         'contracts'          => 'Sözleşmeler (teslimat, ödeme, fatura)',
         'purchase_contracts' => 'Alım sözleşmesi',
         'sales_contracts'    => 'Satış sözleşmesi',

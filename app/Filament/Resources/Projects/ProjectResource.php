@@ -34,6 +34,12 @@ class ProjectResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    /** Projesiz kurulum (ör. alacak-verecek esnafı): menüde yok, adresle de açılmaz. */
+    public static function canAccess(): bool
+    {
+        return config('modules.projects');
+    }
+
     public static function form(Schema $schema): Schema
     {
         return ProjectForm::configure($schema);
