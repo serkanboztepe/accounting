@@ -342,6 +342,7 @@ class WhatsappLedgerFlowTest extends TestCase
     public function test_payment_to_contracted_party_goes_to_contract(): void
     {
         $party = Party::create(['name' => 'Zz Beton Sözleşmeli']);
+        $project = \App\Models\Project::create(['name' => 'Zz Şantiye']);
         $contract = $this->contract($party, 'Hazır Beton', 320000);
         $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 50000, 'party_id' => $party->id]));
 
@@ -429,5 +430,32 @@ class WhatsappLedgerFlowTest extends TestCase
 
         $this->assertStringContainsString('Sesli mesajları henüz dinleyemiyorum', $voice);
         $this->assertStringContainsString('yazı ve fotoğraf okuyabiliyorum', $pdf);
+    }
+
+    public function test_balance_of_contracted_party_shows_remaining_delivery_and_prepaid(): void
+    {
+        // Gerçek olay (Kuşak Beton): sözleşme tamamen ödenmiş, 36 m³ teslim alınmamış → cevap "bakiye 0" diyordu.
+        $party = Party::create(['name' => 'Zz Beton Sözleşmeli']);
+        $project = \App\Models\Project::create(['name' => 'Zz Şantiye']);
+        $unit = \App\Models\Unit::firstOrCreate(['code' => 'm3'], ['name' => 'Metreküp']);
+        $contract = \App\Models\Contract::create([
+            'project_id' => $project->id, 'party_id' => $party->id, 'title' => 'Beton', 'contract_type' => 'supplier',
+            'direction' => \App\Models\Contract::DIRECTION_PURCHASE, 'contract_date' => now(),
+            'total_amount' => 4550000, 'status' => 'active',
+        ]);
+        $item = \App\Models\ContractItem::create(['contract_id' => $contract->id, 'description' => 'Beton', 'unit_id' => $unit->id, 'quantity' => 1300, 'unit_price' => 3500, 'amount' => 4550000]);
+        \App\Models\ContractDelivery::create(['contract_id' => $contract->id, 'contract_item_id' => $item->id, 'project_id' => $project->id, 'unit_id' => $unit->id, 'delivery_date' => now(), 'quantity' => 1264, 'unit_price' => 3500, 'amount' => 4424000]);
+        foreach ([1150000, 1150000, 1200000, 1050000] as $amount) {
+            \App\Models\ContractPayment::create(['contract_id' => $contract->id, 'payment_date' => now(), 'payment_type' => 'eft', 'status' => 'paid', 'amount' => $amount]);
+        }
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_BALANCE_QUERY, 'party_id' => $party->id]));
+
+        $res = $this->send('Ne kadar beton alacağım kalmış');
+
+        $this->assertStringContainsString('36 m3 kalan', $res);
+        $this->assertStringContainsString('126.000,00 ₺', $res);
+        $this->assertStringContainsString('ödemesi tamam', $res);
+        $this->assertStringContainsString('Ödediğin ama henüz gelmeyen: *126.000,00 ₺*', $res);
+        $this->assertStringContainsString('Cari hesap (sözleşme dışı)', $res);
     }
 }

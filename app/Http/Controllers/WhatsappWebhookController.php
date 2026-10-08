@@ -13,6 +13,7 @@ use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
 use App\Support\CheckReminders;
+use App\Support\ContractStatus;
 use App\Support\Money;
 use App\Support\PartyBalances;
 use App\Support\PartyStatement;
@@ -562,7 +563,17 @@ class WhatsappWebhookController extends Controller
                 : 'Hangi carinin bakiyesini soruyorsun?';
         }
 
-        return '📊 ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+        $cari = $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+        $contracts = config('modules.contracts') ? ContractStatus::lines($party) : [];
+
+        if ($contracts === []) {
+            return '📊 ' . $cari;
+        }
+
+        // Sözleşmeli cari: cari ekstresi sözleşme ödeme/teslimatını içermez — ikisini ayrı göster.
+        return '📊 *' . $party->name . "*\n"
+            . implode("\n", $contracts)
+            . "\n\n💼 Cari hesap (sözleşme dışı): " . lcfirst(Str::after($cari, $party->name . ': '));
     }
 
     /**
