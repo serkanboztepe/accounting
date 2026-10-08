@@ -69,7 +69,7 @@ class SendCheckReminders extends Command
             }
 
             foreach ($phones as $phone) {
-                $ok = $sender->sendTemplate($phone, $contentSid, $vars);
+                $ok = $sender->sendTemplate($phone, $contentSid, $vars, 'cek_hatirlatma');
                 $this->line('  → ' . $phone . ($ok ? ' ✓' : ' ✗ (log)'));
             }
         }

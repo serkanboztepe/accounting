@@ -57,6 +57,9 @@ class HubFirmResource extends Resource
             ->columns([
                 TextColumn::make('name')->label('Firma')->searchable()->sortable()->weight('semibold'),
                 TextColumn::make('phones_count')->label('Numara')->counts('phones')->badge(),
+                TextColumn::make('message_logs_count')
+                    ->label('Bu ay mesaj')
+                    ->counts(['messageLogs' => fn ($q) => $q->where('created_at', '>=', now()->startOfMonth())]),
                 TextColumn::make('url')->label('Adres')->color('gray'),
                 IconColumn::make('is_active')->label('Aktif')->boolean(),
             ])

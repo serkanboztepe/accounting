@@ -2,6 +2,7 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\HubMessageLog;
 use App\Models\HubPhone;
 use App\Support\HubSignature;
 use App\Support\Phone;
@@ -57,7 +58,10 @@ class HubRouter
             ->first();
 
         if (! $route) {
-            return self::unknownPhoneResponse((string) $request->input('From', ''));
+            $response = self::unknownPhoneResponse((string) $request->input('From', ''));
+            $this->log(null, $phone, $response->getContent());
+
+            return $response;
         }
 
         $params = $request->post();
@@ -80,9 +84,24 @@ class HubRouter
             return $this->twiml('Şu an cevap veremiyorum, birkaç dakika sonra tekrar yazar mısın?');
         }
 
+        $this->log($firm->id, $phone, $response->body());
+
         return response($response->body(), 200, [
             'Content-Type' => $response->header('Content-Type') ?: 'text/xml',
         ]);
+    }
+
+    /** Maliyet takibi: gelen 1 mesaj + cevapta <Message> varsa giden 1 mesaj. */
+    private function log(?int $firmId, string $phone, string $twiml): void
+    {
+        try {
+            HubMessageLog::create(['hub_firm_id' => $firmId, 'phone' => $phone, 'direction' => 'in']);
+            if (str_contains($twiml, '<Message')) {
+                HubMessageLog::create(['hub_firm_id' => $firmId, 'phone' => $phone, 'direction' => 'out']);
+            }
+        } catch (Throwable $e) {
+            Log::warning('Hub mesaj kaydı yazılamadı', ['error' => $e->getMessage()]);
+        }
     }
 
     private function twiml(string $text)

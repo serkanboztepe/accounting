@@ -2,6 +2,7 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\UsageLog;
 use App\Support\Phone;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Log;
 class WhatsappSender
 {
     /** @param  array<int|string, string>  $variables  {"1": "...", "2": "..."} */
-    public function sendTemplate(string $to, string $contentSid, array $variables): bool
+    public function sendTemplate(string $to, string $contentSid, array $variables, string $name = 'template'): bool
     {
         $sid = (string) config('services.twilio.sid');
         $token = (string) config('services.twilio.token');
@@ -40,6 +41,8 @@ class WhatsappSender
 
             return false;
         }
+
+        UsageLog::recordTemplate($name);
 
         return true;
     }

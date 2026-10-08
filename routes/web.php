@@ -157,3 +157,19 @@ Route::get('/invoice-file/{filename}', function (string $filename) {
         'Content-Disposition' => 'inline; filename="' . $filename . '"',
     ]);
 })->middleware('auth')->name('invoice.file');
+
+// Hub → firma: ay maliyet özeti (AI + şablon). Sadece hub imzasıyla (HUB_SECRET).
+Route::get('/hub/usage', function (\Illuminate\Http\Request $request) {
+    $params = $request->query();
+    $ok = config('app.role') !== 'hub' && \App\Support\HubSignature::verify(
+        $params,
+        (string) config('services.hub.secret'),
+        (string) $request->header(\App\Support\HubSignature::HEADER, ''),
+        (string) $request->header(\App\Support\HubSignature::TIMESTAMP_HEADER, ''),
+    );
+    abort_unless($ok, 403);
+
+    $month = preg_match('/^\d{4}-\d{2}$/', (string) $request->query('month')) ? $request->query('month') : now()->format('Y-m');
+
+    return response()->json(\App\Models\UsageLog::monthSummary($month));
+})->name('hub.usage');

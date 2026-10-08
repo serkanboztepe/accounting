@@ -7,7 +7,9 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Cache;
 use Filament\Support\Icons\Heroicon;
 
 /** Firma sayfası: gövde = numaralar; firma bilgileri ⚙ Ayarlar modalında. */
@@ -62,7 +64,32 @@ class EditHubFirm extends EditRecord
     public function content(Schema $schema): Schema
     {
         return $schema->components([
+            View::make('filament.hub.firm-usage')->viewData(fn () => $this->usageData()),
             $this->getRelationManagersContentComponent(),
         ]);
+    }
+
+    /** Bu ay: hub'daki mesaj sayıları + firmadan çekilen AI/şablon maliyeti (5 dk önbellek). */
+    private function usageData(): array
+    {
+        $month = now()->format('Y-m');
+        $logs = $this->record->messageLogs()->where('created_at', '>=', now()->startOfMonth());
+        $in = (clone $logs)->where('direction', 'in')->count();
+        $out = (clone $logs)->where('direction', 'out')->count();
+
+        $usage = Cache::remember("hub-usage:{$this->record->id}:{$month}", 300, fn () => $this->record->fetchUsage($month));
+
+        $templates = (int) ($usage['templates'] ?? 0);
+        $waCost = ($in + $out) * config('costs.twilio_per_message') + (float) ($usage['template_cost_usd'] ?? 0);
+
+        return [
+            'monthLabel' => now()->locale('tr')->translatedFormat('F Y'),
+            'in' => $in,
+            'out' => $out,
+            'templates' => $templates,
+            'usage' => $usage,
+            'waCost' => $waCost,
+            'total' => $waCost + (float) ($usage['ai_cost_usd'] ?? 0),
+        ];
     }
 }

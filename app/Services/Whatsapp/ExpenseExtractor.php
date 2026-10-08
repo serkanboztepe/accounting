@@ -2,6 +2,7 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\UsageLog;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -129,6 +130,9 @@ class ExpenseExtractor
         if ($response->failed()) {
             throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
         }
+
+        // Maliyet takibi: her çağrının token'ı ve $ karşılığı (firma başına rapor).
+        UsageLog::recordAi((string) $model, (array) $response->json('usage', []));
 
         foreach ($response->json('content', []) as $block) {
             if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'save_entry') {
@@ -343,7 +347,7 @@ class ExpenseExtractor
             'category_name' => ! empty($input['category_name']) ? trim((string) $input['category_name']) : null,
             // null = belirtilmedi → varsayılan kontrolcüde (carili: ödenmedi, carisiz: ödendi).
             'paid' => isset($input['paid']) ? (bool) $input['paid'] : null,
-            'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? $input['confidence'] : 'high',
+            'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? ($input['confidence'] ?? 'high') : 'high',
             'question' => ! empty($input['question']) ? (string) $input['question'] : null,
             'is_new_entry' => (bool) ($input['is_new_entry'] ?? false),
         ];
