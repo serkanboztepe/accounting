@@ -3,6 +3,7 @@
 namespace App\Filament\Hub\HubFirms\Pages;
 
 use App\Filament\Hub\HubFirms\HubFirmResource;
+use App\Models\HubFirm;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -82,6 +83,10 @@ class EditHubFirm extends EditRecord
         $templates = (int) ($usage['templates'] ?? 0);
         $waCost = ($in + $out) * config('costs.twilio_per_message') + (float) ($usage['template_cost_usd'] ?? 0);
 
+        // Numara kirası tüm firmalara ortak → aktif firma sayısına bölünür.
+        $activeFirms = max(1, HubFirm::where('is_active', true)->count());
+        $numberShare = config('costs.twilio_number_monthly') / $activeFirms;
+
         return [
             'monthLabel' => now()->locale('tr')->translatedFormat('F Y'),
             'in' => $in,
@@ -89,7 +94,9 @@ class EditHubFirm extends EditRecord
             'templates' => $templates,
             'usage' => $usage,
             'waCost' => $waCost,
-            'total' => $waCost + (float) ($usage['ai_cost_usd'] ?? 0),
+            'numberShare' => $numberShare,
+            'activeFirms' => $activeFirms,
+            'total' => $waCost + $numberShare + (float) ($usage['ai_cost_usd'] ?? 0),
         ];
     }
 }

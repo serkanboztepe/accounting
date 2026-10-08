@@ -7,6 +7,11 @@
  * Önbellek: yazma = girişin 1,25 katı (5 dk), okuma = 0,1 katı.
  * WhatsApp: Twilio mesaj başı ücret (gelen + giden) ve bizim başlattığımız şablon mesajın
  * Meta ücreti (Türkiye "utility" — TAHMİNİ; ay sonu Twilio faturasıyla doğrula).
+ *
+ * Twilio faturasıyla doğrulama (2026-10-08): gelen/giden WhatsApp mesajı 0,005 $ ✓;
+ * müşteri yazdıktan sonraki 24 saatteki cevaplar (service) ve o pencereye denk gelen
+ * utility şablonu Meta'da ÜCRETSİZ; pencere dışı utility şablonun TR fiyatı henüz doğrulanmadı.
+ * Numara kirası tüm firmalara ORTAK sabit gider (aktif firma sayısına bölünür).
  */
 return [
     'ai_per_mtok' => [
@@ -22,4 +27,5 @@ return [
 
     'twilio_per_message' => (float) env('COST_TWILIO_PER_MESSAGE', 0.005),
     'meta_template_utility' => (float) env('COST_META_TEMPLATE_UTILITY', 0.0053),
+    'twilio_number_monthly' => (float) env('COST_TWILIO_NUMBER_MONTHLY', 1.15),
 ];
