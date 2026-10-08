@@ -18,6 +18,7 @@ use App\Support\Money;
 use App\Support\PartyBalances;
 use App\Support\PartyStatement;
 use App\Support\Phone;
+use App\Tenancy\Tenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -43,8 +44,9 @@ class WhatsappWebhookController extends Controller
         $body = trim((string) $request->input('Body', ''));
         $numMedia = (int) $request->input('NumMedia', 0);
 
-        // Hub kurulumu (APP_ROLE=hub) kayıt tutmaz: mesajı telefonun firmasına iletir.
-        if (config('app.role') === 'hub') {
+        // Hub (APP_ROLE=hub) veya tek panel: önce telefonun firmasını bul. Tek panelde router
+        // firmayı açıp buraya geri çağırır (via_hub) — o zaman aşağıdaki firma akışı çalışır.
+        if ((config('app.role') === 'hub' || Tenancy::enabled()) && ! $request->attributes->get('via_hub')) {
             return app(HubRouter::class)->forward($request);
         }
 
@@ -614,7 +616,7 @@ class WhatsappWebhookController extends Controller
         $url = URL::temporarySignedRoute('whatsapp.statement.pdf', now()->addMinutes(10), [
             'party' => $party->id,
             'file' => 'Ekstre-' . (Str::slug($party->name) ?: $party->id) . '.pdf',
-        ] + $filters);
+        ] + $filters + array_filter(['firm' => Tenancy::current()?->id])); // tek panel: Twilio oturumsuz indirir, firma imzalı linkte
 
         return [implode("\n", $lines), $url];
     }

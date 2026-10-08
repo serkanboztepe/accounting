@@ -46,11 +46,54 @@ class ModuleProfiles
         ],
     ];
 
+    /** config('modules') anahtarları — hub firma ayarları ekranı da bu listeyi kullanır. */
+    public const KEYS = [
+        'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
+        'property_tax', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
+        'report_project', 'report_stock', 'report_sales',
+    ];
+
+    /** Hub ekranındaki Türkçe adlar. */
+    public const LABELS = [
+        'land_share'         => 'Kat Karşılığı / Hisse Dağıtımı',
+        'property_tax'       => 'Emlak Vergisi Bildirimi',
+        'contracts'          => 'Sözleşmeler (teslimat, ödeme, fatura)',
+        'purchase_contracts' => 'Alım sözleşmesi',
+        'sales_contracts'    => 'Satış sözleşmesi',
+        'quotes'             => 'Teklif',
+        'checks'             => 'Çekler',
+        'expenses'           => 'Direkt giderler',
+        'dashboard'          => 'Ana sayfa (özet)',
+        'cari_supplier'      => 'Caride tedarikçi tarafı (alış + ödeme)',
+        'direct_sales'       => 'Ürün/hizmet kartı + direkt satış',
+        'stock'              => 'Stok',
+        'report_project'     => 'Proje raporları',
+        'report_stock'       => 'Stok raporu',
+        'report_sales'       => 'Satış özeti',
+    ];
+
     /**
      * @return array<string, bool>
      */
     public static function defaults(?string $profile): array
     {
         return self::PROFILES[$profile] ?? [];
+    }
+
+    /**
+     * Profil varsayılanı + tek tek ezmeler → tam modül listesi (olmayan = açık).
+     *
+     * @param  array<string, bool|null>  $overrides  null = profile bırak
+     * @return array<string, bool>
+     */
+    public static function resolve(?string $profile, array $overrides = []): array
+    {
+        $defaults = self::defaults($profile);
+        $modules = [];
+        foreach (self::KEYS as $key) {
+            $modules[$key] = (bool) ($overrides[$key] ?? $defaults[$key] ?? true);
+        }
+
+        return $modules;
     }
 }

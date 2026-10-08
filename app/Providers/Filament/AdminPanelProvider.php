@@ -7,7 +7,13 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use App\Filament\Hub\HubFirms\HubFirmResource;
+use App\Filament\Auth\Login;
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\SwitchFirm;
+use App\Tenancy\Tenancy;
+use Filament\Actions\Action;
+use Filament\Support\Icons\Heroicon;
+use App\Http\Middleware\IdentifyTenant;
 use Filament\Navigation\NavigationGroup;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -33,7 +39,15 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogoHeight('2rem')
             ->favicon(asset('brand-icon.svg'))
             ->viteTheme('resources/css/filament/admin/theme.css')
-            ->login()
+            ->login(Login::class)
+            ->userMenuItems([
+                // Tek panel: birden çok firmada hesabı olan (girişte şifresi tutan) kullanıcı
+                Action::make('switchFirm')
+                    ->label(fn (): string => 'Firma: ' . (Tenancy::current()?->name ?? ''))
+                    ->icon(Heroicon::OutlinedArrowsRightLeft)
+                    ->url(fn (): string => SwitchFirm::getUrl())
+                    ->visible(fn (): bool => SwitchFirm::canAccess()),
+            ])
             ->colors([
                 'primary' => Color::hex('#0E8A5F'), // hesapasistanim.com yeşili
                 'gray'    => Color::Zinc,
@@ -42,6 +56,7 @@ class AdminPanelProvider extends PanelProvider
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
+                IdentifyTenant::class,
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 VerifyCsrfToken::class,
@@ -53,7 +68,8 @@ class AdminPanelProvider extends PanelProvider
                 Authenticate::class,
             ]);
 
-        // WhatsApp hub'ı (APP_ROLE=hub): sadece telefon → firma yönetimi.
+        // WhatsApp hub'ı (APP_ROLE=hub, eski ayrı kurulum): sadece telefon → firma yönetimi.
+        // Tek panelde (TENANCY) hub ayrı panel: /hub (HubPanelProvider).
         if (config('app.role') === 'hub') {
             return $panel
                 ->resources([HubFirmResource::class])

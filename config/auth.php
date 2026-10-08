@@ -40,6 +40,12 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Tek panel: /hub yöneticileri (merkez veritabanı users tablosu) — firma kullanıcılarından ayrı.
+        'hub' => [
+            'driver' => 'session',
+            'provider' => 'hub_users',
+        ],
     ],
 
     /*
@@ -63,6 +69,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', App\Models\User::class),
+        ],
+
+        'hub_users' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\HubUser::class,
         ],
 
         // 'users' => [

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Tenancy\Tenancy;
 use App\Models\CompanySettings;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
@@ -85,7 +86,7 @@ class CariLock
 
     private static function limited(callable $check): bool
     {
-        $key = 'cari-unlock:' . auth()->id();
+        $key = Tenancy::key('cari-unlock:' . auth()->id());
         $label = self::hasPin() ? 'PIN' : 'Şifre';
 
         if (RateLimiter::tooManyAttempts($key, self::MAX_ATTEMPTS)) {

@@ -49,6 +49,8 @@ class PhonesRelationManager extends RelationManager
                 }),
             TextInput::make('name')->label('Ad Soyad')->placeholder('Ferhat Yıldız')->maxLength(255),
             Toggle::make('is_active')->label('Aktif')->default(true),
+            Toggle::make('receives_reminders')->label('Çek hatırlatması alsın')
+                ->visible(fn () => $this->getOwnerRecord()->isLocal()),
         ])->columns(1);
     }
 
@@ -61,6 +63,8 @@ class PhonesRelationManager extends RelationManager
                     ->formatStateUsing(fn (string $state) => Phone::display($state)),
                 TextColumn::make('name')->label('Ad Soyad')->searchable(),
                 ToggleColumn::make('is_active')->label('Aktif'),
+                ToggleColumn::make('receives_reminders')->label('Çek hatırlatması')
+                    ->visible(fn () => $this->getOwnerRecord()->isLocal()),
             ])
             ->emptyStateHeading('Henüz numara yok')
             ->emptyStateDescription('Bu firmadan asistana yazacak kişilerin WhatsApp numaralarını ekle.')

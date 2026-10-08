@@ -30,34 +30,14 @@
 | Boşsa her şey açık. Tek tek MOD_* satırı her zaman profili ezer (ör. APP_PROFILE=toptanci + MOD_QUOTES=false).
 */
 
-$profile = \App\Support\ModuleProfiles::defaults(env('APP_PROFILE'));
-$mod = fn (string $key) => (bool) env('MOD_' . strtoupper($key), $profile[$key] ?? true);
+$overrides = [];
+foreach (\App\Support\ModuleProfiles::KEYS as $key) {
+    $value = env('MOD_' . strtoupper($key));
+    if ($value !== null) {
+        $overrides[$key] = (bool) $value;
+    }
+}
 
-return [
-    'land_share'         => $mod('land_share'),
-    'direct_sales'       => $mod('direct_sales'),
-    'stock'              => $mod('stock'),
-    'purchase_contracts' => $mod('purchase_contracts'),
-    'sales_contracts'    => $mod('sales_contracts'),
-    'quotes'             => $mod('quotes'),
-    'property_tax'       => $mod('property_tax'), // Emlak Vergisi Bildirimi (proje→blok→daire, Excel çıktı)
-
-    // Çekirdek modüller — artık aç/kapa edilebilir (basit kurulumlar için).
-    // Varsayılan true (mevcut kurulumlar etkilenmez). .env ile kapatılır:
-    //   MOD_CONTRACTS=false     # Sözleşmeler + Teslimat/Hakediş + Ödemeler + Faturalar (İşlemler)
-    //   MOD_CHECKS=false        # Çekler
-    //   MOD_EXPENSES=false      # Direkt Giderler + Gider Kategorileri
-    //   MOD_DASHBOARD=false     # Ana sayfa (Genel/Dashboard); kapalıysa giriş Cariler'e gider
-    //   MOD_CARI_SUPPLIER=false # Cari'de tedarikçi tarafı (Alış + Ödeme butonları); Satış+Tahsilat kalır
-    'contracts'          => $mod('contracts'),
-    'checks'             => $mod('checks'),
-    'expenses'           => $mod('expenses'),
-    'dashboard'          => $mod('dashboard'),
-    'cari_supplier'      => $mod('cari_supplier'),
-
-    // Raporlar (menüde "Raporlar" grubu) — her biri ayrı aç/kapa.
-    // Stok/Satış raporu ilgili modül de açıksa görünür.
-    'report_project'     => $mod('report_project'),
-    'report_stock'       => $mod('report_stock'),
-    'report_sales'       => $mod('report_sales'),
-];
+// Tek panelde (TENANCY) bu değerler firma seçilince hub'daki firma ayarlarıyla ezilir.
+// Anahtarların açıklamaları: App\Support\ModuleProfiles::LABELS.
+return \App\Support\ModuleProfiles::resolve(env('APP_PROFILE'), $overrides);

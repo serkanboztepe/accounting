@@ -73,7 +73,7 @@ return [
     |
     */
 
-    'connection' => env('SESSION_CONNECTION'),
+    'connection' => env('SESSION_CONNECTION', env('TENANCY', false) ? 'central' : null), // tek panelde oturum merkezde (firma girişten önce bilinmez)
 
     /*
     |--------------------------------------------------------------------------

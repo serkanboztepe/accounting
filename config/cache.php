@@ -40,9 +40,9 @@ return [
 
         'database' => [
             'driver' => 'database',
-            'connection' => env('DB_CACHE_CONNECTION'),
+            'connection' => env('DB_CACHE_CONNECTION', env('TENANCY', false) ? 'central' : null), // firma anahtarları Tenancy::key() ile ayrılır
             'table' => env('DB_CACHE_TABLE', 'cache'),
-            'lock_connection' => env('DB_CACHE_LOCK_CONNECTION'),
+            'lock_connection' => env('DB_CACHE_LOCK_CONNECTION', env('TENANCY', false) ? 'central' : null),
             'lock_table' => env('DB_CACHE_LOCK_TABLE'),
         ],
 

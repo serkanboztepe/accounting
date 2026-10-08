@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Tenancy\Tenancy;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,7 +21,30 @@ class User extends Authenticatable implements FilamentUser
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return true;
+        return $panel->getId() === 'admin';
+    }
+
+    /**
+     * Tek panel: firma veritabanındaki kullanıcı, merkezdeki e-posta → firma eşlemesine
+     * yansısın (giriş o eşlemeden firmayı bulur). Firma bağlamı yoksa (eski düzen) dokunma.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (User $user) {
+            if (! $firm = Tenancy::current()) {
+                return;
+            }
+            if ($user->wasChanged('email') && $user->getOriginal('email')) {
+                FirmUser::where('hub_firm_id', $firm->id)->where('email', mb_strtolower($user->getOriginal('email')))->delete();
+            }
+            FirmUser::firstOrCreate(['hub_firm_id' => $firm->id, 'email' => mb_strtolower(trim($user->email))]);
+        });
+
+        static::deleted(function (User $user) {
+            if ($firm = Tenancy::current()) {
+                FirmUser::where('hub_firm_id', $firm->id)->where('email', mb_strtolower(trim($user->email)))->delete();
+            }
+        });
     }
 
     /**

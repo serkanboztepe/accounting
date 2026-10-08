@@ -2,10 +2,13 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Http\Controllers\WhatsappWebhookController;
+use App\Models\HubFirm;
 use App\Models\HubMessageLog;
 use App\Models\HubPhone;
 use App\Support\HubSignature;
 use App\Support\Phone;
+use App\Tenancy\Tenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -67,6 +70,11 @@ class HubRouter
         $params = $request->post();
         $firm = $route->firm;
 
+        // Tek panel: firmanın veritabanı burada — HTTP'siz, firmayı açıp aynı istekte işle.
+        if ($firm->isLocal()) {
+            return $this->handleLocally($request, $firm, $phone);
+        }
+
         try {
             $response = Http::asForm()
                 ->timeout(self::TIMEOUT_SECONDS)
@@ -89,6 +97,27 @@ class HubRouter
         return response($response->body(), 200, [
             'Content-Type' => $response->header('Content-Type') ?: 'text/xml',
         ]);
+    }
+
+    private function handleLocally(Request $request, HubFirm $firm, string $phone)
+    {
+        $request->attributes->set('via_hub', true);
+
+        try {
+            $response = Tenancy::run($firm, fn () => app()->call(
+                [app(WhatsappWebhookController::class), '__invoke'],
+                ['request' => $request],
+            ));
+        } catch (Throwable $e) {
+            Log::error('Hub: firma mesajı işlenemedi', ['firm' => $firm->name, 'error' => $e->getMessage()]);
+            report($e);
+
+            return $this->twiml('Şu an cevap veremiyorum, birkaç dakika sonra tekrar yazar mısın?');
+        }
+
+        $this->log($firm->id, $phone, (string) $response->getContent());
+
+        return $response;
     }
 
     /** Maliyet takibi: gelen 1 mesaj + cevapta <Message> varsa giden 1 mesaj. */

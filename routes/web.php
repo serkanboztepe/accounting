@@ -148,7 +148,8 @@ Route::get('/emlak-beyani-proje/{project}/formatli-pdf', function (\App\Models\P
 })->middleware('auth')->name('property-tax.project.formatli-pdf');
 
 Route::get('/invoice-file/{filename}', function (string $filename) {
-    $path = storage_path('app/public/invoices/' . $filename);
+    // Tek panelde 'public' diski firmanın klasörüdür (bkz Tenancy::activate).
+    $path = \Illuminate\Support\Facades\Storage::disk('public')->path('invoices/' . basename($filename));
 
     abort_if(! file_exists($path), 404);
 

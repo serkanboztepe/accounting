@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Support\HubSignature;
+use App\Tenancy\Tenancy;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -22,7 +23,7 @@ class VerifyTwilioSignature
         }
 
         // Firma kurulumu: hub'dan imzalı iletilen mesaj (telefon hub'da kontrol edildi).
-        if ($request->hasHeader(HubSignature::HEADER) && config('app.role') !== 'hub') {
+        if ($request->hasHeader(HubSignature::HEADER) && config('app.role') !== 'hub' && ! Tenancy::enabled()) {
             if (HubSignature::verify(
                 $request->post(),
                 (string) config('services.hub.secret'),

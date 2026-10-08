@@ -22,7 +22,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Tek panel: S-CODER yönetim paneli /hub (eski düzende hub ayrı kurulumdu, APP_ROLE=hub).
+        if (config('tenancy.enabled')) {
+            $this->app->register(\App\Providers\Filament\HubPanelProvider::class);
+        }
     }
 
     /**

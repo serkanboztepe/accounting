@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Tenancy\Tenancy;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Support\CheckReminders;
 use App\Support\Money;
@@ -62,7 +63,7 @@ class SendCheckReminders extends Command
             }
 
             // Aynı gün iki kez çalışırsa (elle + zamanlanmış) tekrar gönderme.
-            if (! Cache::add("check-reminder:{$today->toDateString()}:{$offset}", true, now()->addDays(2))) {
+            if (! Cache::add(Tenancy::key("check-reminder:{$today->toDateString()}:{$offset}"), true, now()->addDays(2))) {
                 $this->line('  zaten gönderildi, atlandı');
 
                 continue;

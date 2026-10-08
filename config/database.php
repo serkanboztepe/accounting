@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Str;
 
-return [
+$config = [
 
     /*
     |--------------------------------------------------------------------------
@@ -171,3 +171,26 @@ return [
     ],
 
 ];
+
+/*
+| Tek panel (TENANCY=true): her firmanın AYRI veritabanı vardır.
+|   central = firmalar, telefonlar, kullanıcı→firma, hub yöneticileri, oturum/önbellek
+|   tenant  = giriş yapan kullanıcının firması (App\Tenancy\Tenancy::activate ile seçilir)
+| Firma seçilmeden tenant'a giden sorgu hata verir (bilerek: başka firmanın verisine düşmesin).
+| TENANCY kapalıyken eski düzen: tek .env = tek firma, central = varsayılan bağlantı.
+*/
+$base = $config['connections'][$config['default']] ?? $config['connections']['mysql'];
+
+$config['connections']['central'] = array_merge($base, [
+    'database' => env('CENTRAL_DB_DATABASE', $base['database'] ?? null),
+]);
+
+$config['connections']['tenant'] = array_merge($base, [
+    'database' => '__no_tenant_selected__',
+]);
+
+if (env('TENANCY', false)) {
+    $config['default'] = 'tenant';
+}
+
+return $config;

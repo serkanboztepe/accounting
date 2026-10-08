@@ -15,6 +15,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'whatsapp/webhook',
         ]);
+
+        // Tek panel: firma, oturum açıldıktan HEMEN sonra seçilmeli — kullanıcıyı yükleyen
+        // AuthenticateSession/Authenticate ve {party} gibi route bağlamalarından ÖNCE (yoksa
+        // boş/yanlış veritabanına bakarlar). Öncelik listesi panel middleware'ini de sıralar.
+        $middleware->web(append: [\App\Http\Middleware\IdentifyTenant::class]);
+        $middleware->appendToPriorityList(
+            after: \Illuminate\Session\Middleware\StartSession::class,
+            append: \App\Http\Middleware\IdentifyTenant::class,
+        );
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
