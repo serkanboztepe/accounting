@@ -6,6 +6,8 @@ use App\Filament\Resources\Parties\Pages\CreateParty;
 use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Filament\Resources\Parties\Pages\ListParties;
 use App\Http\Middleware\RequireCariUnlock;
+use App\Models\HubFirm;
+use App\Tenancy\Tenancy;
 use App\Support\CariLock;
 use Carbon\Carbon;
 use Filament\Support\Facades\FilamentView;
@@ -35,7 +37,29 @@ class AppServiceProvider extends ServiceProvider
     {
         Carbon::setLocale('tr');
 
+        $this->bootTenantFromEnvironment();
         $this->bootCariLock();
+    }
+
+    /**
+     * tenants:run her firmayı ayrı süreçte TENANT_ID ile başlatır: firma, komutlar (ve onların
+     * açılışta ayar okuyan paketleri) oluşmadan seçilsin. env() değil getenv — config:cache'de env() boş.
+     */
+    private function bootTenantFromEnvironment(): void
+    {
+        $id = getenv('TENANT_ID');
+
+        if ($id === false || $id === '' || ! $this->app->runningInConsole() || ! Tenancy::enabled()) {
+            return;
+        }
+
+        $firm = HubFirm::where('is_active', true)->whereNotNull('database')->find($id);
+
+        if (! $firm) {
+            throw new \RuntimeException("TENANT_ID={$id}: aktif firma bulunamadı");
+        }
+
+        Tenancy::activate($firm);
     }
 
     /** Cari kilidi (CARI_LOCK) — bkz. App\Support\CariLock. */
