@@ -67,6 +67,15 @@ class WhatsappWebhookController extends Controller
             ->latest('id')
             ->first();
 
+        // Ses / video / belge: şimdilik okuyamıyoruz — sessizce yardım metni yerine açıkça söyle.
+        // (Sesi yazıya çevirme planlı; bkz. hafıza: ses kaydı desteği.)
+        $mediaType = (string) $request->input('MediaContentType0', '');
+        if ($numMedia > 0 && $mediaType !== '' && ! Str::startsWith($mediaType, 'image/')) {
+            return $this->twiml(Str::startsWith($mediaType, 'audio/')
+                ? "🎤 Sesli mesajları henüz dinleyemiyorum. Yazıyla gönderir misin? 🙏\nÖrnek: \"Ali'ye 15 bin verdim\""
+                : "Şu an yazı ve fotoğraf okuyabiliyorum. Fişin/faturanın fotoğrafını çekip gönderir misin? 📷");
+        }
+
         // Hızlı cevaplar (evet/iptal/numara) dışında AI çağrılacak → "yazıyor…" göster.
         $quickReply = $numMedia === 0 && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body));
         if (! $quickReply && ($body !== '' || $numMedia > 0)) {

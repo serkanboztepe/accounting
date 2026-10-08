@@ -411,4 +411,23 @@ class WhatsappLedgerFlowTest extends TestCase
             $this->assertSame('905453606783', \App\Support\Phone::normalize($p), $p);
         }
     }
+
+    public function test_voice_note_gets_clear_answer_without_ai(): void
+    {
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldNotReceive('extract');
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $voice = $this->post('/whatsapp/webhook', [
+            'From' => self::PHONE, 'Body' => '', 'NumMedia' => 1,
+            'MediaContentType0' => 'audio/ogg', 'MediaUrl0' => 'https://api.twilio.com/x',
+        ])->assertOk()->getContent();
+        $pdf = $this->post('/whatsapp/webhook', [
+            'From' => self::PHONE, 'Body' => '', 'NumMedia' => 1,
+            'MediaContentType0' => 'application/pdf', 'MediaUrl0' => 'https://api.twilio.com/y',
+        ])->assertOk()->getContent();
+
+        $this->assertStringContainsString('Sesli mesajları henüz dinleyemiyorum', $voice);
+        $this->assertStringContainsString('yazı ve fotoğraf okuyabiliyorum', $pdf);
+    }
 }
