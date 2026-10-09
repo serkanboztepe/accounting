@@ -125,6 +125,46 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('borç kaydı (biz borçluyuz) açık değil', $this->send("Arda Test Mehmet'e 15 bin borcum var"));
     }
 
+    /** "Ne için verdin?" — numaralı menü yerine serbest cevap; niyet AI'dan, kayıttan önce özette gösterilir. */
+    public function test_payment_without_debt_asks_purpose_and_reads_loan_intent(): void
+    {
+        $this->notFirstContact();
+        $payment = ['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 8000, 'party_name' => 'Arda Test Ahmet', 'description' => "Ahmet'e ödeme"];
+        $this->fakeAi($this->entry($payment), $this->entry($payment + ['payment_purpose' => 'loan']));
+
+        $question = $this->send("Arda Test Ahmet'e 8 bin verdim");
+        $this->assertStringContainsString('Ne için verdin?', $question);
+        $this->assertStringNotContainsString('1)', $question);
+
+        $summary = $this->send('geri alacağım');
+        $this->assertStringContainsString('Tür: Borç verdin (geri alacaksın)', $summary);
+
+        $this->send('evet');
+        $party = Party::where('name', 'Arda Test Ahmet')->sole();
+        $entry = PartyLedgerEntry::where('party_id', $party->id)->sole();
+        $this->assertSame(PartyLedgerEntry::TYPE_PAYMENT, $entry->type);
+        $this->assertSame("Borç verildi — Ahmet'e ödeme", $entry->description);
+        $this->assertEqualsWithDelta(8000, PartyStatement::build($party)['balance'], 0.001); // bize borçlu
+        $this->assertSame(0, Expense::where('party_id', $party->id)->count());               // maliyet değil
+    }
+
+    public function test_advance_stated_up_front_skips_purpose_question_without_duplicate_label(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry([
+            'kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 20000, 'party_name' => 'Arda Test Mehmet A',
+            'description' => 'Avans ödemesi', 'payment_purpose' => 'advance',
+        ]));
+
+        $summary = $this->send("Arda Test Mehmet A'ya 20 bin avans verdim");
+        $this->assertStringContainsString('Tür: Avans (iş sonra yapılacak)', $summary);
+        $this->assertStringNotContainsString('Ne için verdin?', $summary);
+
+        $this->send('evet');
+        $party = Party::where('name', 'Arda Test Mehmet A')->sole();
+        $this->assertSame('Avans ödemesi', PartyLedgerEntry::where('party_id', $party->id)->sole()->description);
+    }
+
     public function test_party_list_shows_balances(): void
     {
         $this->notFirstContact();

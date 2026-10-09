@@ -183,7 +183,9 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
-            // Ödeme ama carinin açık borcu yok → "1) yeni masraf 2) avans" seçimi bekleniyor.
+            // Ödeme ama carinin açık borcu yok → "Ne için verdin?" sorusu bekleniyor. Serbest cevap
+            // aşağıda AI düzeltmesiyle okunur (iş yaptırdım / avans / borç verdim). 1-2 eski menü
+            // cevapları hâlâ geçerli.
             if ($this->needsPaymentChoice($pending->extracted)) {
                 if ($body === '1') {
                     // Yeni iş/masraf → ödenmiş gider taslağı. Önce "ne için?" sorulur: yoksa açıklama
@@ -204,7 +206,7 @@ class WhatsappWebhookController extends Controller
                     return $this->twiml($this->commit($pending));
                 }
                 if ($this->isConfirm($body)) {
-                    return $this->twiml('Önce seç: *1* yeni masraf, *2* avans.');
+                    return $this->twiml("Önce ne için verdiğini kısaca yaz (ör. \"sıva yaptırdım\", \"iş yaptıracağım, avans\", \"borç verdim\").");
                 }
             }
 
@@ -259,7 +261,7 @@ class WhatsappWebhookController extends Controller
                 // Düzeltme/ek bilgi → mevcut taslağı güncelle. AI'ın bilmediği seçimler (sözleşme,
                 // avans) aynı cari için korunur — "nakit" diye düzeltince sözleşme tekrar sorulmasın.
                 if (($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
-                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true]);
+                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true]);
                 }
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
@@ -297,6 +299,11 @@ class WhatsappWebhookController extends Controller
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $this->inboundKind = $this->kind($data);
+
+        // "Ali'ye 15 bin avans / borç verdim" ya da "Ne için verdin?" cevabı → masraf/avans sorusu yok.
+        if ($this->kind($data) === ExpenseExtractor::KIND_PAYMENT && in_array($data['payment_purpose'] ?? null, ['advance', 'loan'], true)) {
+            $data['advance'] = true;
+        }
 
         if ($this->kind($data) === ExpenseExtractor::KIND_HELP) {
             // Anlaşılamayan mesaj: zorla en yakın türe sokmak yerine yönlendir. Bekleyen taslağa dokunma.
@@ -351,7 +358,7 @@ class WhatsappWebhookController extends Controller
         $summary = $this->buildSummary($data);
         $footer = match (true) {
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",
-            $this->needsPaymentChoice($data) => "\n\n*1* veya *2* yaz, vazgeçmek için *iptal*.",
+            $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
         };
@@ -485,7 +492,12 @@ class WhatsappWebhookController extends Controller
             $description = $note . ($this->isTrivialDebtText($description) ? '' : ' — ' . $description);
         }
         if ($kind === ExpenseExtractor::KIND_PAYMENT && ! empty($d['advance'])) {
-            $description = 'Avans' . ($description ? ' — ' . $description : '');
+            $label = ($d['payment_purpose'] ?? null) === 'loan' ? 'Borç verildi' : 'Avans';
+            // "Avans — Avans ödemesi" / "Borç verildi — Borç verildi" tekrarı olmasın.
+            $word = $label === 'Avans' ? 'avans' : 'borç';
+            $description = $description && mb_stripos($description, $word) !== false
+                ? $description
+                : $label . ($description ? ' — ' . $description : '');
         }
 
         // Satışta birden fazla iş sayıldıysa her biri ayrı satır; yoksa tek satır.
@@ -659,11 +671,16 @@ class WhatsappWebhookController extends Controller
                 }
             }
             if ($this->needsPaymentChoice($d)) {
-                $lines[] = 'Bu cariye açık borcun görünmüyor. Bu ne için?';
-                $lines[] = '   1) Yeni iş / malzeme (masraf olarak yazılır)';
-                $lines[] = '   2) Avans (iş sonra yapılacak)';
+                $lines[] = 'Bu cariye açık borcun görünmüyor. *Ne için verdin?*';
+                $lines[] = '(ör. "sıva yaptırdım", "iş yaptıracağım, avans", "borç verdim, geri alacağım")';
 
                 return implode("\n", $lines);
+            }
+            if (! empty($d['advance'])) {
+                // Niyet AI'dan okundu — kayıttan önce yorumu göster, yanlışsa kullanıcı düzeltsin.
+                $lines[] = ($d['payment_purpose'] ?? null) === 'loan'
+                    ? '• Tür: Borç verdin (geri alacaksın)'
+                    : '• Tür: Avans (iş sonra yapılacak)';
             }
         } elseif ($kind === ExpenseExtractor::KIND_SALE) {
             $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺ iş yaptın';

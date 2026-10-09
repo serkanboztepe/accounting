@@ -49,7 +49,7 @@ class ExpenseExtractor
 
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
-        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır.',
+        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş için peşin ("avans", "kapora", "iş yaptıracağım") → "advance"; geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / alınmış malın karşılığıysa ("sıva yaptırdım", "malzeme aldım") bu bir "expense"dir (paid=true). Söylenmediyse null.',
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin").',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
@@ -201,6 +201,13 @@ class ExpenseExtractor
               düzeltmiyor) ya da bir soruysa (bakiye, toplam, gider özeti, ekstre, cari listesi): `is_new_entry`=true; önceki taslağı YOK SAY, SIFIRDAN çıkar —
               önceki proje/cari/kategori/tutarı ASLA taşıma.
 
+            Önceki taslak bir "payment" ise ve kullanıcıya "Ne için verdin?" sorulduysa, cevap bir DÜZELTMEDİR
+            (`is_new_entry`=false; tutarı, cariyi, tarihi KORU) — niyeti oku:
+              · yapılmış iş / alınmış mal ("iş yaptırdım", "sıva işçiliği", "malzeme aldım") → kind "expense",
+                `paid`=true, `description` işin kısa adı, uygun kategori;
+              · ileride yapılacak iş, peşinat ("iş yaptıracağım", "avans", "kapora") → kind "payment", `payment_purpose`="advance";
+              · ödünç ("borç verdim", "geri alacağım", "ödünç") → kind "payment", `payment_purpose`="loan".
+
             ÖNCEKİ TASLAK: {$prevJson}
 
             REFINE;
@@ -330,6 +337,7 @@ class ExpenseExtractor
                     'paid' => ['type' => ['boolean', 'null'], 'description' => 'true only if explicitly paid / payment proof document, false if explicitly unpaid or future, null if not stated'],
                     'confidence' => ['type' => 'string', 'enum' => ['high', 'low']],
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
+                    'payment_purpose' => ['type' => ['string', 'null'], 'enum' => ['advance', 'loan', null], 'description' => 'Only for kind=payment: advance (prepayment for future work) / loan (money lent, to be returned); null if not stated'],
                     'debt_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', null], 'description' => 'Only for kind=debt_note: receivable (they owe us) / payable (we owe them)'],
                     'reply' => ['type' => ['string', 'null'], 'description' => 'Only for kind=help: short Turkish guidance reply (max 3 sentences)'],
                     'is_new_entry' => ['type' => 'boolean', 'description' => 'Only meaningful when a previous draft is provided: true if the new message is a brand-new separate entry or a balance question (extract from scratch, ignore previous), false if it refines the previous draft. Default false.'],
@@ -383,6 +391,8 @@ class ExpenseExtractor
             'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? ($input['confidence'] ?? 'high') : 'high',
             'question' => ! empty($input['question']) ? (string) $input['question'] : null,
             'is_new_entry' => (bool) ($input['is_new_entry'] ?? false),
+            'payment_purpose' => $kind === self::KIND_PAYMENT && in_array($input['payment_purpose'] ?? null, ['advance', 'loan'], true)
+                ? $input['payment_purpose'] : null,
             'debt_side' => $kind === self::KIND_DEBT_NOTE
                 ? (($input['debt_side'] ?? null) === 'payable' ? 'payable' : 'receivable')
                 : null,
