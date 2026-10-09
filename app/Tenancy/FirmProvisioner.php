@@ -8,7 +8,6 @@ use Database\Seeders\ExpenseCategorySeeder;
 use Database\Seeders\UnitSeeder;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -29,20 +28,21 @@ class FirmProvisioner
         return config('tenancy.database_prefix') . $slug;
     }
 
-    /** Yeni firma: boş veritabanı + tablolar + varsayılanlar + ilk kullanıcı. */
+    /**
+     * Yeni firma: firmaya ÖZEL veritabanı kullanıcısı + boş veritabanı + tablolar + varsayılanlar + ilk kullanıcı.
+     * Firma kendi kullanıcısıyla bağlanır — o kullanıcı başka hiçbir firmanın veritabanını açamaz
+     * (koddaki bir hata yanlış veritabanı adı verse bile MySQL reddeder).
+     */
     public static function create(HubFirm $firm, string $name, string $email, string $password): void
     {
         $database = (string) $firm->database;
-
-        if (! preg_match('/^[a-z0-9_]+$/', $database)) {
-            throw new RuntimeException("Geçersiz veritabanı adı: {$database}");
-        }
+        self::assertSafeName($database);
 
         if (self::databaseExists($database)) {
-            throw new RuntimeException("{$database} veritabanı zaten var. Mevcut veritabanını bağlamak için \"Mevcut veritabanı\" seçeneğini kullan.");
+            throw new RuntimeException("{$database} veritabanı zaten var, başka bir kısa ad seç.");
         }
 
-        Schema::connection(self::adminConnection())->createDatabase($database);
+        self::createDatabaseWithOwnUser($firm);
 
         self::migrate($firm);
 
@@ -51,6 +51,67 @@ class FirmProvisioner
             (new ExpenseCategorySeeder())->run();
             User::create(['name' => $name, 'email' => $email, 'password' => $password]);
         });
+    }
+
+    /**
+     * Var olan veritabanı için firmaya özel kullanıcı aç ve firmayı ona bağla (ortak kullanıcıyla
+     * açılmış firmalar için: `php artisan tenants:create-db-user --firm=4`).
+     */
+    public static function giveOwnDatabaseUser(HubFirm $firm): void
+    {
+        self::assertSafeName((string) $firm->database);
+
+        if (! self::databaseExists($firm->database)) {
+            throw new RuntimeException("{$firm->database} veritabanı yok.");
+        }
+
+        self::createDatabaseWithOwnUser($firm, databaseExists: true);
+    }
+
+    /** Kullanıcı = veritabanı adı; şifre rastgele, hub'da şifreli (HubFirm db_password 'encrypted'). */
+    private static function createDatabaseWithOwnUser(HubFirm $firm, bool $databaseExists = false): void
+    {
+        $admin = DB::connection(self::adminConnection());
+        $database = (string) $firm->database;
+        $user = $database;
+        $password = Str::random(40);
+        $quoted = $admin->getPdo()->quote($password);
+
+        if ($admin->getDriverName() === 'pgsql') {
+            $admin->statement("DROP ROLE IF EXISTS \"{$user}\"");
+            $admin->statement("CREATE ROLE \"{$user}\" LOGIN PASSWORD {$quoted}");
+            if ($databaseExists) {
+                $admin->statement("ALTER DATABASE \"{$database}\" OWNER TO \"{$user}\"");
+                // PostgreSQL'de (yerel geliştirme/test) veritabanı sahipliği tabloları kapsamaz.
+                config(['database.connections.tenancy_admin_db' => array_merge(config('database.connections.' . self::adminConnection()), ['database' => $database])]);
+                $inDb = DB::connection('tenancy_admin_db');
+                $inDb->statement("GRANT ALL ON ALL TABLES IN SCHEMA public TO \"{$user}\"");
+                $inDb->statement("GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO \"{$user}\"");
+                $inDb->statement("GRANT ALL ON SCHEMA public TO \"{$user}\"");
+                DB::purge('tenancy_admin_db');
+            } else {
+                $admin->statement("CREATE DATABASE \"{$database}\" OWNER \"{$user}\"");
+            }
+        } else {
+            if (! $databaseExists) {
+                $admin->statement("CREATE DATABASE `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            }
+            // Panel 127.0.0.1 (TCP) ile, artisan bazen soket (localhost) ile bağlanır → ikisi de.
+            foreach (['localhost', '127.0.0.1'] as $host) {
+                $admin->statement("DROP USER IF EXISTS '{$user}'@'{$host}'");
+                $admin->statement("CREATE USER '{$user}'@'{$host}' IDENTIFIED BY {$quoted}");
+                $admin->statement("GRANT ALL PRIVILEGES ON `{$database}`.* TO '{$user}'@'{$host}'");
+            }
+        }
+
+        $firm->forceFill(['db_username' => $user, 'db_password' => $password])->save();
+    }
+
+    private static function assertSafeName(string $database): void
+    {
+        if (! preg_match('/^[a-z0-9_]+$/', $database)) {
+            throw new RuntimeException("Geçersiz veritabanı adı: {$database}");
+        }
     }
 
     /** Firma veritabanında bekleyen migration'ları çalıştır (deploy'da tüm firmalar için). */
@@ -77,7 +138,8 @@ class FirmProvisioner
     }
 
     /**
-     * Veritabanı açma yetkili bağlantı: merkezin ayarları + (varsa) TENANCY_ADMIN_DB_USERNAME/PASSWORD.
+     * Yetkili bağlantı (veritabanı + kullanıcı açar): merkezin ayarları + TENANCY_ADMIN_DB_USERNAME/PASSWORD.
+     * Yalnız "Firma oluştur" anında kullanılır; merkez kullanıcısı (hub_usr) firma veritabanlarını açamaz.
      * Ayrı bağlantı, çünkü CREATE DATABASE açık bir işlem (transaction) içinde çalışmaz.
      */
     public static function adminConnection(): string

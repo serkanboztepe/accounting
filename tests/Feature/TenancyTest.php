@@ -255,10 +255,10 @@ class TenancyTest extends TestCase
         $this->get(str_replace('firm=' . $this->a->id, 'firm=' . $this->b->id, $url))->assertForbidden();
     }
 
-    public function test_provisioner_creates_ready_firm_database(): void
+    public function test_provisioner_creates_ready_firm_database_with_own_db_user(): void
     {
         $firm = HubFirm::create(['name' => 'Yeni Nalbur', 'database' => 'hesap_test_new']);
-        DB::connection(FirmProvisioner::adminConnection())->statement('DROP DATABASE IF EXISTS hesap_test_new');
+        $this->dropTestDatabase('hesap_test_new');
 
         try {
             FirmProvisioner::create($firm, 'Nalbur Bey', 'nalbur@example.com', 'gecici-sifre-1');
@@ -266,11 +266,62 @@ class TenancyTest extends TestCase
             $this->assertTrue(FirmUser::where('hub_firm_id', $firm->id)->where('email', 'nalbur@example.com')->exists());
             $this->assertSame(1, Tenancy::run($firm, fn () => User::count()));
             $this->assertGreaterThan(0, Tenancy::run($firm, fn () => DB::table('units')->count()));
+
+            $this->assertSame('hesap_test_new', $firm->fresh()->db_username, 'firma kendi kullanıcısıyla bağlanmalı');
+            $this->assertCannotReadOtherFirm($firm->fresh());
         } finally {
             Tenancy::end();
-            DB::purge('tenant');
-            DB::connection(FirmProvisioner::adminConnection())->statement('DROP DATABASE IF EXISTS hesap_test_new WITH (FORCE)');
+            $this->dropTestDatabase('hesap_test_new');
         }
+    }
+
+    public function test_existing_firm_gets_own_db_user(): void
+    {
+        $this->dropTestDatabase('hesap_test_old');
+        $firm = HubFirm::create(['name' => 'Ortak Kullanıcılı', 'database' => 'hesap_test_old']);
+        DB::connection(FirmProvisioner::adminConnection())->statement('CREATE DATABASE hesap_test_old');
+
+        try {
+            FirmProvisioner::migrate($firm);
+            Tenancy::run($firm, fn () => User::create(['name' => 'X', 'email' => 'x@example.com', 'password' => 'gizli-sifre-1']));
+            $this->assertNull($firm->db_username);
+
+            $this->artisan('tenants:create-db-user', ['--firm' => $firm->id])->assertSuccessful();
+
+            $firm = $firm->fresh();
+            $this->assertSame('hesap_test_old', $firm->db_username);
+            $this->assertSame(1, Tenancy::run($firm, fn () => User::count()), 'veri yerinde, yeni kullanıcıyla okunuyor');
+            $this->assertCannotReadOtherFirm($firm);
+        } finally {
+            Tenancy::end();
+            $this->dropTestDatabase('hesap_test_old');
+        }
+    }
+
+    /** Firmanın kendi kullanıcısı başka firmanın (A) tablosunu okuyamamalı. */
+    private function assertCannotReadOtherFirm(HubFirm $firm): void
+    {
+        config(['database.connections.probe' => array_merge(config('database.connections.central'), [
+            'database' => self::DB_A, 'username' => $firm->db_username, 'password' => $firm->db_password,
+        ])]);
+        DB::purge('probe');
+
+        try {
+            DB::connection('probe')->table('parties')->count();
+            $this->fail("{$firm->db_username} başka firmanın veritabanını okuyabildi");
+        } catch (QueryException) {
+            $this->addToAssertionCount(1);
+        } finally {
+            DB::purge('probe');
+        }
+    }
+
+    private function dropTestDatabase(string $name): void
+    {
+        DB::purge('tenant');
+        $admin = DB::connection(FirmProvisioner::adminConnection());
+        $admin->statement("DROP DATABASE IF EXISTS {$name} WITH (FORCE)");
+        $admin->statement("DROP ROLE IF EXISTS {$name}");
     }
 
     public function test_hub_modules_screen_saves_firm_settings(): void
