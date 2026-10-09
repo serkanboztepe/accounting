@@ -320,12 +320,24 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertSame(1, Expense::where('description', 'Yakıt Onay Testi')->count());
     }
 
-    public function test_zero_amount_does_not_open_draft(): void
+    /**
+     * Tutar eksik ("Kira" → "Kira tutarı ne kadar?"): taslak açık kalır ki cevap ("20000") ona işlensin
+     * (Arda vakası: soru soruluyor, cevaba "onay bekleyen kayıt yok" deniyordu). 0 ₺ ASLA kaydedilmez.
+     */
+    public function test_missing_amount_keeps_draft_and_number_reply_completes_it(): void
     {
-        $this->fakeAi($this->entry(['amount' => 0, 'description' => 'Belirsiz']));
+        $this->fakeAi($this->entry(['amount' => 0, 'description' => 'Kira', 'question' => 'Kira tutarı ne kadar?']));
+        $before = Expense::count();
 
-        $this->assertStringContainsString('Tutarı anlayamadım', $this->send('asdf qwe'));
-        $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+        $this->assertStringContainsString('Kira tutarı ne kadar?', $this->send('Kira'));
+        $this->assertStringContainsString('Önce tutarı yaz', $this->send('evet'));
+        $this->assertSame($before, Expense::count());
+
+        $summary = $this->send('20.000 tl');
+        $this->assertStringContainsString('Tutar: 20.000,00 ₺', $summary);
+        $this->assertStringContainsString('Kaydedildi', $this->send('evet'));
+        $this->assertSame($before + 1, Expense::count());
+        $this->assertEqualsWithDelta(20000, (float) Expense::latest('id')->first()->amount, 0.001);
     }
 
     private function contract(Party $party, string $title, float $total): \App\Models\Contract

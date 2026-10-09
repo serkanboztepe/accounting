@@ -120,12 +120,12 @@ class HubRouter
         return $response;
     }
 
-    /** Maliyet takibi: gelen 1 mesaj + cevapta <Message> varsa giden 1 mesaj. */
+    /** Maliyet takibi: gelen 1 mesaj + cevaptaki her <Message> için giden 1 mesaj (ilk mesajda rehber ikinci balon). */
     private function log(?int $firmId, string $phone, string $twiml): void
     {
         try {
             HubMessageLog::create(['hub_firm_id' => $firmId, 'phone' => $phone, 'direction' => 'in']);
-            if (str_contains($twiml, '<Message')) {
+            for ($i = substr_count($twiml, '<Message'); $i > 0; $i--) {
                 HubMessageLog::create(['hub_firm_id' => $firmId, 'phone' => $phone, 'direction' => 'out']);
             }
         } catch (Throwable $e) {

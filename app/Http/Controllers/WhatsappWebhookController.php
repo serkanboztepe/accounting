@@ -9,6 +9,7 @@ use App\Models\ExpenseCategory;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
@@ -20,7 +21,9 @@ use App\Support\PartyBalances;
 use App\Support\PartyStatement;
 use App\Support\Phone;
 use App\Tenancy\Tenancy;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
@@ -56,9 +59,58 @@ class WhatsappWebhookController extends Controller
             return HubRouter::unknownPhoneResponse($phone);
         }
 
+        // Peş peşe gelen mesajlar ("kira 20 bin" + hemen "ödeme yapıldı") aynı anda işlenince ikincisi
+        // taslağı göremiyor, ayrı ayrı cevaplanıyordu → aynı telefonun mesajları sıraya girer.
+        $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 30);
+        try {
+            $lock->block(12);
+        } catch (LockTimeoutException) {
+            $lock = null; // uzun süren bir önceki mesaj (fotoğraf) — beklemeden devam
+        }
+
+        try {
+            $firstContact = $this->isFirstContact($phone);
+            $incoming = $this->logMessage($phone, 'in', $body, $numMedia > 0);
+
+            $response = $this->respond($request, $extractor, $phone, $body, $numMedia);
+
+            // İlk kez yazan: cevabın ardından ikinci mesaj olarak rehber (ne yazabileceğini bilmeden
+            // deneme-yanılmayla vazgeçmesin — Arda vakası).
+            if ($firstContact && $this->inboundKind !== 'guide') {
+                $response = $this->twimlMany([...$this->replies, $this->guideText(firstContact: true)]);
+            }
+
+            $incoming?->update(['kind' => $this->inboundKind]);
+            foreach ($this->replies as $reply) {
+                $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply);
+            }
+
+            return $response;
+        } finally {
+            $lock?->release();
+        }
+    }
+
+    /** Son gelen mesajın türü (konuşma kaydı): AI türü / quick / guide / checks / error / no_draft. */
+    private ?string $inboundKind = null;
+
+    /** @var list<string|array{0:string,1:string}> bu isteğin cevap(lar)ı — kayıt ve ilk mesaj rehberi için */
+    private array $replies = [];
+
+    private function respond(Request $request, ExpenseExtractor $extractor, string $phone, string $body, int $numMedia)
+    {
+        // "nasıl" / "yardım" — sektöre göre rehber, AI'sız.
+        if ($numMedia === 0 && in_array($this->word($body), ['nasıl', 'nasil', 'yardım', 'yardim', 'menü', 'menu', 'neler yapabilirsin'], true)) {
+            $this->inboundKind = 'guide';
+
+            return $this->twiml($this->guideText());
+        }
+
         // "çekler" — vadesi yaklaşan çek listesi (hatırlatmanın devamı). AI'sız, doğrudan veriden.
         if ($numMedia === 0 && config('modules.checks')
             && in_array($this->word($body), ['çekler', 'cekler', 'çeklerim', 'ceklerim', 'çek', 'cek'], true)) {
+            $this->inboundKind = 'checks';
+
             return $this->twiml(CheckReminders::listText());
         }
 
@@ -82,6 +134,9 @@ class WhatsappWebhookController extends Controller
 
         // Hızlı cevaplar (evet/iptal/numara) dışında AI çağrılacak → "yazıyor…" göster.
         $quickReply = $numMedia === 0 && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body));
+        if ($quickReply) {
+            $this->inboundKind = 'quick';
+        }
         if (! $quickReply && ($body !== '' || $numMedia > 0)) {
             $this->sendTypingIndicator((string) $request->input('MessageSid', ''));
         }
@@ -90,6 +145,8 @@ class WhatsappWebhookController extends Controller
 
         // Bekleyen taslak yokken gelen "evet"/"iptal"/numara: yeni kayıt SANMA (0 ₺'lik gider açılıyordu).
         if (! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
+            $this->inboundKind = 'no_draft';
+
             return $this->twiml('Onay bekleyen bir kayıt yok (taslaklar 30 dk geçerli). Yeni bir işlem yazabilirsin.');
         }
 
@@ -101,6 +158,17 @@ class WhatsappWebhookController extends Controller
                 $pending->update(['status' => 'cancelled']);
 
                 return $this->twiml('İptal edildi. ✖️');
+            }
+
+            // Tutarı eksik taslak ("Kira" → "Kira tutarı ne kadar?") + sadece sayı ("20000", "20.000 tl")
+            // → tutar budur. Eskiden soruyu sorup taslak açmıyor, cevaba "onay bekleyen kayıt yok" diyordu.
+            $typedAmount = $this->typedAmount($body);
+            if ($typedAmount !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0) {
+                $data = $pending->extracted;
+                $data['amount'] = $typedAmount;
+                $data['question'] = null;
+
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
             // Sözleşmeli cariye ödeme, birden fazla aktif sözleşme → hangisi?
@@ -166,6 +234,8 @@ class WhatsappWebhookController extends Controller
                 } catch (\Throwable $e) {
                     Log::error('WhatsApp gider düzeltme hatası', ['msg' => $e->getMessage()]);
 
+                    $this->inboundKind = 'error';
+
                     return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
                 }
 
@@ -178,7 +248,9 @@ class WhatsappWebhookController extends Controller
                     } catch (\Throwable $e) {
                         Log::error('WhatsApp yeni gider çıkarma hatası', ['msg' => $e->getMessage()]);
 
-                        return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
+                        $this->inboundKind = 'error';
+
+                    return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
                     }
 
                     return $this->twiml($this->saveDraft(null, $phone, $data));
@@ -201,13 +273,16 @@ class WhatsappWebhookController extends Controller
 
         // 2) Yeni gider girişi (metin ve/veya fotoğraf)
         if ($image === null && $body === '') {
-            return $this->twiml($this->helpText());
+            $this->inboundKind = 'guide';
+
+            return $this->twiml($this->guideText());
         }
 
         try {
             $data = $extractor->extract($body ?: null, $image);
         } catch (\Throwable $e) {
             Log::error('WhatsApp gider çıkarma hatası', ['msg' => $e->getMessage()]);
+            $this->inboundKind = 'error';
 
             return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
         }
@@ -221,6 +296,21 @@ class WhatsappWebhookController extends Controller
      */
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
+        $this->inboundKind = $this->kind($data);
+
+        if ($this->kind($data) === ExpenseExtractor::KIND_HELP) {
+            // Anlaşılamayan mesaj: zorla en yakın türe sokmak yerine yönlendir. Bekleyen taslağa dokunma.
+            return $data['reply'] ?: $this->guideText();
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_PARTY_LIST) {
+            $pending?->update(['status' => 'superseded']);
+
+            return $this->partyListAnswer();
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_DEBT_NOTE
+            && ($data['debt_side'] ?? null) === 'payable' && ! config('modules.cari_supplier')) {
+            return 'Bu hesapta borç kaydı (biz borçluyuz) açık değil; alacaklarını yazabilirsin. Örnek: "Ali\'den 40 bin alacağım var"';
+        }
         if ($this->kind($data) === ExpenseExtractor::KIND_BALANCE_QUERY) {
             $pending?->update(['status' => 'superseded']);
 
@@ -242,10 +332,20 @@ class WhatsappWebhookController extends Controller
             return ExpenseSummary::text($data['date_from'] ?? null, $data['date_to'] ?? null, $data['project_id'] ?? null);
         }
 
-        // Tutarsız kayıt taslağı açma (anlaşılmayan mesaj 0 ₺'lik gider oluyordu). Bekleyen taslağa dokunma.
+        // Tutar eksik ("Kira"): soruyu sor AMA taslağı tut — cevap ("20000") bu taslağa işlensin.
+        // 0 ₺ taslak onaylanamaz (commit tutarı kontrol eder).
         if ((float) ($data['amount'] ?? 0) <= 0) {
-            return '❓ ' . ($data['question']
-                ?: "Tutarı anlayamadım. Örnek: \"Kuşak Beton'dan 50 bin beton aldım\"");
+            $question = '❓ ' . ($data['question'] ?: 'Tutarı ne kadar? Sadece rakamı yazman yeterli (ör. 20000).');
+            if ($pending) {
+                $pending->update(['extracted' => $data, 'summary' => $question]);
+            } else {
+                WhatsappPendingExpense::create([
+                    'phone' => $phone, 'extracted' => $data, 'summary' => $question,
+                    'media_url' => $mediaUrl, 'status' => 'awaiting_confirmation',
+                ]);
+            }
+
+            return $question . "\nVazgeçmek için *iptal*.";
         }
 
         $summary = $this->buildSummary($data);
@@ -278,6 +378,10 @@ class WhatsappWebhookController extends Controller
     {
         $d = $pending->extracted;
         $kind = $this->kind($d);
+
+        if ((float) ($d['amount'] ?? 0) <= 0) {
+            return '❓ Önce tutarı yaz (ör. 20000).';
+        }
 
         if ($kind !== ExpenseExtractor::KIND_EXPENSE) {
             if ($this->missingParty($d)) {
@@ -373,8 +477,13 @@ class WhatsappWebhookController extends Controller
             $projectId = Project::firstOrCreate(['name' => $d['project_name']], ['status' => 'active'])->id;
         }
 
-        $type = self::LEDGER_TYPES[$kind];
+        $type = $this->ledgerType($d);
         $description = $d['description'] ?? null;
+        if ($kind === ExpenseExtractor::KIND_DEBT_NOTE) {
+            // Ekstrede "Satış/Alış" satırı olarak görünür; ne olduğu açıklamadan anlaşılsın.
+            $note = ($d['debt_side'] ?? null) === 'payable' ? 'Borç kaydı' : 'Alacak kaydı';
+            $description = $note . ($this->isTrivialDebtText($description) ? '' : ' — ' . $description);
+        }
         if ($kind === ExpenseExtractor::KIND_PAYMENT && ! empty($d['advance'])) {
             $description = 'Avans' . ($description ? ' — ' . $description : '');
         }
@@ -402,11 +511,32 @@ class WhatsappWebhookController extends Controller
         return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
     }
 
+    /** "Alacak", "Borç kaydı" gibi açıklama yeni bilgi taşımaz — "Alacak kaydı — Alacak" tekrarı olmasın. */
+    private function isTrivialDebtText(?string $text): bool
+    {
+        $t = trim(mb_strtolower(strtr((string) $text, ['İ' => 'i', 'I' => 'ı'])));
+
+        return $t === '' || in_array($t, ['alacak', 'borç', 'borc', 'alacak kaydı', 'borç kaydı', 'alacağım', 'borcum'], true);
+    }
+
     private const LEDGER_TYPES = [
         ExpenseExtractor::KIND_PAYMENT => PartyLedgerEntry::TYPE_PAYMENT,
         ExpenseExtractor::KIND_SALE => PartyLedgerEntry::TYPE_SALE,
         ExpenseExtractor::KIND_COLLECTION => PartyLedgerEntry::TYPE_COLLECTION,
     ];
+
+    /**
+     * Alacak/borç kaydı ("Ali'den 40 bin alacağım var") yalnız cari bakiyesini değiştirir: alacak →
+     * satış satırı (cari borçlanır), borç → alış satırı. İkisi de maliyete/rapora girmez.
+     */
+    private function ledgerType(array $d): string
+    {
+        if ($this->kind($d) === ExpenseExtractor::KIND_DEBT_NOTE) {
+            return ($d['debt_side'] ?? null) === 'payable' ? PartyLedgerEntry::TYPE_PURCHASE : PartyLedgerEntry::TYPE_SALE;
+        }
+
+        return self::LEDGER_TYPES[$this->kind($d)];
+    }
 
     /**
      * Teyit metni — tür gider değilse cari hareketi özeti (yön + bakiye öncesi/sonrası).
@@ -490,7 +620,11 @@ class WhatsappWebhookController extends Controller
         $name = $party?->name ?? ($d['party_name'] ?? null);
 
         if ($name === null) {
-            return '❓ ' . ($d['question'] ?: 'Kime/kimden olduğunu yazar mısın? (cari adı)');
+            return '❓ ' . ($d['question'] ?: match (true) {
+                $kind === ExpenseExtractor::KIND_DEBT_NOTE && ($d['debt_side'] ?? null) === 'payable' => 'Kime borcun var? Adını yazar mısın?',
+                $kind === ExpenseExtractor::KIND_DEBT_NOTE => 'Kimden alacağın var? Adını yazar mısın?',
+                default => 'Kime/kimden olduğunu yazar mısın? (cari adı)',
+            });
         }
 
         $label = $party ? $name : $name . ' (yeni cari)';
@@ -500,6 +634,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_PAYMENT => $before + $amount,
             ExpenseExtractor::KIND_SALE => $before + $amount,
             ExpenseExtractor::KIND_COLLECTION => $before - $amount,
+            ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? $before - $amount : $before + $amount,
         };
 
         $lines = [];
@@ -535,11 +670,16 @@ class WhatsappWebhookController extends Controller
             foreach ($d['items'] ?? [] as $item) {
                 $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
             }
+        } elseif ($kind === ExpenseExtractor::KIND_DEBT_NOTE) {
+            $lines[] = ($d['debt_side'] ?? null) === 'payable'
+                ? '📒 *Borç kaydı*: ' . $label . ' → sen ona ' . Money::format($amount) . ' ₺ borçlusun'
+                : '📒 *Alacak kaydı*: ' . $label . ' → sana ' . Money::format($amount) . ' ₺ borçlu';
         } else {
             $lines[] = '💰 ' . $label . ' → *sana*: ' . Money::format($amount) . ' ₺ ödedi';
         }
 
-        if (! empty($d['description']) && $kind !== ExpenseExtractor::KIND_SALE) {
+        if (! empty($d['description']) && $kind !== ExpenseExtractor::KIND_SALE
+            && ! ($kind === ExpenseExtractor::KIND_DEBT_NOTE && $this->isTrivialDebtText($d['description']))) {
             $lines[] = '• Açıklama: ' . $d['description'];
         }
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
@@ -646,7 +786,7 @@ class WhatsappWebhookController extends Controller
             $sections[] = $this->totalsSection('Toplam alacağın', PartyBalances::receivables($filters));
         }
         if ($side !== 'receivable') {
-            $sections[] = $this->totalsSection('Toplam borcun', PartyBalances::payables($filters));
+            $sections[] = $this->totalsSection('Toplam borcun', PartyBalances::payables($filters), $this->unpaidExpensesWithoutParty($filters));
         }
 
         $head = '📊' . ($project ? ' ' . $project->name . ' projesi — ' : ' ');
@@ -655,19 +795,72 @@ class WhatsappWebhookController extends Controller
             . ($project ? "\n\n(Sadece bu projeye etiketli hareketler.)" : '');
     }
 
-    private function totalsSection(string $title, \Illuminate\Support\Collection $rows): string
+    /**
+     * @param  \Illuminate\Support\Collection<int, Expense>|null  $unpaid  carisiz ödenmemiş giderler (yalnız borç tarafı)
+     */
+    private function totalsSection(string $title, \Illuminate\Support\Collection $rows, ?\Illuminate\Support\Collection $unpaid = null): string
     {
-        if ($rows->isEmpty()) {
+        $unpaid ??= collect();
+        if ($rows->isEmpty() && $unpaid->isEmpty()) {
             return $title . ': 0 ₺';
         }
 
-        $lines = [$title . ': ' . Money::format($rows->sum('balance')) . ' ₺ (' . $rows->count() . ' cari)'];
+        $total = $rows->sum('balance') + (float) $unpaid->sum('amount');
+        $lines = [$title . ': ' . Money::format($total) . ' ₺' . ($unpaid->isEmpty() ? ' (' . $rows->count() . ' cari)' : '')];
         foreach ($rows->take(5) as $row) {
             $lines[] = '• ' . $row['party']->name . ': ' . Money::format($row['balance']);
         }
         if ($rows->count() > 5) {
             $lines[] = '… ve ' . ($rows->count() - 5) . ' cari daha';
         }
+        if ($unpaid->isNotEmpty()) {
+            // Carisiz giderler cari ekstresine girmez; ödenmemişse yine de borçtur (Arda: kira "borç" diye
+            // girildi, "toplam borcun 0" deniyordu). Ayrı satır — cari bakiyeleriyle çift sayılmaz.
+            $names = $unpaid->take(3)->map(fn (Expense $e) => $e->description ?: 'gider')->implode(', ');
+            $lines[] = '• Ödenmemiş giderler (cari yok): ' . Money::format((float) $unpaid->sum('amount'))
+                . ' — ' . $names . ($unpaid->count() > 3 ? ' …' : '');
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** @return \Illuminate\Support\Collection<int, Expense> */
+    private function unpaidExpensesWithoutParty(array $filters): \Illuminate\Support\Collection
+    {
+        if (! config('modules.expenses')) {
+            return collect();
+        }
+
+        return Expense::query()
+            ->whereNull('party_id')
+            ->whereIn('payment_status', ['unpaid', 'partial'])
+            ->when($filters['project_id'] ?? null, fn ($q, $id) => $q->where('project_id', $id))
+            ->orderByDesc('amount')
+            ->get();
+    }
+
+    /** "Hangi carim var?" — bakiyesi olanlar önce, en fazla 15; hiç cari yoksa nasıl açılacağını söyle. */
+    private function partyListAnswer(): string
+    {
+        $count = Party::count();
+        if ($count === 0) {
+            return "Henüz carin yok. Cari, bir işlemle birlikte adını yazınca kendiliğinden açılır. Örnek:\n"
+                . "• \"Ali'den 40 bin alacağım var\"\n• \"Ali 10 bin ödedi\"";
+        }
+
+        $rows = PartyBalances::all();
+        $lines = ['📒 *Carilerin* (' . $count . ')'];
+        foreach ($rows->take(15) as $row) {
+            $lines[] = '• ' . $this->balanceLine($row['party']->name, $row['balance']);
+        }
+        if ($rows->count() > 15) {
+            $lines[] = '… ve bakiyesi olan ' . ($rows->count() - 15) . ' cari daha';
+        }
+        $closed = $count - $rows->count();
+        if ($closed > 0) {
+            $lines[] = ($rows->isEmpty() ? '' : '… ') . $closed . ' carinin hesabı kapalı (bakiye 0).';
+        }
+        $lines[] = "\nAyrıntı için: \"Ali'nin ekstresini at\"";
 
         return implode("\n", $lines);
     }
@@ -689,25 +882,88 @@ class WhatsappWebhookController extends Controller
     }
 
     /** Boş mesaja cevap — yalnız bu kurulumda açık işlemleri örnekler (mimar'a "gider" denmesin). */
-    private function helpText(): string
+    /**
+     * Rehber ("nasıl" / boş mesaj / ilk mesaj) — yalnız bu kurulumda açık işlemleri örnekler
+     * (mimar'a "gider" denmesin). Kaydet / sor diye ikiye ayrılır.
+     */
+    private function guideText(bool $firstContact = false): string
     {
-        $examples = [
-            ExpenseExtractor::KIND_EXPENSE => "• Gider: \"Kuşak Beton'dan 50 bin beton aldım\" (ya da fiş/dekont fotoğrafı)",
-            ExpenseExtractor::KIND_PAYMENT => "• Ödeme: \"Ahmet ustaya 100 bin ödedim\"",
-            ExpenseExtractor::KIND_SALE => "• Satış: \"Ahmet Bey'e 80 bine proje yaptım\"",
-            ExpenseExtractor::KIND_COLLECTION => "• Tahsilat: \"Ahmet Bey 50 bin ödedi\"",
-            ExpenseExtractor::KIND_BALANCE_QUERY => "• Bakiye: \"Ahmet Bey'in borcu ne?\"",
-            ExpenseExtractor::KIND_TOTALS_QUERY =>"• Toplam: \"Toplam alacağım ne kadar?\"",
-            ExpenseExtractor::KIND_EXPENSE_SUMMARY => "• Harcama: \"Bu ay ne kadar giderim var?\"",
-            ExpenseExtractor::KIND_STATEMENT => "• Ekstre (PDF): \"Ahmet Bey'in ekstresini at\"",
+        $record = [
+            ExpenseExtractor::KIND_EXPENSE => "• Harcama: \"5 bin yakıt aldım\", \"Kira 20 bin ödendi\"",
+            ExpenseExtractor::KIND_SALE => "• Satış: \"Ahmet Bey'e 80 bine iş yaptım\"",
+            ExpenseExtractor::KIND_COLLECTION => "• Gelen para: \"Ahmet Bey 50 bin ödedi\"",
+            ExpenseExtractor::KIND_PAYMENT => "• Verdiğin para: \"Ahmet ustaya 10 bin ödedim\"",
+            ExpenseExtractor::KIND_DEBT_NOTE => "• Alacak / borç: \"Ali'den 40 bin alacağım var\""
+                . (config('modules.cari_supplier') ? ", \"Mehmet'e 15 bin borcum var\"" : ''),
         ];
+        $ask = [
+            ExpenseExtractor::KIND_BALANCE_QUERY => "• \"Ahmet'in borcu ne?\"",
+            ExpenseExtractor::KIND_TOTALS_QUERY => "• \"Toplam alacağım ne kadar?\"",
+            ExpenseExtractor::KIND_EXPENSE_SUMMARY => "• \"Bu ay ne kadar harcadım?\"",
+            ExpenseExtractor::KIND_PARTY_LIST => "• \"Hangi carilerim var?\"",
+            ExpenseExtractor::KIND_STATEMENT => "• \"Ahmet'in ekstresini at\" (PDF)",
+        ];
+        $kinds = ExpenseExtractor::allowedKinds();
+        $pick = fn (array $examples) => array_values(array_intersect_key($examples, array_flip($kinds)));
 
-        $lines = ['Şunları yazabilirsin:'];
-        foreach (ExpenseExtractor::allowedKinds() as $kind) {
-            $lines[] = $examples[$kind];
+        $lines = [$firstContact
+            ? "👋 Hoş geldin! Ben *Hesap Asistanım*. Bana normal konuşur gibi yaz, kaydı ben tutarım; kaydetmeden önce her seferinde sana sorarım."
+            : 'Bana normal konuşur gibi yazman yeterli. Örnekler:'];
+        $lines[] = '';
+        $lines[] = '*Kaydetmek için:*';
+        array_push($lines, ...$pick($record));
+        $lines[] = '';
+        $lines[] = '*Sormak için:*';
+        array_push($lines, ...$pick($ask));
+        if (config('modules.checks')) {
+            $lines[] = '• "çekler" (vadesi yaklaşan çeklerin)';
         }
+        $lines[] = '';
+        if (in_array(ExpenseExtractor::KIND_EXPENSE, $kinds, true)) {
+            $lines[] = '📷 Fiş / dekont fotoğrafı da atabilirsin.';
+        }
+        $lines[] = 'Bu listeyi tekrar görmek için *nasıl* yaz.';
 
         return implode("\n", $lines);
+    }
+
+    /** Sadece tutar yazıldıysa ("20000", "20.000", "20.000 tl", "1.250,50 ₺") → sayı; değilse null. */
+    private function typedAmount(string $body): ?float
+    {
+        $text = trim(preg_replace('/\s*(tl|₺|lira)$/iu', '', trim($body)) ?? '');
+        if (! preg_match('/^\d{1,3}(\.\d{3})+(,\d{1,2})?$|^\d+(,\d{1,2})?$/', $text)) {
+            return null;
+        }
+        $amount = Money::parse($text);
+
+        return $amount > 0 ? $amount : null;
+    }
+
+    /**
+     * İlk kez mi yazıyor? Konuşma kaydı yeni; kayıttan önce kullanmaya başlamış olanlara (taslağı
+     * olan) karşılama gitmesin.
+     */
+    private function isFirstContact(string $phone): bool
+    {
+        return WhatsappMessage::isFirstContact(Phone::normalize($phone))
+            && ! WhatsappPendingExpense::where('phone', $phone)->exists();
+    }
+
+    /** Konuşma kaydı — yazılamazsa asıl akışı asla durdurmaz. */
+    private function logMessage(string $phone, string $direction, ?string $body, bool $hasMedia = false): ?WhatsappMessage
+    {
+        try {
+            return WhatsappMessage::create([
+                'phone' => Phone::normalize($phone),
+                'direction' => $direction,
+                'body' => $body === null ? null : mb_substr($body, 0, 4000),
+                'has_media' => $hasMedia,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('WhatsApp konuşma kaydı yazılamadı', ['error' => $e->getMessage()]);
+
+            return null;
+        }
     }
 
     /**
@@ -914,14 +1170,29 @@ class WhatsappWebhookController extends Controller
 
     private function twiml(string|array $message)
     {
-        [$text, $media] = is_array($message) ? $message : [$message, null];
+        return $this->twimlMany([$message]);
+    }
+
+    /**
+     * Birden fazla WhatsApp mesajı (ör. cevap + ilk mesaj rehberi). Her biri ayrı balon.
+     *
+     * @param  list<string|array{0:string,1:string}>  $messages
+     */
+    private function twimlMany(array $messages)
+    {
+        $this->replies = $messages;
         $esc = fn (string $v) => htmlspecialchars($v, ENT_XML1 | ENT_QUOTES, 'UTF-8');
-        $inner = $media === null
-            ? $esc($text)
-            : '<Body>' . $esc($text) . '</Body><Media>' . $esc($media) . '</Media>';
+
+        $xml = '';
+        foreach ($messages as $message) {
+            [$text, $media] = is_array($message) ? $message : [$message, null];
+            $xml .= '<Message>' . ($media === null
+                ? $esc($text)
+                : '<Body>' . $esc($text) . '</Body><Media>' . $esc($media) . '</Media>') . '</Message>';
+        }
 
         return response(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Message>{$inner}</Message></Response>",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response>{$xml}</Response>",
             200,
             ['Content-Type' => 'text/xml']
         );

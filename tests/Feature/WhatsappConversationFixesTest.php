@@ -1,0 +1,206 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Expense;
+use App\Models\Party;
+use App\Models\PartyLedgerEntry;
+use App\Models\WhatsappMessage;
+use App\Models\WhatsappPendingExpense;
+use App\Services\Whatsapp\ExpenseExtractor;
+use App\Support\PartyStatement;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Http;
+use Mockery;
+use Tests\TestCase;
+
+/**
+ * Arda vakası (9 Ekim, alacak-verecek): 5 dakikada 17 mesaj, çoğu çıkmaza girdi.
+ * Alacak/borç kaydı, cari listesi, "anlamadım" yönlendirmesi, carisiz ödenmemiş gider borçta,
+ * konuşma kaydı ve ilk mesajda rehber. AI mock'lanır; gerçek AI ile tekrar oynatma ayrıca yapıldı.
+ */
+class WhatsappConversationFixesTest extends TestCase
+{
+    use DatabaseTransactions;
+
+    private const PHONE = 'whatsapp:+905557770000';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config([
+            'services.twilio.verify_signature' => false,
+            'services.twilio.allowed_phones' => ['0555 777 00 00'],
+            'modules.expenses' => true,
+            'modules.cari_supplier' => true,
+        ]);
+        Http::fake();
+    }
+
+    private function fakeAi(array ...$responses): void
+    {
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturn(...$responses);
+        $this->app->instance(ExpenseExtractor::class, $mock);
+    }
+
+    private function entry(array $overrides): array
+    {
+        return array_merge([
+            'kind' => ExpenseExtractor::KIND_EXPENSE, 'items' => [], 'totals_side' => null,
+            'date_from' => null, 'date_to' => null, 'payment_type' => null, 'amount' => 0.0,
+            'date' => now()->format('Y-m-d'), 'due_date' => null, 'description' => '',
+            'project_id' => null, 'project_name' => null, 'party_id' => null, 'party_name' => null,
+            'category_id' => null, 'category_name' => null, 'paid' => null, 'confidence' => 'high',
+            'question' => null, 'is_new_entry' => false, 'debt_side' => null, 'reply' => null,
+        ], $overrides);
+    }
+
+    private function send(string $body): string
+    {
+        return html_entity_decode($this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => $body, 'NumMedia' => 0])
+            ->assertOk()
+            ->getContent(), ENT_QUOTES | ENT_XML1);
+    }
+
+    /** Eski kullanıcı gibi davran: ilk mesaj rehberi araya girmesin (rehber ayrı testte). */
+    private function notFirstContact(): void
+    {
+        WhatsappMessage::create(['phone' => '905557770000', 'direction' => 'in', 'body' => 'önceki']);
+    }
+
+    public function test_debt_note_receivable_creates_ledger_receivable_for_new_party(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry([
+            'kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'receivable',
+            'amount' => 40000, 'party_name' => 'Arda Test Ali', 'description' => 'Alacak kaydı',
+        ]));
+
+        $summary = $this->send("Arda Test Ali'den 40.000 tl alacağım var");
+        $this->assertStringContainsString('Alacak kaydı', $summary);
+        $this->assertStringContainsString('sana 40.000,00 ₺ borçlu', $summary);
+
+        $this->assertStringContainsString('Kaydedildi', $this->send('evet'));
+        $party = Party::where('name', 'Arda Test Ali')->firstOrFail();
+        $entry = PartyLedgerEntry::where('party_id', $party->id)->sole();
+        $this->assertSame(PartyLedgerEntry::TYPE_SALE, $entry->type);
+        $this->assertSame('Alacak kaydı', $entry->description);
+        $this->assertEqualsWithDelta(40000, PartyStatement::build($party)['balance'], 0.001); // bize borçlu
+        $this->assertSame(0, Expense::where('party_id', $party->id)->count());          // maliyet değil
+    }
+
+    public function test_debt_note_without_name_asks_and_keeps_draft_until_name_given(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi(
+            $this->entry(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'receivable', 'amount' => 40000]),
+            $this->entry(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'receivable', 'amount' => 40000, 'party_name' => 'Arda Test Veli']),
+        );
+
+        $this->assertStringContainsString('Kimden alacağın var?', $this->send('40.000 tl alacağım var'));
+        $this->assertSame(1, WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->count());
+
+        $this->assertStringContainsString('Arda Test Veli (yeni cari) → sana 40.000,00 ₺ borçlu', $this->send('Arda Test Veli'));
+        $this->send('evet');
+        $this->assertEqualsWithDelta(40000, PartyStatement::build(Party::where('name', 'Arda Test Veli')->sole())['balance'], 0.001);
+    }
+
+    public function test_debt_note_payable_lowers_balance_and_is_refused_without_supplier_side(): void
+    {
+        $this->notFirstContact();
+        $payable = $this->entry(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'payable', 'amount' => 15000, 'party_name' => 'Arda Test Mehmet']);
+
+        $this->fakeAi($payable);
+        $this->assertStringContainsString('sen ona 15.000,00 ₺ borçlusun', $this->send("Arda Test Mehmet'e 15 bin borcum var"));
+        $this->send('evet');
+        $party = Party::where('name', 'Arda Test Mehmet')->sole();
+        $this->assertSame(PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::where('party_id', $party->id)->sole()->type);
+        $this->assertEqualsWithDelta(-15000, PartyStatement::build($party)['balance'], 0.001);
+
+        config(['modules.cari_supplier' => false]); // mimar / toptancı
+        $this->fakeAi($payable);
+        $this->assertStringContainsString('borç kaydı (biz borçluyuz) açık değil', $this->send("Arda Test Mehmet'e 15 bin borcum var"));
+    }
+
+    public function test_party_list_shows_balances(): void
+    {
+        $this->notFirstContact();
+        $party = Party::create(['name' => 'Arda Test Liste']);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now()->toDateString(), 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 99999999]);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PARTY_LIST]));
+
+        $reply = $this->send('Hangi carim var');
+
+        $this->assertStringContainsString('Carilerin', $reply);
+        $this->assertStringContainsString('Arda Test Liste: sana borcu 99.999.999,00 ₺', $reply);
+    }
+
+    public function test_help_kind_returns_ai_guidance_without_draft_and_is_logged_as_unclear(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_HELP, 'reply' => "Cari, bir işlemle açılır. Örnek: \"Ali'den 40 bin alacağım var\""]));
+
+        $this->assertStringContainsString('Cari, bir işlemle açılır', $this->send('Cari hesap kayıt'));
+        $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
+
+        $in = WhatsappMessage::where('phone', '905557770000')->where('direction', 'in')->latest('id')->first();
+        $this->assertSame('Cari hesap kayıt', $in->body);
+        $this->assertSame('help', $in->kind);
+        $this->assertContains('help', WhatsappMessage::UNCLEAR_KINDS);
+        $out = WhatsappMessage::where('phone', '905557770000')->where('direction', 'out')->latest('id')->first();
+        $this->assertStringContainsString('Cari, bir işlemle açılır', $out->body);
+    }
+
+    public function test_total_debt_includes_unpaid_expenses_without_party(): void
+    {
+        $this->notFirstContact();
+        Expense::create(['expense_date' => now()->toDateString(), 'amount' => 98765432, 'payment_status' => 'unpaid', 'description' => 'Arda test ev kirası']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_TOTALS_QUERY, 'totals_side' => 'payable']));
+
+        $reply = $this->send('Tüm borç');
+
+        $this->assertStringContainsString('Ödenmemiş giderler (cari yok)', $reply);
+        $this->assertStringContainsString('Arda test ev kirası', $reply);
+        $this->assertStringNotContainsString('Toplam borcun: 0 ₺', $reply);
+    }
+
+    public function test_first_message_gets_guide_as_second_bubble_only_once(): void
+    {
+        $this->fakeAi(
+            $this->entry(['amount' => 47, 'description' => 'Otobüs', 'paid' => true]),
+            $this->entry(['amount' => 50, 'description' => 'Çay', 'paid' => true]),
+        );
+
+        $first = $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '47 tl otobüs', 'NumMedia' => 0])->getContent();
+        $this->assertSame(2, substr_count($first, '<Message>'));
+        $this->assertStringContainsString('Hoş geldin', $first);
+        $this->assertStringContainsString('Kaydetmek için', $first);
+
+        $this->send('evet');
+        $second = $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '50 tl çay', 'NumMedia' => 0])->getContent();
+        $this->assertSame(1, substr_count($second, '<Message>'));
+    }
+
+    public function test_existing_user_with_drafts_does_not_get_welcome(): void
+    {
+        WhatsappPendingExpense::create(['phone' => self::PHONE, 'extracted' => [], 'summary' => 'eski', 'status' => 'confirmed']);
+        $this->fakeAi($this->entry(['amount' => 47, 'description' => 'Otobüs', 'paid' => true]));
+
+        $this->assertStringNotContainsString('Hoş geldin', $this->send('47 tl otobüs'));
+    }
+
+    public function test_nasil_returns_sector_guide_without_ai(): void
+    {
+        $this->notFirstContact();
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldNotReceive('extract');
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $reply = $this->send('Nasıl?');
+
+        $this->assertStringContainsString('Kaydetmek için', $reply);
+        $this->assertStringContainsString("Ali'den 40 bin alacağım var", $reply);
+        $this->assertStringContainsString('Bu ay ne kadar harcadım?', $reply);
+    }
+}
