@@ -2,6 +2,7 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Party;
 use App\Models\Project;
@@ -48,6 +49,24 @@ class ExpenseContext
         $lines[] = $categories->isEmpty()
             ? '  (kayıtlı kategori yok)'
             : $categories->map(fn ($k) => sprintf('  %d: %s', $k->id, $k->name))->implode("\n");
+
+        // Ödenmemiş giderler: "kirayı ödedim" yeni gider açıp aynı kirayı ikinci kez saymasın — AI
+        // ödemeyi buradaki açık borçla eşleştirir (settles_expense_id), kullanıcı teyit eder.
+        if (config('modules.expenses')) {
+            $open = Expense::query()
+                ->whereIn('payment_status', ['unpaid', 'partial'])
+                ->with('party:id,name')
+                ->latest('expense_date')->latest('id')
+                ->take(25)
+                ->get(['id', 'expense_date', 'amount', 'description', 'party_id']);
+
+            $lines[] = '';
+            $lines[] = 'ÖDENMEMİŞ GİDERLER (id: tarih — açıklama — tutar [cari]):';
+            $lines[] = $open->isEmpty()
+                ? '  (ödenmemiş gider yok)'
+                : $open->map(fn (Expense $e) => sprintf('  %d: %s — %s — %s%s', $e->id, $e->expense_date->format('Y-m-d'),
+                    $e->description ?: 'gider', (float) $e->amount, $e->party ? " [{$e->party->name}]" : ''))->implode("\n");
+        }
 
         return implode("\n", $lines);
     }

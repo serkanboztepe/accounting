@@ -289,6 +289,14 @@ class ExpenseExtractor
             "ödenmedi", "veresiye", "hesaba yaz".
           · null: ödemeye dair hiçbir şey yok ("Ahmet'ten 100 bin malzeme aldım", "5 bin yakıt"). "aldım"
             ödeme DEĞİLDİR — mal almaktır.
+        - ÖDENMEMİŞ BİR GİDERİN ÖDEMESİ: kullanıcı aşağıdaki "ÖDENMEMİŞ GİDERLER" listesindeki bir borcu
+          ÖDEDİĞİNİ söylüyorsa ("kirayı ödedim", "elektriği yatırdım", "kiranın 10 binini ödedim", "Ahmet'in
+          parasını verdim") bu YENİ bir gider DEĞİLDİR: kind "expense", `paid`=true, `settles_expense_id`=o borcun id'si,
+          `amount`=ödenen tutar (söylenmediyse borcun tutarının tamamı), `description` borcun açıklaması.
+          Eşleşme yoksa ya da açıkça yeni bir dönem/iş söyleniyorsa ("Kasım kirasını ödedim" ama listedeki Ekim)
+          `settles_expense_id`=null. SADECE AYNI ŞEY ise eşleştir (kira↔kira, elektrik↔elektrik faturası, Ahmet'in
+          malzemesi↔Ahmet'ten malzeme); farklı bir şeyse ("kirayı ödedim" ama listede yalnız elektrik var) ASLA eşleştirme →
+          null (yeni gider; tutar yoksa sor). Aynı türden birden çok borç varsa en eskisini seç.
         - `due_date` (YYYY-MM-DD): ödemenin planlandığı/söz verildiği vade. Örn "…ödemesi 12.05.2026'da"
           veya "12.05.2026'da ödeyeceğim" → `due_date`=2026-05-12, `paid`=false. Vade yoksa null bırak.
         - ÖNEMLİ: `date` (harcamanın/giderin OLUŞTUĞU tarih) ile `due_date` (ödeme VADESİ) farklıdır.
@@ -337,6 +345,7 @@ class ExpenseExtractor
                     'paid' => ['type' => ['boolean', 'null'], 'description' => 'true only if explicitly paid / payment proof document, false if explicitly unpaid or future, null if not stated'],
                     'confidence' => ['type' => 'string', 'enum' => ['high', 'low']],
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
+                    'settles_expense_id' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=expense: id from ÖDENMEMİŞ GİDERLER when the message pays that existing unpaid expense (not a new cost); else null'],
                     'payment_purpose' => ['type' => ['string', 'null'], 'enum' => ['advance', 'loan', null], 'description' => 'Only for kind=payment: advance (prepayment for future work) / loan (money lent, to be returned); null if not stated'],
                     'debt_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', null], 'description' => 'Only for kind=debt_note: receivable (they owe us) / payable (we owe them)'],
                     'reply' => ['type' => ['string', 'null'], 'description' => 'Only for kind=help: short Turkish guidance reply (max 3 sentences)'],
@@ -391,6 +400,7 @@ class ExpenseExtractor
             'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? ($input['confidence'] ?? 'high') : 'high',
             'question' => ! empty($input['question']) ? (string) $input['question'] : null,
             'is_new_entry' => (bool) ($input['is_new_entry'] ?? false),
+            'settles_expense_id' => $kind === self::KIND_EXPENSE && ! empty($input['settles_expense_id']) ? (int) $input['settles_expense_id'] : null,
             'payment_purpose' => $kind === self::KIND_PAYMENT && in_array($input['payment_purpose'] ?? null, ['advance', 'loan'], true)
                 ? $input['payment_purpose'] : null,
             'debt_side' => $kind === self::KIND_DEBT_NOTE

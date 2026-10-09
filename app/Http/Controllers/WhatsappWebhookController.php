@@ -160,6 +160,15 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml('İptal edildi. ✖️');
             }
 
+            // Borç ödemesi eşleşmesi yanlış → "yeni": ayrı bir gider olarak yaz.
+            if (! empty($pending->extracted['settles_expense_id'])
+                && in_array($this->word($body), ['yeni', 'ayrı', 'ayri', 'yeni gider', 'ayrı gider'], true)) {
+                $data = $pending->extracted;
+                $data['settles_expense_id'] = null;
+
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
+            }
+
             // Tutarı eksik taslak ("Kira" → "Kira tutarı ne kadar?") + sadece sayı ("20000", "20.000 tl")
             // → tutar budur. Eskiden soruyu sorup taslak açmıyor, cevaba "onay bekleyen kayıt yok" diyordu.
             $typedAmount = $this->typedAmount($body);
@@ -212,7 +221,8 @@ class WhatsappWebhookController extends Controller
 
             // Sadece sayı → proje menüsünden seçim (yalnız gider taslağında menü gösterilir). Kullanıcı tüm özeti ilk mesajda
             // zaten gördü; numara = "her şey doğru + proje bu" → direkt kaydet (tek adım).
-            if (config('modules.projects') && ctype_digit($body) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE) {
+            if (config('modules.projects') && ctype_digit($body) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE
+                && empty($pending->extracted['settles_expense_id'])) {
                 $projects = $this->activeProjects();
                 $chosen = $projects->get((int) $body - 1);
                 if ($chosen) {
@@ -300,6 +310,19 @@ class WhatsappWebhookController extends Controller
     {
         $this->inboundKind = $this->kind($data);
 
+        // "Kirayı ödedim" → AI açık bir borçla eşleştirdiyse doğrula: borç hâlâ açık mı, tutar sığıyor mu?
+        // Tutar söylenmediyse borcun tamamı; borçtan fazlaysa yeni gider sayılır (ör. yeni ayın kirası).
+        if (! empty($data['settles_expense_id'])) {
+            $open = $this->openExpense((int) $data['settles_expense_id']);
+            if ($open && (float) ($data['amount'] ?? 0) <= 0) {
+                $data['amount'] = (float) $open->amount;
+                $data['question'] = null;
+            }
+            if (! $open || (float) $data['amount'] > (float) $open->amount + 0.01) {
+                $data['settles_expense_id'] = null;
+            }
+        }
+
         // "Ali'ye 15 bin avans / borç verdim" ya da "Ne için verdin?" cevabı → masraf/avans sorusu yok.
         if ($this->kind($data) === ExpenseExtractor::KIND_PAYMENT && in_array($data['payment_purpose'] ?? null, ['advance', 'loan'], true)) {
             $data['advance'] = true;
@@ -360,6 +383,7 @@ class WhatsappWebhookController extends Controller
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",
             $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
+            ! empty($data['settles_expense_id']) => "\n\n✅ Onaylamak için *evet*. Ayrı (yeni) bir gider ise *yeni* yaz, vazgeçmek için *iptal*.",
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
         };
 
@@ -405,6 +429,10 @@ class WhatsappWebhookController extends Controller
             }
 
             return $this->commitLedger($pending, $d, $kind);
+        }
+
+        if (! empty($d['settles_expense_id'])) {
+            return $this->commitSettlement($pending, $d);
         }
 
         // Match-first; if no existing match but the AI proposed a name, create it on confirm
@@ -523,6 +551,71 @@ class WhatsappWebhookController extends Controller
         return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
     }
 
+    /** Hâlâ ödenmemiş (unpaid / partial) gider; değilse null. */
+    private function openExpense(int $id): ?Expense
+    {
+        return Expense::whereKey($id)->whereIn('payment_status', ['unpaid', 'partial'])->first();
+    }
+
+    /** "Kirayı ödedim" → açık borcun ödemesi (yeni gider açılmaz); kısmi ödemede kalan gösterilir. */
+    private function buildSettlementSummary(array $d, Expense $open): string
+    {
+        $amount = (float) $d['amount'];
+        $remaining = (float) $open->amount - $amount;
+        $who = $open->party ? ' · ' . $open->party->name : '';
+
+        $lines = ['💸 *Borç ödemesi — kontrol et:*'];
+        $lines[] = '• Borç: ' . $open->expense_date->format('d.m.Y') . ' — ' . ($open->description ?: 'gider')
+            . ' (' . Money::format((float) $open->amount) . ' ₺' . $who . ')';
+        $lines[] = '• Ödenen: ' . Money::format($amount) . ' ₺';
+        $lines[] = $remaining >= 0.01
+            ? '• Kalan borç: ' . Money::format($remaining) . ' ₺'
+            : '• Borç kapanır ✅';
+        $lines[] = 'Yeni gider açılmaz (bu masraf zaten yazılı).';
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Açık borcu öde: tamamı → gider "ödendi"; kısmi → gider ikiye bölünür (ödenen kısım "ödendi" +
+     * kalan "ödenmedi"). Toplam gider değişmez — maliyet iki kez sayılmaz, kalan borç doğru görünür.
+     * Gider tablosunda "ödenen tutar" alanı olmadığı için kısmi ödeme bölmeyle tutulur.
+     */
+    private function commitSettlement(WhatsappPendingExpense $pending, array $d): string
+    {
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($pending, $d) {
+            $open = Expense::whereKey($d['settles_expense_id'])->whereIn('payment_status', ['unpaid', 'partial'])->lockForUpdate()->first();
+            if (! $open) {
+                return 'Bu borç bu arada kapanmış görünüyor. Yeni gider olarak yazmak için tekrar gönder.';
+            }
+
+            $paid = (float) $d['amount'];
+            $remaining = round((float) $open->amount - $paid, 2);
+            if ($remaining < -0.01) {
+                return 'Ödenen tutar borçtan fazla. Tutarı kontrol edip tekrar yazar mısın?';
+            }
+
+            if ($remaining >= 0.01) {
+                $open->replicate()->fill([
+                    'amount' => Money::store($remaining),
+                    'payment_status' => 'unpaid',
+                    'description' => str_ends_with((string) $open->description, '(kalan)')
+                        ? $open->description
+                        : trim(($open->description ?: 'Gider') . ' (kalan)'),
+                ])->save();
+                $open->amount = Money::store($paid);
+            }
+            $open->payment_status = 'paid';
+            $open->save();
+
+            $pending->update(['status' => 'confirmed']);
+
+            return $remaining >= 0.01
+                ? '✅ ' . Money::format($paid) . ' ₺ ödendi. Kalan borç: ' . Money::format($remaining) . ' ₺ (' . ($open->description ?: 'gider') . ')'
+                : '✅ Borç kapandı: ' . ($open->description ?: 'gider') . ' — ' . Money::format($paid) . ' ₺';
+        });
+    }
+
     /** "Alacak", "Borç kaydı" gibi açıklama yeni bilgi taşımaz — "Alacak kaydı — Alacak" tekrarı olmasın. */
     private function isTrivialDebtText(?string $text): bool
     {
@@ -559,6 +652,9 @@ class WhatsappWebhookController extends Controller
         if ($kind !== ExpenseExtractor::KIND_EXPENSE) {
             return $this->buildLedgerSummary($d, $kind);
         }
+        if (! empty($d['settles_expense_id']) && ($open = $this->openExpense((int) $d['settles_expense_id']))) {
+            return $this->buildSettlementSummary($d, $open);
+        }
 
         $lines = [];
         $lines[] = '📝 *Gider — kontrol et:*';
@@ -591,6 +687,11 @@ class WhatsappWebhookController extends Controller
 
         if (! empty($d['due_date'])) {
             $lines[] = '• Vade: ' . $d['due_date'];
+        }
+
+        // Kişisiz borç: soru değil ipucu (her "ödenmedi"de ek soru yormasın); ödemesi yine eşleştirilir.
+        if (! $this->isPaid($d) && ! $party && empty($d['party_name'])) {
+            $lines[] = "💡 Kime borçlu olduğunu da yazarsan (ör. \"Ahmet Bey'e\") ödemeleri kişi bazında takip ederim.";
         }
 
         // Sözleşmeli cariye gider: işin maliyeti zaten sözleşmede → çift maliyet riski.

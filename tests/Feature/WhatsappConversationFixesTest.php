@@ -55,6 +55,7 @@ class WhatsappConversationFixesTest extends TestCase
             'project_id' => null, 'project_name' => null, 'party_id' => null, 'party_name' => null,
             'category_id' => null, 'category_name' => null, 'paid' => null, 'confidence' => 'high',
             'question' => null, 'is_new_entry' => false, 'debt_side' => null, 'reply' => null,
+            'payment_purpose' => null, 'settles_expense_id' => null,
         ], $overrides);
     }
 
@@ -163,6 +164,86 @@ class WhatsappConversationFixesTest extends TestCase
         $this->send('evet');
         $party = Party::where('name', 'Arda Test Mehmet A')->sole();
         $this->assertSame('Avans ödemesi', PartyLedgerEntry::where('party_id', $party->id)->sole()->description);
+    }
+
+    private function openRent(float $amount = 20000): Expense
+    {
+        return Expense::create(['expense_date' => '2031-01-05', 'amount' => $amount, 'payment_status' => 'unpaid', 'description' => 'Test ev kirası']);
+    }
+
+    /** "Kirayı ödedim": açık borç kapanır, yeni gider açılmaz — aynı kira iki kez sayılmaz. */
+    public function test_paying_open_unpaid_expense_closes_it_without_new_cost(): void
+    {
+        $this->notFirstContact();
+        $rent = $this->openRent();
+        $before = Expense::count();
+        $this->fakeAi($this->entry(['amount' => 0, 'paid' => true, 'description' => 'Ev kirası', 'settles_expense_id' => $rent->id]));
+
+        $summary = $this->send('kirayı ödedim');
+        $this->assertStringContainsString('Borç ödemesi', $summary);
+        $this->assertStringContainsString('Ödenen: 20.000,00 ₺', $summary); // tutar söylenmedi → borcun tamamı
+        $this->assertStringContainsString('Borç kapanır', $summary);
+
+        $this->assertStringContainsString('Borç kapandı', $this->send('evet'));
+        $this->assertSame($before, Expense::count());
+        $this->assertSame('paid', $rent->fresh()->payment_status);
+    }
+
+    /** Kısmi ödeme: gider ikiye bölünür (ödenen + kalan), toplam gider değişmez. */
+    public function test_partial_payment_splits_expense_and_keeps_total(): void
+    {
+        $this->notFirstContact();
+        $rent = $this->openRent();
+        $this->fakeAi($this->entry(['amount' => 10000, 'paid' => true, 'description' => 'Ev kirası', 'settles_expense_id' => $rent->id]));
+
+        $this->assertStringContainsString('Kalan borç: 10.000,00 ₺', $this->send('kiranın 10 binini ödedim'));
+        $this->send('evet');
+
+        $rent->refresh();
+        $rest = Expense::where('description', 'Test ev kirası (kalan)')->sole();
+        $this->assertSame('paid', $rent->payment_status);
+        $this->assertEqualsWithDelta(10000, (float) $rent->amount, 0.001);
+        $this->assertSame('unpaid', $rest->payment_status);
+        $this->assertEqualsWithDelta(10000, (float) $rest->amount, 0.001);
+        $this->assertSame('2031-01-05', $rest->expense_date->toDateString());
+    }
+
+    public function test_yeni_turns_suggested_settlement_into_a_separate_expense(): void
+    {
+        $this->notFirstContact();
+        $rent = $this->openRent();
+        $before = Expense::count();
+        $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Kira', 'settles_expense_id' => $rent->id]));
+
+        $this->send('20 bin kira ödedim');
+        $this->assertStringContainsString('Gider — kontrol et', $this->send('yeni'));
+        $this->send('evet');
+
+        $this->assertSame($before + 1, Expense::count());
+        $this->assertSame('unpaid', $rent->fresh()->payment_status);
+    }
+
+    public function test_payment_larger_than_open_debt_is_treated_as_new_expense(): void
+    {
+        $this->notFirstContact();
+        $rent = $this->openRent();
+        $this->fakeAi($this->entry(['amount' => 25000, 'paid' => true, 'description' => 'Kira', 'settles_expense_id' => $rent->id]));
+
+        $summary = $this->send('25 bin kira ödedim');
+
+        $this->assertStringContainsString('Gider — kontrol et', $summary);
+        $this->assertStringNotContainsString('Borç ödemesi', $summary);
+    }
+
+    public function test_unpaid_expense_without_party_shows_hint_not_question(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry(['amount' => 20000, 'paid' => false, 'description' => 'Ev kirası']));
+
+        $summary = $this->send('Borç olarak 20 bin ev kirası');
+
+        $this->assertStringContainsString('💡 Kime borçlu olduğunu da yazarsan', $summary);
+        $this->assertStringContainsString('Onaylamak için *evet*', $summary);
     }
 
     public function test_party_list_shows_balances(): void
