@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Expense;
+use App\Models\HubFirm;
+use App\Models\HubPhone;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\WhatsappMessage;
@@ -167,6 +169,9 @@ class WhatsappConversationFixesTest extends TestCase
 
     public function test_first_message_gets_guide_as_second_bubble_only_once(): void
     {
+        $firm = HubFirm::create(['name' => 'Karşılama Test', 'url' => 'https://example.test']);
+        HubPhone::create(['phone' => '0555 777 00 00', 'hub_firm_id' => $firm->id])
+            ->forceFill(['created_at' => '2026-10-12 10:00:00'])->save(); // karşılamadan sonra eklenen numara
         $this->fakeAi(
             $this->entry(['amount' => 47, 'description' => 'Otobüs', 'paid' => true]),
             $this->entry(['amount' => 50, 'description' => 'Çay', 'paid' => true]),
@@ -182,9 +187,19 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame(1, substr_count($second, '<Message>'));
     }
 
-    public function test_existing_user_with_drafts_does_not_get_welcome(): void
+    /** Kullanıcı kararı: karşılamadan önce eklenmiş numaralar (mevcut müşteriler) hiç almaz. */
+    public function test_phone_registered_before_welcome_feature_never_gets_welcome(): void
     {
-        WhatsappPendingExpense::create(['phone' => self::PHONE, 'extracted' => [], 'summary' => 'eski', 'status' => 'confirmed']);
+        $firm = HubFirm::create(['name' => 'Eski Müşteri Test', 'url' => 'https://example.test']);
+        $phone = HubPhone::create(['phone' => '0555 777 00 00', 'hub_firm_id' => $firm->id]);
+        $phone->forceFill(['created_at' => '2026-10-09 21:00:00'])->save();
+        $this->fakeAi($this->entry(['amount' => 47, 'description' => 'Otobüs', 'paid' => true]));
+
+        $this->assertStringNotContainsString('Hoş geldin', $this->send('47 tl otobüs'));
+    }
+
+    public function test_phone_not_in_hub_gets_no_welcome(): void
+    {
         $this->fakeAi($this->entry(['amount' => 47, 'description' => 'Otobüs', 'paid' => true]));
 
         $this->assertStringNotContainsString('Hoş geldin', $this->send('47 tl otobüs'));

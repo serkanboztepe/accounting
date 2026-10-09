@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Prunable;
+use App\Tenancy\Tenancy;
+use Illuminate\Support\Carbon;
 
 /**
  * WhatsApp konuşma kaydı — asistanın takıldığı yerleri görmek için (hub: "Anlaşılamayan mesajlar").
@@ -28,9 +30,27 @@ class WhatsappMessage extends Model
         return static::where('created_at', '<', now()->subDays(self::RETENTION_DAYS));
     }
 
-    /** Bu telefon daha önce hiç yazmış mı? (ilk mesajda karşılama rehberi) */
-    public static function isFirstContact(string $phone): bool
+    /**
+     * Karşılama yalnız bu tarihten SONRA hub'a eklenen numaralara (kullanıcı kararı: mevcut
+     * müşteriler almasın, yeni kayıtlar alsın). İstanbul saati — sunucu APP_TIMEZONE da öyle.
+     */
+    public const WELCOME_SINCE = '2026-10-10 00:00:00';
+
+    /**
+     * İlk mesajda karşılama rehberi gönderilsin mi? Numara hub'a karşılama özelliğinden sonra
+     * eklenmiş olmalı (eski kullanıcılar yeniden "hoş geldin" almasın) ve daha önce hiç yazmamış olmalı.
+     */
+    public static function shouldWelcome(string $phone): bool
     {
+        $registeredAt = HubPhone::query()
+            ->where('phone', $phone)
+            ->when(Tenancy::current(), fn (Builder $q, $firm) => $q->where('hub_firm_id', $firm->id))
+            ->value('created_at');
+
+        if ($registeredAt === null || Carbon::parse($registeredAt)->lt(Carbon::parse(self::WELCOME_SINCE))) {
+            return false;
+        }
+
         return ! static::where('phone', $phone)->where('direction', 'in')->exists();
     }
 }

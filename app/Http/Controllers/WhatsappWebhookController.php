@@ -939,14 +939,10 @@ class WhatsappWebhookController extends Controller
         return $amount > 0 ? $amount : null;
     }
 
-    /**
-     * İlk kez mi yazıyor? Konuşma kaydı yeni; kayıttan önce kullanmaya başlamış olanlara (taslağı
-     * olan) karşılama gitmesin.
-     */
+    /** Yeni eklenen numaranın ilk mesajı mı? (karşılama rehberi — bkz. WhatsappMessage::shouldWelcome) */
     private function isFirstContact(string $phone): bool
     {
-        return WhatsappMessage::isFirstContact(Phone::normalize($phone))
-            && ! WhatsappPendingExpense::where('phone', $phone)->exists();
+        return WhatsappMessage::shouldWelcome(Phone::normalize($phone));
     }
 
     /** Konuşma kaydı — yazılamazsa asıl akışı asla durdurmaz. */
