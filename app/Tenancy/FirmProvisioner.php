@@ -38,7 +38,8 @@ class FirmProvisioner
         $database = (string) $firm->database;
         self::assertSafeName($database);
 
-        if (self::databaseExists($database)) {
+        // MySQL'de varlık kontrolünü yordam yapar (hesap_admin veritabanlarını göremez).
+        if (self::isPgsql() && self::databaseExists($database)) {
             throw new RuntimeException("{$database} veritabanı zaten var, başka bir kısa ad seç.");
         }
 
@@ -61,7 +62,7 @@ class FirmProvisioner
     {
         self::assertSafeName((string) $firm->database);
 
-        if (! self::databaseExists($firm->database)) {
+        if (self::isPgsql() && ! self::databaseExists($firm->database)) {
             throw new RuntimeException("{$firm->database} veritabanı yok.");
         }
 
@@ -75,9 +76,8 @@ class FirmProvisioner
         $database = (string) $firm->database;
         $user = $database;
         $password = Str::random(40);
-        $quoted = $admin->getPdo()->quote($password);
-
         if ($admin->getDriverName() === 'pgsql') {
+            $quoted = $admin->getPdo()->quote($password);
             $admin->statement("DROP ROLE IF EXISTS \"{$user}\"");
             $admin->statement("CREATE ROLE \"{$user}\" LOGIN PASSWORD {$quoted}");
             if ($databaseExists) {
@@ -93,18 +93,18 @@ class FirmProvisioner
                 $admin->statement("CREATE DATABASE \"{$database}\" OWNER \"{$user}\"");
             }
         } else {
-            if (! $databaseExists) {
-                $admin->statement("CREATE DATABASE `{$database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-            }
-            // Panel 127.0.0.1 (TCP) ile, artisan bazen soket (localhost) ile bağlanır → ikisi de.
-            foreach (['localhost', '127.0.0.1'] as $host) {
-                $admin->statement("DROP USER IF EXISTS '{$user}'@'{$host}'");
-                $admin->statement("CREATE USER '{$user}'@'{$host}' IDENTIFIED BY {$quoted}");
-                $admin->statement("GRANT ALL PRIVILEGES ON `{$database}`.* TO '{$user}'@'{$host}'");
-            }
+            // MariaDB desen (hesap\_%) üzerinden GRANT yetkisi tanımıyor → root yetkili saklı yordam
+            // (sunucuda provisioning.create_firm_database; adı/şifreyi doğrular, DB + kullanıcı açar).
+            // hesap_admin'in tek yetkisi bu yordamı çağırmak — hiçbir firmanın verisini okuyamaz.
+            $admin->statement('CALL provisioning.create_firm_database(?, ?, ?)', [$database, $password, $databaseExists ? 1 : 0]);
         }
 
         $firm->forceFill(['db_username' => $user, 'db_password' => $password])->save();
+    }
+
+    private static function isPgsql(): bool
+    {
+        return DB::connection(self::adminConnection())->getDriverName() === 'pgsql';
     }
 
     private static function assertSafeName(string $database): void
