@@ -34,6 +34,7 @@ return [
     'bcrypt' => [
         'rounds' => env('BCRYPT_ROUNDS', 12),
         'verify' => env('HASH_VERIFY', false),
+        'limit' => env('BCRYPT_LIMIT', null), // Laravel 12'de eklendi (çerçeve varsayılanıyla aynı)
     ],
 
     /*

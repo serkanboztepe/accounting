@@ -24,6 +24,13 @@ return Application::configure(basePath: dirname(__DIR__))
             after: \Illuminate\Session\Middleware\StartSession::class,
             append: \App\Http\Middleware\IdentifyTenant::class,
         );
+
+        // İmzalı linkler (WhatsApp ekstre PDF'i): imza, {party} gibi kayıtlar veritabanından
+        // yüklenmeden ÖNCE kontrol edilsin — bozuk imzada firma seçilmez, yükleme 500 veriyordu (403 olmalı).
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            prepend: \Illuminate\Routing\Middleware\ValidateSignature::class,
+        );
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

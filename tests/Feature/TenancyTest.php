@@ -251,8 +251,14 @@ class TenancyTest extends TestCase
 
         $this->get($url)->assertOk()->assertHeader('Content-Type', 'application/pdf');
 
-        // Firma parametresini değiştirmek imzayı bozar.
+        // Üretimde her istek sıfırdan başlar; testte önceki isteğin firma seçimi kalmasın.
+        Tenancy::end();
+
+        // Firma parametresini değiştirmek imzayı bozar → 403 (imza, {party} veritabanından
+        // yüklenmeden ÖNCE kontrol edilmeli; yoksa firma seçilmemiş sorgu 500 veriyordu).
         $this->get(str_replace('firm=' . $this->a->id, 'firm=' . $this->b->id, $url))->assertForbidden();
+        Tenancy::end();
+        $this->get(preg_replace('/&signature=.*/', '', $url))->assertForbidden();
     }
 
     public function test_provisioner_creates_ready_firm_database_with_own_db_user(): void
