@@ -15,6 +15,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
 use App\Support\CheckReminders;
 use App\Support\ContractStatus;
+use App\Support\ConversationContext;
 use App\Support\ExpenseSummary;
 use App\Support\Money;
 use App\Support\PartyBalances;
@@ -80,6 +81,10 @@ class WhatsappWebhookController extends Controller
                 $response = $this->twimlMany([...$this->replies, $this->guideText(firstContact: true)]);
             }
 
+            if ($this->touchedPartyId) {
+                ConversationContext::remember($phone, $this->touchedPartyId);
+            }
+
             $incoming?->update(['kind' => $this->inboundKind]);
             foreach ($this->replies as $reply) {
                 $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply);
@@ -90,6 +95,9 @@ class WhatsappWebhookController extends Controller
             $lock?->release();
         }
     }
+
+    /** Bu mesajda konuşulan cari (bakiye, ekstre, taslak, kayıt) → sınırlı bağlam (ConversationContext). */
+    private ?int $touchedPartyId = null;
 
     /** Son gelen mesajın türü (konuşma kaydı): AI türü / quick / guide / checks / error / no_draft. */
     private ?string $inboundKind = null;
@@ -256,7 +264,7 @@ class WhatsappWebhookController extends Controller
                     // önceki proje/cari'yi sızdırabiliyor; temiz çıkarım için previous=null ile yeniden.
                     $pending->update(['status' => 'superseded']);
                     try {
-                        $data = $extractor->extract($body, null, null);
+                        $data = $extractor->extract($body, null, null, ConversationContext::get($phone));
                     } catch (\Throwable $e) {
                         Log::error('WhatsApp yeni gider çıkarma hatası', ['msg' => $e->getMessage()]);
 
@@ -291,7 +299,7 @@ class WhatsappWebhookController extends Controller
         }
 
         try {
-            $data = $extractor->extract($body ?: null, $image);
+            $data = $extractor->extract($body ?: null, $image, null, ConversationContext::get($phone));
         } catch (\Throwable $e) {
             Log::error('WhatsApp gider çıkarma hatası', ['msg' => $e->getMessage()]);
             $this->inboundKind = 'error';
@@ -309,6 +317,9 @@ class WhatsappWebhookController extends Controller
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $this->inboundKind = $this->kind($data);
+        if (! empty($data['party_id']) && Party::whereKey($data['party_id'])->exists()) {
+            $this->touchedPartyId = (int) $data['party_id']; // bakiye / ekstre / taslak — sınırlı bağlam
+        }
 
         // "Kirayı ödedim" → AI açık bir borçla eşleştirdiyse doğrula: borç hâlâ açık mı, tutar sığıyor mu?
         // Tutar söylenmediyse borcun tamamı; borçtan fazlaysa yeni gider sayılır (ör. yeni ayın kirası).
@@ -452,6 +463,8 @@ class WhatsappWebhookController extends Controller
             $categoryId = ExpenseCategory::firstOrCreate(['name' => $d['category_name']])->id;
         }
 
+        $this->touchedPartyId = $partyId ?: $this->touchedPartyId;
+
         Expense::create([
             'project_id' => $projectId,
             'party_id' => $partyId,
@@ -476,6 +489,8 @@ class WhatsappWebhookController extends Controller
      */
     private function commitContractPayment(WhatsappPendingExpense $pending, array $d, Contract $contract): string
     {
+        $this->touchedPartyId = $contract->party_id ?: $this->touchedPartyId;
+
         if (($d['payment_type'] ?? null) === 'other') {
             return 'Çekle/senetle sözleşme ödemesini şimdilik panelden gir (Sözleşme → Ödemeler): vade ve çek no gerekiyor. Nakit/havale ise *nakit* ya da *havale* yaz.';
         }
@@ -507,6 +522,7 @@ class WhatsappWebhookController extends Controller
     private function commitLedger(WhatsappPendingExpense $pending, array $d, string $kind): string
     {
         $party = $this->resolveParty($d);
+        $this->touchedPartyId = $party->id; // yeni açılan cari dahil — "5 bin daha verdi" buna bağlansın
         $projectId = $d['project_id'] ?? null;
         if ($projectId === null && ! empty($d['project_name'])) {
             $projectId = Project::firstOrCreate(['name' => $d['project_name']], ['status' => 'active'])->id;
@@ -607,6 +623,7 @@ class WhatsappWebhookController extends Controller
             }
             $open->payment_status = 'paid';
             $open->save();
+            $this->touchedPartyId = $open->party_id ?: $this->touchedPartyId;
 
             $pending->update(['status' => 'confirmed']);
 

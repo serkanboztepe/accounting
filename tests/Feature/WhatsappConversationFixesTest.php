@@ -246,6 +246,65 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('Onaylamak için *evet*', $summary);
     }
 
+    /**
+     * Sınırlı bağlam: son konuşulan cari (30 dk) AI'a verilir ("ondan 20 bin aldım"); süre dolunca unutulur.
+     * Mesajın gerçekten o cariye bağlanıp bağlanmadığı AI'ın işi — gerçek AI ile ayrıca tekrar oynatıldı.
+     *
+     * @return list<array|null> extract()'a her çağrıda verilen son-cari bağlamı
+     */
+    private function captureContext(array ...$responses): \ArrayObject
+    {
+        $seen = new \ArrayObject;
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturnUsing(function ($text, $image = null, $previous = null, $lastParty = null) use ($seen, &$responses) {
+            $seen[] = $lastParty;
+
+            return array_shift($responses);
+        });
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        return $seen;
+    }
+
+    public function test_last_talked_party_is_given_to_ai_and_forgotten_after_30_minutes(): void
+    {
+        $this->notFirstContact();
+        $ali = Party::create(['name' => 'Bağlam Test Ali']);
+        PartyLedgerEntry::create(['party_id' => $ali->id, 'entry_date' => now()->toDateString(), 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 40000]);
+        $seen = $this->captureContext(
+            $this->entry(['kind' => ExpenseExtractor::KIND_BALANCE_QUERY, 'party_id' => $ali->id]),
+            $this->entry(['kind' => ExpenseExtractor::KIND_COLLECTION, 'party_id' => $ali->id, 'amount' => 20000]),
+            $this->entry(['kind' => ExpenseExtractor::KIND_HELP, 'reply' => 'Kimden?']),
+        );
+
+        $this->send("Bağlam Test Ali'nin borcu ne");
+        $this->assertNull($seen[0]);                       // henüz kimse konuşulmadı
+
+        $this->send('ondan 20 bin aldım');
+        $this->assertSame($ali->id, $seen[1]['party_id']);
+        $this->assertEqualsWithDelta(40000, $seen[1]['balance'], 0.001); // "hepsini" tutarı için
+        $this->send('iptal');
+
+        $this->travel(31)->minutes();
+        $this->send('ondan 5 bin aldım');
+        $this->assertNull($seen[2]);                       // 30 dk sonra unutuldu
+    }
+
+    public function test_party_created_by_a_record_becomes_context_for_next_message(): void
+    {
+        $this->notFirstContact();
+        $seen = $this->captureContext(
+            $this->entry(['kind' => ExpenseExtractor::KIND_COLLECTION, 'party_name' => 'Bağlam Test Yeni', 'amount' => 10000]),
+            $this->entry(['kind' => ExpenseExtractor::KIND_HELP, 'reply' => '—']),
+        );
+
+        $this->send('Bağlam Test Yeni 10 bin ödedi');
+        $this->send('evet');
+        $this->send('5 bin daha verdi');
+
+        $this->assertSame(Party::where('name', 'Bağlam Test Yeni')->sole()->id, $seen[1]['party_id']);
+    }
+
     public function test_party_list_shows_balances(): void
     {
         $this->notFirstContact();

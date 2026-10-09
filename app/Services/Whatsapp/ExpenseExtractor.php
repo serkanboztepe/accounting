@@ -89,8 +89,10 @@ class ExpenseExtractor
     /**
      * @param  array{media_type:string,data:string}|null  $image  base64 image
      * @param  array|null  $previous  önceki taslak — verilirse yeni mesaj DÜZELTME sayılır
+     * @param  array{party_id:int,party_name:string,balance:float,balance_note:string}|null  $lastParty
+     *         son 30 dk'da konuşulan cari (ConversationContext) — "ondan / ona / daha / hepsini" ona bağlanır
      */
-    public function extract(?string $text, ?array $image = null, ?array $previous = null): array
+    public function extract(?string $text, ?array $image = null, ?array $previous = null, ?array $lastParty = null): array
     {
         $apiKey = config('services.anthropic.api_key');
         if (empty($apiKey)) {
@@ -139,7 +141,7 @@ class ExpenseExtractor
             ->timeout(90)->post(self::ENDPOINT, [
             'model' => $model,
             'max_tokens' => 1024,
-            'system' => $this->systemPrompt($previous),
+            'system' => $this->systemPrompt($previous, $lastParty),
             'tools' => [$this->tool()],
             'tool_choice' => ['type' => 'tool', 'name' => 'save_entry'],
             'messages' => [
@@ -169,7 +171,7 @@ class ExpenseExtractor
         throw new RuntimeException('AI yapılandırılmış çıktı döndürmedi.');
     }
 
-    private function systemPrompt(?array $previous = null): string
+    private function systemPrompt(?array $previous = null, ?array $lastParty = null): string
     {
         $today = now()->format('Y-m-d');
         $context = ExpenseContext::build();
@@ -213,13 +215,15 @@ class ExpenseExtractor
             REFINE;
         }
 
+        $lastPartyBlock = $lastParty !== null ? $this->lastPartyContext($lastParty) : '';
+
         return <<<PROMPT
         Sen bir inşaat şirketinin kayıt asistanısın. Kullanıcı (müteahhit ya da mimar) sana
         yazarak veya belge (fiş, fatura, dekont) fotoğrafı atarak bir işlem bildirir. Görevin
         `save_entry` aracını çağırarak işlemi çıkarmak.
 
         Bugünün tarihi: {$today}. Tarih belirtilmemişse `date` alanına bugünü koy.
-        {$refine}
+        {$refine}{$lastPartyBlock}
         İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
         {$kinds}
         {$photoRule}
@@ -305,6 +309,25 @@ class ExpenseExtractor
 
         {$context}
         PROMPT;
+    }
+
+    /** Sınırlı bağlam: yalnız son konuşulan cari — isimsiz atıfları ("ondan", "ona", "daha") çözer. */
+    private function lastPartyContext(array $c): string
+    {
+        $all = (string) round(abs((float) $c['balance']), 2);
+
+        return <<<CTX
+
+        SON KONUŞULAN CARİ (son 30 dk): {$c['party_name']} (party_id {$c['party_id']}). Güncel durum: {$c['balance_note']}
+        - Mesajda HİÇBİR kişi/cari adı yoksa ve mesaj bir kişiye işaret ediyorsa ("ondan", "ona", "onun", "kendisi",
+          "… daha verdi / ödedi / verdim", "hepsini ödedim", "kalanını aldım", "borcunu kapattı") → `party_id`={$c['party_id']}.
+          · Bu durumda "ondan X aldım" (mal/hizmet adı GEÇMİYORSA) PARA ALMAKTIR → "collection"; "ona X verdim/ödedim" → "payment".
+          · "hepsini / tamamını / kalanını" ve tutar yoksa `amount`={$all} (güncel bakiye).
+        - Mesajda BAŞKA bir kişi/cari adı geçiyorsa bu bağlamı TAMAMEN YOK SAY.
+        - Mesaj bir kişiye işaret etmiyorsa ("5 bin yakıt aldım", "kirayı ödedim", "bu ay ne harcadım") bağlamı KULLANMA.
+        - Bu bağlamdan proje / kategori / tutar TAŞINMAZ; yalnız cari.
+
+        CTX;
     }
 
     private function tool(): array
