@@ -52,4 +52,16 @@ class PartyBalances
             ->map(fn ($r) => ['party' => $r['party'], 'balance' => abs($r['balance'])])
             ->sortByDesc('balance')->values();
     }
+
+    /** WhatsApp cümlesi: "Ali: sana borcu 45.000,00 ₺" / "Ali: borcun …" / "hesap kapalı". */
+    public static function line(string $name, float $balance): string
+    {
+        if (abs($balance) < 0.01) {
+            return $name . ': hesap kapalı (bakiye 0).';
+        }
+
+        return $balance < 0
+            ? $name . ': borcun ' . Money::format(abs($balance)) . ' ₺'
+            : $name . ': sana borcu ' . Money::format($balance) . ' ₺';
+    }
 }

@@ -14,6 +14,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
 use App\Support\CheckReminders;
 use App\Support\ContractStatus;
+use App\Support\ExpenseSummary;
 use App\Support\Money;
 use App\Support\PartyBalances;
 use App\Support\PartyStatement;
@@ -234,6 +235,11 @@ class WhatsappWebhookController extends Controller
             $pending?->update(['status' => 'superseded']);
 
             return $this->statementAnswer($data);
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_EXPENSE_SUMMARY) {
+            $pending?->update(['status' => 'superseded']);
+
+            return ExpenseSummary::text($data['date_from'] ?? null, $data['date_to'] ?? null, $data['project_id'] ?? null);
         }
 
         // Tutarsız kayıt taslağı açma (anlaşılmayan mesaj 0 ₺'lik gider oluyordu). Bekleyen taslağa dokunma.
@@ -668,13 +674,7 @@ class WhatsappWebhookController extends Controller
 
     private function balanceLine(string $name, float $balance): string
     {
-        if (abs($balance) < 0.01) {
-            return $name . ': hesap kapalı (bakiye 0).';
-        }
-
-        return $balance < 0
-            ? $name . ': borcun ' . Money::format(abs($balance)) . ' ₺'
-            : $name . ': sana borcu ' . Money::format($balance) . ' ₺';
+        return PartyBalances::line($name, $balance);
     }
 
     private function balancePhrase(float $balance): string
@@ -698,6 +698,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_COLLECTION => "• Tahsilat: \"Ahmet Bey 50 bin ödedi\"",
             ExpenseExtractor::KIND_BALANCE_QUERY => "• Bakiye: \"Ahmet Bey'in borcu ne?\"",
             ExpenseExtractor::KIND_TOTALS_QUERY =>"• Toplam: \"Toplam alacağım ne kadar?\"",
+            ExpenseExtractor::KIND_EXPENSE_SUMMARY => "• Harcama: \"Bu ay ne kadar giderim var?\"",
             ExpenseExtractor::KIND_STATEMENT => "• Ekstre (PDF): \"Ahmet Bey'in ekstresini at\"",
         ];
 

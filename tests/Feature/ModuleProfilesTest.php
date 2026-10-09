@@ -92,8 +92,9 @@ class ModuleProfilesTest extends TestCase
     {
         $expected = [
             'mimar' => ['sale', 'collection', 'balance_query', 'statement', 'totals_query'],
-            'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query'],
-            'toptanci' => ['expense', 'collection', 'balance_query', 'statement', 'totals_query'],
+            'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary'],
+            'toptanci' => ['expense', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary'],
+            'alacak_verecek' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary'],
         ];
 
         foreach ($expected as $profile => $kinds) {
