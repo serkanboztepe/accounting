@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Hub\HubFirms\HubFirmResource;
 use App\Http\Middleware\UseHubGuard;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -20,7 +21,7 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 /**
  * Tek panel (TENANCY): S-CODER yönetim paneli /hub — firmalar, numaralar, modüller,
- * kullanıcılar, maliyet. Ayrı giriş (merkez users tablosu, 'hub' guard); firma verisine
+ * kullanıcılar, maliyet. İki adımlı giriş zorunlu. Ayrı giriş (merkez users tablosu, 'hub' guard); firma verisine
  * yalnız firma ekranındaki işlemler aracılığıyla (Tenancy::run) dokunur.
  * Yalnız TENANCY açıkken yüklenir (AppServiceProvider).
  */
@@ -38,6 +39,13 @@ class HubPanelProvider extends PanelProvider
             ->favicon(asset('brand-icon.svg'))
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->login()
+            // İki adımlı giriş ZORUNLU: hub tüm firmaların anahtarı. Doğrulama uygulaması (Google
+            // Authenticator vb.) + tek kullanımlık kurtarma kodları. SMS yok. Kilitlenme: hub:mfa-reset.
+            ->multiFactorAuthentication(
+                [AppAuthentication::make()->brandName('Hesap Asistanım Hub')->recoverable()],
+                isRequired: true,
+            )
+            ->profile()
             ->colors([
                 'primary' => Color::hex('#0E8A5F'),
                 'gray'    => Color::Zinc,
@@ -56,6 +64,8 @@ class HubPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            // Livewire istekleri (pencereler, iki adımlı giriş kurulumu) de merkezde çalışsın.
+            ->persistentMiddleware([UseHubGuard::class])
             ->authMiddleware([
                 Authenticate::class,
             ]);
