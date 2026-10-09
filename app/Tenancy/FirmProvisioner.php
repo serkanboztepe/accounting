@@ -149,6 +149,9 @@ class FirmProvisioner
             config(['database.connections.tenancy_admin' => array_merge($central, array_filter([
                 'username' => config('tenancy.admin_username'),
                 'password' => config('tenancy.admin_password'),
+                // Yetkili kullanıcının merkeze (hub_mgmt) erişimi YOK — MySQL'de sistem şemasına bağlan.
+                // PostgreSQL bir veritabanı ister; orada merkezle bağlanılır.
+                'database' => in_array($central['driver'], ['mysql', 'mariadb'], true) ? 'information_schema' : null,
             ]))]);
         }
 
