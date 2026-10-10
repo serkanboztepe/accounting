@@ -65,10 +65,24 @@ class PhonesRelationManager extends RelationManager
 
     private bool $sendWelcomeAfterCreate = false;
 
-    private function notifyWelcome(bool $sent): void
+    /** Onaylı değilse gönderme (teslim edilmez) ve bunu açıkça söyle; "gönderildi" = Twilio'ya iletildi. */
+    private function sendWelcome(HubPhone $record): void
     {
-        $sent
-            ? Notification::make()->success()->title('Hoş geldin mesajı gönderildi')->send()
+        $status = WelcomeMessage::approvalStatus();
+        if ($status !== 'approved') {
+            Notification::make()->warning()
+                ->title('Hoş geldin mesajı gönderilmedi')
+                ->body($status === 'rejected'
+                    ? 'Şablon Meta tarafından reddedildi.'
+                    : 'Şablon henüz Meta onayında — onay gelince bu numarada "Hoş geldin gönder"e bas.')
+                ->persistent()
+                ->send();
+
+            return;
+        }
+
+        WelcomeMessage::send($record)
+            ? Notification::make()->success()->title('Hoş geldin mesajı gönderildi')->body('Birkaç saniye içinde WhatsApp\'ına düşer.')->send()
             : Notification::make()->danger()->title('Hoş geldin mesajı gönderilemedi')->body('Ayrıntı sunucu kaydında.')->send();
     }
 
@@ -97,7 +111,7 @@ class PhonesRelationManager extends RelationManager
                     })
                     ->after(function (HubPhone $record) {
                         if ($this->sendWelcomeAfterCreate && WelcomeMessage::configured()) {
-                            $this->notifyWelcome(WelcomeMessage::send($record));
+                            $this->sendWelcome($record);
                         }
                     }),
             ])
@@ -110,7 +124,7 @@ class PhonesRelationManager extends RelationManager
                     ->requiresConfirmation()
                     ->modalHeading('Hoş geldin mesajı gönderilsin mi?')
                     ->modalDescription(fn (HubPhone $record) => ($record->name ?: Phone::display($record->phone)) . ' numarasına "hesabın hazır, nasıl yaz" mesajı gider.')
-                    ->action(fn (HubPhone $record) => $this->notifyWelcome(WelcomeMessage::send($record))),
+                    ->action(fn (HubPhone $record) => $this->sendWelcome($record)),
                 EditAction::make(),
                 DeleteAction::make(),
             ]);

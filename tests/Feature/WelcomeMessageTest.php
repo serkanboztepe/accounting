@@ -50,6 +50,13 @@ class WelcomeMessageTest extends TestCase
         Http::assertSent(fn (ClientRequest $r) => json_decode($r['ContentVariables'], true) === ['1' => 'Karşılama Şablon Test']);
     }
 
+    public function test_approval_status_is_read_from_twilio(): void
+    {
+        Http::fake(['content.twilio.com/*' => Http::response(['whatsapp' => ['status' => 'pending']])]);
+
+        $this->assertSame('pending', WelcomeMessage::approvalStatus());
+    }
+
     public function test_not_configured_without_template_sid(): void
     {
         config(['services.whatsapp.welcome_content_sid' => null]);
