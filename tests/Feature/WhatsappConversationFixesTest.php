@@ -388,6 +388,19 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringNotContainsString('Borç ödemesi', $this->send("Başka Kişi Test'e kira ödedim"));
     }
 
+    /** "Bal sattım, 14 Kasım'da ödeyecek" → satış satırına ödeme tarihi; söylenmezse soru yok. */
+    public function test_sale_due_date_is_shown_and_saved(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_SALE, 'amount' => 45000, 'party_name' => 'Vade WA Ali', 'description' => 'Bal', 'due_date' => '2026-11-14']));
+
+        $this->assertStringContainsString('Ödeme tarihi: 14 Kasım 2026', $this->send("Vade WA Ali'ye bal sattım, 14 Kasım'da ödeyecek"));
+        $this->send('evet');
+
+        $party = Party::where('name', 'Vade WA Ali')->sole();
+        $this->assertSame('2026-11-14', PartyLedgerEntry::where('party_id', $party->id)->sole()->due_date->toDateString());
+    }
+
     public function test_party_list_shows_balances(): void
     {
         $this->notFirstContact();

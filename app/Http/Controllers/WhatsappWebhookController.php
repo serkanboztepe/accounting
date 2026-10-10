@@ -602,6 +602,8 @@ class WhatsappWebhookController extends Controller
                 'party_id' => $party->id,
                 'project_id' => $projectId,
                 'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
+                // Ödeme tarihi yalnız satış / alacak-borç kaydında (o sabah hatırlatılır, ödendiyse hatırlatılmaz).
+                'due_date' => in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true) ? ($d['due_date'] ?? null) : null,
                 'type' => $type,
                 'payment_type' => $kind === ExpenseExtractor::KIND_SALE ? null : ($d['payment_type'] ?? null),
                 'description' => $row['description'] ?: null,
@@ -769,7 +771,7 @@ class WhatsappWebhookController extends Controller
             . (($d['paid'] ?? null) === null ? '  (değilse *ödendi* / *ödenmedi* yaz)' : '');
 
         if (! empty($d['due_date'])) {
-            $lines[] = '• Vade: ' . $d['due_date'];
+            $lines[] = '• Ödeme tarihi: ' . \Illuminate\Support\Carbon::parse($d['due_date'])->locale('tr')->translatedFormat('j F Y');
         }
 
         // Kişisiz borç: soru değil ipucu (her "ödenmedi"de ek soru yormasın); ödemesi yine eşleştirilir.
@@ -868,7 +870,7 @@ class WhatsappWebhookController extends Controller
                     : '• Tür: Avans (iş sonra yapılacak)';
             }
         } elseif ($kind === ExpenseExtractor::KIND_SALE) {
-            $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺ iş yaptın';
+            $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺';
             foreach ($d['items'] ?? [] as $item) {
                 $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
             }
@@ -888,6 +890,9 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Açıklama: ' . $d['description'];
         }
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
+        if (! empty($d['due_date']) && in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true)) {
+            $lines[] = '• Ödeme tarihi: ' . \Illuminate\Support\Carbon::parse($d['due_date'])->locale('tr')->translatedFormat('j F Y');
+        }
         if (! empty($d['payment_type']) && ! $this->paymentContract($d)) {
             $lines[] = '• Şekli: ' . (self::PAYMENT_TYPE_LABELS[$d['payment_type']] ?? $d['payment_type']);
         }

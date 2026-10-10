@@ -288,6 +288,11 @@ class ExpenseExtractor
         AMA soru biçimindeki genel kelime ("Gider ?", "Giderler?", "Borç?", "Alacak?") işlem DEĞİL, sorudur:
         gider/harcama/masraf → "expense_summary", borç/alacak → "totals_query".
 
+        ÖDEME TARİHİ (`sale` ve `debt_note` için): para ileride ödenecekse / alınacaksa ve tarih SÖYLENDİYSE
+        `due_date` (YYYY-MM-DD): "Ali'ye bal sattım, gelecek ayın 14'ünde ödeyecek" → gelecek ayın 14'ü;
+        "Mehmet'e 15 bin borcum var, ayın 20'sinde ödeyeceğim" → bu ayın 20'si (geçtiyse gelecek ayın);
+        "10 gün sonra ödeyecek" → bugün + 10. Tarih söylenmediyse null bırak — SORMA (`question` kullanma).
+
         ÖDEME DURUMU ve VADE (yalnız `expense` için):
         - `paid`'i SADECE açıkça belliyse doldur, yoksa null bırak (varsayılanı sistem uygular):
           · true: "ödedim", "ödendi", "peşin", "nakit verdim", "kartla ödedim", "havale ettim"; ya da belge
@@ -412,7 +417,9 @@ class ExpenseExtractor
             'payment_type' => in_array($paymentType, ['cash', 'bank_transfer', 'eft', 'other'], true) ? $paymentType : null,
             'amount' => isset($input['amount']) ? (float) $input['amount'] : 0.0,
             'date' => $input['date'] ?? now()->format('Y-m-d'),
-            'due_date' => ! empty($input['due_date']) ? (string) $input['due_date'] : null,
+            // Ödeme tarihi: gider, satış ve alacak/borç kaydında (diğer türlerde anlamsız).
+            'due_date' => in_array($kind, [self::KIND_EXPENSE, self::KIND_SALE, self::KIND_DEBT_NOTE], true)
+                ? self::validDate($input['due_date'] ?? null) : null,
             'description' => (string) ($input['description'] ?? ''),
             // Projesiz kurulum: AI proje uydurup yeni proje açtırmasın.
             'project_id' => config('modules.projects') && isset($input['project_id']) ? (int) $input['project_id'] : null,
