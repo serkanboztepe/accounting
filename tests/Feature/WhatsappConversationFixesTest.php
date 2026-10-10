@@ -223,6 +223,20 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame('unpaid', $rent->fresh()->payment_status);
     }
 
+    /** "yeni" → açıklama eşleşen borçtan kopyalanmışsa ("Test ev kirası") yeni gidere taşınmaz, kategori adı olur. */
+    public function test_yeni_does_not_carry_matched_debt_description(): void
+    {
+        $this->notFirstContact();
+        $rent = $this->openRent();
+        $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Test ev kirası', 'category_name' => 'Kira', 'settles_expense_id' => $rent->id]));
+
+        $this->send('Kira');
+        $summary = $this->send('yeni');
+
+        $this->assertStringContainsString('Açıklama: Kira', $summary);
+        $this->assertStringNotContainsString('Test ev kirası', $summary);
+    }
+
     public function test_payment_larger_than_open_debt_is_treated_as_new_expense(): void
     {
         $this->notFirstContact();
@@ -466,6 +480,20 @@ class WhatsappConversationFixesTest extends TestCase
         $this->fakeAi($this->entry(['amount' => 47, 'description' => 'Otobüs', 'paid' => true]));
 
         $this->assertStringNotContainsString('Hoş geldin', $this->send('47 tl otobüs'));
+    }
+
+    public function test_single_word_cari_lists_parties_without_ai(): void
+    {
+        $this->notFirstContact();
+        Party::create(['name' => 'Tek Kelime Test Cari']);
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldNotReceive('extract');
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $reply = $this->send('Cari');
+
+        $this->assertStringContainsString('Carilerin', $reply);
+        $this->assertStringContainsString('Tek Kelime Test Cari', $reply);
     }
 
     public function test_nasil_returns_sector_guide_without_ai(): void

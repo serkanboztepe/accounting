@@ -253,15 +253,18 @@ class ExpenseExtractor
         `question` alanını proje/cari eklemek için KULLANMA — sadece tutarı gerçekten
         okuyamıyorsan gibi kritik bir belirsizlikte kullan.
 
-        KATEGORİ için: kategori GENİŞ bir gider TÜRÜdür (Malzeme, İşçilik, Nakliye…), tek tek
-        malzeme veya marka adı DEĞİLDİR. Önce mevcut kategori listesiyle eşleştir (`category_id`)
-        ve mümkün olan en GENİŞ olanı tercih et. Somut yapı malzemeleri — boya, çimento, demir,
-        kum, çakıl, tuğla, alçı, seramik, fayans, kereste, kablo, boru, vida, hırdavat vb. — hepsi
-        "Malzeme" kategorisine girer; bunlar için AYRI kategori açma (mevcut "Malzeme" varsa onu seç).
-        (Kategori yalnız `expense` içindir.)
-        Sadece mevcut hiçbir geniş türe girmeyen, gerçekten YENİ bir gider türü varsa `category_name`'e
-        kısa bir ad öner; aksi halde uygun mevcut kategoriyle eşleştir ve `category_name`'i boş bırak.
-        Kararsızsan yeni açmaktansa en yakın mevcut kategoriyi seç — mükerrer/aşırı ince kategori açma.
+        KATEGORİ için (yalnız `expense`): kategori GENİŞ bir gider TÜRÜdür (Malzeme, İşçilik, Kira, Ulaşım,
+        Yemek, Fatura…), tek tek malzeme ya da marka adı DEĞİLDİR. İki kural:
+        1) ANLAMA göre eşleştir, yakınlığa göre DEĞİL: mevcut bir kategori ancak AYNI anlama geliyorsa
+           `category_id` ile seç. Örnekler: otobüs, taksi, metro, uçak, yol, otopark → "Ulaşım" (NAKLİYE DEĞİL —
+           Nakliye yük/malzeme taşımaktır: kamyon, hafriyat, malzeme getirme); mazot/benzin → "Yakıt";
+           elektrik, su, doğalgaz, internet, telefon faturası → mevcutsa ilgili kategori ya da "Fatura";
+           yemek, çay, su (içme) → "Yemek"; boya, çimento, demir, kum, tuğla, alçı, seramik, kereste, kablo,
+           boru, vida, hırdavat → "Malzeme".
+           Aynı anlamda mevcut kategori YOKSA `category_name`'e kısa, genel bir ad öner (ör. "Ulaşım", "Yemek",
+           "Kırtasiye", "Reklam") — uymayan bir kategoriye zorla sokma.
+        2) AYNI ŞEYİN İKİNCİ KATEGORİSİNİ AÇMA: listede "Ulaşım" varken "Yol", "Otobüs", "Ulaşım gideri" açma;
+           "Malzeme" varken "Boya", "Çimento" açma. Önerdiğin ad listede başka yazımla varsa onu seç.
 
         BELGE ÇEK İSE: Çekte iki taraf vardır — (a) matbu basılı KEŞİDECİ / hesap sahibi
         firma (çeki YAZAN, genelde bizim kendi şirketimizdir) ve (b) el yazısıyla yazılan

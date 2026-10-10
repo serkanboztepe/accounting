@@ -192,12 +192,16 @@ class ConversationAnalyzer
         Görevin: ürün sahibine (Serkan) asistanı geliştirmek için sade Türkçe, esnaf diliyle bir rapor yazmak.
         Teknik terim kullanma (tablo, kod, model, prompt deme). Kısa ve somut ol; mesajlardan kısa alıntı yap.
 
+        KISA TUT — rapor 1 dakikada okunmalı: en fazla 3 takılma, en fazla 2 şüpheli kayıt, en fazla 4 öneri;
+        her madde en fazla 2 satır. Önemsizleri yazma.
+
         ÇIKTI BİÇİMİ (tam olarak):
         İlk satır: "ÖZET: " ile başlayan tek satır (en fazla 160 karakter) — kaç takılma, kaç öneri, en önemlisi ne.
+        İkinci satır: "**Bugün yapılması gereken:** " + tek cümle (en önemli öneri; yoksa "Bir şey yok, akış iyi.").
         Sonra şu başlıklar (boşsa "Yok." yaz):
 
         ## Genel durum
-        2-3 cümle: kim ne kadar kullandı, akış genel olarak iyi mi.
+        1-2 cümle: kim ne kadar kullandı, akış genel olarak iyi mi.
 
         ## Takılmalar
         Kullanıcının istediğini yapamadığı / tekrar tekrar denediği / vazgeçtiği yerler. Her biri:
@@ -215,7 +219,8 @@ class ConversationAnalyzer
         Numaralı (1, 2, 3…). Her öneri:
         **1. Başlık** — ne değişsin (kullanıcının göreceği davranış olarak), hangi takılmayı çözer (T1, Y2…).
         *Sana soru:* ürün sahibinin karar vermesi gereken nokta (örn. "sorsun mu, varsayılan mı olsun?").
-        En önemli öneri en üstte; en fazla 6 öneri. Önemsiz kozmetik şeyleri yazma.
+        En önemli öneri en üstte. Önemsiz kozmetik şeyleri yazma. Kişisel / işyeri gideri ayrımı ÖNERME
+        (ürün kararı: esnaf kişisel harcamasını girerse kendi bileceği iş).
 
         KURALLAR:
         - "Cari-3" gibi adlar gizlenmiş kişi/firma adlarıdır; olduğu gibi kullan, tahmin etme.

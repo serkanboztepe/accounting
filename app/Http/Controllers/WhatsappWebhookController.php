@@ -115,6 +115,13 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->guideText());
         }
 
+        // "cari" / "cariler" tek kelime — cari listesi, AI'sız (Arda: "Cari" yazınca "anlayamadım" alıyordu).
+        if ($numMedia === 0 && in_array($this->word($body), ['cari', 'cariler', 'carilerim', 'cari listesi', 'carim'], true)) {
+            $this->inboundKind = ExpenseExtractor::KIND_PARTY_LIST;
+
+            return $this->twiml($this->partyListAnswer());
+        }
+
         // "çekler" — vadesi yaklaşan çek listesi (hatırlatmanın devamı). AI'sız, doğrudan veriden.
         if ($numMedia === 0 && config('modules.checks')
             && in_array($this->word($body), ['çekler', 'cekler', 'çeklerim', 'ceklerim', 'çek', 'cek'], true)) {
@@ -192,6 +199,12 @@ class WhatsappWebhookController extends Controller
             if (! empty($pending->extracted['settles_expense_id'])
                 && in_array($this->word($body), ['yeni', 'ayrı', 'ayri', 'yeni gider', 'ayrı gider'], true)) {
                 $data = $pending->extracted;
+                // Açıklama eşleşen borçtan kopyalandıysa ("Ev kira ödemesi") yeni gidere taşınmasın → kategori adı.
+                $matched = Expense::find($data['settles_expense_id']);
+                if ($matched && trim((string) $data['description']) === trim((string) $matched->description)) {
+                    $category = ! empty($data['category_id']) ? ExpenseCategory::find($data['category_id'])?->name : null;
+                    $data['description'] = $category ?? ($data['category_name'] ?? 'Gider');
+                }
                 $data['settles_expense_id'] = null;
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
