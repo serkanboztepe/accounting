@@ -146,6 +146,11 @@ class WhatsappExpenseSummaryTest extends TestCase
             'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 80000, 'description' => 'Mal alışı',
         ]);
 
+        PartyLedgerEntry::create([ // WhatsApp borç kaydı — alış değil, satırda görünmemeli
+            'party_id' => $this->party->id, 'entry_date' => '2031-03-08',
+            'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 5000, 'description' => 'Borç kaydı — Mehmet\'e borç',
+        ]);
+
         $reply = $this->ask('2031-03-01', '2031-03-31');
 
         $this->assertStringContainsString('Mart 2031 giderin: 1.000,00 ₺*', $reply);

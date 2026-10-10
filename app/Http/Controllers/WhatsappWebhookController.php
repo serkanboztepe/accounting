@@ -168,6 +168,25 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml('İptal edildi. ✖️');
             }
 
+            // Alacak/borç kaydı, yön belirsiz → "o bana" / "ben ona".
+            if ($this->needsDebtSide($pending->extracted)) {
+                $side = match ($this->word($body)) {
+                    'o bana', 'bana', 'o bana borçlu', 'o borçlu', 'alacak', 'alacağım' => 'receivable',
+                    'ben ona', 'ona', 'ben ona borçluyum', 'ben borçluyum', 'borç', 'borcum' => 'payable',
+                    default => null,
+                };
+                if ($side !== null) {
+                    $data = $pending->extracted;
+                    $data['debt_side'] = $side;
+                    $data['question'] = null; // AI'ın "kim kime borçlu?" sorusu cevaplandı
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+                if ($this->isConfirm($body)) {
+                    return $this->twiml('Önce yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).');
+                }
+            }
+
             // Borç ödemesi eşleşmesi yanlış → "yeni": ayrı bir gider olarak yaz.
             if (! empty($pending->extracted['settles_expense_id'])
                 && in_array($this->word($body), ['yeni', 'ayrı', 'ayri', 'yeni gider', 'ayrı gider'], true)) {
@@ -329,7 +348,9 @@ class WhatsappWebhookController extends Controller
                 $data['amount'] = (float) $open->amount;
                 $data['question'] = null;
             }
-            if (! $open || (float) $data['amount'] > (float) $open->amount + 0.01) {
+            // Borç başka birine aitse eşleşme yanlış — ayrı gider.
+            $differentParty = $open && $open->party_id && ! empty($data['party_id']) && (int) $data['party_id'] !== (int) $open->party_id;
+            if (! $open || $differentParty || (float) $data['amount'] > (float) $open->amount + 0.01) {
                 $data['settles_expense_id'] = null;
             }
         }
@@ -347,6 +368,10 @@ class WhatsappWebhookController extends Controller
             $pending?->update(['status' => 'superseded']);
 
             return $this->partyListAnswer();
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_DEBT_NOTE
+            && ($data['debt_side'] ?? null) === 'unclear' && ! config('modules.cari_supplier')) {
+            $data['debt_side'] = 'receivable'; // tedarikçi tarafı kapalı: tek olası yön
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_DEBT_NOTE
             && ($data['debt_side'] ?? null) === 'payable' && ! config('modules.cari_supplier')) {
@@ -390,10 +415,16 @@ class WhatsappWebhookController extends Controller
         }
 
         $summary = $this->buildSummary($data);
+        // AI şüphelendiyse ("Bu borç ona mı, ondan mı?") alanlar dolu olsa bile soruyu göster — tahmin sessizce geçmesin.
+        if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data)
+            && ! str_contains($summary, $data['question'])) {
+            $summary .= "\n❓ " . $data['question'];
+        }
         $footer = match (true) {
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",
             $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
+            $this->needsDebtSide($data) => "\n\n*o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun) yaz, vazgeçmek için *iptal*.",
             ! empty($data['settles_expense_id']) => "\n\n✅ Onaylamak için *evet*. Ayrı (yeni) bir gider ise *yeni* yaz, vazgeçmek için *iptal*.",
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
         };
@@ -431,6 +462,9 @@ class WhatsappWebhookController extends Controller
             }
             if ($this->needsContractChoice($d)) {
                 return 'Önce hangi sözleşmeye ödendiğini seç (numara yaz).';
+            }
+            if ($this->needsDebtSide($d)) {
+                return 'Önce yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).';
             }
             if ($this->needsPaymentChoice($d)) {
                 return 'Önce seç: *1* yeni masraf, *2* avans.';
@@ -567,6 +601,14 @@ class WhatsappWebhookController extends Controller
         return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
     }
 
+    /** Alacak/borç kaydında yön belirsiz (AI tahmin etmedi) — kullanıcıya sorulur. */
+    private function needsDebtSide(array $d): bool
+    {
+        return $this->kind($d) === ExpenseExtractor::KIND_DEBT_NOTE
+            && ($d['debt_side'] ?? null) === 'unclear'
+            && ! $this->missingParty($d);
+    }
+
     /** Hâlâ ödenmemiş (unpaid / partial) gider; değilse null. */
     private function openExpense(int $id): ?Expense
     {
@@ -587,6 +629,12 @@ class WhatsappWebhookController extends Controller
         $lines[] = $remaining >= 0.01
             ? '• Kalan borç: ' . Money::format($remaining) . ' ₺'
             : '• Borç kapanır ✅';
+        // Kişisiz borç + ödemede isim var ("Tuncay'a kira ödedim") → borç o kişiye bağlanır. Arda'da isim
+        // özette görünmediği için kullanıcı eşleşmeyi tanımadı, "yeni" deyip kirayı ikinci kez yazdı.
+        $payee = $this->existingParty($d)?->name ?? ($d['party_name'] ?? null);
+        if (! $open->party_id && $payee) {
+            $lines[] = '• Borç *' . $payee . '* hesabına bağlanır';
+        }
         $lines[] = 'Yeni gider açılmaz (bu masraf zaten yazılı).';
 
         return implode("\n", $lines);
@@ -607,6 +655,10 @@ class WhatsappWebhookController extends Controller
 
             $paid = (float) $d['amount'];
             $remaining = round((float) $open->amount - $paid, 2);
+
+            if (! $open->party_id && (! empty($d['party_id']) || ! empty($d['party_name']))) {
+                $open->party_id = $this->resolveParty($d)->id; // kalan kısım (replicate) da aynı kişiye
+            }
             if ($remaining < -0.01) {
                 return 'Ödenen tutar borçtan fazla. Tutarı kontrol edip tekrar yazar mısın?';
             }
@@ -752,6 +804,7 @@ class WhatsappWebhookController extends Controller
         if ($name === null) {
             return '❓ ' . ($d['question'] ?: match (true) {
                 $kind === ExpenseExtractor::KIND_DEBT_NOTE && ($d['debt_side'] ?? null) === 'payable' => 'Kime borcun var? Adını yazar mısın?',
+                $kind === ExpenseExtractor::KIND_DEBT_NOTE && ($d['debt_side'] ?? null) === 'unclear' => 'Kiminle olan borç/alacak? Adını yazar mısın?',
                 $kind === ExpenseExtractor::KIND_DEBT_NOTE => 'Kimden alacağın var? Adını yazar mısın?',
                 default => 'Kime/kimden olduğunu yazar mısın? (cari adı)',
             });
@@ -805,6 +858,9 @@ class WhatsappWebhookController extends Controller
             foreach ($d['items'] ?? [] as $item) {
                 $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
             }
+        } elseif ($kind === ExpenseExtractor::KIND_DEBT_NOTE && $this->needsDebtSide($d)) {
+            return '📒 ' . $label . ': ' . Money::format($amount) . " ₺ — *kim kime borçlu?*\n"
+                . '• ' . $name . ' mi sana borçlu, yoksa sen mi ona borçlusun?';
         } elseif ($kind === ExpenseExtractor::KIND_DEBT_NOTE) {
             $lines[] = ($d['debt_side'] ?? null) === 'payable'
                 ? '📒 *Borç kaydı*: ' . $label . ' → sen ona ' . Money::format($amount) . ' ₺ borçlusun'
@@ -991,9 +1047,12 @@ class WhatsappWebhookController extends Controller
         if ($rows->count() > 15) {
             $lines[] = '… ve bakiyesi olan ' . ($rows->count() - 15) . ' cari daha';
         }
-        $closed = $count - $rows->count();
-        if ($closed > 0) {
-            $lines[] = ($rows->isEmpty() ? '' : '… ') . $closed . ' carinin hesabı kapalı (bakiye 0).';
+        // Hesabı kapalı olanlar da adıyla (Arda: "1 carinin hesabı kapalı" yazısında kim olduğu görünmüyordu).
+        $closedNames = Party::whereNotIn('id', $rows->pluck('party.id'))->orderBy('name')->pluck('name');
+        if ($closedNames->isNotEmpty()) {
+            $room = max(5, 15 - min(15, $rows->count()));
+            $lines[] = '• Hesabı kapalı: ' . $closedNames->take($room)->implode(', ')
+                . ($closedNames->count() > $room ? ' … (+' . ($closedNames->count() - $room) . ')' : '');
         }
         $lines[] = "\nAyrıntı için: \"Ali'nin ekstresini at\"";
 

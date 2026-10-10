@@ -305,6 +305,75 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame(Party::where('name', 'Bağlam Test Yeni')->sole()->id, $seen[1]['party_id']);
     }
 
+    /** "Serkan adına 10000 borç": yön belirsiz → tahmin yok, "kim kime borçlu?" sorulur (Arda vakası, ters anlaşılmıştı). */
+    public function test_unclear_debt_direction_is_asked_not_guessed(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'unclear', 'amount' => 10000, 'party_name' => 'Yön Test Serkan']));
+
+        $question = $this->send('Yön Test Serkan adına 10000 borç');
+        $this->assertStringContainsString('kim kime borçlu?', $question);
+        $this->assertStringContainsString('*o bana*', $question);
+        $this->assertStringContainsString('Önce yönü yaz', $this->send('evet'));
+        $this->assertSame(0, Party::where('name', 'Yön Test Serkan')->count());
+
+        $summary = $this->send('o bana');
+        $this->assertStringContainsString('sana 10.000,00 ₺ borçlu', $summary);
+        $this->assertStringNotContainsString('kim kime', $summary);
+        $this->send('evet');
+        $this->assertEqualsWithDelta(10000, PartyStatement::build(Party::where('name', 'Yön Test Serkan')->sole())['balance'], 0.001);
+    }
+
+    public function test_ai_doubt_question_is_shown_even_when_fields_are_filled(): void
+    {
+        $this->notFirstContact();
+        $this->fakeAi($this->entry([
+            'kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => 5000, 'party_name' => 'Şüphe Test',
+            'question' => 'Bu para sana mı geldi, sen mi verdin?',
+        ]));
+
+        $this->assertStringContainsString('❓ Bu para sana mı geldi, sen mi verdin?', $this->send('Şüphe Test 5 bin'));
+    }
+
+    public function test_party_list_names_closed_accounts(): void
+    {
+        $this->notFirstContact();
+        Party::create(['name' => 'Kapalı Hesap Test Tuncay']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PARTY_LIST]));
+
+        $reply = $this->send('Hangi carilerim var');
+
+        $this->assertStringContainsString('Hesabı kapalı:', $reply);
+        $this->assertStringContainsString('Kapalı Hesap Test Tuncay', $reply);
+    }
+
+    /** Kişisiz borç + "Tuncay'a kira ödedim": özette isim görünür, kapanan borç Tuncay'a bağlanır. */
+    public function test_settling_partyless_debt_with_named_payee_attaches_party(): void
+    {
+        $this->notFirstContact();
+        $rent = $this->openRent();
+        $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Kira', 'party_name' => 'Bağlama Test Tuncay', 'settles_expense_id' => $rent->id]));
+
+        $this->assertStringContainsString('Borç *Bağlama Test Tuncay* hesabına bağlanır', $this->send("Bağlama Test Tuncay'a 20 bin kira ödedim"));
+        $this->send('evet');
+
+        $rent->refresh();
+        $this->assertSame('paid', $rent->payment_status);
+        $this->assertSame(Party::where('name', 'Bağlama Test Tuncay')->sole()->id, $rent->party_id);
+    }
+
+    public function test_debt_of_another_party_is_not_settled(): void
+    {
+        $this->notFirstContact();
+        $owner = Party::create(['name' => 'Ev Sahibi Test']);
+        $other = Party::create(['name' => 'Başka Kişi Test']);
+        $rent = $this->openRent();
+        $rent->update(['party_id' => $owner->id]);
+        $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Kira', 'party_id' => $other->id, 'settles_expense_id' => $rent->id]));
+
+        $this->assertStringNotContainsString('Borç ödemesi', $this->send("Başka Kişi Test'e kira ödedim"));
+    }
+
     public function test_party_list_shows_balances(): void
     {
         $this->notFirstContact();

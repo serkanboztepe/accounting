@@ -53,7 +53,7 @@ class ExpenseExtractor
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin").',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
-        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable". Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query).',
+        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query).',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_HELP => '- "help": yukarıdaki türlerin HİÇBİRİNE uymayan mesaj — selam, teşekkür, "ne yapabilirsin", "cari hesap kayıt" gibi yarım/anlaşılmayan istekler, desteklenmeyen işler. Hiçbir şey kaydedilmez; amount=0. `reply` alanına KISA (en fazla 3 cümle), samimi Türkçe bir cevap yaz: ne anladığını söyle ve yapabildiğin bir işe ÖRNEK CÜMLEYLE yönlendir (örnekler yalnız bu listedeki türlerden). Yapamadığın şeyi yapabilirmiş gibi, kayıt yapmışsın gibi SÖYLEME. Tutarı ya da ismi eksik bir İŞLEM ise "help" SEÇME — o türü seç ve `question` ile eksiği sor.',
         self::KIND_TOTALS_QUERY => '- "totals_query": TÜM CARİLER için toplam SORUSU, belirli bir cari YOK ("Toplam alacağım ne kadar?", "Kimden alacağım var?", "Toplam borcum ne?", "Kime borçluyum?", "Genel durum ne?"). GİDER/HARCAMA/MASRAF sorusu bu DEĞİLDİR (→ "expense_summary"). Hiçbir şey kaydedilmez; amount=0. `totals_side`: alacak sorusu → "receivable", borç sorusu → "payable", genel/ikisi → "both". Proje söylendiyse `project_id`.',
@@ -370,7 +370,7 @@ class ExpenseExtractor
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
                     'settles_expense_id' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=expense: id from ÖDENMEMİŞ GİDERLER when the message pays that existing unpaid expense (not a new cost); else null'],
                     'payment_purpose' => ['type' => ['string', 'null'], 'enum' => ['advance', 'loan', null], 'description' => 'Only for kind=payment: advance (prepayment for future work) / loan (money lent, to be returned); null if not stated'],
-                    'debt_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', null], 'description' => 'Only for kind=debt_note: receivable (they owe us) / payable (we owe them)'],
+                    'debt_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'unclear', null], 'description' => 'Only for kind=debt_note: receivable (they owe us) / payable (we owe them) / unclear (direction not stated — user is asked)'],
                     'reply' => ['type' => ['string', 'null'], 'description' => 'Only for kind=help: short Turkish guidance reply (max 3 sentences)'],
                     'is_new_entry' => ['type' => 'boolean', 'description' => 'Only meaningful when a previous draft is provided: true if the new message is a brand-new separate entry or a balance question (extract from scratch, ignore previous), false if it refines the previous draft. Default false.'],
                 ],
@@ -426,8 +426,9 @@ class ExpenseExtractor
             'settles_expense_id' => $kind === self::KIND_EXPENSE && ! empty($input['settles_expense_id']) ? (int) $input['settles_expense_id'] : null,
             'payment_purpose' => $kind === self::KIND_PAYMENT && in_array($input['payment_purpose'] ?? null, ['advance', 'loan'], true)
                 ? $input['payment_purpose'] : null,
+            // Yön belirsizse tahmin yok — kullanıcıya "kim kime borçlu?" sorulur.
             'debt_side' => $kind === self::KIND_DEBT_NOTE
-                ? (($input['debt_side'] ?? null) === 'payable' ? 'payable' : 'receivable')
+                ? (in_array($input['debt_side'] ?? null, ['receivable', 'payable'], true) ? $input['debt_side'] : 'unclear')
                 : null,
             'reply' => $kind === self::KIND_HELP && ! empty($input['reply']) ? trim((string) $input['reply']) : null,
         ];

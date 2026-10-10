@@ -49,8 +49,11 @@ class ExpenseSummary
                 ->sum('amount')
             : 0.0;
 
+        // WhatsApp "Mehmet'e 15 bin borcum var" de alış satırıyla tutulur ama alış değil, borç kaydıdır
+        // (açıklaması "Borç kaydı" ile başlar — WhatsappWebhookController::commitLedger).
         $purchases = (float) PartyLedgerEntry::query()
             ->where('type', PartyLedgerEntry::TYPE_PURCHASE)
+            ->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', 'Borç kaydı%'))
             ->whereBetween('entry_date', [$from, $to])
             ->when($projectId, fn ($q) => $q->where('project_id', $projectId))
             ->sum('amount');
