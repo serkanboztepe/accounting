@@ -22,6 +22,7 @@ use RuntimeException;
  *   debt_note     — "Ali owes me 40k" / "I owe Mehmet 15k" (a standing balance, no transaction verb) → ledger satis / alis
  *   party_list    — "which parties do I have?" → list with balances, nothing is saved
  *   help          — fits none of the above → AI-written short guidance in `reply`, nothing is saved
+ *   agenda        — "yarın ne var?" / "bu hafta neler var?" / "20 Ekim boş mu?" → reminders + due dates + checks, nothing saved
  *   reminder      — "20 Ekim düğün çekimim var" / "her ayın 10'unda kart ödemesi" → reminders after confirmation
  *                   (event_date, event_time, lead_minutes, is_alarm, repeat; reminder times computed in code)
  *
@@ -52,6 +53,7 @@ class ExpenseExtractor
     public const KIND_PARTY_LIST = 'party_list';
     public const KIND_HELP = 'help';
     public const KIND_REMINDER = 'reminder';
+    public const KIND_AGENDA = 'agenda';
 
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
@@ -61,6 +63,7 @@ class ExpenseExtractor
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query).',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
+        self::KIND_AGENDA => '- "agenda": TAKVİM / PROGRAM sorusu — bir günde ya da aralıkta ne var ("Yarın ne var?", "Bu hafta neler var?", "20 Ekim boş mu?", "Pazartesi programım ne?", "Bu ay ödemelerim ne zaman?"). Hiçbir şey kaydedilmez; amount=0. `date_from`/`date_to` (YYYY-MM-DD): tek gün sorulduysa ikisi de o gün; "bu hafta" / "önümüzdeki günler" → bugün / bugün+6 (hafta sonu sorulsa da 7 gün); "gelecek hafta" → gelecek Pazartesi / Pazar; "bu ay" → bugün / ay sonu; söylenmediyse ikisi de null (önümüzdeki 7 gün). Harcama sorusu ("bu hafta ne harcadım") DEĞİLDİR → "expense_summary"; yeni bir olay/hatırlatma bildirimi ("20 Ekim\'de düğünüm var") DEĞİLDİR → "reminder".',
         self::KIND_REMINDER => '- "reminder": HATIRLATMA isteği ya da hatırlatılacak bir OLAY/RANDEVU/ÖDEME GÜNÜ ("20 Ekim\'de düğün çekimim var", "yarın saat 11\'de kuaförüm var, 2 saat önce hatırlat", "kredi kartına her ayın 10\'unda ödemem var", "sıvacı 10 gün sonra gelecek, hatırlat", "Cuma Ali\'den parayı almayı hatırlat", "2 saat sonra hatırlat: ustayı ara", "kasko her yıl 3 Mart\'ta"). Kayıt değil; amount=0. `description` = olay/iş KISA ("Düğün çekimi", "Kuaför randevusu", "Kredi kartı ödemesi", "Ali\'den parayı al"). `event_date` (YYYY-MM-DD) olay günü (gün adı → bugünden sonraki ilk o gün; "10 gün sonra" → bugün+10; "her ayın 10\'u" → bugünden sonraki ilk 10\'u, bugün 10\'uysa bugün). `event_time` ("HH:MM") SADECE saat söylendiyse; "2 saat sonra" → şu an+2 saat. `lead_minutes` SADECE "ne kadar önce" söylendiyse ("2 saat önce" → 120, "2 gün önce" → 2880, "1 hafta önce" → 10080), yoksa null — varsayılanı sistem uygular, SEN HESAPLAMA. `is_alarm`=true: kullanıcı tam o anda hatırlatılmak istiyor, ortada ayrı bir olay yok ("saat 15\'te hatırlat: Ahmet\'i ara", "2 saat sonra hatırlat"); olay/randevu/ödeme günü ise false. `repeat`: "her hafta / her pazartesi" → "weekly", "her ay / her ayın 10\'u" → "monthly", "her yıl" → "yearly", yoksa null; "her gün" desteklenmez → `question`="Şimdilik haftalık, aylık ya da yıllık tekrar kurabiliyorum.". Cari geçiyorsa `party_id` (listede yoksa party_name YAZMA). Gün belli değilse ("sonra hatırlat") `event_date`=null, `question`="Ne zaman hatırlatayım?". DİKKAT: "Ali\'ye 45 bin sattım, 14 Kasım\'da ödeyecek" bir SATIŞTIR (sale + due_date), reminder değil.',
         self::KIND_HELP => '- "help": yukarıdaki türlerin HİÇBİRİNE uymayan mesaj — selam, teşekkür, "ne yapabilirsin", "cari hesap kayıt" gibi yarım/anlaşılmayan istekler, desteklenmeyen işler. Hiçbir şey kaydedilmez; amount=0. `reply` alanına KISA (en fazla 3 cümle), samimi Türkçe bir cevap yaz: ne anladığını söyle ve yapabildiğin bir işe ÖRNEK CÜMLEYLE yönlendir (örnekler yalnız bu listedeki türlerden). Yapamadığın şeyi yapabilirmiş gibi, kayıt yapmışsın gibi SÖYLEME. Tutarı ya da ismi eksik bir İŞLEM ise "help" SEÇME — o türü seç ve `question` ile eksiği sor.',
         self::KIND_TOTALS_QUERY => '- "totals_query": TÜM CARİLER için toplam SORUSU, belirli bir cari YOK ("Toplam alacağım ne kadar?", "Kimden alacağım var?", "Toplam borcum ne?", "Kime borçluyum?", "Genel durum ne?"). GİDER/HARCAMA/MASRAF sorusu bu DEĞİLDİR (→ "expense_summary"). Hiçbir şey kaydedilmez; amount=0. `totals_side`: alacak sorusu → "receivable", borç sorusu → "payable", genel/ikisi → "both". Proje söylendiyse `project_id`.',
@@ -91,6 +94,7 @@ class ExpenseExtractor
             self::KIND_PARTY_LIST,
             self::KIND_HELP,
             self::KIND_REMINDER,
+            self::KIND_AGENDA,
         ]));
     }
 
@@ -448,8 +452,8 @@ class ExpenseExtractor
             'totals_side' => $kind === self::KIND_TOTALS_QUERY
                 ? (in_array($input['totals_side'] ?? null, ['receivable', 'payable'], true) ? $input['totals_side'] : 'both')
                 : null,
-            'date_from' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY], true) ? self::validDate($input['date_from'] ?? null) : null,
-            'date_to' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY], true) ? self::validDate($input['date_to'] ?? null) : null,
+            'date_from' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY, self::KIND_AGENDA], true) ? self::validDate($input['date_from'] ?? null) : null,
+            'date_to' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY, self::KIND_AGENDA], true) ? self::validDate($input['date_to'] ?? null) : null,
             'payment_type' => in_array($paymentType, ['cash', 'bank_transfer', 'eft', 'other'], true) ? $paymentType : null,
             'amount' => isset($input['amount']) ? (float) $input['amount'] : 0.0,
             'date' => $input['date'] ?? now()->format('Y-m-d'),

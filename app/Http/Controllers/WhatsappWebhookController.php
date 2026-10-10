@@ -14,6 +14,7 @@ use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
+use App\Support\Agenda;
 use App\Support\CheckReminders;
 use App\Support\ContractStatus;
 use App\Support\ConversationContext;
@@ -419,6 +420,11 @@ class WhatsappWebhookController extends Controller
         if ($this->kind($data) === ExpenseExtractor::KIND_HELP) {
             // Anlaşılamayan mesaj: zorla en yakın türe sokmak yerine yönlendir. Bekleyen taslağa dokunma.
             return $data['reply'] ?: $this->guideText();
+        }
+        if ($this->kind($data) === ExpenseExtractor::KIND_AGENDA) {
+            $pending?->update(['status' => 'superseded']);
+
+            return Agenda::text($data['date_from'] ?? null, $data['date_to'] ?? null, $phone);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_PARTY_LIST) {
             $pending?->update(['status' => 'superseded']);
@@ -1240,6 +1246,7 @@ class WhatsappWebhookController extends Controller
         $lines[] = '• "20 Ekim\'de düğün çekimim var, 2 gün önce hatırlat"';
         $lines[] = '• "Her ayın 10\'unda kredi kartı ödemem var"';
         $lines[] = '• "hatırlatmalarım" (liste), "iptal 2" (sil)';
+        $lines[] = '• "Yarın ne var?", "Bu hafta neler var?", "20 Ekim boş mu?"';
         $lines[] = '';
         if (in_array(ExpenseExtractor::KIND_EXPENSE, $kinds, true)) {
             $lines[] = '📷 Fiş / dekont fotoğrafı da atabilirsin.';

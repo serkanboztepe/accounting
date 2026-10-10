@@ -100,6 +100,32 @@ class Reminder extends Model
         return null;
     }
 
+    /**
+     * Aralığa düşen olay günleri (takvim: "bu hafta neler var"). Tekrarlıda her tekrar ayrı gün.
+     * "X'te hatırlat" (is_alarm) da olay sayılır — o gün yapılacak iş.
+     *
+     * @return list<Carbon>
+     */
+    public function occurrencesBetween(CarbonInterface $from, CarbonInterface $to): array
+    {
+        $date = Carbon::parse($this->event_date->toDateString(), self::TIMEZONE);
+        $from = Carbon::parse($from->toDateString(), self::TIMEZONE);
+        $to = Carbon::parse($to->toDateString(), self::TIMEZONE);
+
+        $out = [];
+        for ($i = 0; $i < 400 && $date->lte($to); $i++) {
+            if ($date->gte($from)) {
+                $out[] = $date->copy();
+            }
+            if (! $this->repeat) {
+                break;
+            }
+            $date = $this->nextOccurrence($date);
+        }
+
+        return $out;
+    }
+
     /** Tekrarlıda bir sonraki olay günü (aylık/yıllıkta asıl gün korunur: 31 → 30 → 31). */
     public function nextOccurrence(CarbonInterface $date): Carbon
     {
