@@ -21,6 +21,8 @@ use Filament\Notifications\Notification;
 use App\Support\Forms\MoneyInput;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use App\Models\Party;
+use App\Support\PartyDeletion;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
@@ -60,7 +62,14 @@ class EditParty extends EditRecord
                     $this->record->update($data);
                 }),
 
-            DeleteAction::make(),
+            DeleteAction::make()
+                ->modalDescription(fn (Party $record) => PartyDeletion::description($record))
+                ->before(function (Party $record, DeleteAction $action) {
+                    if (PartyDeletion::blockers($record)) {
+                        Notification::make()->danger()->title('Cari silinemedi')->body(PartyDeletion::description($record))->send();
+                        $action->halt();
+                    }
+                }),
         ];
     }
 

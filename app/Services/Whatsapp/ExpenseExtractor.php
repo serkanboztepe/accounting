@@ -203,10 +203,11 @@ class ExpenseExtractor
             ? '- Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense".'
             : '- Fotoğraf (dekont/çek) → belgeden yönü çıkar: bize gelen para → "collection".';
         // Harcama takibi kapalı: kişisiz harcama / "ne harcadım" sorusu zorla başka kalıba girmesin.
-        $noExpenseRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true) ? '' : '- HARCAMA (GİDER) TAKİBİ KAPALI: kişisiz bir harcama ("5 bin mazot aldım", "kira ödedim" — kime belli değil) ya da harcama sorusu ("bu ay ne harcadım") → "help", `reply`: "Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor."'
-            . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? ' + " Bir kişiden aldıysan adıyla yaz, örneğin: \"Ahmet\'ten 10 bin mal aldım\"."' : '');
+        $noExpenseRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true) ? '' : '- HARCAMA (GİDER) TAKİBİ KAPALI: kişisiz bir harcama ("5 bin mazot aldım", "kira ödedim" — kime belli değil) ya da harcama sorusu ("bu ay ne harcadım") → "help", `reply`: "Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor.'
+            . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? ' Bir kişiden aldıysan adıyla yaz, örneğin: \"Ahmet\'ten 10 bin mal aldım\".' : '')
+            . ' 💡 Harcamalarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin."';
         // Tedarikçi tarafı kapalı (mimar): "Hasan'a 10 bin ödedim" en yakın kalıp "sale" sanılıp yön ters çıkıyordu.
-        $noSupplierRule = in_array(self::KIND_PAYMENT, self::allowedKinds(), true) ? '' : '- TEDARİKÇİ TARAFI KAPALI: bu hesapta yalnız MÜŞTERİ tarafı (yaptığımız işler, bize gelen paralar, alacaklar) tutulur. BİZ birine para verdiysek ("Hasan\'a 10 bin ödedim", "ustaya verdim") ya da birinden mal/hizmet aldıysak → "help", `reply`: "Bu hesapta yalnız müşteri hesapları tutuluyor; birine yaptığın ödemeler ve aldığın mal/hizmet kaydedilmiyor." ASLA "sale" ya da "collection" SEÇME — yön ters olur.';
+        $noSupplierRule = in_array(self::KIND_PAYMENT, self::allowedKinds(), true) ? '' : '- TEDARİKÇİ TARAFI KAPALI: bu hesapta yalnız MÜŞTERİ tarafı (yaptığımız işler, bize gelen paralar, alacaklar) tutulur. BİZ birine para verdiysek ("Hasan\'a 10 bin ödedim", "ustaya verdim") ya da birinden mal/hizmet aldıysak → "help", `reply`: "Bu hesapta yalnız müşteri hesapları tutuluyor; birine yaptığın ödemeler ve aldığın mal/hizmet kaydedilmiyor. 💡 Ödemelerini ve alımlarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin." ASLA "sale" ya da "collection" SEÇME — yön ters olur.';
         $kinds = implode("\n", array_map(
             fn (string $k) => self::KIND_HINTS[$k],
             self::allowedKinds(),
