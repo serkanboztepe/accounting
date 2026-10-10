@@ -54,7 +54,22 @@ class WelcomeMessage
         );
 
         $firm = $phone->firm;
+        $sent = $firm && $firm->isLocal() ? Tenancy::run($firm, $send) : $send();
+        if ($sent) {
+            $phone->forceFill(['welcomed_at' => now()])->save();
+        }
 
-        return $firm && $firm->isLocal() ? Tenancy::run($firm, $send) : $send();
+        return $sent;
+    }
+
+    /**
+     * "Hoş geldin gönder" bu numarada görünsün mü: daha önce gönderilmediyse ve numara karşılama
+     * özelliğinden sonra eklendiyse (eski müşteriler zaten kullanıyor — WhatsappMessage::WELCOME_SINCE).
+     */
+    public static function canSendTo(HubPhone $phone): bool
+    {
+        return self::configured()
+            && $phone->welcomed_at === null
+            && $phone->created_at?->gte(\Illuminate\Support\Carbon::parse(\App\Models\WhatsappMessage::WELCOME_SINCE));
     }
 }

@@ -27,11 +27,11 @@ class WelcomeMessageTest extends TestCase
         Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SM1'], 201)]);
     }
 
-    private function phone(?string $name): HubPhone
+    private function phone(?string $name, string $number = '0537 111 22 33'): HubPhone
     {
         $firm = HubFirm::create(['name' => 'Karşılama Şablon Test', 'url' => 'https://example.test']);
 
-        return HubPhone::create(['phone' => '0537 111 22 33', 'hub_firm_id' => $firm->id, 'name' => $name]);
+        return HubPhone::create(['phone' => $number, 'hub_firm_id' => $firm->id, 'name' => $name]);
     }
 
     public function test_sends_welcome_template_with_first_name(): void
@@ -48,6 +48,22 @@ class WelcomeMessageTest extends TestCase
         WelcomeMessage::send($this->phone(null));
 
         Http::assertSent(fn (ClientRequest $r) => json_decode($r['ContentVariables'], true) === ['1' => 'Karşılama Şablon Test']);
+    }
+
+    /** Gönderildiyse "Hoş geldin gönder" gizlenir; eski (karşılama öncesi) numaralarda hiç görünmez. */
+    public function test_button_hidden_after_sending_and_for_old_numbers(): void
+    {
+        $phone = $this->phone('Burak Şimşek');
+        $phone->forceFill(['created_at' => '2026-10-12 10:00:00'])->save();
+        $this->assertTrue(WelcomeMessage::canSendTo($phone->fresh()));
+
+        WelcomeMessage::send($phone);
+        $this->assertNotNull($phone->fresh()->welcomed_at);
+        $this->assertFalse(WelcomeMessage::canSendTo($phone->fresh()));
+
+        $old = $this->phone('Eski Müşteri', '0537 999 88 77');
+        $old->forceFill(['created_at' => '2026-10-08 10:00:00'])->save();
+        $this->assertFalse(WelcomeMessage::canSendTo($old->fresh()));
     }
 
     public function test_approval_status_is_read_from_twilio(): void

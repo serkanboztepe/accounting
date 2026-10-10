@@ -12,9 +12,9 @@ class HubPhone extends Model
 {
     use UsesCentralConnection;
 
-    protected $fillable = ['phone', 'hub_firm_id', 'name', 'is_active', 'receives_reminders'];
+    protected $fillable = ['phone', 'hub_firm_id', 'name', 'is_active', 'receives_reminders', 'welcomed_at'];
 
-    protected $casts = ['is_active' => 'boolean', 'receives_reminders' => 'boolean'];
+    protected $casts = ['is_active' => 'boolean', 'receives_reminders' => 'boolean', 'welcomed_at' => 'datetime'];
 
     protected static function booted(): void
     {

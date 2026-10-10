@@ -97,6 +97,9 @@ class PhonesRelationManager extends RelationManager
                 ToggleColumn::make('is_active')->label('Aktif'),
                 ToggleColumn::make('receives_reminders')->label('Çek hatırlatması')
                     ->visible(fn () => $this->getOwnerRecord()->isLocal()),
+                TextColumn::make('welcomed_at')->label('Hoş geldin')->since()->placeholder('—')
+                    ->tooltip(fn (HubPhone $record) => $record->welcomed_at?->format('d.m.Y H:i'))
+                    ->visible(fn () => WelcomeMessage::configured()),
             ])
             ->emptyStateHeading('Henüz numara yok')
             ->emptyStateDescription('Bu firmadan asistana yazacak kişilerin WhatsApp numaralarını ekle.')
@@ -120,7 +123,7 @@ class PhonesRelationManager extends RelationManager
                     ->label('Hoş geldin gönder')
                     ->icon(Heroicon::OutlinedHandRaised)
                     ->color('gray')
-                    ->visible(fn () => WelcomeMessage::configured())
+                    ->visible(fn (HubPhone $record) => WelcomeMessage::canSendTo($record))
                     ->requiresConfirmation()
                     ->modalHeading('Hoş geldin mesajı gönderilsin mi?')
                     ->modalDescription(fn (HubPhone $record) => ($record->name ?: Phone::display($record->phone)) . ' numarasına "hesabın hazır, nasıl yaz" mesajı gider.')
