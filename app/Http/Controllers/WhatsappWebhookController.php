@@ -662,11 +662,25 @@ class WhatsappWebhookController extends Controller
                 'project_id' => $projectId,
                 'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
                 // Ödeme tarihi yalnız satış / alacak-borç kaydında (o sabah hatırlatılır, ödendiyse hatırlatılmaz).
-                'due_date' => in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true) ? ($d['due_date'] ?? null) : null,
+                'due_date' => in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE], true)
+                    && empty($d['paid']) ? ($d['due_date'] ?? null) : null,
                 'type' => $type,
                 'payment_type' => $kind === ExpenseExtractor::KIND_SALE ? null : ($d['payment_type'] ?? null),
                 'description' => $row['description'] ?: null,
                 'amount' => Money::store((float) $row['amount']),
+                'notes' => 'WhatsApp üzerinden girildi.',
+            ]);
+        }
+
+        // Peşin alış: alış + ödeme birlikte — borç oluşmaz ama ekstrede ne alındığı görünür.
+        if ($kind === ExpenseExtractor::KIND_PURCHASE && ! empty($d['paid'])) {
+            PartyLedgerEntry::create([
+                'party_id' => $party->id,
+                'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
+                'type' => PartyLedgerEntry::TYPE_PAYMENT,
+                'payment_type' => $d['payment_type'] ?? null,
+                'description' => 'Alış ödemesi' . ($description ? ' — ' . $description : ''),
+                'amount' => Money::store((float) ($d['amount'] ?? 0)),
                 'notes' => 'WhatsApp üzerinden girildi.',
             ]);
         }
@@ -834,6 +848,9 @@ class WhatsappWebhookController extends Controller
         if ($this->kind($d) === ExpenseExtractor::KIND_DEBT_NOTE) {
             return ($d['debt_side'] ?? null) === 'payable' ? PartyLedgerEntry::TYPE_PURCHASE : PartyLedgerEntry::TYPE_SALE;
         }
+        if ($this->kind($d) === ExpenseExtractor::KIND_PURCHASE) {
+            return PartyLedgerEntry::TYPE_PURCHASE;
+        }
 
         return self::LEDGER_TYPES[$this->kind($d)];
     }
@@ -944,6 +961,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_SALE => $before + $amount,
             ExpenseExtractor::KIND_COLLECTION => $before - $amount,
             ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? $before - $amount : $before + $amount,
+            ExpenseExtractor::KIND_PURCHASE => ! empty($d['paid']) ? $before : $before - $amount,
         };
 
         $lines = [];
@@ -984,6 +1002,9 @@ class WhatsappWebhookController extends Controller
             foreach ($d['items'] ?? [] as $item) {
                 $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
             }
+        } elseif ($kind === ExpenseExtractor::KIND_PURCHASE) {
+            $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
+                . (! empty($d['paid']) ? ' (ödendi)' : ' (ona borçlandın)');
         } elseif ($kind === ExpenseExtractor::KIND_DEBT_NOTE && $this->needsDebtSide($d)) {
             return '📒 ' . $label . ': ' . Money::format($amount) . " ₺ — *kim kime borçlu?*\n"
                 . '• ' . $name . ' mi sana borçlu, yoksa sen mi ona borçlusun?';
@@ -1000,7 +1021,7 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Açıklama: ' . $d['description'];
         }
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
-        if (! empty($d['due_date']) && in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true)) {
+        if (! empty($d['due_date']) && in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE], true)) {
             $lines[] = '• Ödeme tarihi: ' . \Illuminate\Support\Carbon::parse($d['due_date'])->locale('tr')->translatedFormat('j F Y');
         }
         if (! empty($d['payment_type']) && ! $this->paymentContract($d)) {
@@ -1216,6 +1237,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_SALE => "• Satış: \"Ahmet Bey'e 80 bine iş yaptım\"",
             ExpenseExtractor::KIND_COLLECTION => "• Gelen para: \"Ahmet Bey 50 bin ödedi\"",
             ExpenseExtractor::KIND_PAYMENT => "• Verdiğin para: \"Ahmet ustaya 10 bin ödedim\"",
+            ExpenseExtractor::KIND_PURCHASE => "• Alış: \"Ahmet'ten 10 bin mal aldım\" (peşinse \"nakit ödedim\" ekle)",
             ExpenseExtractor::KIND_DEBT_NOTE => "• Alacak / borç: \"Ali'den 40 bin alacağım var\""
                 . (config('modules.cari_supplier') ? ", \"Mehmet'e 15 bin borcum var\"" : ''),
         ];
@@ -1323,7 +1345,7 @@ class WhatsappWebhookController extends Controller
     private function missingParty(array $d): bool
     {
         return in_array($this->kind($d), [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_SALE,
-            ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_DEBT_NOTE], true)
+            ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE], true)
             && ! $this->existingParty($d)
             && empty($d['party_name']);
     }

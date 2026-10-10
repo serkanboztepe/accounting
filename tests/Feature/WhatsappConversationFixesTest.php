@@ -401,6 +401,38 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame('2026-11-14', PartyLedgerEntry::where('party_id', $party->id)->sole()->due_date->toDateString());
     }
 
+    /** Gider takibi kapalı firma (Burak): "mal aldım" alıştır — eskiden en yakın kalıp "ödeme" seçilip yön ters çıkıyordu. */
+    public function test_purchase_kind_only_without_expenses_and_records_ledger_purchase(): void
+    {
+        $this->assertNotContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds()); // gider açık
+        config(['modules.expenses' => false, 'modules.cari_supplier' => true]);
+        $this->assertContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds());
+
+        $this->notFirstContact();
+        $this->fakeAi(
+            $this->entry(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 4400, 'party_name' => 'Alış Test Serkan', 'description' => 'Yem', 'paid' => null, 'due_date' => '2031-11-15']),
+            $this->entry(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 5000, 'party_name' => 'Alış Test Mehmet', 'description' => 'Yem', 'paid' => true]),
+        );
+
+        $summary = $this->send("Alış Test Serkan'dan 4 yem aldım 4400 tl, 15 Kasım'da ödeyeceğim");
+        $this->assertStringContainsString('Alış* ← Alış Test Serkan (yeni cari): 4.400,00 ₺ (ona borçlandın)', $summary);
+        $this->send('evet');
+        $serkan = Party::where('name', 'Alış Test Serkan')->sole();
+        $row = PartyLedgerEntry::where('party_id', $serkan->id)->sole();
+        $this->assertSame(PartyLedgerEntry::TYPE_PURCHASE, $row->type);
+        $this->assertSame('2031-11-15', $row->due_date->toDateString());
+        $this->assertEqualsWithDelta(-4400, PartyStatement::build($serkan)['balance'], 0.001);
+        $this->assertSame(0, Expense::where('party_id', $serkan->id)->count());
+
+        // Peşin alış: alış + ödeme, borç yok ama ekstrede görünür.
+        $this->assertStringContainsString('(ödendi)', $this->send("Alış Test Mehmet'ten 5 bin yem aldım nakit ödedim"));
+        $this->send('evet');
+        $mehmet = Party::where('name', 'Alış Test Mehmet')->sole();
+        $this->assertSame([PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT],
+            PartyLedgerEntry::where('party_id', $mehmet->id)->orderBy('id')->pluck('type')->all());
+        $this->assertEqualsWithDelta(0, PartyStatement::build($mehmet)['balance'], 0.001);
+    }
+
     public function test_party_list_shows_balances(): void
     {
         $this->notFirstContact();
