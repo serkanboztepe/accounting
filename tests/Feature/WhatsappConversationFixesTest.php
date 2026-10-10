@@ -476,6 +476,20 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('Cari Ekstresi', $out->body);
     }
 
+    /** "Ferdi'ye ekstresini at": cariye biz yazamayız — PDF kullanıcıya gelir ve nasıl ileteceği söylenir. */
+    public function test_forward_statement_request_explains_how_to_forward(): void
+    {
+        $this->notFirstContact();
+        $party = Party::create(['name' => 'FERDİ  CENGİZ ']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_STATEMENT, 'party_id' => $party->id, 'forward_to_party' => true]));
+
+        $reply = $this->send('FERDİ CENGİZİN EXTRASINI MESAJ OLARAK FERDİ CENGİZE AT');
+
+        $this->assertStringContainsString('<Media>', $reply);
+        $this->assertStringContainsString('FERDİ CENGİZ kişisine doğrudan mesaj atamıyorum', $reply); // boşluklar temiz
+        $this->assertStringContainsString('*İlet*', $reply);
+    }
+
     public function test_total_debt_includes_unpaid_expenses_without_party(): void
     {
         $this->notFirstContact();

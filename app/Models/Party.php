@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,6 +16,15 @@ class Party extends Model
         'phone',
         'notes',
     ];
+
+    /**
+     * Gösterimde fazla boşluk temizlenir ("ÜMİT KAYA " / "RAMADA  OTEL" → "ÜMİT KAYA" / "RAMADA OTEL").
+     * İçeri aktarılan verilerde vardı; veritabanındaki kayıt değişmez (yalnız okunuş).
+     */
+    protected function name(): Attribute
+    {
+        return Attribute::get(fn (?string $value) => $value === null ? null : preg_replace('/\s+/u', ' ', trim($value)));
+    }
 
     public function expenses(): HasMany
     {

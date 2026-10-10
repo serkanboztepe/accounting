@@ -451,8 +451,17 @@ class WhatsappWebhookController extends Controller
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_STATEMENT) {
             $pending?->update(['status' => 'superseded']);
+            $answer = $this->statementAnswer($data);
 
-            return $this->statementAnswer($data);
+            // "Ferdi'ye at": cariye biz yazamayız (Meta izni / karşı tarafın onayı yok) — sessizce kullanıcıya
+            // göndermek yerine açıkça söyle ve nasıl ileteceğini anlat (Ferhat Bey gönderildi sanmıştı).
+            if (! empty($data['forward_to_party']) && is_array($answer)) {
+                $name = $this->existingParty($data)?->name ?? 'carine';
+                $answer[0] .= "\n\nℹ️ {$name} kişisine doğrudan mesaj atamıyorum. Ekstreyi sana gönderdim; "
+                    . "PDF'e basılı tut → *İlet* ile ona gönderebilirsin.";
+            }
+
+            return $answer;
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_EXPENSE_SUMMARY) {
             $pending?->update(['status' => 'superseded']);
