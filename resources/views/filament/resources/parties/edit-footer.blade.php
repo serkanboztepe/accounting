@@ -11,24 +11,25 @@
         heading="Cari Ekstresi"
         :description="$statementDesc"
     >
-        {{-- Yeni hareket girişi — tek liste (grid kaldırıldı) --}}
+        {{-- Yeni hareket girişi — tek sıra. Düğmeler esnafın ağzından; ekstre/PDF tarafsız dilde kalır
+             (Satış / Tahsilat / Alış / Ödeme) — müşteriye giden belge. --}}
         <div class="mb-4 flex flex-wrap gap-2">
             @if (config('modules.direct_sales'))
                 {{-- Takipli: kalemli satış (stok düşer + cari borç) --}}
                 <x-filament::button color="info" icon="heroicon-o-shopping-cart"
                     wire:click="mountAction('newSale')">
-                    Satış
+                    Satış Yaptım
                 </x-filament::button>
             @else
                 {{-- Basit: kalemsiz tek tutar (sadece cari borç) --}}
                 <x-filament::button color="info" icon="heroicon-o-shopping-cart"
                     wire:click="mountAction('newLedgerEntry', { type: 'satis' })">
-                    Satış
+                    Satış Yaptım
                 </x-filament::button>
             @endif
             <x-filament::button color="success" icon="heroicon-o-arrow-down-circle"
                 wire:click="mountAction('newCollection')">
-                Tahsilat
+                Ödeme Aldım
             </x-filament::button>
             @if (config('modules.direct_sales'))
                 {{-- Müşteri-merkezli iade: tüm satışlarının iade edilebilir kalemleri tek listede --}}
@@ -40,11 +41,11 @@
             @if (config('modules.cari_supplier'))
                 <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
                     wire:click="mountAction('newLedgerEntry', { type: 'alis' })">
-                    Alış / Hizmet
+                    Alım Yaptım
                 </x-filament::button>
                 <x-filament::button color="danger" icon="heroicon-o-arrow-up-circle"
                     wire:click="mountAction('newLedgerEntry', { type: 'odeme' })">
-                    Ödeme
+                    Ödeme Yaptım
                 </x-filament::button>
             @endif
         </div>

@@ -146,11 +146,12 @@ class EditParty extends EditRecord
     public function newLedgerEntryAction(): Action
     {
         return Action::make('newLedgerEntry')
+            // Esnafın ağzından: ne yaptığını ve bakiyeye etkisini söyler ("Cariyi borçlandır" yerine).
             ->modalHeading(fn (array $arguments): string => match ($arguments['type'] ?? null) {
-                'satis'    => 'Satış — Cariyi Borçlandır',
-                'tahsilat' => 'Tahsilat — Para Girişi',
-                'alis'     => 'Alış / Hizmet — Cariye Borçlan',
-                'odeme'    => 'Ödeme — Para Çıkışı',
+                'satis'    => 'Satış Yaptım · ' . $this->record->name . ' borçlanır',
+                'tahsilat' => 'Ödeme Aldım · ' . $this->record->name . ' borcu azalır',
+                'alis'     => 'Alım Yaptım · sen borçlanırsın',
+                'odeme'    => 'Ödeme Yaptım · borcun azalır',
                 default    => 'Yeni Hareket',
             })
             ->modalSubmitActionLabel('Kaydet')
@@ -170,7 +171,7 @@ class EditParty extends EditRecord
     public function newSaleAction(): Action
     {
         return Action::make('newSale')
-            ->modalHeading('Satış')
+            ->modalHeading(fn (): string => 'Satış Yaptım · ' . $this->record->name . ' borçlanır')
             ->modalSubmitActionLabel('Kaydet')
             ->schema(array_merge(
                 SaleForm::components(withParty: false, dehydrateLines: true),
@@ -241,7 +242,7 @@ class EditParty extends EditRecord
     public function newCollectionAction(): Action
     {
         return Action::make('newCollection')
-            ->modalHeading('Tahsilat — Para Girişi')
+            ->modalHeading(fn (): string => 'Ödeme Aldım · ' . $this->record->name . ' borcu azalır')
             ->modalSubmitActionLabel('Kaydet')
             ->schema([
                 DatePicker::make('entry_date')->label('Tarih')->default(now())->required(),
