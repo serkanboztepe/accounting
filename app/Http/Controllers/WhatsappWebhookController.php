@@ -1276,7 +1276,7 @@ class WhatsappWebhookController extends Controller
         $lines[] = '*Hatırlatmak için:*';
         $lines[] = '• "20 Ekim\'de düğün çekimim var, 2 gün önce hatırlat"';
         $lines[] = '• "Her ayın 10\'unda kredi kartı ödemem var"';
-        $lines[] = '• "hatırlatmalarım" (liste), "iptal 2" (sil)';
+        $lines[] = '• "hatırlatmalarım" (liste), "iptal 2" (sil) — hatırlatmalar firmanın panel takviminde de görünür';
         $lines[] = '• "Yarın ne var?", "Bu hafta neler var?", "20 Ekim boş mu?"';
         $lines[] = '';
         if (in_array(ExpenseExtractor::KIND_EXPENSE, $kinds, true)) {

@@ -14,7 +14,10 @@ use Illuminate\Support\Collection;
 class Agenda
 {
     /**
-     * @return Collection<string, list<array{time:?string, text:string, type:string}>> tarih (Y-m-d) => kalemler
+     * $phone verilirse yalnız o kişinin hatırlatmaları (WhatsApp); verilmezse firmanın hepsi (panel Takvim —
+     * kullanıcı kararı: firma aracı, hatırlatmalar ortak; kimin kurduğu yazılır).
+     *
+     * @return Collection<string, list<array{time:?string, text:string, type:string, phone:?string}>> tarih (Y-m-d) => kalemler
      */
     public static function between(CarbonInterface $from, CarbonInterface $to, ?string $phone = null): Collection
     {
@@ -26,25 +29,25 @@ class Agenda
         foreach ($reminders as $r) {
             foreach ($r->occurrencesBetween($from, $to) as $day) {
                 $items->push(['date' => $day->toDateString(), 'time' => $r->event_time ? substr($r->event_time, 0, 5) : null,
-                    'text' => $r->text, 'type' => 'reminder']);
+                    'text' => $r->text, 'type' => 'reminder', 'phone' => $r->phone]);
             }
         }
 
         foreach (DueItems::between($from, $to) as $due) {
-            $items->push(['date' => $due['date'], 'time' => null, 'text' => DueItems::line($due), 'type' => $due['kind']]);
+            $items->push(['date' => $due['date'], 'time' => null, 'text' => DueItems::line($due), 'type' => $due['kind'], 'phone' => null]);
         }
 
         if (config('modules.checks')) {
             foreach (CheckReminders::pending()->with('party')->whereBetween('due_date', [$from->toDateString(), $to->toDateString()])->get() as $c) {
                 $items->push(['date' => $c->due_date->toDateString(), 'time' => null,
-                    'text' => 'Çek: ' . ($c->party?->name ?? 'cari yok') . ' ' . Money::format((float) $c->amount) . ' ₺', 'type' => 'check']);
+                    'text' => 'Çek: ' . ($c->party?->name ?? 'cari yok') . ' ' . Money::format((float) $c->amount) . ' ₺', 'type' => 'check', 'phone' => null]);
             }
         }
 
         return $items
             ->sortBy(fn ($i) => $i['date'] . ' ' . ($i['time'] ?? '00:00'))
             ->groupBy('date')
-            ->map(fn ($day) => $day->map(fn ($i) => ['time' => $i['time'], 'text' => $i['text'], 'type' => $i['type']])->values()->all());
+            ->map(fn ($day) => $day->map(fn ($i) => ['time' => $i['time'], 'text' => $i['text'], 'type' => $i['type'], 'phone' => $i['phone']])->values()->all());
     }
 
     /** WhatsApp cevabı. Tek gün ve boşsa "boş görünüyor". */
