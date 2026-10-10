@@ -22,6 +22,7 @@ use App\Support\Forms\MoneyInput;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -82,14 +83,34 @@ class EditParty extends EditRecord
      * yeniden render olur → getFooter() tekrar hesaplanır → ekstre canlı güncellenir.
      */
 
-    /** Elle cari hareketi için ortak form alanları (yön/tip yok — tip butondan gelir). */
-    protected function ledgerFormSchema(): array
+    /** Ödeme tarihi alanı yalnız satış ve alış satırlarında (tahsilat/ödeme paranın kendisi). */
+    private const DUE_DATE_TYPES = [PartyLedgerEntry::TYPE_SALE, PartyLedgerEntry::TYPE_PURCHASE];
+
+    /**
+     * Elle cari hareketi için ortak form alanları (yön/tip yok — tip butondan gelir).
+     * $type null → düzenleme: alan hep var, satırın tipine göre (gizli 'type' alanı) görünür; yoksa
+     * form tip bilinmeden kurulup mevcut ödeme tarihi doldurulmuyor, kaydedince siliniyordu.
+     */
+    protected function ledgerFormSchema(?string $type = null): array
     {
-        return [
+        $dueDate = DatePicker::make('due_date')
+            ->label('Ödeme tarihi (opsiyonel)')
+            ->helperText('Ne zaman ödenecek? O sabah WhatsApp\'tan hatırlatılır; ödendiyse hatırlatılmaz.')
+            ->afterOrEqual('entry_date');
+
+        return array_values(array_filter([
+            $type === null ? Hidden::make('type')->dehydrated(false) : null,
+
             DatePicker::make('entry_date')
                 ->label('Tarih')
                 ->default(now())
                 ->required(),
+
+            match (true) {
+                $type === null => $dueDate->visible(fn (Get $get) => in_array($get('type'), self::DUE_DATE_TYPES, true)),
+                in_array($type, self::DUE_DATE_TYPES, true) => $dueDate,
+                default => null,
+            },
 
             MoneyInput::make('amount', 'Tutar'),
 
@@ -109,7 +130,7 @@ class EditParty extends EditRecord
                 ->label('Not')
                 ->rows(2)
                 ->columnSpanFull(),
-        ];
+        ]));
     }
 
     /** Üstteki Satış/Tahsilat/Alış/Ödeme butonları bu aksiyonu tip argümanıyla mount eder. */
@@ -124,7 +145,7 @@ class EditParty extends EditRecord
                 default    => 'Yeni Hareket',
             })
             ->modalSubmitActionLabel('Kaydet')
-            ->schema($this->ledgerFormSchema())
+            ->schema(fn (array $arguments): array => $this->ledgerFormSchema($arguments['type'] ?? null))
             ->action(function (array $data, array $arguments): void {
                 $this->record->ledgerEntries()->create([
                     ...$data,
@@ -385,6 +406,8 @@ class EditParty extends EditRecord
                     'project_id'  => $entry->project_id,
                     'description' => $entry->description,
                     'notes'       => $entry->notes,
+                    'due_date'    => $entry->due_date,
+                    'type'        => $entry->type,
                 ];
             })
             ->schema($this->ledgerFormSchema())

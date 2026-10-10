@@ -39,6 +39,7 @@ class PartyLedgerEntry extends Model
         'sale_id',
         'sale_return_id',
         'entry_date',
+        'due_date',
         'description',
         'type',
         'payment_type',
@@ -49,6 +50,7 @@ class PartyLedgerEntry extends Model
 
     protected $casts = [
         'entry_date' => 'date',
+        'due_date' => 'date',
         'amount'     => 'decimal:2',
     ];
 
