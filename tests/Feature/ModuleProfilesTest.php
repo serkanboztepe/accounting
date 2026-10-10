@@ -91,10 +91,10 @@ class ModuleProfilesTest extends TestCase
     public function test_whatsapp_kinds_per_mode(): void
     {
         $expected = [
-            'mimar' => ['sale', 'collection', 'balance_query', 'statement', 'totals_query', 'debt_note', 'party_list', 'help'],
-            'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help'],
-            'toptanci' => ['expense', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help'],
-            'alacak_verecek' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help'],
+            'mimar' => ['sale', 'collection', 'balance_query', 'statement', 'totals_query', 'debt_note', 'party_list', 'help', 'reminder'],
+            'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help', 'reminder'],
+            'toptanci' => ['expense', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help', 'reminder'],
+            'alacak_verecek' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help', 'reminder'],
         ];
 
         foreach ($expected as $profile => $kinds) {

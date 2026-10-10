@@ -9,6 +9,7 @@ use App\Models\ExpenseCategory;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\Reminder;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ExpenseExtractor;
@@ -20,6 +21,7 @@ use App\Support\ExpenseSummary;
 use App\Support\Money;
 use App\Support\PartyBalances;
 use App\Support\PartyStatement;
+use App\Support\Reminders;
 use App\Support\Phone;
 use App\Tenancy\Tenancy;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -82,6 +84,11 @@ class WhatsappWebhookController extends Controller
             }
 
             if ($this->touchedPartyId) {
+                // Hatırlatmaya cevap olarak tahsilat/ödeme onaylandıysa ("aldım" → evet) hatırlatma kapanır.
+                if ($this->committedPartyId
+                    && ($reminder = Reminder::awaitingReply(Phone::normalize($phone), $this->committedPartyId))) {
+                    $reminder->acknowledge();
+                }
                 ConversationContext::remember($phone, $this->touchedPartyId);
             }
 
@@ -100,6 +107,9 @@ class WhatsappWebhookController extends Controller
     /** Bu mesajda konuşulan cari (bakiye, ekstre, taslak, kayıt) → sınırlı bağlam (ConversationContext). */
     private ?int $touchedPartyId = null;
 
+    /** Bu mesajda KAYDEDİLEN (onaylanan) işlemin carisi — bekleyen hatırlatmayı kapatmak için. */
+    private ?int $committedPartyId = null;
+
     /** Son gelen mesajın türü (konuşma kaydı): AI türü / quick / guide / checks / error / no_draft. */
     private ?string $inboundKind = null;
 
@@ -113,6 +123,23 @@ class WhatsappWebhookController extends Controller
             $this->inboundKind = 'guide';
 
             return $this->twiml($this->guideText());
+        }
+
+        // "hatırlatmalarım" — bekleyen hatırlatmalar; "iptal 2" — listedeki 2. hatırlatmayı sil. AI'sız.
+        if ($numMedia === 0 && in_array($this->word($body), ['hatırlatmalarım', 'hatırlatmalar', 'hatirlatmalarim', 'hatirlatmalar', 'hatırlatmalarımı göster'], true)) {
+            $this->inboundKind = 'reminder_list';
+
+            return $this->twiml(Reminders::listText($phone));
+        }
+        if ($numMedia === 0 && preg_match('/^iptal\s+(\d{1,2})$/u', $this->word($body), $m)) {
+            $this->inboundKind = 'reminder_cancel';
+            $reminder = Reminder::upcomingFor(Phone::normalize($phone))->skip((int) $m[1] - 1)->first();
+            if (! $reminder) {
+                return $this->twiml("Listede {$m[1]} numaralı hatırlatma yok. *hatırlatmalarım* yazıp numaraya bak.");
+            }
+            $reminder->update(['status' => 'cancelled', 'next_fire_at' => null]);
+
+            return $this->twiml('❌ Hatırlatma silindi: ' . $reminder->text);
         }
 
         // "cari" / "cariler" tek kelime — cari listesi, AI'sız (Arda: "Cari" yazınca "anlayamadım" alıyordu).
@@ -160,6 +187,20 @@ class WhatsappWebhookController extends Controller
         $image = $numMedia > 0 ? $this->downloadMedia($request) : null;
 
         // Bekleyen taslak yokken gelen "evet"/"iptal"/numara: yeni kayıt SANMA (0 ₺'lik gider açılıyordu).
+        // Taslak yokken "tamam" / "evet": az önce gönderilen hatırlatma(lar) görüldü (kayıt yok). Kalan
+        // hatırlatmalar iptal edilmez — olay günü yine hatırlatılır.
+        if (! $pending && $image === null && $this->isConfirm($body)
+            && ($seen = Reminder::allAwaitingReply(Phone::normalize($phone)))->isNotEmpty()) {
+            $this->inboundKind = 'reminder_ack';
+            $lines = $seen->map(function (Reminder $r) {
+                $r->markSeen();
+
+                return '• ' . $r->text . ($r->next_fire_at ? ' (yine hatırlatacağım: ' . Reminders::when($r->next_fire_at) . ')' : '');
+            });
+
+            return $this->twiml("✅ Tamam.\n" . $lines->implode("\n"));
+        }
+
         if (! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
             $this->inboundKind = 'no_draft';
 
@@ -213,7 +254,8 @@ class WhatsappWebhookController extends Controller
             // Tutarı eksik taslak ("Kira" → "Kira tutarı ne kadar?") + sadece sayı ("20000", "20.000 tl")
             // → tutar budur. Eskiden soruyu sorup taslak açmıyor, cevaba "onay bekleyen kayıt yok" diyordu.
             $typedAmount = $this->typedAmount($body);
-            if ($typedAmount !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0) {
+            if ($typedAmount !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0
+                && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_REMINDER) {
                 $data = $pending->extracted;
                 $data['amount'] = $typedAmount;
                 $data['question'] = null;
@@ -412,6 +454,10 @@ class WhatsappWebhookController extends Controller
             return ExpenseSummary::text($data['date_from'] ?? null, $data['date_to'] ?? null, $data['project_id'] ?? null);
         }
 
+        if ($this->kind($data) === ExpenseExtractor::KIND_REMINDER && ! empty($data['event_date'])) {
+            return $this->saveReminderDraft($pending, $phone, $data);
+        }
+
         // Tutar eksik ("Kira"): soruyu sor AMA taslağı tut — cevap ("20000") bu taslağa işlensin.
         // 0 ₺ taslak onaylanamaz (commit tutarı kontrol eder).
         if ((float) ($data['amount'] ?? 0) <= 0) {
@@ -466,6 +512,10 @@ class WhatsappWebhookController extends Controller
         $d = $pending->extracted;
         $kind = $this->kind($d);
 
+        if ($kind === ExpenseExtractor::KIND_REMINDER) {
+            return $this->commitReminder($pending, $d);
+        }
+
         if ((float) ($d['amount'] ?? 0) <= 0) {
             return '❓ Önce tutarı yaz (ör. 20000).';
         }
@@ -512,6 +562,7 @@ class WhatsappWebhookController extends Controller
         }
 
         $this->touchedPartyId = $partyId ?: $this->touchedPartyId;
+        $this->committedPartyId = $partyId ?: null;
 
         Expense::create([
             'project_id' => $projectId,
@@ -538,6 +589,7 @@ class WhatsappWebhookController extends Controller
     private function commitContractPayment(WhatsappPendingExpense $pending, array $d, Contract $contract): string
     {
         $this->touchedPartyId = $contract->party_id ?: $this->touchedPartyId;
+        $this->committedPartyId = $contract->party_id;
 
         if (($d['payment_type'] ?? null) === 'other') {
             return 'Çekle/senetle sözleşme ödemesini şimdilik panelden gir (Sözleşme → Ödemeler): vade ve çek no gerekiyor. Nakit/havale ise *nakit* ya da *havale* yaz.';
@@ -571,6 +623,7 @@ class WhatsappWebhookController extends Controller
     {
         $party = $this->resolveParty($d);
         $this->touchedPartyId = $party->id; // yeni açılan cari dahil — "5 bin daha verdi" buna bağlansın
+        $this->committedPartyId = $party->id;
         $projectId = $d['project_id'] ?? null;
         if ($projectId === null && ! empty($d['project_name'])) {
             $projectId = Project::firstOrCreate(['name' => $d['project_name']], ['status' => 'active'])->id;
@@ -615,6 +668,56 @@ class WhatsappWebhookController extends Controller
         $pending->update(['status' => 'confirmed']);
 
         return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+    }
+
+    /**
+     * Hatırlatma taslağı: hatırlatma saatleri KODDA hesaplanır (Reminder::alarmsFor) ve özette
+     * gösterilir — kural her seferinde aynı uygulansın, kullanıcı ne zaman hatırlatılacağını görsün.
+     */
+    private function saveReminderDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
+    {
+        $reminder = Reminders::fromDraft($data, $phone);
+        $data['question'] = null;
+
+        $text = $reminder->next_fire_at
+            ? Reminders::summary($reminder) . "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz."
+            : "❓ Bu zaman geçmiş görünüyor. Ne zaman hatırlatayım?\nVazgeçmek için *iptal*.";
+
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $text]);
+        } else {
+            WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $text, 'status' => 'awaiting_confirmation']);
+        }
+
+        return $text;
+    }
+
+    private function commitReminder(WhatsappPendingExpense $pending, array $d): string
+    {
+        if (empty($d['event_date'])) {
+            return '❓ Ne zaman hatırlatayım?';
+        }
+
+        $reminder = Reminders::fromDraft($d, $pending->phone);
+        if (! $reminder->next_fire_at) {
+            return '❓ Bu zaman geçmiş görünüyor. Ne zaman hatırlatayım?';
+        }
+
+        // Erteleme ("yarın tekrar hatırlat"): az önce gönderilen aynı hatırlatma cevaplanmış sayılır — ama
+        // olayın kalan hatırlatması varsa (düğünün "o gün" hatırlatması) o korunur, sadece işaretlenir.
+        $previous = Reminder::awaitingReply($reminder->phone);
+        if ($previous && mb_strtolower($previous->text) === mb_strtolower($reminder->text)) {
+            $previous->next_fire_at
+                ? $previous->update(['acknowledged_at' => now()])
+                : $previous->acknowledge();
+        }
+
+        $reminder->save();
+        $pending->update(['status' => 'confirmed']);
+
+        return '✅ Tamam, hatırlatacağım: ' . $reminder->text
+            . "\n⏰ İlk hatırlatma: " . Reminders::when($reminder->next_fire_at)
+            . "\nTüm hatırlatmaların için *hatırlatmalarım* yaz.";
     }
 
     /** Alacak/borç kaydında yön belirsiz (AI tahmin etmedi) — kullanıcıya sorulur. */
@@ -692,6 +795,7 @@ class WhatsappWebhookController extends Controller
             $open->payment_status = 'paid';
             $open->save();
             $this->touchedPartyId = $open->party_id ?: $this->touchedPartyId;
+            $this->committedPartyId = $open->party_id ?: null;
 
             $pending->update(['status' => 'confirmed']);
 
@@ -1132,6 +1236,11 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• "çekler" (vadesi yaklaşan çeklerin)';
         }
         $lines[] = '';
+        $lines[] = '*Hatırlatmak için:*';
+        $lines[] = '• "20 Ekim\'de düğün çekimim var, 2 gün önce hatırlat"';
+        $lines[] = '• "Her ayın 10\'unda kredi kartı ödemem var"';
+        $lines[] = '• "hatırlatmalarım" (liste), "iptal 2" (sil)';
+        $lines[] = '';
         if (in_array(ExpenseExtractor::KIND_EXPENSE, $kinds, true)) {
             $lines[] = '📷 Fiş / dekont fotoğrafı da atabilirsin.';
         }
@@ -1206,7 +1315,8 @@ class WhatsappWebhookController extends Controller
 
     private function missingParty(array $d): bool
     {
-        return $this->kind($d) !== ExpenseExtractor::KIND_EXPENSE
+        return in_array($this->kind($d), [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_SALE,
+            ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_DEBT_NOTE], true)
             && ! $this->existingParty($d)
             && empty($d['party_name']);
     }

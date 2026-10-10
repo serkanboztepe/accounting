@@ -23,6 +23,8 @@ if (config('tenancy.enabled')) {
     Schedule::command('tenants:run "backup:run --only-db"')->daily()->at('03:10');
     Schedule::command('tenants:run "backup:monitor"')->daily()->at('04:10');
     Schedule::command('tenants:run "checks:remind"')->dailyAt('09:00')->timezone('Europe/Istanbul');
+    // WhatsApp hatırlatmaları ("20 Ekim düğün çekimim var", "her ayın 10'u kart ödemesi").
+    Schedule::command('tenants:run "reminders:send"')->everyFiveMinutes()->withoutOverlapping(10);
     // Günlük konuşma analizi: dünün konuşmaları → numaralı rapor (hub) + yöneticiye WhatsApp özeti.
     Schedule::command('conversations:analyze')->dailyAt('08:30')->timezone('Europe/Istanbul');
     // WhatsApp konuşma kaydı 90 günden eskiyse silinir (App\Models\WhatsappMessage tek Prunable model).
@@ -31,4 +33,5 @@ if (config('tenancy.enabled')) {
     // Çek vadesi hatırlatması (WhatsApp). Ayarlı değilse komut sessizce çıkar.
     Schedule::command('checks:remind')->dailyAt('09:00')->timezone('Europe/Istanbul');
     Schedule::command('model:prune')->daily()->at('04:30');
+    Schedule::command('reminders:send')->everyFiveMinutes()->withoutOverlapping(10);
 }

@@ -60,6 +60,8 @@ return [
     'whatsapp' => [
         'from' => env('WHATSAPP_FROM'),                                     // +14786665916
         'check_reminder_content_sid' => env('WHATSAPP_CHECK_REMINDER_SID'), // Twilio Content SID (HX…)
+        // Kullanıcının kurduğu hatırlatmalar (şablon "hatirlatma", {{1}} = metin). Onaylı değilse serbest metin (yalnız 24 saat içinde teslim).
+        'reminder_content_sid' => env('WHATSAPP_REMINDER_SID'),
         // Hub'da numara eklenince giden karşılama şablonu ("hos_geldin", {{1}} = ad). Boşsa gönderilmez.
         'welcome_content_sid' => env('WHATSAPP_WELCOME_SID'),
         // Günlük konuşma analizi özeti kime gider (yönetici, virgülle). Boşsa gönderilmez.

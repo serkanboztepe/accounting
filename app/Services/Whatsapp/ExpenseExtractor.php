@@ -22,6 +22,8 @@ use RuntimeException;
  *   debt_note     — "Ali owes me 40k" / "I owe Mehmet 15k" (a standing balance, no transaction verb) → ledger satis / alis
  *   party_list    — "which parties do I have?" → list with balances, nothing is saved
  *   help          — fits none of the above → AI-written short guidance in `reply`, nothing is saved
+ *   reminder      — "20 Ekim düğün çekimim var" / "her ayın 10'unda kart ödemesi" → reminders after confirmation
+ *                   (event_date, event_time, lead_minutes, is_alarm, repeat; reminder times computed in code)
  *
  * Returns:
  *   kind (string), items (list<{description,amount}>), payment_type (string|null),
@@ -35,6 +37,9 @@ class ExpenseExtractor
 {
     private const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 
+    /** "Bugün", "yarın", "Cuma 14:00", "2 saat sonra" kullanıcının saatine göre yorumlansın. */
+    private const TIMEZONE = 'Europe/Istanbul';
+
     public const KIND_EXPENSE = 'expense';
     public const KIND_PAYMENT = 'payment';
     public const KIND_SALE = 'sale';
@@ -46,6 +51,7 @@ class ExpenseExtractor
     public const KIND_DEBT_NOTE = 'debt_note';
     public const KIND_PARTY_LIST = 'party_list';
     public const KIND_HELP = 'help';
+    public const KIND_REMINDER = 'reminder';
 
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
@@ -55,6 +61,7 @@ class ExpenseExtractor
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query).',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
+        self::KIND_REMINDER => '- "reminder": HATIRLATMA isteği ya da hatırlatılacak bir OLAY/RANDEVU/ÖDEME GÜNÜ ("20 Ekim\'de düğün çekimim var", "yarın saat 11\'de kuaförüm var, 2 saat önce hatırlat", "kredi kartına her ayın 10\'unda ödemem var", "sıvacı 10 gün sonra gelecek, hatırlat", "Cuma Ali\'den parayı almayı hatırlat", "2 saat sonra hatırlat: ustayı ara", "kasko her yıl 3 Mart\'ta"). Kayıt değil; amount=0. `description` = olay/iş KISA ("Düğün çekimi", "Kuaför randevusu", "Kredi kartı ödemesi", "Ali\'den parayı al"). `event_date` (YYYY-MM-DD) olay günü (gün adı → bugünden sonraki ilk o gün; "10 gün sonra" → bugün+10; "her ayın 10\'u" → bugünden sonraki ilk 10\'u, bugün 10\'uysa bugün). `event_time` ("HH:MM") SADECE saat söylendiyse; "2 saat sonra" → şu an+2 saat. `lead_minutes` SADECE "ne kadar önce" söylendiyse ("2 saat önce" → 120, "2 gün önce" → 2880, "1 hafta önce" → 10080), yoksa null — varsayılanı sistem uygular, SEN HESAPLAMA. `is_alarm`=true: kullanıcı tam o anda hatırlatılmak istiyor, ortada ayrı bir olay yok ("saat 15\'te hatırlat: Ahmet\'i ara", "2 saat sonra hatırlat"); olay/randevu/ödeme günü ise false. `repeat`: "her hafta / her pazartesi" → "weekly", "her ay / her ayın 10\'u" → "monthly", "her yıl" → "yearly", yoksa null; "her gün" desteklenmez → `question`="Şimdilik haftalık, aylık ya da yıllık tekrar kurabiliyorum.". Cari geçiyorsa `party_id` (listede yoksa party_name YAZMA). Gün belli değilse ("sonra hatırlat") `event_date`=null, `question`="Ne zaman hatırlatayım?". DİKKAT: "Ali\'ye 45 bin sattım, 14 Kasım\'da ödeyecek" bir SATIŞTIR (sale + due_date), reminder değil.',
         self::KIND_HELP => '- "help": yukarıdaki türlerin HİÇBİRİNE uymayan mesaj — selam, teşekkür, "ne yapabilirsin", "cari hesap kayıt" gibi yarım/anlaşılmayan istekler, desteklenmeyen işler. Hiçbir şey kaydedilmez; amount=0. `reply` alanına KISA (en fazla 3 cümle), samimi Türkçe bir cevap yaz: ne anladığını söyle ve yapabildiğin bir işe ÖRNEK CÜMLEYLE yönlendir (örnekler yalnız bu listedeki türlerden). Yapamadığın şeyi yapabilirmiş gibi, kayıt yapmışsın gibi SÖYLEME. Tutarı ya da ismi eksik bir İŞLEM ise "help" SEÇME — o türü seç ve `question` ile eksiği sor.',
         self::KIND_TOTALS_QUERY => '- "totals_query": TÜM CARİLER için toplam SORUSU, belirli bir cari YOK ("Toplam alacağım ne kadar?", "Kimden alacağım var?", "Toplam borcum ne?", "Kime borçluyum?", "Genel durum ne?"). GİDER/HARCAMA/MASRAF sorusu bu DEĞİLDİR (→ "expense_summary"). Hiçbir şey kaydedilmez; amount=0. `totals_side`: alacak sorusu → "receivable", borç sorusu → "payable", genel/ikisi → "both". Proje söylendiyse `project_id`.',
         self::KIND_EXPENSE_SUMMARY => '- "expense_summary": bir DÖNEMDE ne kadar HARCANDIĞI sorusu ("Bu ay ne kadar giderim var?", "Gider ?", "Giderlerim", "Masraflar ne durumda?", "Eylül\'de ne harcadım?", "Bu yıl toplam masrafım ne?", "Cumhuriyet\'te bu ay ne harcadım?", "Geçen ay yakıta ne verdim?"). Borç/alacak sorusu DEĞİL. Hiçbir şey kaydedilmez; amount=0. Dönem: `date_from`/`date_to` ("bu ay" → ayın 1\'i / bugün; "geçen ay" → geçen ayın 1\'i / son günü; "Eylül" → bu yılın 09-01 / 09-30; "bu yıl" → 01-01 / bugün); dönem söylenmediyse ikisi de null (bu ay sayılır). Proje söylendiyse `project_id`.',
@@ -83,6 +90,7 @@ class ExpenseExtractor
             self::KIND_DEBT_NOTE,
             self::KIND_PARTY_LIST,
             self::KIND_HELP,
+            self::KIND_REMINDER,
         ]));
     }
 
@@ -173,7 +181,8 @@ class ExpenseExtractor
 
     private function systemPrompt(?array $previous = null, ?array $lastParty = null): string
     {
-        $today = now()->format('Y-m-d');
+        $now = now(self::TIMEZONE)->locale('tr');
+        $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ', İstanbul)';
         $context = ExpenseContext::build();
         // Fiilsiz/yönü belirsiz mesaj ("Abdullah Uçar 2 milyon kaba inşaat"): müteahhitte bu bir
         // maliyettir; satış yalnız açık fiille. Gider kapalıysa (mimar) varsayılan satış.
@@ -319,23 +328,45 @@ class ExpenseExtractor
         PROMPT;
     }
 
-    /** Sınırlı bağlam: yalnız son konuşulan cari — isimsiz atıfları ("ondan", "ona", "daha") çözer. */
+    /**
+     * Sınırlı bağlam: son konuşulan cari ve/veya az önce gönderilen hatırlatma — isimsiz atıfları
+     * ("ondan", "ona", "daha", "aldım", "yarın tekrar hatırlat") çözer.
+     */
     private function lastPartyContext(array $c): string
     {
-        $all = (string) round(abs((float) $c['balance']), 2);
+        $block = '';
 
-        return <<<CTX
+        if (! empty($c['reminder'])) {
+            $text = json_encode($c['reminder'], JSON_UNESCAPED_UNICODE);
+            $block .= <<<CTX
 
-        SON KONUŞULAN CARİ (son 30 dk): {$c['party_name']} (party_id {$c['party_id']}). Güncel durum: {$c['balance_note']}
-        - Mesajda HİÇBİR kişi/cari adı yoksa ve mesaj bir kişiye işaret ediyorsa ("ondan", "ona", "onun", "kendisi",
-          "… daha verdi / ödedi / verdim", "hepsini ödedim", "kalanını aldım", "borcunu kapattı") → `party_id`={$c['party_id']}.
-          · Bu durumda "ondan X aldım" (mal/hizmet adı GEÇMİYORSA) PARA ALMAKTIR → "collection"; "ona X verdim/ödedim" → "payment".
-          · "hepsini / tamamını / kalanını" ve tutar yoksa `amount`={$all} (güncel bakiye).
-        - Mesajda BAŞKA bir kişi/cari adı geçiyorsa bu bağlamı TAMAMEN YOK SAY.
-        - Mesaj bir kişiye işaret etmiyorsa ("5 bin yakıt aldım", "kirayı ödedim", "bu ay ne harcadım") bağlamı KULLANMA.
-        - Bu bağlamdan proje / kategori / tutar TAŞINMAZ; yalnız cari.
+            AZ ÖNCE GÖNDERİLEN HATIRLATMA: {$text}
+            - Kısa cevap bu hatırlatmaya aittir. Erteleme ("yarın tekrar hatırlat", "1 saat sonra", "akşam hatırlat")
+              → "reminder", `description` aynı metin, `is_alarm`=true, yeni zaman.
 
-        CTX;
+            CTX;
+        }
+
+        if (! empty($c['party_id'])) {
+            $all = (string) round(abs((float) $c['balance']), 2);
+            $reply = ! empty($c['reminder'])
+                ? "\n  · Hatırlatmaya cevap olarak tek başına \"aldım\", \"geldi\", \"ödedi\" → \"collection\"; \"ödedim\", \"verdim\" → \"payment\"; tutar yoksa `amount`={$all}."
+                : '';
+            $block .= <<<CTX
+
+            SON KONUŞULAN CARİ (son 30 dk): {$c['party_name']} (party_id {$c['party_id']}). Güncel durum: {$c['balance_note']}
+            - Mesajda HİÇBİR kişi/cari adı yoksa ve mesaj bir kişiye işaret ediyorsa ("ondan", "ona", "onun", "kendisi",
+              "… daha verdi / ödedi / verdim", "hepsini ödedim", "kalanını aldım", "borcunu kapattı") → `party_id`={$c['party_id']}.
+              · Bu durumda "ondan X aldım" (mal/hizmet adı GEÇMİYORSA) PARA ALMAKTIR → "collection"; "ona X verdim/ödedim" → "payment".
+              · "hepsini / tamamını / kalanını" ve tutar yoksa `amount`={$all} (güncel bakiye).{$reply}
+            - Mesajda BAŞKA bir kişi/cari adı geçiyorsa bu bağlamı TAMAMEN YOK SAY.
+            - Mesaj bir kişiye işaret etmiyorsa ("5 bin yakıt aldım", "kirayı ödedim", "bu ay ne harcadım") bağlamı KULLANMA.
+            - Bu bağlamdan proje / kategori / tutar TAŞINMAZ; yalnız cari.
+
+            CTX;
+        }
+
+        return $block;
     }
 
     private function tool(): array
@@ -377,6 +408,11 @@ class ExpenseExtractor
                     'confidence' => ['type' => 'string', 'enum' => ['high', 'low']],
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
                     'settles_expense_id' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=expense: id from ÖDENMEMİŞ GİDERLER when the message pays that existing unpaid expense (not a new cost); else null'],
+                    'event_date' => ['type' => ['string', 'null'], 'description' => 'Only for kind=reminder: event day YYYY-MM-DD'],
+                    'event_time' => ['type' => ['string', 'null'], 'description' => 'Only for kind=reminder: HH:MM only if a time was said'],
+                    'lead_minutes' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=reminder: how long BEFORE, only if said (minutes); else null'],
+                    'is_alarm' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=reminder: true = remind exactly at that time (no separate event)'],
+                    'repeat' => ['type' => ['string', 'null'], 'enum' => ['weekly', 'monthly', 'yearly', null], 'description' => 'Only for kind=reminder'],
                     'payment_purpose' => ['type' => ['string', 'null'], 'enum' => ['advance', 'loan', null], 'description' => 'Only for kind=payment: advance (prepayment for future work) / loan (money lent, to be returned); null if not stated'],
                     'debt_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'unclear', null], 'description' => 'Only for kind=debt_note: receivable (they owe us) / payable (we owe them) / unclear (direction not stated — user is asked)'],
                     'reply' => ['type' => ['string', 'null'], 'description' => 'Only for kind=help: short Turkish guidance reply (max 3 sentences)'],
@@ -433,6 +469,12 @@ class ExpenseExtractor
             'confidence' => in_array($input['confidence'] ?? 'high', ['high', 'low'], true) ? ($input['confidence'] ?? 'high') : 'high',
             'question' => ! empty($input['question']) ? (string) $input['question'] : null,
             'is_new_entry' => (bool) ($input['is_new_entry'] ?? false),
+            'event_date' => $kind === self::KIND_REMINDER ? self::validDate($input['event_date'] ?? null) : null,
+            'event_time' => $kind === self::KIND_REMINDER && is_string($input['event_time'] ?? null)
+                && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $input['event_time']) ? $input['event_time'] : null,
+            'lead_minutes' => $kind === self::KIND_REMINDER && ! empty($input['lead_minutes']) ? max(1, (int) $input['lead_minutes']) : null,
+            'is_alarm' => $kind === self::KIND_REMINDER && ! empty($input['is_alarm']),
+            'repeat' => $kind === self::KIND_REMINDER && in_array($input['repeat'] ?? null, ['weekly', 'monthly', 'yearly'], true) ? $input['repeat'] : null,
             'settles_expense_id' => $kind === self::KIND_EXPENSE && ! empty($input['settles_expense_id']) ? (int) $input['settles_expense_id'] : null,
             'payment_purpose' => $kind === self::KIND_PAYMENT && in_array($input['payment_purpose'] ?? null, ['advance', 'loan'], true)
                 ? $input['payment_purpose'] : null,
