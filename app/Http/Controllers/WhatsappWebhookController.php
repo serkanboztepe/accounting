@@ -87,7 +87,8 @@ class WhatsappWebhookController extends Controller
 
             $incoming?->update(['kind' => $this->inboundKind]);
             foreach ($this->replies as $reply) {
-                $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply);
+                // [metin, PDF linki] → ek olduğu kayda geçsin (analiz "hareketler gösterilmedi" sanmasın).
+                $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply, is_array($reply));
             }
 
             return $response;

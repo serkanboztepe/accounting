@@ -40,6 +40,8 @@ return [
         'api_key' => env('ANTHROPIC_API_KEY'),
         // Metin girişleri için ucuz model.
         'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-5'),
+        // Günlük konuşma analizi (gecede bir, düşük hacim) — en güçlü model.
+        'analysis_model' => env('ANTHROPIC_ANALYSIS_MODEL', 'claude-opus-5-5'),
         // Fotoğraf (el yazısı çek/fiş) için güçlü vision modeli — okuma kalitesi kritik.
         'vision_model' => env('ANTHROPIC_VISION_MODEL', 'claude-opus-4-8'),
     ],
@@ -58,6 +60,8 @@ return [
     'whatsapp' => [
         'from' => env('WHATSAPP_FROM'),                                     // +14786665916
         'check_reminder_content_sid' => env('WHATSAPP_CHECK_REMINDER_SID'), // Twilio Content SID (HX…)
+        // Günlük konuşma analizi özeti kime gider (yönetici, virgülle). Boşsa gönderilmez.
+        'admin_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ADMIN_PHONES', ''))))),
         // Çek hatırlatması kime gider (virgülle). Boşsa gönderilmez.
         'reminder_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_REMINDER_PHONES', ''))))),
         // Vadeden kaç gün önce hatırlatılsın (0 = vade günü).

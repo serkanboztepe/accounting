@@ -46,4 +46,38 @@ class WhatsappSender
 
         return true;
     }
+
+    /**
+     * Serbest metin — WhatsApp yalnız alıcı son 24 saatte yazdıysa teslim eder (yoksa Twilio kabul
+     * eder ama teslim edilmez, 63016). Kullanım kaydı tutmaz (merkezden de çağrılır, firma seçili olmayabilir).
+     */
+    public function sendText(string $to, string $body): bool
+    {
+        $sid = (string) config('services.twilio.sid');
+        $token = (string) config('services.twilio.token');
+        $from = (string) config('services.whatsapp.from');
+
+        if ($sid === '' || $token === '' || $from === '') {
+            Log::warning('WhatsApp metin gönderimi: ayar eksik (TWILIO_SID/TOKEN, WHATSAPP_FROM)');
+
+            return false;
+        }
+
+        $response = Http::withBasicAuth($sid, $token)
+            ->asForm()
+            ->timeout(15)
+            ->post("https://api.twilio.com/2010-04-01/Accounts/{$sid}/Messages.json", [
+                'From' => 'whatsapp:+' . Phone::normalize($from),
+                'To' => 'whatsapp:+' . Phone::normalize($to),
+                'Body' => $body,
+            ]);
+
+        if (! $response->successful()) {
+            Log::error('WhatsApp metin gönderilemedi', ['to' => $to, 'status' => $response->status(), 'body' => $response->body()]);
+
+            return false;
+        }
+
+        return true;
+    }
 }

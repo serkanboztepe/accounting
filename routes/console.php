@@ -23,6 +23,8 @@ if (config('tenancy.enabled')) {
     Schedule::command('tenants:run "backup:run --only-db"')->daily()->at('03:10');
     Schedule::command('tenants:run "backup:monitor"')->daily()->at('04:10');
     Schedule::command('tenants:run "checks:remind"')->dailyAt('09:00')->timezone('Europe/Istanbul');
+    // Günlük konuşma analizi: dünün konuşmaları → numaralı rapor (hub) + yöneticiye WhatsApp özeti.
+    Schedule::command('conversations:analyze')->dailyAt('08:30')->timezone('Europe/Istanbul');
     // WhatsApp konuşma kaydı 90 günden eskiyse silinir (App\Models\WhatsappMessage tek Prunable model).
     Schedule::command('tenants:run "model:prune"')->daily()->at('04:30');
 } else {

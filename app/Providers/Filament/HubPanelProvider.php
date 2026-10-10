@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Hub\ConversationReports\ConversationReportResource;
 use App\Filament\Hub\HubFirms\HubFirmResource;
 use App\Http\Middleware\UseHubGuard;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
@@ -50,7 +51,7 @@ class HubPanelProvider extends PanelProvider
                 'primary' => Color::hex('#0E8A5F'),
                 'gray'    => Color::Zinc,
             ])
-            ->resources([HubFirmResource::class])
+            ->resources([HubFirmResource::class, ConversationReportResource::class])
             ->homeUrl(fn (): string => HubFirmResource::getUrl('index', panel: 'hub'))
             ->middleware([
                 EncryptCookies::class,

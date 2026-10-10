@@ -403,6 +403,20 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('Cari, bir işlemle açılır', $out->body);
     }
 
+    /** Ekstre PDF'i giden kayıtta "ek var" olarak işaretlenir — günlük analiz "hareket gösterilmedi" sanmasın. */
+    public function test_statement_reply_is_logged_with_attachment_flag(): void
+    {
+        $this->notFirstContact();
+        $party = Party::create(['name' => 'Ek Test Cari']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_STATEMENT, 'party_id' => $party->id]));
+
+        $this->send("Ek Test Cari'nin ekstresini at");
+
+        $out = WhatsappMessage::where('phone', '905557770000')->where('direction', 'out')->latest('id')->first();
+        $this->assertTrue($out->has_media);
+        $this->assertStringContainsString('Cari Ekstresi', $out->body);
+    }
+
     public function test_total_debt_includes_unpaid_expenses_without_party(): void
     {
         $this->notFirstContact();
