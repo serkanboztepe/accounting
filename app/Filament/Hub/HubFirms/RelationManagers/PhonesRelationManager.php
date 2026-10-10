@@ -4,6 +4,10 @@ namespace App\Filament\Hub\HubFirms\RelationManagers;
 
 use App\Models\HubPhone;
 use App\Support\Phone;
+use App\Support\WelcomeMessage;
+use Filament\Actions\Action;
+use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
 use Closure;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -51,7 +55,21 @@ class PhonesRelationManager extends RelationManager
             Toggle::make('is_active')->label('Aktif')->default(true),
             Toggle::make('receives_reminders')->label('Çek hatırlatması alsın')
                 ->visible(fn () => $this->getOwnerRecord()->isLocal()),
+            Toggle::make('send_welcome')->label('Hoş geldin mesajı gönder')
+                ->helperText('WhatsApp\'tan "hesabın hazır, nasıl yaz" mesajı gider.')
+                ->default(true)
+                ->visibleOn('create')
+                ->visible(fn () => WelcomeMessage::configured()),
         ])->columns(1);
+    }
+
+    private bool $sendWelcomeAfterCreate = false;
+
+    private function notifyWelcome(bool $sent): void
+    {
+        $sent
+            ? Notification::make()->success()->title('Hoş geldin mesajı gönderildi')->send()
+            : Notification::make()->danger()->title('Hoş geldin mesajı gönderilemedi')->body('Ayrıntı sunucu kaydında.')->send();
     }
 
     public function table(Table $table): Table
@@ -69,9 +87,30 @@ class PhonesRelationManager extends RelationManager
             ->emptyStateHeading('Henüz numara yok')
             ->emptyStateDescription('Bu firmadan asistana yazacak kişilerin WhatsApp numaralarını ekle.')
             ->headerActions([
-                CreateAction::make()->label('Numara Ekle'),
+                CreateAction::make()->label('Numara Ekle')
+                    // send_welcome kolon değil: kayıttan önce ayır, kayıttan sonra gönder.
+                    ->mutateDataUsing(function (array $data): array {
+                        $this->sendWelcomeAfterCreate = (bool) ($data['send_welcome'] ?? false);
+                        unset($data['send_welcome']);
+
+                        return $data;
+                    })
+                    ->after(function (HubPhone $record) {
+                        if ($this->sendWelcomeAfterCreate && WelcomeMessage::configured()) {
+                            $this->notifyWelcome(WelcomeMessage::send($record));
+                        }
+                    }),
             ])
             ->recordActions([
+                Action::make('welcome')
+                    ->label('Hoş geldin gönder')
+                    ->icon(Heroicon::OutlinedHandRaised)
+                    ->color('gray')
+                    ->visible(fn () => WelcomeMessage::configured())
+                    ->requiresConfirmation()
+                    ->modalHeading('Hoş geldin mesajı gönderilsin mi?')
+                    ->modalDescription(fn (HubPhone $record) => ($record->name ?: Phone::display($record->phone)) . ' numarasına "hesabın hazır, nasıl yaz" mesajı gider.')
+                    ->action(fn (HubPhone $record) => $this->notifyWelcome(WelcomeMessage::send($record))),
                 EditAction::make(),
                 DeleteAction::make(),
             ]);

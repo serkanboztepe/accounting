@@ -60,6 +60,8 @@ return [
     'whatsapp' => [
         'from' => env('WHATSAPP_FROM'),                                     // +14786665916
         'check_reminder_content_sid' => env('WHATSAPP_CHECK_REMINDER_SID'), // Twilio Content SID (HX…)
+        // Hub'da numara eklenince giden karşılama şablonu ("hos_geldin", {{1}} = ad). Boşsa gönderilmez.
+        'welcome_content_sid' => env('WHATSAPP_WELCOME_SID'),
         // Günlük konuşma analizi özeti kime gider (yönetici, virgülle). Boşsa gönderilmez.
         'admin_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ADMIN_PHONES', ''))))),
         // Çek hatırlatması kime gider (virgülle). Boşsa gönderilmez.
