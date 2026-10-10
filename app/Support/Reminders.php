@@ -13,6 +13,8 @@ use Illuminate\Support\Carbon;
  */
 class Reminders
 {
+    public const TIMEZONE = Reminder::TIMEZONE;
+
     private const REPEAT_LABELS = ['weekly' => 'her hafta', 'monthly' => 'her ay', 'yearly' => 'her yıl'];
 
     /** Taslaktan (AI çıktısı) kaydedilmemiş hatırlatma — teyit özeti ve kayıt aynı hesabı kullansın. */
