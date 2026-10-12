@@ -1,6 +1,8 @@
-import html, sys, urllib.parse
+import hashlib, html, re, sys, urllib.parse
 
 OUT = sys.argv[1]
+# Stil değişince adresi de değişsin (tarayıcı site.css'i 7 gün saklıyor; eski stil görünüyordu).
+CSS_V = hashlib.md5(open(f"{OUT}/site.css", "rb").read()).hexdigest()[:8]
 WA = "905453606783"
 
 ICON_CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.5A8.4 8.4 0 1 1 21 11.5z"/></svg>'
@@ -50,7 +52,7 @@ def page(p):
 <link rel="canonical" href="https://hesapasistanim.com/{slug}">
 <link rel="icon" href="{FAVICON}">
 <link rel="apple-touch-icon" href="/icon-180.png">
-<link rel="stylesheet" href="/site.css">
+<link rel="stylesheet" href="/site.css?v={CSS_V}">
 <script type="application/ld+json">
 {{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
   {{"@type": "ListItem", "position": 1, "name": "Hesap Asistanım", "item": "https://hesapasistanim.com/"}},
@@ -462,6 +464,12 @@ SEO = {
     "alacak-verecek": ("Veresiye Defteri ve Alacak Verecek Takibi WhatsApp'tan",
                        "Dijital veresiye defteri: kime ne borcun var, kimden ne alacağın var, WhatsApp'tan yaz. Borç alacak takibi, harcama kaydı ve PDF hesap dökümü; uygulama indirmeden."),
 }
+
+# Ana sayfa elle yazılır; yalnız stil sürümünü güncelle.
+with open(f"{OUT}/index.html", encoding="utf-8") as f:
+    home = f.read()
+with open(f"{OUT}/index.html", "w", encoding="utf-8") as f:
+    f.write(re.sub(r'href="/site\.css(\?v=[0-9a-f]+)?"', f'href="/site.css?v={CSS_V}"', home))
 
 for p in PAGES:
     p["seo_title"], p["desc"] = SEO[p["slug"]]
