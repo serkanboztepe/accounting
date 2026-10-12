@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Contract;
 use App\Models\ContractPayment;
 use App\Models\Expense;
+use App\Models\HubAnnouncement;
 use App\Models\ExpenseCategory;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
@@ -89,6 +90,13 @@ class WhatsappWebhookController extends Controller
             // deneme-yanılmayla vazgeçmesin — Arda vakası).
             if ($firstContact && $this->inboundKind !== 'guide') {
                 $response = $this->twimlMany([...$this->replies, $this->guideText(firstContact: true)]);
+            }
+            // Bekleyen duyuru: ilk mesajda iptal (hoş geldin yeter, ikisi birden asla); değilse iş bitince bir kez.
+            if ($firstContact) {
+                $this->cancelAnnouncement($phone);
+            } elseif ($this->replies !== [] && ($announcement = $this->announcementToSend($phone))) {
+                $response = $this->twimlMany([...$this->replies, $announcement->body]);
+                $announcement->update(['status' => 'sent', 'sent_at' => now()]);
             }
 
             if ($this->touchedPartyId) {
@@ -428,6 +436,32 @@ class WhatsappWebhookController extends Controller
         $out = $this->saveDraft(null, $phone, $data);
 
         return is_string($out) ? $done . "\n\n➡️ *Sıradaki:*\n" . $out : $done;
+    }
+
+    /** Duyuru yalnız iş bitmişse: onay bekleyen kayıt (taslak) varken araya girmez. Hata akışı bozmaz. */
+    private function announcementToSend(string $phone): ?HubAnnouncement
+    {
+        try {
+            $busy = WhatsappPendingExpense::where('phone', $phone)
+                ->where('status', 'awaiting_confirmation')
+                ->where('updated_at', '>=', now()->subMinutes(30))
+                ->exists();
+
+            return $busy ? null : HubAnnouncement::pendingFor($phone);
+        } catch (\Throwable $e) {
+            Log::warning('Duyuru kontrolü yapılamadı', ['error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    private function cancelAnnouncement(string $phone): void
+    {
+        try {
+            HubAnnouncement::pendingFor($phone)?->update(['status' => 'cancelled']);
+        } catch (\Throwable) {
+            // duyuru tablosu yoksa önemli değil
+        }
     }
 
     /** Sohbet asistanının kararını uygula: cevap / taslak öner / onayla / vazgeç. Kayıt yine commit()'te. */
