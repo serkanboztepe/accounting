@@ -147,6 +147,24 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(0, $this->ledgerCount('Geri Al Yakup'));
     }
 
+    public function test_correction_replaces_last_record_in_one_confirm(): void
+    {
+        $this->chat(
+            ['type' => 'entry', 'data' => $this->sale(8000, 'Düzelt Erol'), 'text' => ''],
+            ['type' => 'undo', 'replacement' => $this->sale(10000, 'Düzelt Erol')],
+        );
+        $this->send("Erol'a 8000 EKB yaptım");
+        $this->send('Evet');
+
+        $reply = $this->send('8000 değil 10000 olacaktı');
+        $this->assertStringContainsString('Yerine yazacağım', $reply);
+        $this->assertStringContainsString('10.000,00', $reply);
+
+        $this->assertStringContainsString('Düzeltildi', $this->send('Evet'));
+        $amounts = PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Düzelt Erol'))->pluck('amount')->map(fn ($a) => (float) $a)->all();
+        $this->assertSame([10000.0], $amounts, 'eski 8000 silinmeli, yalnız 10000 kalmalı');
+    }
+
     public function test_undo_cancelled_keeps_record(): void
     {
         $this->chat(

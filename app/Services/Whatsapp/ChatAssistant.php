@@ -109,7 +109,12 @@ class ChatAssistant
                 case 'cancel_pending':
                     return ['type' => 'cancel'];
                 case 'undo_last':
-                    return ['type' => 'undo'];
+                    // Düzeltme: kaydın doğru hâli verildiyse tek onayla sil + yeniden yaz.
+                    $replacement = is_array($input['replacement'] ?? null) && ! empty($input['replacement']['kind'])
+                        ? ['confidence' => 'high'] + $this->extractor->normalizeEntry($input['replacement'])
+                        : null;
+
+                    return ['type' => 'undo', 'replacement' => $replacement];
                 case 'reply':
                     return ['type' => 'reply', 'text' => trim((string) ($input['text'] ?? '')) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'search_expenses':
@@ -255,9 +260,9 @@ class ChatAssistant
           türlerde İLK kalemi öner ve kalanları `next_items`'a yaz — kullanıcı onaylayınca sistem sıradakini sorar.
         - Açıklamayı (`description`) kullanıcının söylediği işten kısa yaz; söylemediği bilgi UYDURMA
           ("önceki dönemden", "devreden" gibi). "alacağım / alınacak" → o bize borçlu; yön belli, sorma.
-        - KAYDEDİLMİŞ son işlemi silmek/geri almak ya da değiştirmek ("son kaydı sil", "yanlış girdim", "bunu satış
-          olarak değiştir") → `undo_last`: sistem son kaydı gösterip onay ister. Değiştirmede önce silinir, sonra
-          kullanıcı doğrusunu yazar. Daha eski kayıtlar panelden düzeltilir.
+        - KAYDEDİLMİŞ son işlemi silmek ("son kaydı sil") → `undo_last`. DÜZELTMEK ("bunu satış olarak değiştir",
+          "8000 değil 10000 olacaktı", "kişi Ali değil Veli") → `undo_last` + `replacement` = kaydın doğru tam hâli
+          (geri kalan her şey önceki kayıttaki gibi). Sistem ikisini gösterip tek onay ister. Daha eski kayıtlar panelden.
         - Kategoriyi her kayıt için KENDİ içeriğine göre seç; önceki kaydın kategorisini taşıma (tosun/hayvan alımı ≠ "Çobanlar").
         - "Traktöre ne harcadım" gibi bir şeye/kişiye göre harcama sorusu → `search_expenses` (yazım
           varyantlarıyla: traktör, traktor). Dönem toplamı ("bu ay ne harcadım") → propose_entry kind "expense_summary".
@@ -313,8 +318,16 @@ class ChatAssistant
             ],
             [
                 'name' => 'undo_last',
-                'description' => 'Kullanıcı KAYDEDİLMİŞ son işlemi silmek / geri almak ya da değiştirmek istiyor ("son kaydı sil", "yanlış girdim", "bunu satış yap"). Sistem silinecek kaydı gösterip onay ister.',
-                'input_schema' => ['type' => 'object', 'properties' => (object) []],
+                'description' => 'Kullanıcı KAYDEDİLMİŞ son işlemi silmek / geri almak ya da DÜZELTMEK istiyor ("son kaydı sil", "yanlış girdim", "bunu satış yap", "8000 değil 10000"). Düzeltmede `replacement` ile kaydın DOĞRU TAM hâlini ver; sistem eskisini ve yenisini gösterip tek onayla değiştirir.',
+                'input_schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'replacement' => [
+                            'type' => ['object', 'null'],
+                            'description' => 'Yalnız düzeltmede: kaydın doğru hâli (propose_entry ile aynı alanlar). Önceki kayıttan kişi, tutar, açıklama, tarih KORUNUR; yalnız istenen değişir. Sadece silme isteniyorsa null.',
+                        ],
+                    ],
+                ],
             ],
             [
                 'name' => 'cancel_pending',

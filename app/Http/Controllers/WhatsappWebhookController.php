@@ -463,7 +463,7 @@ class WhatsappWebhookController extends Controller
             case 'undo':
                 $this->inboundKind = 'undo';
 
-                return $this->undoDraft($pending, $phone);
+                return $this->undoDraft($pending, $phone, $result['replacement'] ?? null);
             case 'cancel':
                 $this->inboundKind = 'quick';
                 $pending?->update(['status' => 'cancelled']);
@@ -681,7 +681,7 @@ class WhatsappWebhookController extends Controller
      * "Son kaydı sil / yanlış girdim": bu numaradan son 24 saatte onaylanan SON kaydı göster, onayla sil.
      * Yalnız o onayın OLUŞTURDUĞU gider/cari satırları (created_records) silinir; cari/kategori kalır.
      */
-    private function undoDraft(?WhatsappPendingExpense $pending, string $phone): string
+    private function undoDraft(?WhatsappPendingExpense $pending, string $phone, ?array $replacement = null): string
     {
         $last = WhatsappPendingExpense::where('phone', $phone)
             ->where('status', 'confirmed')
@@ -696,16 +696,46 @@ class WhatsappWebhookController extends Controller
             return 'Buradan geri alabileceğim bir kayıt bulamadım (son 24 saatte bu numaradan girilen son kayıt silinebilir). Eski kayıtları panelden düzeltebilirsin.';
         }
 
+        if ($replacement !== null) {
+            $replacement = ExpenseExtractor::fitToModules($replacement);
+            if ($this->kind($replacement) === ExpenseExtractor::KIND_HELP || (float) ($replacement['amount'] ?? 0) <= 0) {
+                $replacement = null; // yazılamayacak düzeltme → yalnız silme önerilir
+            }
+        }
+
         $pending?->update(['status' => 'superseded']);
         $summary = "🗑️ *Şu kaydı sileceğim:*\n" . trim((string) $last->summary);
+        if ($replacement !== null) {
+            $summary .= "\n\n✏️ *Yerine yazacağım:*\n" . $this->shortLine($replacement);
+        }
         WhatsappPendingExpense::create([
             'phone' => $phone,
-            'extracted' => ['kind' => self::KIND_UNDO, 'undo_of' => $last->id, 'targets' => $targets],
+            'extracted' => ['kind' => self::KIND_UNDO, 'undo_of' => $last->id, 'targets' => $targets, 'replacement' => $replacement],
             'summary' => $summary,
             'status' => 'awaiting_confirmation',
         ]);
 
-        return $summary . "\n\nSileyim mi? *evet* / *iptal*";
+        return $summary . ($replacement !== null ? "\n\nDüzelteyim mi? *evet* / *iptal*" : "\n\nSileyim mi? *evet* / *iptal*");
+    }
+
+    /** Düzeltmede yeni kaydın tek satırlık özeti (bakiye yok — eski kayıt silinince değişir). */
+    private function shortLine(array $d): string
+    {
+        $kind = $this->kind($d);
+        $label = match ($kind) {
+            ExpenseExtractor::KIND_EXPENSE => '📝 Gider',
+            ExpenseExtractor::KIND_SALE => '🧾 Satış',
+            ExpenseExtractor::KIND_PURCHASE => '🛒 Alış',
+            ExpenseExtractor::KIND_PAYMENT => '💸 Ödeme (sen → o)',
+            ExpenseExtractor::KIND_COLLECTION => '💰 Tahsilat (o → sana)',
+            ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? '📒 Borç (sen ona borçlusun)' : '📒 Alacak (o sana borçlu)',
+            default => '📝 Kayıt',
+        };
+        $party = $this->existingParty($d)?->name ?? ($d['party_name'] ?? null);
+        $paid = in_array($kind, [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE], true) && isset($d['paid'])
+            ? ($d['paid'] ? 'ödendi' : 'ödenmedi') : null;
+
+        return implode(' — ', array_filter([$label, $party, Money::format((float) $d['amount']) . ' ₺', $d['description'] ?? null, $paid]));
     }
 
     private function undoModel(array $target): ?\Illuminate\Database\Eloquent\Model
@@ -736,6 +766,17 @@ class WhatsappWebhookController extends Controller
 
         if ($deleted === 0) {
             return 'O kayıt zaten silinmiş.';
+        }
+
+        // Düzeltme: eski silindi → doğrusu aynı onayla yazılır (o da geri alınabilir).
+        $replacement = $pending->extracted['replacement'] ?? null;
+        if (is_array($replacement)) {
+            $new = WhatsappPendingExpense::create([
+                'phone' => $pending->phone, 'extracted' => $replacement,
+                'summary' => $this->shortLine($replacement), 'status' => 'awaiting_confirmation',
+            ]);
+
+            return "✏️ Düzeltildi.\n" . $this->commit($new);
         }
         $party = Party::find(collect($partyIds)->filter()->last());
 
