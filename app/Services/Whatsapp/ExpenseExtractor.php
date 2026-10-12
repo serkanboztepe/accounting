@@ -60,7 +60,7 @@ class ExpenseExtractor
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
         self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş için peşin ("avans", "kapora", "iş yaptıracağım") → "advance"; geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / alınmış malın karşılığıysa ("sıva yaptırdım", "malzeme aldım") bu bir "expense"dir (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
-        self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null.',
+        self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". "X\'e veresiye" / "X\'e veresiye yazdım" ("Ayşe hanıma 1.250 lira veresiye") → "sale", `paid`=false — veresiye = malı verdik, parası sonra alınacak; gider ya da borç kaydı DEĞİLDİR. Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null.',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır.',
@@ -119,6 +119,16 @@ class ExpenseExtractor
             $d['kind'] = self::KIND_PURCHASE;
             $d['category_id'] = $d['category_name'] = $d['settles_expense_id'] = null;
             $d['project_id'] = $d['project_name'] = null; // alış cari hareketidir, maliyete girmez
+            $d['paid'] = (bool) ($d['paid'] ?? false);
+
+            return $d;
+        }
+
+        // Kişi var ama adı yok ("yemciden 12 bin yem aldım" → "Hangi yemci?"): alış olarak sor, harcama sanma (Erkan, 12 Ekim).
+        if (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) && ! empty($d['question'])) {
+            $d['kind'] = self::KIND_PURCHASE;
+            $d['category_id'] = $d['category_name'] = $d['settles_expense_id'] = null;
+            $d['project_id'] = $d['project_name'] = null;
             $d['paid'] = (bool) ($d['paid'] ?? false);
 
             return $d;
