@@ -67,6 +67,8 @@ return [
         'reminder_content_sid' => env('WHATSAPP_REMINDER_SID'),
         // Hub'da numara eklenince giden karşılama şablonu ("hos_geldin", {{1}} = ad). Boşsa gönderilmez.
         'welcome_content_sid' => env('WHATSAPP_WELCOME_SID'),
+        // Akşam mesajı ("aksam_sorusu", düğmeli, {{1}} = ilk ad). Onaylı değilse yalnız son 24 saatte yazana düz metin.
+        'nudge_content_sid' => env('WHATSAPP_NUDGE_SID'),
         // Günlük konuşma analizi özeti kime gider (yönetici, virgülle). Boşsa gönderilmez.
         'admin_phones' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_ADMIN_PHONES', ''))))),
         // Çek hatırlatması kime gider (virgülle). Boşsa gönderilmez.

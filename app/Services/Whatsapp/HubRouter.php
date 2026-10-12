@@ -6,6 +6,7 @@ use App\Http\Controllers\WhatsappWebhookController;
 use App\Models\HubFirm;
 use App\Models\HubMessageLog;
 use App\Models\HubPhone;
+use App\Support\DailyNudge;
 use App\Support\HubSignature;
 use App\Support\Phone;
 use App\Tenancy\Tenancy;
@@ -66,6 +67,9 @@ class HubRouter
 
             return $response;
         }
+
+        // Yazdı → akşam mesajının cevapsız sayacı sıfır (haftalıktan günlüğe döner).
+        DailyNudge::answered($route);
 
         $params = $request->post();
         $firm = $route->firm;

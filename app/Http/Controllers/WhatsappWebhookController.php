@@ -17,6 +17,7 @@ use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\HubRouter;
 use App\Support\Agenda;
+use App\Support\DailyNudge;
 use App\Support\CheckReminders;
 use App\Support\ContractStatus;
 use App\Support\ConversationContext;
@@ -134,6 +135,24 @@ class WhatsappWebhookController extends Controller
 
     private function respond(Request $request, ExpenseExtractor $extractor, string $phone, string $body, int $numMedia)
     {
+        // Akşam mesajının düğmeleri ("Kayıt gireceğim / Hatırlatma kur / Bugün yok") ve aç/kapa — AI'sız.
+        if ($numMedia === 0) {
+            $word = $this->word($body);
+            if ($button = DailyNudge::button((string) $request->input('ButtonPayload', ''), $word)) {
+                $this->inboundKind = 'nudge_reply';
+
+                return $this->twiml(DailyNudge::reply($button));
+            }
+            if (($enable = DailyNudge::toggleWord($word)) !== null) {
+                $this->inboundKind = 'nudge_toggle';
+                DailyNudge::setEnabled($phone, $enable);
+
+                return $this->twiml($enable
+                    ? 'Tamam, akşam mesajlarını açtım. Her akşam 19:00\'da "bugün aklında bir şey var mı?" diye soracağım. 👋'
+                    : "Tamam, akşam mesajlarını kapattım. 👍\nTekrar istersen *akşam mesajı aç* yaz.");
+            }
+        }
+
         // "nasıl" / "yardım" — sektöre göre rehber, AI'sız.
         if ($numMedia === 0 && in_array($this->word($body), ['nasıl', 'nasil', 'yardım', 'yardim', 'menü', 'menu', 'neler yapabilirsin'], true)) {
             $this->inboundKind = 'guide';

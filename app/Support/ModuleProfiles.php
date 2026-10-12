@@ -67,7 +67,7 @@ class ModuleProfiles
     public const KEYS = [
         'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
         'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
-        'report_project', 'report_stock', 'report_sales', 'smart_assistant',
+        'report_project', 'report_stock', 'report_sales', 'smart_assistant', 'daily_nudge',
     ];
 
     /** Varsayılanı KAPALI olanlar (sektörde de açık değil; hub'dan firma firma açılır). */
@@ -92,6 +92,7 @@ class ModuleProfiles
         'report_stock'       => 'Stok raporu',
         'report_sales'       => 'Satış özeti',
         'smart_assistant'    => 'Akıllı WhatsApp asistanı (deneme)',
+        'daily_nudge'        => 'Akşam mesajı (19:00 "Bugün aklında bir şey var mı?")',
     ];
 
     /** Sektör bir şey demiyorsa: açık — DEFAULT_OFF hariç. */

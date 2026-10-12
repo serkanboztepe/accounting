@@ -3,6 +3,7 @@
 namespace App\Filament\Hub\HubFirms\RelationManagers;
 
 use App\Models\HubPhone;
+use App\Support\DailyNudge;
 use App\Support\Phone;
 use App\Support\WelcomeMessage;
 use Filament\Actions\Action;
@@ -56,6 +57,10 @@ class PhonesRelationManager extends RelationManager
             Toggle::make('receives_reminders')->label('Sabah hatırlatmaları alsın (çek vadesi, ödeme günleri)')
                 ->helperText('Firmada hiç işaretli numara yoksa ödeme günleri tüm numaralara gider.')
                 ->visible(fn () => $this->getOwnerRecord()->isLocal()),
+            Toggle::make('nudge_enabled')->label('Akşam mesajı alsın (19:00 "Bugün aklında bir şey var mı?")')
+                ->helperText('Kişi WhatsApp\'tan "bana yazma" derse kendiliğinden kapanır.')
+                ->default(true)
+                ->visible(fn () => $this->getOwnerRecord()->isLocal()),
             Toggle::make('send_welcome')->label('Hoş geldin mesajı gönder')
                 ->helperText('WhatsApp\'tan "hesabın hazır, nasıl yaz" mesajı gider.')
                 ->default(true)
@@ -97,6 +102,16 @@ class PhonesRelationManager extends RelationManager
                 TextColumn::make('name')->label('Ad Soyad')->searchable(),
                 ToggleColumn::make('is_active')->label('Aktif'),
                 ToggleColumn::make('receives_reminders')->label('Sabah hatırlatması')
+                    ->visible(fn () => $this->getOwnerRecord()->isLocal()),
+                TextColumn::make('nudge_status')->label('Akşam mesajı')
+                    ->state(fn (HubPhone $record) => DailyNudge::status($record))
+                    ->badge()
+                    ->color(fn (string $state) => match ($state) { 'Günlük' => 'success', 'Haftalık' => 'warning', default => 'gray' })
+                    ->description(fn (HubPhone $record) => $record->nudge_sent_at
+                        ? 'Son: ' . $record->nudge_sent_at->timezone('Europe/Istanbul')->format('d.m H:i')
+                            . ($record->nudge_unanswered ? ' · ' . $record->nudge_unanswered . ' cevapsız' : '')
+                        : 'Henüz gönderilmedi')
+                    ->tooltip('Günlük: her akşam 19:00 (o gün yazdıysa gitmez). Haftalık: 3 kez üst üste cevapsız kaldı, yazınca günlüğe döner. Kapalı: "bana yazma" dedi ya da buradan kapatıldı.')
                     ->visible(fn () => $this->getOwnerRecord()->isLocal()),
                 TextColumn::make('welcomed_at')->label('Hoş geldin')->since()->placeholder('—')
                     ->tooltip(fn (HubPhone $record) => $record->welcomed_at?->format('d.m.Y H:i'))
