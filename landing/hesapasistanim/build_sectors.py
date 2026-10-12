@@ -200,7 +200,7 @@ PAGES = [
             ("Ayın 15'inde Veliden parayı almayı hatırlat", "O sabah WhatsApp'tan <b>hatırlatır</b>."),
         ],
         mods_h="Bu kadar sade",
-        mods_sub="Ne gerekiyorsa o. Program öğrenmek yok, bilgisayar yok.",
+        mods_sub="Çiftçiye göre bir hesap takip programı: öğrenmesi yok, bilgisayarı yok, ne gerekiyorsa o.",
         mods=[
             ("", "Kişi hesapları", "Süt verdiğin, peynir sattığın, yem aldığın herkesin hesabı ayrı ayrı."),
             ("", "Peşin ve veresiye", "Parası alındıysa peşin, sonra verecekse veresiye; kimin ne kadar borcu kaldığı hep güncel."),
@@ -239,7 +239,7 @@ PAGES = [
             ("📷 fatura fotoğrafı + “dükkan elektrik”", "Faturadaki tutarı okur, <b>masraf</b> olarak yazar."),
         ],
         mods_h="Dükkanın hesabı tek yerde",
-        mods_sub="WhatsApp'tan yaz; istersen bilgisayardan da bak, yazdır.",
+        mods_sub="Bilgisayarsız bir veresiye defteri programı: WhatsApp'tan yaz; istersen bilgisayardan da bak, yazdır.",
         mods=[
             ("", "Müşteri veresiyeleri", "Her müşterinin aldığı, ödediği ve kalan borcu; yürüyen bakiyesiyle."),
             ("", "Toptancı hesapları", "Mal aldığın yerlere ne kadar borcun var, ne ödedin."),
@@ -278,7 +278,7 @@ PAGES = [
             ("Cuma Kaya İnşaattan parayı almayı hatırlat", "Cuma sabahı WhatsApp'tan <b>hatırlatır</b>."),
         ],
         mods_h="Bu kadar sade",
-        mods_sub="Sadece ihtiyacın olan. İşin büyüdükçe yeni bölümler açılabilir.",
+        mods_sub="Usta ve taşeron için sade bir hesap takip programı. İşin büyüdükçe yeni bölümler açılabilir.",
         mods=[
             ("", "İş ve alacak", "Kime hangi işi kaça yaptın, ne kadarı ödendi, ne kadar kaldı."),
             ("", "Gelen para", "Avans, ara ödeme, havale ya da elden; hepsi işin hesabına düşer."),
@@ -434,7 +434,7 @@ PAGES = [
             ("Hasan abinin dökümünü gönder", "Hesap dökümü <b>PDF</b> olarak gelir, karşı tarafa iletirsin."),
         ],
         mods_h="Bu kadar sade",
-        mods_sub="Sadece ihtiyacın olan. İşin büyüdükçe yeni bölümler açılabilir.",
+        mods_sub="WhatsApp'tan çalışan en sade veresiye defteri uygulaması. İşin büyüdükçe yeni bölümler açılabilir.",
         mods=[
             ("", "Kişi ve firma hesapları", "Çalıştığın herkesin borç-alacak dökümü, yürüyen bakiyesiyle."),
             ("", "Verdiğin, aldığın para", "Nakit ya da havale; kime verdin, kimden aldın."),
@@ -449,20 +449,20 @@ PAGES = [
 
 # Google'da görünen başlık + açıklama (hedef aramalar). Sayfa içi metin yukarıda.
 SEO = {
-    "ciftci": ("Çiftçi Hesap Takibi · Süt, Peynir Satışı ve Veresiye WhatsApp'tan",
-               "Süt, peynir, yağ, bal satan çiftçi ve üreticiler için hesap takibi: kime ne sattın, kim ödedi, kimden ne alacağın var. WhatsApp'tan yaz; kilo hesabını o yapsın, ödeme gününü hatırlatsın."),
-    "esnaf": ("Esnaf Veresiye Defteri · Bakkal, Fırın, Manav Hesap Takibi",
-              "Bakkal, fırın, manav ve kasap için dijital veresiye defteri: müşteri borçları, toptancı hesapları, dükkan masrafları. WhatsApp'tan yaz, kim ne kadar borçlu tek mesajla öğren."),
-    "usta": ("Usta ve Taşeron Hesap Takibi · İş, Avans, Malzeme WhatsApp'tan",
-             "Boyacı, elektrikçi, sıvacı ve taşeronlar için hesap takibi: yaptığın iş, müteahhitten gelen para, malzeme masrafı ve çırak ödemeleri. WhatsApp'tan yaz, PDF döküm gönder."),
+    "ciftci": ("Çiftçi Hesap Takip Programı · Süt, Peynir Satışı ve Veresiye",
+               "Çiftçi ve üreticiler için hesap takip programı ve veresiye defteri: süt, peynir, yağ, bal satışı; kim ödedi, kimden ne alacağın var. Uygulama indirmeden WhatsApp'tan yaz; kilo hesabını o yapsın, ödeme gününü hatırlatsın."),
+    "esnaf": ("Esnaf Veresiye Defteri Programı · Bakkal, Fırın, Manav",
+              "Bakkal, fırın, manav ve kasap için veresiye defteri programı: müşteri borçları, toptancı hesapları, dükkan masrafları. Uygulama indirmeden WhatsApp'tan yaz, kim ne kadar borçlu tek mesajla öğren."),
+    "usta": ("Usta ve Taşeron Hesap Takip Programı · İş, Avans, Malzeme",
+             "Boyacı, elektrikçi, sıvacı ve taşeronlar için hesap takip programı: yaptığın iş, müteahhitten gelen para, malzeme masrafı ve çırak ödemeleri. WhatsApp'tan yaz, PDF hesap dökümü gönder."),
     "muteahhit": ("Müteahhit Hesap Takip Programı · Şantiye Gider Takibi",
                   "Müteahhitler için hesap takip programı: şantiye gider takibi, usta ve malzemeci ödemeleri, sözleşme ve çek takibi. Masrafı WhatsApp'tan yaz, fişin fotoğrafını at; proje proje maliyeti gör."),
-    "mimar": ("Kat Karşılığı Hisse Hesaplama ve Emlak Beyannamesi",
-              "Mimarlar için kat karşılığı hisse dağılım cetveli hesaplama, paylı mülkiyette emlak vergisi beyannamesi hazırlama ve müşteri alacak takibi. Bedeli ve gelen parayı WhatsApp'tan yaz."),
+    "mimar": ("Kat Karşılığı Hisse Hesaplama Programı · Emlak Beyannamesi",
+              "Mimarlar için kat karşılığı hisse dağılım cetveli hesaplama programı, paylı mülkiyette emlak vergisi beyannamesi hazırlama ve müşteri alacak takibi. Bedeli ve gelen parayı WhatsApp'tan yaz."),
     "toptanci": ("Toptancı Programı · Stok, Satış, Veresiye Takibi",
                  "Toptancı programı (nalbur, hırdavat, elektrik ve tesisat malzemecisi dahil): stok takibi, satış ve iade, teklif, veresiye ve müşteri alacak takibi. Gelen parayı WhatsApp'tan yaz, kimden ne alacağın var tek mesajla öğren."),
-    "alacak-verecek": ("Veresiye Defteri ve Alacak Verecek Takibi WhatsApp'tan",
-                       "Dijital veresiye defteri: kime ne borcun var, kimden ne alacağın var, WhatsApp'tan yaz. Borç alacak takibi, harcama kaydı ve PDF hesap dökümü; uygulama indirmeden."),
+    "alacak-verecek": ("Veresiye Defteri Uygulaması · Alacak Verecek Takibi WhatsApp'tan",
+                       "Veresiye defteri uygulaması ve borç alacak takip programı: kime ne borcun var, kimden ne alacağın var, WhatsApp'tan yaz. Harcama kaydı ve PDF hesap dökümü; uygulama indirmeden."),
 }
 
 # Ana sayfa elle yazılır; yalnız stil sürümünü güncelle.
