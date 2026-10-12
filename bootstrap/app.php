@@ -11,6 +11,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Panel arama motorlarına kapalı + canlıda HSTS (bkz. SecurityHeaders).
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
         // Twilio webhook'u CSRF token göndermez.
         $middleware->validateCsrfTokens(except: [
             'whatsapp/webhook',
