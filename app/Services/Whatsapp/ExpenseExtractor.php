@@ -59,11 +59,11 @@ class ExpenseExtractor
 
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
-        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş için peşin ("avans", "kapora", "iş yaptıracağım") → "advance"; geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / alınmış malın karşılığıysa ("sıva yaptırdım", "malzeme aldım") bu bir "expense"dir (paid=true). Söylenmediyse null.',
-        self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin").',
+        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş için peşin ("avans", "kapora", "iş yaptıracağım") → "advance"; geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / alınmış malın karşılığıysa ("sıva yaptırdım", "malzeme aldım") bu bir "expense"dir (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
+        self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null.',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
-        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query).',
+        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır.',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_PURCHASE => '- "purchase": bir CARİDEN mal/hizmet ALDIK ("Ahmet\'ten 10 bin mal aldım", "Kuşak\'tan 20 bin malzeme aldım, 15 Kasım\'da ödeyeceğim", "Mehmet\'ten 5 bin yem aldım nakit ödedim"). Cari zorunlu. `paid`: "ödedim / nakit / peşin / havale" → true; "sonra ödeyeceğim / veresiye / borç" ya da hiç söylenmediyse false. Ödeme tarihi söylendiyse `due_date`. Bu bir ÖDEME DEĞİLDİR ("Ahmet\'e 10 bin ödedim" → payment).',
         self::KIND_AGENDA => '- "agenda": TAKVİM / PROGRAM sorusu — bir günde ya da aralıkta ne var ("Yarın ne var?", "Bu hafta neler var?", "20 Ekim boş mu?", "Pazartesi programım ne?", "Bu ay ödemelerim ne zaman?"). Hiçbir şey kaydedilmez; amount=0. `date_from`/`date_to` (YYYY-MM-DD): tek gün sorulduysa ikisi de o gün; "bu hafta" / "önümüzdeki günler" → bugün / bugün+6 (hafta sonu sorulsa da 7 gün); "gelecek hafta" → gelecek Pazartesi / Pazar; "bu ay" → bugün / ay sonu; söylenmediyse ikisi de null (önümüzdeki 7 gün). Harcama sorusu ("bu hafta ne harcadım") DEĞİLDİR → "expense_summary"; yeni bir olay/hatırlatma bildirimi ("20 Ekim\'de düğünüm var") DEĞİLDİR → "reminder".',
@@ -105,6 +105,34 @@ class ExpenseExtractor
     }
 
     /**
+     * Gider takibi kapalı firmada gider taslağı ASLA kalmasın. Eskiden AI izinsiz tür döndürünce (ya da "Ne için
+     * verdin?" → "1"/"malzeme aldım") taslak gidere düşüyordu — Ferhat (10 Ekim) ve Burak (11 Ekim) giderleri.
+     * Carisi belliyse ve tedarikçi tarafı açıksa alış olur; değilse kayıt yok, açıklama döner.
+     */
+    public static function fitToModules(array $d): array
+    {
+        if (($d['kind'] ?? self::KIND_EXPENSE) !== self::KIND_EXPENSE || config('modules.expenses')) {
+            return $d;
+        }
+
+        if (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) && (! empty($d['party_id']) || ! empty($d['party_name']))) {
+            $d['kind'] = self::KIND_PURCHASE;
+            $d['category_id'] = $d['category_name'] = $d['settles_expense_id'] = null;
+            $d['project_id'] = $d['project_name'] = null; // alış cari hareketidir, maliyete girmez
+            $d['paid'] = (bool) ($d['paid'] ?? false);
+
+            return $d;
+        }
+
+        $d['kind'] = self::KIND_HELP;
+        $d['reply'] = 'Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor.'
+            . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? ' Bir kişiden aldıysan adıyla yaz, örneğin: "Ahmet\'ten 10 bin mal aldım".' : '')
+            . (in_array(self::KIND_SALE, self::allowedKinds(), true) ? ' Satış olarak yazmak istersen: "Ahmet\'e 50 bin proje yaptım".' : '');
+
+        return $d;
+    }
+
+    /**
      * @param  array{media_type:string,data:string}|null  $image  base64 image
      * @param  array|null  $previous  önceki taslak — verilirse yeni mesaj DÜZELTME sayılır
      * @param  array{party_id:int,party_name:string,balance:float,balance_note:string}|null  $lastParty
@@ -138,7 +166,7 @@ class ExpenseExtractor
             $content[] = [
                 'type' => 'text',
                 'text' => $userText !== ''
-                    ? "Müteahhidin mesajı:\n" . $userText
+                    ? "Kullanıcının mesajı:\n" . $userText
                     : 'Ekteki belgeden gideri çıkar ve kaydet.',
             ];
         }
@@ -208,6 +236,10 @@ class ExpenseExtractor
             . ' 💡 Harcamalarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin."';
         // Tedarikçi tarafı kapalı (mimar): "Hasan'a 10 bin ödedim" en yakın kalıp "sale" sanılıp yön ters çıkıyordu.
         $noSupplierRule = in_array(self::KIND_PAYMENT, self::allowedKinds(), true) ? '' : '- TEDARİKÇİ TARAFI KAPALI: bu hesapta yalnız MÜŞTERİ tarafı (yaptığımız işler, bize gelen paralar, alacaklar) tutulur. BİZ birine para verdiysek ("Hasan\'a 10 bin ödedim", "ustaya verdim") ya da birinden mal/hizmet aldıysak → "help", `reply`: "Bu hesapta yalnız müşteri hesapları tutuluyor; birine yaptığın ödemeler ve aldığın mal/hizmet kaydedilmiyor. 💡 Ödemelerini ve alımlarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin." ASLA "sale" ya da "collection" SEÇME — yön ters olur.';
+        // İnşaat dışı firmada (köylü/esnaf: peynir, bal satan) "inşaat şirketi" çerçevesi satışı gider sandırıyordu (Erkan, 12 Ekim).
+        $intro = in_array(config('app.profile'), ['muteahhit', 'mimar'], true)
+            ? 'Sen bir inşaat şirketinin kayıt asistanısın (kullanıcı müteahhit ya da mimar).'
+            : 'Sen bir esnafın / küçük işletmenin (çiftçi, üretici, satıcı) kayıt asistanısın; kullanıcı mal ya da hizmet SATAR, alır, para alır ve verir.';
         $kinds = implode("\n", array_map(
             fn (string $k) => self::KIND_HINTS[$k],
             self::allowedKinds(),
@@ -216,6 +248,12 @@ class ExpenseExtractor
         $refine = '';
         if ($previous !== null) {
             $prevJson = json_encode($previous, JSON_UNESCAPED_UNICODE);
+            // Gider kapalı firmada "Ne için verdin? → malzeme aldım" gider değil, peşin alış (Burak, 11 Ekim).
+            $doneWork = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
+                ? 'kind "expense",
+                `paid`=true, `description` işin kısa adı, uygun kategori'
+                : 'kind "purchase",
+                `paid`=true, `description` mal/işin kısa adı (gider takibi KAPALI — "expense" SEÇME)';
             $refine = <<<REFINE
 
             ÖNEMLİ — Aşağıda ONAY BEKLEYEN önceki bir taslak var. Kullanıcının yeni mesajı ya
@@ -230,10 +268,18 @@ class ExpenseExtractor
 
             Önceki taslak bir "payment" ise ve kullanıcıya "Ne için verdin?" sorulduysa, cevap bir DÜZELTMEDİR
             (`is_new_entry`=false; tutarı, cariyi, tarihi KORU) — niyeti oku:
-              · yapılmış iş / alınmış mal ("iş yaptırdım", "sıva işçiliği", "malzeme aldım") → kind "expense",
-                `paid`=true, `description` işin kısa adı, uygun kategori;
+              · yapılmış iş / alınmış mal ("iş yaptırdım", "sıva işçiliği", "malzeme aldım") → {$doneWork};
               · ileride yapılacak iş, peşinat ("iş yaptıracağım", "avans", "kapora") → kind "payment", `payment_purpose`="advance";
               · ödünç ("borç verdim", "geri alacağım", "ödünç") → kind "payment", `payment_purpose`="loan".
+
+            ÖNCEKİ TASLAK bir "sale" ise ve kullanıcı paranın alındığını söylüyorsa ("parasını aldım", "parası alındı",
+            "peşin", "nakit aldım", "ödedi") bu bir DÜZELTMEDİR: aynı satış, `paid`=true, `is_new_entry`=false; tutarı,
+            cariyi, açıklamayı KORU. Ek bilgi ("teslim edilecek", "sonra götüreceğim") açıklamaya kısa not olarak eklenebilir.
+
+            BİRİM FİYAT: Önceki taslakta bir MİKTAR varsa (açıklamada "34 kg bal", "10 adet kapı", "200 litre mazot")
+            ve kullanıcı birim fiyat yazarsa ("Kg 600", "kilosu 600", "tanesi 50", "litresi 30", "adedi 1500") bu
+            bir DÜZELTMEDİR: `amount` = miktar × birim fiyat (34 × 600 = 20400), `description`'a hesabı ekle
+            ("34 kg bal (kg 600)"), `question`=null. Tutarı tekrar SORMA.
 
             ÖNCEKİ TASLAK: {$prevJson}
 
@@ -243,9 +289,10 @@ class ExpenseExtractor
         $lastPartyBlock = $lastParty !== null ? $this->lastPartyContext($lastParty) : '';
 
         return <<<PROMPT
-        Sen bir inşaat şirketinin kayıt asistanısın. Kullanıcı (müteahhit ya da mimar) sana
+        {$intro} Kullanıcı sana
         yazarak veya belge (fiş, fatura, dekont) fotoğrafı atarak bir işlem bildirir. Görevin
-        `save_entry` aracını çağırarak işlemi çıkarmak.
+        `save_entry` aracını çağırarak işlemi çıkarmak. Kullanıcı günlük konuşma diliyle, yazım hatalı
+        yazabilir ("Parası ni", "15binlira", "25,kilo") — anlamı oku, yazıma takılma.
 
         Bugünün tarihi: {$today}. Tarih belirtilmemişse `date` alanına bugünü koy.
         {$refine}{$lastPartyBlock}
@@ -312,6 +359,11 @@ class ExpenseExtractor
         El yazısı/bulanık nedeniyle tutardan emin değilsen `confidence` = "low" yap. Yazılı mesajda
         "20.000" Türkçe biçimdir (= yirmi bin), "20 bin" de öyle — yazıda `confidence` HER ZAMAN "high".
         Bir İŞLEMİN tutarı hiç söylenmediyse ("Kira") türü yine seç, `amount`=0 ve `question`="… tutarı ne kadar?" yaz.
+        Miktar ve birim fiyat söylendiyse ("34 kg bal aldım kilosu 600", "10 adet kapı tanesi 1500") `amount` = miktar × birim
+        fiyat; açıklamaya hesabı yaz ("34 kg bal (kg 600)"). Tutarı sorma. BİRİM FİYAT yalnız "kilosu / tanesi / adedi /
+        litresi / kg 600" gibi açıkça BİRİM başına söylenen fiyattır. "tutarı", "toplam", "hepsi", "etti", ya da miktardan
+        sonra yalnız bir sayı ("peynir 25 kilo 15 bin", "25 kilo tutarı 15 bin") → o sayı TOPLAM tutardır, ÇARPMA
+        (`amount`=15000, açıklama "25 kg peynir").
         AMA soru biçimindeki genel kelime ("Gider ?", "Giderler?", "Borç?", "Alacak?") işlem DEĞİL, sorudur:
         gider/harcama/masraf → "expense_summary", borç/alacak → "totals_query".
 
@@ -422,7 +474,7 @@ class ExpenseExtractor
                     'party_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW party name if the user named one that is not in the list; null if matched or none named'],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
-                    'paid' => ['type' => ['boolean', 'null'], 'description' => 'true only if explicitly paid / payment proof document, false if explicitly unpaid or future, null if not stated'],
+                    'paid' => ['type' => ['boolean', 'null'], 'description' => 'expense/purchase: true only if explicitly paid / payment proof document, false if explicitly unpaid or future. sale: true if the money was already received (peşin, "parasını aldım"). null if not stated'],
                     'confidence' => ['type' => 'string', 'enum' => ['high', 'low']],
                     'question' => ['type' => ['string', 'null'], 'description' => 'Question to ask the user for a missing project/party match, else null'],
                     'settles_expense_id' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=expense: id from ÖDENMEMİŞ GİDERLER when the message pays that existing unpaid expense (not a new cost); else null'],
@@ -448,6 +500,29 @@ class ExpenseExtractor
     }
 
     private function normalize(array $input): array
+    {
+        return self::fitToModules($this->normalizeRaw($input));
+    }
+
+    /** Sohbet asistanı (ChatAssistant) aynı kayıt şemasını ve temizliği kullanır. */
+    public function normalizeEntry(array $input): array
+    {
+        return $this->normalize($input);
+    }
+
+    /** @return array<string,mixed> kayıt alanlarının JSON şeması (save_entry / propose_entry) */
+    public function entrySchema(): array
+    {
+        return $this->tool()['input_schema'];
+    }
+
+    /** İzinli işlem türlerinin tanımları (prompt'a). */
+    public static function kindGuide(): string
+    {
+        return implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::allowedKinds()));
+    }
+
+    private function normalizeRaw(array $input): array
     {
         $kind = in_array($input['kind'] ?? null, self::allowedKinds(), true) ? $input['kind'] : self::KIND_EXPENSE;
 

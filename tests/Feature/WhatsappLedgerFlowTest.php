@@ -148,7 +148,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $party = Party::create(['name' => 'Ahmet X']);
         $this->fakeAi(
             $this->entry([
-                'kind' => ExpenseExtractor::KIND_SALE, 'amount' => 110000, 'party_id' => $party->id,
+                'kind' => ExpenseExtractor::KIND_SALE, 'amount' => 110000, 'party_id' => $party->id, 'paid' => null,
                 'items' => [
                     ['description' => 'Mimari proje', 'amount' => 80000],
                     ['description' => 'Şantiye şefliği', 'amount' => 30000],
@@ -171,6 +171,29 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->send('evet');
 
         $this->assertSame(60000.0, $this->balance($party));
+    }
+
+    /** Erkan (12 Ekim): "Şeker'in kardeşine verilen peynir 25 kilo 15 bin" + "parasını aldım" → peşin satış, alacak kalmaz. */
+    public function test_paid_sale_records_sale_and_collection_without_receivable(): void
+    {
+        $party = Party::create(['name' => 'Şeker\'in Kardeşi']);
+        $sale = ['kind' => ExpenseExtractor::KIND_SALE, 'amount' => 15000, 'party_id' => $party->id, 'description' => '25 kg peynir'];
+        $this->fakeAi($this->entry($sale + ['paid' => null]), $this->entry($sale + ['paid' => true]));
+        $expenses = \App\Models\Expense::count();
+
+        $reply = $this->send("Şekerin kardeşi verilen peynir 25,kilo tutarı 15binlira");
+        $this->assertStringContainsString('*Satış*', $reply);
+        $this->assertStringContainsString('(sana borçlandı)', $reply);
+        $this->assertStringContainsString('25 kg peynir', $reply);
+
+        $reply = $this->send('Parası ni aldım peynir teslim edilecek');
+        $this->assertStringContainsString('(parası alındı)', $reply);
+        $this->send('evet');
+
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_SALE)->count());
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_COLLECTION)->count());
+        $this->assertSame(0.0, $this->balance($party));
+        $this->assertSame($expenses, \App\Models\Expense::count()); // gider açılmaz
     }
 
     public function test_balance_query_answers_without_draft(): void
