@@ -241,3 +241,14 @@
   .faq summary::after { content: "+"; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 24px; font-weight: 400; color: var(--green); }
   .faq details[open] summary::after { content: "−"; }
   .faq details p { margin: 0 0 18px; color: var(--muted); }
+
+  /* day timeline (home) */
+  .day { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .moment { background: var(--chat-bg); border-radius: 18px; padding: 18px 16px 20px; display: flex; flex-direction: column; gap: 8px; }
+  .moment .when { font-size: 13px; font-weight: 600; color: var(--green); background: var(--card); border-radius: 999px; padding: 3px 10px; align-self: flex-start; }
+  .moment h3 { margin: 2px 0 6px; font-size: 18px; }
+  .moment .msg { max-width: 92%; }
+  @media (max-width: 860px) { .day { grid-template-columns: 1fr; } }
+  .sectors { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 960px) { .sectors { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .sectors { grid-template-columns: 1fr; } }

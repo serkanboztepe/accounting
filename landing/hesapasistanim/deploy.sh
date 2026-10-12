@@ -10,7 +10,7 @@ DOCROOT=/home/hesapasistanim.com/public_html
 python3 -I build_sectors.py "$PWD" >/dev/null
 
 # Sadece yayınlanan dosyalar; *-source.html, build_sectors.py, deploy.sh sunucuya gitmez.
-FILES=(index.html gizlilik.html muteahhit.html mimar.html toptanci.html alacak-verecek.html
+FILES=(index.html gizlilik.html ciftci.html esnaf.html usta.html muteahhit.html mimar.html toptanci.html alacak-verecek.html
        site.css sitemap.xml robots.txt og.png icon-180.png .htaccess)
 
 scp -q "${FILES[@]}" "$SERVER:$DOCROOT/"

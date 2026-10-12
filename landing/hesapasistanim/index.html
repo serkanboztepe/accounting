@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WhatsApp'tan Hesap Takibi · Gider ve Veresiye Defteri | Hesap Asistanım</title>
-<meta name="description" content="Hesap takip programı öğrenmeye gerek yok: verdiğini, aldığını, harcadığını WhatsApp'tan yaz, fişin fotoğrafını at. Gider takibi, veresiye defteri, borç-alacak dökümü tek yerde.">
-<meta property="og:title" content="Hesap Asistanım — Hesabını WhatsApp'tan tut">
-<meta property="og:description" content="Yaz ya da fişin fotoğrafını at, asistan kaydetsin. Kime ne borcun var, kimden ne alacağın var, tek mesajla öğren.">
+<meta name="description" content="Hesap takip programı öğrenmeye gerek yok: sattığını, aldığını, verdiğini WhatsApp'tan yaz, fişin fotoğrafını at. Veresiye defteri, borç-alacak takibi, harcamalar, hatırlatma ve hesap dökümü tek yerde.">
+<meta property="og:title" content="Hesap Asistanım — Defterin artık cebinde">
+<meta property="og:description" content="Sattığını, aldığını, verdiğini WhatsApp'tan yaz; asistan kaydetsin, sorunca söylesin, günü gelince hatırlatsın.">
 <meta property="og:url" content="https://hesapasistanim.com/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hesap Asistanım">
@@ -46,7 +46,7 @@
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "WhatsApp, Web",
       "inLanguage": "tr-TR",
-      "description": "WhatsApp'tan gider, borç-alacak ve veresiye takibi. Mesajla ya da fiş fotoğrafıyla kayıt; bilgisayardan rapor ve hesap dökümü.",
+      "description": "WhatsApp'tan satış, veresiye, borç-alacak ve harcama takibi. Mesajla ya da fiş fotoğrafıyla kayıt, hatırlatma ve takvim; bilgisayardan rapor ve hesap dökümü.",
       "publisher": { "@id": "https://hesapasistanim.com/#org" }
     },
     {
@@ -58,6 +58,10 @@
           "acceptedAnswer": { "@type": "Answer", "text": "Hayır. Zaten kullandığın WhatsApp yeter. Asistanın numarasına mesaj ya da fiş fotoğrafı göndermen yeterli." } },
         { "@type": "Question", "name": "Yanlış bir kayıt olursa ne olur?",
           "acceptedAnswer": { "@type": "Answer", "text": "Asistan her kaydı önce sana gösterir; sen “evet” demeden hiçbir şey kaydedilmez. Yanlışsa mesajla düzeltirsin. Kaydedilmiş bir kaydı da bilgisayardan düzeltebilir ya da silebilirsin." } },
+        { "@type": "Question", "name": "Yazım hatası yaparsam anlar mı?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Anlar. Kısaltmalı, yazım hatalı, konuşur gibi yazabilirsin: “Parası ni aldım”, “15binlira” gibi. Ne anladığını önce sana gösterir; yanlışsa düzeltirsin." } },
+        { "@type": "Question", "name": "Hatırlatma nasıl çalışır?",
+          "acceptedAnswer": { "@type": "Answer", "text": "“20 Ekim'de görüşmem var, 1 gün önce hatırlat” ya da “her ayın 10'unda kira” yaz; zamanı gelince WhatsApp'tan haber verir. Bir alacağa ya da borca ödeme günü yazdıysan o sabah da hatırlatır; ödendiyse hatırlatmaz." } },
         { "@type": "Question", "name": "Fiş fotoğrafından tutarı nasıl buluyor?",
           "acceptedAnswer": { "@type": "Answer", "text": "Gönderdiğin fiş, fatura ya da dekont fotoğrafını yapay zekâ ile okur; tutarı ve harcamanın türünü çıkarır, kaydetmeden önce sana onaylatır." } },
         { "@type": "Question", "name": "Verilerim güvende mi?",
@@ -91,9 +95,9 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <span class="eyebrow">Bilgisayar yok · Program yok</span>
-        <h1>Hesabını <em>WhatsApp'tan</em> tut.</h1>
-        <p class="lead">Verdiğini, aldığını, harcadığını yaz ya da fişin fotoğrafını at. Hesap Asistanım kaydetsin; kime ne borcun var, kimden ne alacağın var, sorunca söylesin.</p>
+        <span class="eyebrow">Bilgisayar yok · Program yok · Sadece WhatsApp</span>
+        <h1>Defterin artık <em>cebinde.</em></h1>
+        <p class="lead">Sattığını, aldığını, verdiğini WhatsApp'tan yaz. Hesap Asistanım kaydetsin, sorunca söylesin, günü gelince hatırlatsın.</p>
         <div class="hero-cta">
           <a class="btn" href="https://wa.me/905453606783?text=Merhaba%2C%20Hesap%20Asistan%C4%B1m%27%C4%B1%20denemek%20istiyorum">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.5L3 21l2-5.5A8.4 8.4 0 1 1 21 11.5z"/></svg>
@@ -111,14 +115,14 @@
             <div><b>Hesap Asistanım</b><small>çevrimiçi</small></div>
           </div>
           <div class="msgs">
-            <div class="msg out">Ali'ye 15 bin verdim<span class="t">09:41</span></div>
-            <div class="msg in">💸 <b>Ödeme</b><br>Sen → Ali · <b>15.000 ₺</b><br>Borcun: 45.000 → <b>30.000 ₺</b><br>Kaydedeyim mi? <b>evet</b> / <b>iptal</b><span class="t">09:41</span></div>
-            <div class="msg out">evet<span class="t">09:42</span></div>
-            <div class="msg in"><span class="ok">✓ Kaydedildi.</span><span class="t">09:42</span></div>
+            <div class="msg out">Veliye 40 kilo peynir verdim kilosu 600<span class="t">09:10</span></div>
+            <div class="msg in">🧾 <b>Satış</b> → Veli: <b>24.000 ₺</b><br>40 kg peynir (kg 600)<br>Alacağın: 0 → <b>24.000 ₺</b><br>Kaydedeyim mi? <b>evet</b> / <b>iptal</b><span class="t">09:10</span></div>
+            <div class="msg out">evet<span class="t">09:11</span></div>
+            <div class="msg in"><span class="ok">✓ Kaydedildi.</span><span class="t">09:11</span></div>
             <div class="msg out"><div class="receipt"><b>AKARYAKIT</b><span>MOTORİN</span><span>52,30 LT</span><i></i><span class="tot">TOPLAM<em style="font-style:normal">2.340,00</em></span></div>mazot<span class="t">11:20</span></div>
             <div class="msg in">🧾 <b>Gider</b> · Yakıt · <b>2.340 ₺</b><br>Kaydedeyim mi?<span class="t">11:20</span></div>
-            <div class="msg out">Hasan'a 40 bin'lik iş yaptım<span class="t">15:05</span></div>
-            <div class="msg in">🧾 <b>Satış</b><br>Hasan → sana · <b>40.000 ₺</b><br>Alacağın: 0 → <b>40.000 ₺</b><br>Kaydedeyim mi?<span class="t">15:05</span></div>
+            <div class="msg out">Ayın 15'inde Veliden parayı almayı hatırlat<span class="t">15:05</span></div>
+            <div class="msg in">⏰ <b>Hatırlatma</b><br>Veli'den parayı al<br>15 Ekim sabahı haber vereceğim.<span class="t">15:05</span></div>
           </div>
         </div>
       </div>
@@ -132,11 +136,11 @@
       <div class="steps">
         <div class="step">
           <h3>Yaz ya da fotoğraf at</h3>
-          <p>“Betoncuya 40 bin ödedim” yaz, ya da fişin, dekontun fotoğrafını gönder.</p>
+          <p>“Hasan'a 40 bin ödedim” yaz, ya da fişin, dekontun fotoğrafını gönder. Yazım hatasına takılmaz.</p>
         </div>
         <div class="step">
           <h3>Asistan kontrol ettirir</h3>
-          <p>Ne anladığını özetler: kime, ne kadar, hangi iş. Yanlışsa düzeltirsin.</p>
+          <p>Ne anladığını özetler: kime, ne kadar, ne için. Yanlışsa düzeltirsin.</p>
         </div>
         <div class="step">
           <h3>“Evet” de, kaydolsun</h3>
@@ -152,33 +156,68 @@
       <p class="sub">Günlük hesabın tamamı, tek bir WhatsApp sohbetinde.</p>
       <div class="features">
         <div class="feat">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
-          <div><h3>Harcamaların</h3><p>Fişin fotoğrafını at, tutarı asistan okusun. İstersen işe ya da şantiyeye göre ayır.</p></div>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18l-2 11H5z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg></span>
+          <div><h3>Satış ve veresiye</h3><p><q>Veli'ye 40 kilo peynir verdim kilosu 600</q> yaz, tutarı kendisi hesaplasın. Parasını aldıysan <q>parasını aldım</q> de, peşin yazılsın.</p></div>
         </div>
         <div class="feat">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
-          <div><h3>Verdiğin, aldığın para</h3><p>Ustaya verdin, müşteriden aldın; yaz yeter. Borç ve alacak kendiliğinden güncellenir.</p></div>
+          <div><h3>Verdiğin, aldığın para</h3><p>Ustaya verdin, müşteriden aldın, toptancıdan mal aldın; yaz yeter. Borç ve alacak kendiliğinden güncellenir.</p></div>
+        </div>
+        <div class="feat">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
+          <div><h3>Harcamaların</h3><p>Fişin, faturanın fotoğrafını at, tutarı asistan okusun. Kira, mazot, elektrik… hepsi bir yerde.</p></div>
+        </div>
+        <div class="feat">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M5 3 2 6M19 3l3 3"/></svg></span>
+          <div><h3>Hatırlatır</h3><p><q>Ayın 15'inde Veli'den parayı almayı hatırlat</q>, <q>her ayın 10'unda kira</q>. Ödeme günü gelen alacak ve borçlarını da sabah haber verir.</p></div>
         </div>
         <div class="feat">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.2M12 17h.01"/></svg></span>
-          <div><h3>Sor, cevaplasın</h3><p><q>Ali ustaya ne kadar borcum var?</q> <q>Toplam alacağım ne?</q> Tek mesajla öğren.</p></div>
+          <div><h3>Sor, cevaplasın</h3><p><q>Veli'nin borcu ne?</q> <q>Toplam alacağım ne?</q> <q>Yarın ne var?</q> Tek mesajla öğren.</p></div>
         </div>
         <div class="feat">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></span>
-          <div><h3>Hesap dökümü</h3><p><q>Ali'nin dökümünü gönder</q> de; borç-alacak dökümü PDF olarak WhatsApp'ına gelsin, karşı tarafa ilet.</p></div>
+          <div><h3>Hesap dökümü</h3><p><q>Veli'nin dökümünü gönder</q> de; borç-alacak dökümü PDF olarak WhatsApp'ına gelsin, karşı tarafa ilet.</p></div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="alt" id="panel">
+  <section class="alt">
+    <div class="wrap">
+      <h2>Bir günün böyle geçer</h2>
+      <p class="sub">Sabah hatırlatır, gün içinde yazarsın, akşam sorarsın.</p>
+      <div class="day">
+        <div class="moment">
+          <span class="when">Sabah 08:00</span>
+          <h3>Hatırlatır</h3>
+          <div class="msg in">⏰ <b>Ödeme günleri</b><br><b>Bugün:</b><br>• Tahsilat: Veli — Peynir 14.000 ₺</div>
+        </div>
+        <div class="moment">
+          <span class="when">Gün içinde</span>
+          <h3>Yazarsın, kaydeder</h3>
+          <div class="msg out">Veli 14 bin verdi</div>
+          <div class="msg in">💰 Veli → <b>sana</b>: 14.000 ₺ ödedi<br>Alacağın: 14.000 → <b>0</b></div>
+        </div>
+        <div class="moment">
+          <span class="when">Akşam</span>
+          <h3>Sorarsın, söyler</h3>
+          <div class="msg out">Toplam alacağım ne kadar</div>
+          <div class="msg in">📊 Toplam alacağın: <b>52.300 ₺</b> (4 kişi)<br>• Mustafa: 21.000<br>• Ayşe Hanım: 3.550<br>…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="panel">
     <div class="wrap panel-grid">
       <div>
         <h2>İstersen bilgisayardan da bak</h2>
         <p class="sub">WhatsApp sadece giriş kapısı. Yazdığın her şey arkada düzenli bir sistemde durur.</p>
         <ul class="checks">
           <li><div><b>Tüm kayıtlar tek yerde</b><span>WhatsApp'tan girdiğin her kayıt bilgisayardan ve tabletten de görünür, düzeltilebilir.</span></div></li>
-          <li><div><b>Raporlar ve dökümler</b><span>İşe ya da şantiyeye göre harcamalar, kimde ne kadar alacağın var, yazdırılabilir hesap dökümü.</span></div></li>
+          <li><div><b>Raporlar ve dökümler</b><span>Harcamalar, kimde ne kadar alacağın var, yazdırılabilir hesap dökümü.</span></div></li>
+          <li><div><b>Takvim</b><span>Hatırlatmalar, ödeme günleri ve çek vadeleri ay ay bir bakışta.</span></div></li>
           <li><div><b>Ofisin ve mali müşavirin de girebilir</b><span>Ofisteki çalışanın ya da mali müşavirin kayıtlara bilgisayardan ulaşır.</span></div></li>
           <li><div><b>Kayıtların güvende</b><span>Telefonunu kaybetsen de, WhatsApp'ı silsen de hesabın yerinde durur.</span></div></li>
         </ul>
@@ -207,11 +246,29 @@
     </div>
   </section>
 
-  <section>
+  <section class="alt">
     <div class="wrap">
-      <h2>Senin işine göre</h2>
+      <h2>Kim kullanıyor?</h2>
       <p class="sub">Herkesin hesabı aynı değil. İşine uygun kurulumu seç; sadece ihtiyacın olan bölümler açılır, gerisi karşına çıkmaz.</p>
       <div class="sectors">
+        <a class="sector" href="/ciftci">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V11M12 11c0-4 3-7 7-7 0 4-3 7-7 7zM12 14c0-3-2.5-5.5-6-5.5 0 3 2.5 5.5 6 5.5z"/></svg></span>
+          <h3>Çiftçi ve üretici</h3>
+          <p>Süt, peynir, yağ, bal satan; yem, mazot alan. Kim ödedi, kim borçlu, kilo kilo.</p>
+          <span class="go">İncele →</span>
+        </a>
+        <a class="sector" href="/esnaf">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v10h16V10M3 10l2-6h14l2 6M3 10h18M9 20v-5h6v5"/></svg></span>
+          <h3>Dükkan ve esnaf</h3>
+          <p>Bakkal, fırın, manav, kasap: veresiye defteri, toptancı hesabı, dükkan masrafı.</p>
+          <span class="go">İncele →</span>
+        </a>
+        <a class="sector" href="/usta">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg></span>
+          <h3>Usta ve taşeron</h3>
+          <p>Yaptığın iş, müteahhitten gelen para, malzeme masrafı, çırak ödemesi.</p>
+          <span class="go">İncele →</span>
+        </a>
         <a class="sector" href="/muteahhit">
           <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg></span>
           <h3>Müteahhit</h3>
@@ -230,18 +287,12 @@
           <p>Stok, satış, iade, teklif, veresiye ve müşteri alacakları.</p>
           <span class="go">İncele →</span>
         </a>
-        <a class="sector" href="/alacak-verecek">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg></span>
-          <h3>Alacak-verecek</h3>
-          <p>Sadece kime ne borcun var, kimden ne alacağın var; o kadar.</p>
-          <span class="go">İncele →</span>
-        </a>
       </div>
-      <p class="others">Taşeron, usta, malzemeci ya da başka bir küçük işletme misin? <b>Alacak-verecek</b> kurulumu ile başla, ihtiyacın oldukça bölüm ekleriz.</p>
+      <p class="others">Sadece kime ne borcun var, kimden ne alacağın var mı tutacaksın? En sade kurulum: <a href="/alacak-verecek"><b>Alacak-verecek</b></a>. Burada işini göremedin mi? Yaz, ihtiyacına göre kuralım.</p>
     </div>
   </section>
 
-  <section class="alt">
+  <section>
     <div class="wrap">
       <h2>Güvenle kullan</h2>
       <p class="sub">Hesabın senin. Biz sadece düzenli tutmana yardım ederiz.</p>
@@ -253,13 +304,15 @@
     </div>
   </section>
 
-  <section id="sss">
+  <section class="alt" id="sss">
     <div class="wrap faq-wrap">
       <h2>Sık sorulan sorular</h2>
       <div class="faq">
         <details><summary>Hesap Asistanım bir muhasebe programı mı?</summary><p>Hayır. Resmi defter, e-fatura ya da beyanname işleri yapmaz; bunlar mali müşavirinin işidir. Hesap Asistanım günlük borç, alacak ve harcamalarını düzenli tutar, mali müşavirine eksiksiz bilgi vermeni kolaylaştırır.</p></details>
         <details><summary>Uygulama indirmem gerekiyor mu?</summary><p>Hayır. Zaten kullandığın WhatsApp yeter. Asistanın numarasına mesaj ya da fiş fotoğrafı göndermen yeterli.</p></details>
         <details><summary>Yanlış bir kayıt olursa ne olur?</summary><p>Asistan her kaydı önce sana gösterir; sen “evet” demeden hiçbir şey kaydedilmez. Yanlışsa mesajla düzeltirsin. Kaydedilmiş bir kaydı da bilgisayardan düzeltebilir ya da silebilirsin.</p></details>
+        <details><summary>Yazım hatası yaparsam anlar mı?</summary><p>Anlar. Kısaltmalı, yazım hatalı, konuşur gibi yazabilirsin: “Parası ni aldım”, “15binlira” gibi. Ne anladığını önce sana gösterir; yanlışsa düzeltirsin.</p></details>
+        <details><summary>Hatırlatma nasıl çalışır?</summary><p>“20 Ekim'de görüşmem var, 1 gün önce hatırlat” ya da “her ayın 10'unda kira” yaz; zamanı gelince WhatsApp'tan haber verir. Bir alacağa ya da borca ödeme günü yazdıysan o sabah da hatırlatır; ödendiyse hatırlatmaz.</p></details>
         <details><summary>Fiş fotoğrafından tutarı nasıl buluyor?</summary><p>Gönderdiğin fiş, fatura ya da dekont fotoğrafını yapay zekâ ile okur; tutarı ve harcamanın türünü çıkarır, kaydetmeden önce sana onaylatır.</p></details>
         <details><summary>Verilerim güvende mi?</summary><p>Her firmanın kayıtları ayrı bir veritabanında tutulur, başkasıyla paylaşılmaz. Bağlantılar şifrelidir ve kayıtlar her gün yedeklenir.</p></details>
         <details><summary>Bilgisayardan da kullanabilir miyim?</summary><p>Evet. WhatsApp'tan girdiğin her kayıt bilgisayardan ve tabletten de görülür; raporlar ve yazdırılabilir hesap dökümleri oradadır. Ofisteki çalışanın ya da mali müşavirin de bilgisayardan erişebilir.</p></details>
@@ -289,6 +342,9 @@
       <p>E-posta: <a href="mailto:bilgi@hesapasistanim.com">bilgi@hesapasistanim.com</a></p>
     </div>
     <nav>
+      <a href="/ciftci">Çiftçi</a>
+      <a href="/esnaf">Esnaf</a>
+      <a href="/usta">Usta</a>
       <a href="/muteahhit">Müteahhit</a>
       <a href="/mimar">Mimar</a>
       <a href="/toptanci">Toptancı</a>

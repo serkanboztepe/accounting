@@ -7,7 +7,8 @@ ICON_CHAT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 LOGO = '<span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h8"/></svg></span>'
 FAVICON = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%230E8A5F'/><path d='M18 22h28M18 32h28M18 42h16' stroke='white' stroke-width='5' stroke-linecap='round'/></svg>"
 
-ALL = [("muteahhit", "Müteahhit"), ("mimar", "Mimar"), ("toptanci", "Toptancı ve nalbur"), ("alacak-verecek", "Alacak-verecek")]
+ALL = [("ciftci", "Çiftçi ve üretici"), ("esnaf", "Dükkan ve esnaf"), ("usta", "Usta ve taşeron"),
+       ("muteahhit", "Müteahhit"), ("mimar", "Mimar"), ("toptanci", "Toptancı ve nalbur"), ("alacak-verecek", "Alacak-verecek")]
 
 
 def wa(text):
@@ -170,6 +171,123 @@ def page(p):
 
 PAGES = [
     dict(
+        slug="ciftci", crumb="Çiftçi ve üretici", wa_as="çiftçi",
+        title="Çiftçi ve üreticiler için", desc="",
+        eyebrow="Çiftçi ve üreticiler için",
+        h1="Sattığın süt, peynir, <em>alacağın para.</em>",
+        lead="Süt, peynir, yağ, bal, yem… Kime ne verdin, kim parasını ödedi, kimden ne alacağın kaldı; WhatsApp'tan nasıl konuşuyorsan öyle yaz, Hesap Asistanım tutsun.",
+        chat=[
+            ("out", "Veliye 40 kilo peynir verdim kilosu 600", "08:05"),
+            ("in", "🧾 <b>Satış</b> → Veli: <b>24.000 ₺</b> (sana borçlandı)<br>• Açıklama: 40 kg peynir (kg 600)<br>• Bakiye: 0 → alacağın 24.000<br><br>Onaylamak için <b>evet</b>, vazgeçmek için <b>iptal</b>", "08:05"),
+            ("out", "evet", "08:06"),
+            ("in", '<span class="ok">✓ Kaydedildi.</span> Veli: sana borcu 24.000 ₺', "08:06"),
+            ("out", "Veli 10 bin verdi", "18:40"),
+            ("in", "💰 Veli → <b>sana</b>: 10.000 ₺ ödedi<br>• Bakiye: alacağın 24.000 → <b>14.000</b><br>Onaylamak için <b>evet</b>", "18:40"),
+        ],
+        pain_h="Tanıdık geldi mi?",
+        pain_sub="İş tarlada, ahırda, pazarda. Hesap ise ya akılda ya bir defterin arasında.",
+        pains=[
+            ("“Sütün parasını kim verdi?”", "Her gün birine süt, peynir veriyorsun; ay sonunda kimin ne kadar ödediği karışıyor."),
+            ("“Defter nerede kaldı?”", "Defter ahırda, not kâğıdı cepte. Biri hesap sorunca emin olamıyorsun."),
+            ("“Yemciye ne kadar borcum var?”", "Aldığın yem, gübre, mazot; kime ne kadar borcun kaldığını aklında tutmak zor."),
+        ],
+        says=[
+            ("Mustafaya 30 litre süt verdim litresi 30", "Tutarı kendisi hesaplar (<b>900 ₺</b>), Mustafa'nın hesabına alacak yazar."),
+            ("Osmana 2 teneke yağ sattım 8 bin parasını aldım", "<b>Peşin satış</b>: hem satış hem gelen para yazılır, borç kalmaz."),
+            ("Yemciden 12 bin yem aldım", "Yemcinin hesabına yazılır; ödeyince “yemciye 12 bin verdim” demen yeter."),
+            ("Ayın 15'inde Veliden parayı almayı hatırlat", "O sabah WhatsApp'tan <b>hatırlatır</b>."),
+        ],
+        mods_h="Bu kadar sade",
+        mods_sub="Ne gerekiyorsa o. Program öğrenmek yok, bilgisayar yok.",
+        mods=[
+            ("", "Kişi hesapları", "Süt verdiğin, peynir sattığın, yem aldığın herkesin hesabı ayrı ayrı."),
+            ("", "Peşin ve veresiye", "Parası alındıysa peşin, sonra verecekse veresiye; kimin ne kadar borcu kaldığı hep güncel."),
+            ("", "Kilo, litre hesabı", "“40 kilo, kilosu 600” yaz; tutarı kendisi hesaplar."),
+            ("", "Hatırlatma", "Ödeme günü yazdığın alacak ve borçları o sabah haber verir; ödendiyse rahatsız etmez."),
+            ("", "Hesap dökümü", "Birinin dökümünü iste, PDF olarak WhatsApp'ına gelsin; karşı tarafa ilet."),
+            ("", "Toplam alacak ve borç", "“Toplam alacağım ne kadar?” de; kimden ne alacağın var, tek tek söylesin."),
+        ],
+        cta_h="Defteri bırak, mesaj at",
+    ),
+    dict(
+        slug="esnaf", crumb="Dükkan ve esnaf", wa_as="esnaf",
+        title="Dükkan ve esnaf için", desc="",
+        eyebrow="Bakkal, fırın, manav, kasap için",
+        h1="Veresiye defteri <em>artık telefonda.</em>",
+        lead="Müşteriye yazdığın veresiyeyi, toptancıya olan borcunu, dükkan masrafını WhatsApp'tan yaz. Kim ne kadar borçlu, bir mesajla öğren.",
+        chat=[
+            ("out", "Ayşe hanıma 1.250 lira veresiye", "10:15"),
+            ("in", "🧾 <b>Satış</b> → Ayşe Hanım: <b>1.250 ₺</b> (sana borçlandı)<br>• Bakiye: alacağın 2.300 → <b>3.550</b><br><br>Onaylamak için <b>evet</b>, vazgeçmek için <b>iptal</b>", "10:15"),
+            ("out", "evet", "10:15"),
+            ("in", '<span class="ok">✓ Kaydedildi.</span> Ayşe Hanım: sana borcu 3.550 ₺', "10:16"),
+            ("out", "Toplam alacağım ne kadar", "20:30"),
+            ("in", "📊 Toplam alacağın: <b>18.420 ₺</b> (12 kişi)<br>• Ayşe Hanım: 3.550<br>• Kemal Bey: 2.900<br>… ve 10 kişi daha", "20:30"),
+        ],
+        pain_h="Tanıdık geldi mi?",
+        pain_sub="Dükkanda tezgah başındasın; hesap defterde, defter de çekmecede.",
+        pains=[
+            ("“Ayşe Hanım ne kadar borçluydu?”", "Veresiye defterinde sayfa sayfa arıyorsun; toplamı çıkarmak ayrı dert."),
+            ("“Toptancıya ne kadar kaldı?”", "Aldığın mal, verdiğin para; hangisi kapandı, hangisi duruyor belli değil."),
+            ("“Bu ay dükkan neye gitti?”", "Kira, elektrik, ekmek, poşet… Fişler birikiyor, toplamı bilinmiyor."),
+        ],
+        says=[
+            ("Ayşe hanıma 1.250 lira veresiye", "Ayşe Hanım'ın hesabına <b>borç</b> olarak yazılır."),
+            ("Ayşe hanım 1000 ödedi", "Gelen para işlenir, kalan borcu düşer."),
+            ("Toptancı Ahmetten 18 bin mal aldım", "Toptancının hesabına yazılır; ne kadar borcun kaldığını hep bilirsin."),
+            ("📷 fatura fotoğrafı + “dükkan elektrik”", "Faturadaki tutarı okur, <b>masraf</b> olarak yazar."),
+        ],
+        mods_h="Dükkanın hesabı tek yerde",
+        mods_sub="WhatsApp'tan yaz; istersen bilgisayardan da bak, yazdır.",
+        mods=[
+            ("", "Müşteri veresiyeleri", "Her müşterinin aldığı, ödediği ve kalan borcu; yürüyen bakiyesiyle."),
+            ("", "Toptancı hesapları", "Mal aldığın yerlere ne kadar borcun var, ne ödedin."),
+            ("", "Dükkan masrafları", "Kira, elektrik, su… Fişin fotoğrafını at, tutarı asistan okusun."),
+            ("", "Ödeme günü hatırlatması", "“Ayın 1'inde ödeyecek” dediğin alacağı o sabah hatırlatır."),
+            ("", "Hesap dökümü", "Müşterinin dökümünü PDF olarak al, WhatsApp'tan gönder ya da yazdır."),
+            ("", "Büyüyünce genişler", "Stok ve çok kalemli satış gerekirse sonradan açılır; kayıtların kaybolmaz."),
+        ],
+        cta_h="Veresiye defterini cebine al",
+    ),
+    dict(
+        slug="usta", crumb="Usta ve taşeron", wa_as="usta",
+        title="Usta ve taşeronlar için", desc="",
+        eyebrow="Boyacı, elektrikçi, sıvacı, tesisatçı için",
+        h1="Yaptığın iş, aldığın para, <em>hepsi kayıtta.</em>",
+        lead="Hangi işi kaça yaptın, müteahhit ne kadar ödedi, malzemeye ne harcadın, çırağa ne verdin; işin başındayken WhatsApp'tan yaz, akşam hesabın hazır olsun.",
+        chat=[
+            ("out", "Kaya İnşaata 45 bin boya işi yaptım", "09:20"),
+            ("in", "🧾 <b>Satış</b> → Kaya İnşaat: <b>45.000 ₺</b> (sana borçlandı)<br>• Bakiye: 0 → alacağın 45.000<br><br>Onaylamak için <b>evet</b>, vazgeçmek için <b>iptal</b>", "09:20"),
+            ("out", "evet", "09:21"),
+            ("in", '<span class="ok">✓ Kaydedildi.</span> Kaya İnşaat: sana borcu 45.000 ₺', "09:21"),
+            ("out", "Kaya inşaat 20 bin gönderdi", "17:05"),
+            ("in", "💰 Kaya İnşaat → <b>sana</b>: 20.000 ₺ ödedi<br>• Bakiye: alacağın 45.000 → <b>25.000</b><br>Onaylamak için <b>evet</b>", "17:05"),
+        ],
+        pain_h="Tanıdık geldi mi?",
+        pain_sub="Gün boyu iştesin; para elden, havaleyle, parça parça geliyor.",
+        pains=[
+            ("“Müteahhit ne kadar ödedi?”", "Avans, ara ödeme, kalan… Kim ne kadar verdi, ne kadar alacağın kaldı karışıyor."),
+            ("“Malzeme parası cebimden çıktı”", "Nalbur fişleri cepte kayboluyor; işin sana gerçekte kaça mal olduğu belli değil."),
+            ("“Çırağa ne verdim?”", "Haftalık, yevmiye, avans; elden verilen paralar unutuluyor."),
+        ],
+        says=[
+            ("Kaya İnşaata 45 bin boya işi yaptım", "Müteahhidin hesabına <b>alacak</b> olarak yazılır."),
+            ("Kaya inşaat 20 bin gönderdi", "Gelen para işlenir, kalan alacağın düşer."),
+            ("📷 nalbur fişi + “boya malzemesi”", "Fişteki tutarı okur, <b>masraf</b> olarak yazar."),
+            ("Cuma Kaya İnşaattan parayı almayı hatırlat", "Cuma sabahı WhatsApp'tan <b>hatırlatır</b>."),
+        ],
+        mods_h="Bu kadar sade",
+        mods_sub="Sadece ihtiyacın olan. İşin büyüdükçe yeni bölümler açılabilir.",
+        mods=[
+            ("", "İş ve alacak", "Kime hangi işi kaça yaptın, ne kadarı ödendi, ne kadar kaldı."),
+            ("", "Gelen para", "Avans, ara ödeme, havale ya da elden; hepsi işin hesabına düşer."),
+            ("", "Malzeme masrafı", "Nalbur fişinin fotoğrafını at, tutarı asistan okusun."),
+            ("", "Çırak ve işçi ödemeleri", "Kime ne verdiğini yaz; ne için verdiğini sorar, ona göre kaydeder."),
+            ("", "Hatırlatma", "“Cuma parayı almayı hatırlat” de; günü gelince haber versin."),
+            ("", "Hesap dökümü", "Müteahhide dökümü PDF olarak gönder; “ne kadar kaldı” tartışması bitsin."),
+        ],
+        cta_h="İşinin hesabını bugün başlat",
+    ),
+    dict(
         slug="muteahhit", crumb="Müteahhit", wa_as="müteahhit",
         title="Müteahhitler için", desc="Şantiye masrafını, ustaya ve malzemeciye verdiğini WhatsApp'tan yaz. Şantiye şantiye harcama, anlaşmalar, gelen mal ve çek takibi tek yerde.",
         eyebrow="Müteahhitler için",
@@ -289,7 +407,7 @@ PAGES = [
     dict(
         slug="alacak-verecek", crumb="Alacak-verecek", wa_as="alacak-verecek takibi için",
         title="Alacak-verecek takibi", desc="Kime ne borcun var, kimden ne alacağın var; WhatsApp'tan yaz, asistan tutsun. Taşeron, usta, malzemeci ve her küçük işletme için en sade kurulum.",
-        eyebrow="Taşeron, usta ve her küçük işletme için",
+        eyebrow="Her küçük işletme için",
         h1="Kime ne borcun var, <em>bir mesajla bil.</em>",
         lead="Program öğrenmek yok, defter tutmak yok. Verdiğini, aldığını, harcadığını WhatsApp'tan yaz; borç ve alacakların hep güncel kalsın.",
         chat=[
@@ -329,6 +447,12 @@ PAGES = [
 
 # Google'da görünen başlık + açıklama (hedef aramalar). Sayfa içi metin yukarıda.
 SEO = {
+    "ciftci": ("Çiftçi Hesap Takibi · Süt, Peynir Satışı ve Veresiye WhatsApp'tan",
+               "Süt, peynir, yağ, bal satan çiftçi ve üreticiler için hesap takibi: kime ne sattın, kim ödedi, kimden ne alacağın var. WhatsApp'tan yaz; kilo hesabını o yapsın, ödeme gününü hatırlatsın."),
+    "esnaf": ("Esnaf Veresiye Defteri · Bakkal, Fırın, Manav Hesap Takibi",
+              "Bakkal, fırın, manav ve kasap için dijital veresiye defteri: müşteri borçları, toptancı hesapları, dükkan masrafları. WhatsApp'tan yaz, kim ne kadar borçlu tek mesajla öğren."),
+    "usta": ("Usta ve Taşeron Hesap Takibi · İş, Avans, Malzeme WhatsApp'tan",
+             "Boyacı, elektrikçi, sıvacı ve taşeronlar için hesap takibi: yaptığın iş, müteahhitten gelen para, malzeme masrafı ve çırak ödemeleri. WhatsApp'tan yaz, PDF döküm gönder."),
     "muteahhit": ("Müteahhit Hesap Takip Programı · Şantiye Gider Takibi",
                   "Müteahhitler için hesap takip programı: şantiye gider takibi, usta ve malzemeci ödemeleri, sözleşme ve çek takibi. Masrafı WhatsApp'tan yaz, fişin fotoğrafını at; proje proje maliyeti gör."),
     "mimar": ("Kat Karşılığı Hisse Hesaplama ve Emlak Beyannamesi",
