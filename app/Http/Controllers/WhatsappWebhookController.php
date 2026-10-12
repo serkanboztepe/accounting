@@ -47,6 +47,12 @@ use Illuminate\Support\Str;
  */
 class WhatsappWebhookController extends Controller
 {
+    /** Geri alma taslağı (sohbet asistanı "son kaydı sil"). */
+    private const KIND_UNDO = 'undo';
+
+    /** Bu tutardan itibaren özette tutar yazıyla da gösterilir. */
+    private const WORDS_FROM = 1_000_000;
+
     public function __invoke(Request $request, ExpenseExtractor $extractor)
     {
         $phone = (string) $request->input('From', '');
@@ -454,6 +460,10 @@ class WhatsappWebhookController extends Controller
                 return $pending
                     ? "Kaydedeyim mi? *evet* / *tamam* / *ok* — değiştirmek istediğin bir şey varsa yaz.\n\n" . $pending->summary
                     : 'Onay bekleyen bir kayıt yok. Yeni bir işlem yazabilirsin.';
+            case 'undo':
+                $this->inboundKind = 'undo';
+
+                return $this->undoDraft($pending, $phone);
             case 'cancel':
                 $this->inboundKind = 'quick';
                 $pending?->update(['status' => 'cancelled']);
@@ -584,6 +594,10 @@ class WhatsappWebhookController extends Controller
         }
 
         $summary = $this->buildSummary($data);
+        // Büyük tutar yazıyla: "96 tosun 17.017000 tl" tek "tamam"la 17 milyon girdi — rakam gözden kaçmasın.
+        if ((float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
+            $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
+        }
         // AI şüphelendiyse ("Bu borç ona mı, ondan mı?") alanlar dolu olsa bile soruyu göster — tahmin sessizce geçmesin.
         if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data)
             && ! str_contains($summary, $data['question'])) {
@@ -618,6 +632,118 @@ class WhatsappWebhookController extends Controller
      * Onaylanan taslaktan kaydı oluştur (türe göre Expense veya cari hareketi).
      */
     private function commit(WhatsappPendingExpense $pending): string
+    {
+        if (($pending->extracted['kind'] ?? null) === self::KIND_UNDO) {
+            return $this->commitUndo($pending);
+        }
+
+        // Bu onayla oluşan gider / cari satırları taslağa yazılır → "son kaydı sil" tam olarak bunları siler.
+        self::listenForCreatedRecords();
+        self::$recording = [];
+        try {
+            $out = $this->commitDraft($pending);
+        } finally {
+            $created = self::$recording;
+            self::$recording = null;
+        }
+        if ($created !== [] && $pending->fresh()?->status === 'confirmed') {
+            $pending->update(['extracted' => ['created_records' => $created] + $pending->extracted]);
+        }
+
+        return $out;
+    }
+
+    /** @var list<array{0:string,1:int}>|null commit sırasında oluşan [tür, id] */
+    private static ?array $recording = null;
+
+    private static ?int $listeningOn = null;
+
+    private static function listenForCreatedRecords(): void
+    {
+        $events = spl_object_id(app('events'));
+        if (self::$listeningOn === $events) {
+            return;
+        }
+        self::$listeningOn = $events;
+        Expense::created(function (Expense $e) {
+            if (self::$recording !== null) {
+                self::$recording[] = ['expense', $e->id];
+            }
+        });
+        PartyLedgerEntry::created(function (PartyLedgerEntry $l) {
+            if (self::$recording !== null) {
+                self::$recording[] = ['ledger', $l->id];
+            }
+        });
+    }
+
+    /**
+     * "Son kaydı sil / yanlış girdim": bu numaradan son 24 saatte onaylanan SON kaydı göster, onayla sil.
+     * Yalnız o onayın OLUŞTURDUĞU gider/cari satırları (created_records) silinir; cari/kategori kalır.
+     */
+    private function undoDraft(?WhatsappPendingExpense $pending, string $phone): string
+    {
+        $last = WhatsappPendingExpense::where('phone', $phone)
+            ->where('status', 'confirmed')
+            ->where('updated_at', '>=', now()->subDay())
+            ->latest('id')
+            ->first();
+        $targets = collect($last?->extracted['created_records'] ?? [])
+            ->filter(fn ($t) => $this->undoModel($t) !== null)
+            ->values()->all();
+
+        if (! $last || ($last->extracted['kind'] ?? null) === self::KIND_UNDO || $targets === []) {
+            return 'Buradan geri alabileceğim bir kayıt bulamadım (son 24 saatte bu numaradan girilen son kayıt silinebilir). Eski kayıtları panelden düzeltebilirsin.';
+        }
+
+        $pending?->update(['status' => 'superseded']);
+        $summary = "🗑️ *Şu kaydı sileceğim:*\n" . trim((string) $last->summary);
+        WhatsappPendingExpense::create([
+            'phone' => $phone,
+            'extracted' => ['kind' => self::KIND_UNDO, 'undo_of' => $last->id, 'targets' => $targets],
+            'summary' => $summary,
+            'status' => 'awaiting_confirmation',
+        ]);
+
+        return $summary . "\n\nSileyim mi? *evet* / *iptal*";
+    }
+
+    private function undoModel(array $target): ?\Illuminate\Database\Eloquent\Model
+    {
+        return match ($target[0] ?? null) {
+            'expense' => Expense::find($target[1] ?? 0),
+            'ledger' => PartyLedgerEntry::find($target[1] ?? 0),
+            default => null,
+        };
+    }
+
+    private function commitUndo(WhatsappPendingExpense $pending): string
+    {
+        $partyIds = [];
+        $deleted = 0;
+        \Illuminate\Support\Facades\DB::transaction(function () use ($pending, &$partyIds, &$deleted) {
+            foreach ((array) ($pending->extracted['targets'] ?? []) as $target) {
+                $model = $this->undoModel($target);
+                if ($model) {
+                    $partyIds[] = $model->party_id;
+                    $model->delete();
+                    $deleted++;
+                }
+            }
+            WhatsappPendingExpense::whereKey($pending->extracted['undo_of'] ?? 0)->update(['status' => 'undone']);
+            $pending->update(['status' => 'confirmed']);
+        });
+
+        if ($deleted === 0) {
+            return 'O kayıt zaten silinmiş.';
+        }
+        $party = Party::find(collect($partyIds)->filter()->last());
+
+        return '🗑️ Silindi.' . ($party ? ' ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']) : '')
+            . "\nDoğrusunu yazarsan hemen kaydederim.";
+    }
+
+    private function commitDraft(WhatsappPendingExpense $pending): string
     {
         $d = ExpenseExtractor::fitToModules($pending->extracted);
         if ($d !== $pending->extracted) {

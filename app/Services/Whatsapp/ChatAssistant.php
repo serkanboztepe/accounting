@@ -108,6 +108,8 @@ class ChatAssistant
                     return ['type' => 'confirm', 'paid' => isset($input['paid']) ? (bool) $input['paid'] : null];
                 case 'cancel_pending':
                     return ['type' => 'cancel'];
+                case 'undo_last':
+                    return ['type' => 'undo'];
                 case 'reply':
                     return ['type' => 'reply', 'text' => trim((string) ($input['text'] ?? '')) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'search_expenses':
@@ -253,7 +255,10 @@ class ChatAssistant
           türlerde İLK kalemi öner ve kalanları `next_items`'a yaz — kullanıcı onaylayınca sistem sıradakini sorar.
         - Açıklamayı (`description`) kullanıcının söylediği işten kısa yaz; söylemediği bilgi UYDURMA
           ("önceki dönemden", "devreden" gibi). "alacağım / alınacak" → o bize borçlu; yön belli, sorma.
-        - Kaydedilmiş bir işlemi buradan silemez/değiştiremezsin; açıkça söyle, panelden düzeltilebileceğini belirt.
+        - KAYDEDİLMİŞ son işlemi silmek/geri almak ya da değiştirmek ("son kaydı sil", "yanlış girdim", "bunu satış
+          olarak değiştir") → `undo_last`: sistem son kaydı gösterip onay ister. Değiştirmede önce silinir, sonra
+          kullanıcı doğrusunu yazar. Daha eski kayıtlar panelden düzeltilir.
+        - Kategoriyi her kayıt için KENDİ içeriğine göre seç; önceki kaydın kategorisini taşıma (tosun/hayvan alımı ≠ "Çobanlar").
         - "Traktöre ne harcadım" gibi bir şeye/kişiye göre harcama sorusu → `search_expenses` (yazım
           varyantlarıyla: traktör, traktor). Dönem toplamı ("bu ay ne harcadım") → propose_entry kind "expense_summary".
         - Bakiye, toplam, ekstre, cari listesi, takvim soruları ve hatırlatmalar da `propose_entry` ile (ilgili kind).
@@ -305,6 +310,11 @@ class ChatAssistant
                         'paid' => ['type' => ['boolean', 'null'], 'description' => 'Onayla birlikte ödeme durumu söylendiyse ("Ödendi evet" → true)'],
                     ],
                 ],
+            ],
+            [
+                'name' => 'undo_last',
+                'description' => 'Kullanıcı KAYDEDİLMİŞ son işlemi silmek / geri almak ya da değiştirmek istiyor ("son kaydı sil", "yanlış girdim", "bunu satış yap"). Sistem silinecek kaydı gösterip onay ister.',
+                'input_schema' => ['type' => 'object', 'properties' => (object) []],
             ],
             [
                 'name' => 'cancel_pending',

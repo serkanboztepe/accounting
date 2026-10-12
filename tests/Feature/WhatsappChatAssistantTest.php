@@ -123,6 +123,66 @@ class WhatsappChatAssistantTest extends TestCase
         }
     }
 
+    private function ledgerCount(string $party): int
+    {
+        return PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', $party))->count();
+    }
+
+    public function test_undo_last_shows_record_and_deletes_after_evet(): void
+    {
+        $this->chat(
+            ['type' => 'entry', 'data' => $this->sale(10000, 'Geri Al Yakup'), 'text' => ''],
+            ['type' => 'undo'],
+        );
+        $this->send('Yakup 10000 EKB');
+        $this->send('Evet');
+        $this->assertSame(1, $this->ledgerCount('Geri Al Yakup'));
+
+        $reply = $this->send('son kaydı sil');
+        $this->assertStringContainsString('Şu kaydı sileceğim', $reply);
+        $this->assertStringContainsString('Geri Al Yakup', $reply);
+        $this->assertSame(1, $this->ledgerCount('Geri Al Yakup'), 'onaysız silinmemeli');
+
+        $this->assertStringContainsString('Silindi', $this->send('Evet'));
+        $this->assertSame(0, $this->ledgerCount('Geri Al Yakup'));
+    }
+
+    public function test_undo_cancelled_keeps_record(): void
+    {
+        $this->chat(
+            ['type' => 'entry', 'data' => $this->sale(10000, 'Kalsın Yakup'), 'text' => ''],
+            ['type' => 'undo'],
+        );
+        $this->send('Yakup 10000 EKB');
+        $this->send('Evet');
+        $this->send('son kaydı sil');
+
+        $this->send('iptal');
+
+        $this->assertSame(1, $this->ledgerCount('Kalsın Yakup'));
+    }
+
+    public function test_undo_without_recent_record_explains(): void
+    {
+        $this->chat(['type' => 'undo']);
+
+        $this->assertStringContainsString('geri alabileceğim bir kayıt bulamadım', $this->send('son kaydı sil'));
+    }
+
+    public function test_large_amount_is_shown_in_words(): void
+    {
+        $this->chat(['type' => 'entry', 'data' => $this->sale(17017000, 'Tosun Satan'), 'text' => '']);
+
+        $this->assertStringContainsString('on yedi milyon on yedi bin lira', $this->send('96 tosun 17.017000 tl'));
+    }
+
+    public function test_money_words(): void
+    {
+        $this->assertSame('on yedi milyon on yedi bin', \App\Support\Money::words(17017000));
+        $this->assertSame('bin beş yüz', \App\Support\Money::words(1500));
+        $this->assertSame('yüz bir bin', \App\Support\Money::words(101000));
+    }
+
     public function test_next_item_is_proposed_after_confirm(): void
     {
         $this->chat(

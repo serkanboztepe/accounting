@@ -52,6 +52,39 @@ class Money
     }
 
     /**
+     * Tutarın tam kısmı yazıyla: 17017000 → "on yedi milyon on yedi bin". Büyük tutar teyidinde
+     * ("17.017000 tl" gibi karışık yazım yanlış okunmasın) özette gösterilir.
+     */
+    public static function words(float $amount): string
+    {
+        $n = (int) floor(abs($amount));
+        if ($n === 0) {
+            return 'sıfır';
+        }
+        $ones = ['', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz'];
+        $tens = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan'];
+        $three = function (int $x) use ($ones, $tens): string {
+            $h = intdiv($x, 100);
+            $parts = [$h === 0 ? '' : ($h === 1 ? 'yüz' : $ones[$h] . ' yüz'), $tens[intdiv($x % 100, 10)], $ones[$x % 10]];
+
+            return implode(' ', array_filter($parts));
+        };
+
+        $words = [];
+        foreach ([1_000_000_000 => 'milyar', 1_000_000 => 'milyon', 1_000 => 'bin', 1 => ''] as $unit => $name) {
+            $group = intdiv($n, $unit);
+            $n %= $unit;
+            if ($group === 0) {
+                continue;
+            }
+            // "bin" tek başına: "bir bin" denmez.
+            $words[] = $unit === 1_000 && $group === 1 ? 'bin' : trim($three($group) . ' ' . $name);
+        }
+
+        return implode(' ', $words);
+    }
+
+    /**
      * DB'ye yazılacak normalize string üretir: "233999.99"
      */
     public static function store(mixed $value): ?string
