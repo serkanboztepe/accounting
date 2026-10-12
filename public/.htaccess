@@ -5,6 +5,12 @@
 
     RewriteEngine On
 
+    # Panel yalnız https: http ile gelen istek kalıcı olarak https'ye (giriş şifresi açık gitmesin).
+    # Twilio webhook'u zaten https (2026-10-12 kontrol edildi). Yerel geliştirme hariç.
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1)(:\d+)?$
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
@@ -22,4 +28,10 @@
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
+</IfModule>
+
+# Tarayıcı bir kez https gördükten sonra hep https ile gelsin; panel arama motorlarında çıkmasın.
+<IfModule mod_headers.c>
+    Header always set Strict-Transport-Security "max-age=31536000"
+    Header always set X-Robots-Tag "noindex, nofollow"
 </IfModule>
