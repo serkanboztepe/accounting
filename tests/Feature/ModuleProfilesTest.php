@@ -49,9 +49,10 @@ class ModuleProfilesTest extends TestCase
         return require config_path('modules.php');
     }
 
-    /** Listelenen anahtarlar kapalı, gerisi açık olmalı. */
+    /** Listelenen anahtarlar (+ varsayılanı kapalı olanlar, ör. akıllı asistan) kapalı, gerisi açık olmalı. */
     private function assertOnlyDisabled(array $disabled, array $modules): void
     {
+        $disabled = [...$disabled, ...\App\Support\ModuleProfiles::DEFAULT_OFF];
         foreach ($modules as $key => $value) {
             $this->assertSame(! in_array($key, $disabled, true), $value, "modules.{$key}");
         }

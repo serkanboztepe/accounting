@@ -36,7 +36,8 @@ class ChatAssistant
 
     public static function enabled(): bool
     {
-        return (bool) config('services.anthropic.chat_assistant');
+        // Firma bazında hub → Modüller → "Akıllı WhatsApp asistanı"; .env bayrağı yerel deneme için.
+        return (bool) config('modules.smart_assistant') || (bool) config('services.anthropic.chat_assistant');
     }
 
     /**

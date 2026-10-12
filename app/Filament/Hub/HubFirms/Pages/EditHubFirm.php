@@ -163,7 +163,7 @@ class EditHubFirm extends EditRecord
                             ->options($choice)
                             ->selectablePlaceholder(false)
                             ->default('')
-                            ->hint(fn (Get $get) => (ModuleProfiles::defaults($get('profile'))[$key] ?? true) ? 'sektörde açık' : 'sektörde kapalı'),
+                            ->hint(fn (Get $get) => (ModuleProfiles::defaults($get('profile'))[$key] ?? ModuleProfiles::fallback($key)) ? 'sektörde açık' : 'sektörde kapalı'),
                         ModuleProfiles::KEYS,
                     )),
                 Section::make('Cari kilidi')

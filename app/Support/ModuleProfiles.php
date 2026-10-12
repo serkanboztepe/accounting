@@ -67,8 +67,11 @@ class ModuleProfiles
     public const KEYS = [
         'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
         'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
-        'report_project', 'report_stock', 'report_sales',
+        'report_project', 'report_stock', 'report_sales', 'smart_assistant',
     ];
+
+    /** Varsayılanı KAPALI olanlar (sektörde de açık değil; hub'dan firma firma açılır). */
+    public const DEFAULT_OFF = ['smart_assistant'];
 
     /** Hub ekranındaki Türkçe adlar. */
     public const LABELS = [
@@ -88,7 +91,14 @@ class ModuleProfiles
         'report_project'     => 'Proje raporları',
         'report_stock'       => 'Stok raporu',
         'report_sales'       => 'Satış özeti',
+        'smart_assistant'    => 'Akıllı WhatsApp asistanı (deneme)',
     ];
+
+    /** Sektör bir şey demiyorsa: açık — DEFAULT_OFF hariç. */
+    public static function fallback(string $key): bool
+    {
+        return ! in_array($key, self::DEFAULT_OFF, true);
+    }
 
     /**
      * @return array<string, bool>
@@ -109,7 +119,7 @@ class ModuleProfiles
         $defaults = self::defaults($profile);
         $modules = [];
         foreach (self::KEYS as $key) {
-            $modules[$key] = (bool) ($overrides[$key] ?? $defaults[$key] ?? true);
+            $modules[$key] = (bool) ($overrides[$key] ?? $defaults[$key] ?? self::fallback($key));
         }
 
         return $modules;
