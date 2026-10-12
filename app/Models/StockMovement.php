@@ -22,12 +22,14 @@ class StockMovement extends Model
     public const REASON_SALE       = 'sale';        // satış
     public const REASON_RETURN     = 'return';      // iade
     public const REASON_ADJUSTMENT = 'adjustment';  // sayım / açılış düzeltmesi
+    public const REASON_USAGE      = 'usage';       // otomatik günlük kullanım (Product::auto_usage)
 
     public const REASON_LABELS = [
         self::REASON_PURCHASE   => 'Mal Girişi',
         self::REASON_SALE       => 'Satış',
         self::REASON_RETURN     => 'İade',
         self::REASON_ADJUSTMENT => 'Düzeltme',
+        self::REASON_USAGE      => 'Kullanım',
     ];
 
     protected $fillable = [

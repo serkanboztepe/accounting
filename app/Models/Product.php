@@ -27,13 +27,36 @@ class Product extends Model
         'unit_id',
         'default_price',
         'is_active',
+        'auto_usage',
+        'daily_usage',
+        'reorder_level',
+        'usage_booked_through',
+        'low_stock_alerted_at',
         'notes',
     ];
 
     protected $casts = [
         'default_price' => 'decimal:2',
         'is_active'     => 'boolean',
+        'auto_usage'    => 'boolean',
+        'daily_usage'   => 'decimal:2',
+        'reorder_level' => 'decimal:2',
+        'usage_booked_through' => 'date',
+        'low_stock_alerted_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // Anahtar açıldığı gün düşülmüş sayılır: ilk düşüş ertesi sabah (açtığın gün iki kez düşmesin).
+        static::saving(function (Product $product) {
+            if ($product->auto_usage && ($product->isDirty('auto_usage') || $product->usage_booked_through === null)) {
+                $product->usage_booked_through = now(Reminder::TIMEZONE)->toDateString();
+            }
+            if (! $product->auto_usage) {
+                $product->usage_booked_through = null;
+            }
+        });
+    }
 
     public function unit(): BelongsTo
     {
@@ -73,5 +96,23 @@ class Product extends Model
             ->where('direction', StockMovement::DIRECTION_OUT)->sum('quantity');
 
         return $in - $out;
+    }
+
+    /** Eşik girilmiş ve stok eşiğe (veya altına) inmiş mi. */
+    public function isLowStock(?float $stock = null): bool
+    {
+        return $this->isProduct()
+            && $this->reorder_level !== null
+            && ($stock ?? $this->currentStock()) <= (float) $this->reorder_level;
+    }
+
+    /** Günlük kullanıma göre stok kaç gün yeter (otomatik düşüş kapalıysa null). */
+    public function daysLeft(?float $stock = null): ?int
+    {
+        if (! $this->auto_usage || (float) $this->daily_usage <= 0) {
+            return null;
+        }
+
+        return max(0, (int) floor(($stock ?? $this->currentStock()) / (float) $this->daily_usage));
     }
 }

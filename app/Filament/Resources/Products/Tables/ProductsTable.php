@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Products\Tables;
 
 use App\Models\Product;
 use App\Support\Money;
+use App\Support\StockUsage;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
@@ -50,9 +51,15 @@ class ProductsTable
                         : '—')
                     ->alignEnd()
                     ->badge()
-                    ->color(fn (Product $record) => $record->isProduct() && $record->currentStock() < 0
-                        ? 'danger'
-                        : 'gray'),
+                    ->color(fn (Product $record) => match (true) {
+                        ! $record->isProduct() => 'gray',
+                        $record->currentStock() < 0 => 'danger',
+                        $record->isLowStock() => 'warning',
+                        default => 'gray',
+                    })
+                    ->description(fn (Product $record) => $record->auto_usage
+                        ? 'Günde ' . StockUsage::quantity((float) $record->daily_usage) . ' düşüyor'
+                        : null),
 
                 IconColumn::make('is_active')
                     ->label('Aktif')
