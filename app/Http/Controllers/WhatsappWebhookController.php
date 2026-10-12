@@ -10,11 +10,15 @@ use App\Models\ExpenseCategory;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\Purchase;
 use App\Models\Reminder;
+use App\Models\Sale;
+use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\ExpenseExtractor;
+use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
 use App\Support\Agenda;
 use App\Support\DailyNudge;
@@ -578,6 +582,10 @@ class WhatsappWebhookController extends Controller
             // Anlaşılamayan mesaj: zorla en yakın türe sokmak yerine yönlendir. Bekleyen taslağa dokunma.
             return $data['reply'] ?: $this->guideText();
         }
+        // Stoklu satış paketi (satış/alış belgesi, sayım, stok sorusu, ay sonucu) — yalnız o firmalarda.
+        if (TradeDraft::handles($data)) {
+            return $this->saveTradeDraft($pending, $phone, $data);
+        }
         if ($this->kind($data) === ExpenseExtractor::KIND_AGENDA) {
             $pending?->update(['status' => 'superseded']);
 
@@ -728,6 +736,22 @@ class WhatsappWebhookController extends Controller
                 self::$recording[] = ['ledger', $l->id];
             }
         });
+        // Stoklu satış: belge silinince stok ve cari satırları birlikte gider (cascade).
+        Sale::created(function (Sale $sale) {
+            if (self::$recording !== null) {
+                self::$recording[] = ['sale', $sale->id];
+            }
+        });
+        Purchase::created(function (Purchase $purchase) {
+            if (self::$recording !== null) {
+                self::$recording[] = ['purchase', $purchase->id];
+            }
+        });
+        StockMovement::created(function (StockMovement $m) {
+            if (self::$recording !== null && $m->reason === StockMovement::REASON_ADJUSTMENT) {
+                self::$recording[] = ['stock', $m->id];
+            }
+        });
     }
 
     /**
@@ -782,6 +806,8 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_PAYMENT => '💸 Ödeme (sen → o)',
             ExpenseExtractor::KIND_COLLECTION => '💰 Tahsilat (o → sana)',
             ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? '📒 Borç (sen ona borçlusun)' : '📒 Alacak (o sana borçlu)',
+            ExpenseExtractor::KIND_TRADE_SALE => ! empty($d['paid']) ? '🧾 Peşin satış' : '🧾 Veresiye satış',
+            ExpenseExtractor::KIND_TRADE_PURCHASE => '🛒 Alış',
             default => '📝 Kayıt',
         };
         $party = $this->existingParty($d)?->name ?? ($d['party_name'] ?? null);
@@ -796,6 +822,9 @@ class WhatsappWebhookController extends Controller
         return match ($target[0] ?? null) {
             'expense' => Expense::find($target[1] ?? 0),
             'ledger' => PartyLedgerEntry::find($target[1] ?? 0),
+            'sale' => Sale::find($target[1] ?? 0),
+            'purchase' => Purchase::find($target[1] ?? 0),
+            'stock' => StockMovement::find($target[1] ?? 0),
             default => null,
         };
     }
@@ -853,6 +882,18 @@ class WhatsappWebhookController extends Controller
 
         if ($kind === ExpenseExtractor::KIND_REMINDER) {
             return $this->commitReminder($pending, $d);
+        }
+
+        if (TradeDraft::handles($d) && ! in_array($kind, TradeDraft::ANSWER_KINDS, true)) {
+            if ($question = TradeDraft::blocker($d)) {
+                return '❓ ' . $question;
+            }
+            [$text, $partyId] = TradeDraft::commit($d);
+            $this->touchedPartyId = $partyId ?: $this->touchedPartyId;
+            $this->committedPartyId = $partyId;
+            $pending->update(['status' => 'confirmed']);
+
+            return $text;
         }
 
         if ((float) ($d['amount'] ?? 0) <= 0) {
@@ -1034,6 +1075,38 @@ class WhatsappWebhookController extends Controller
         $pending->update(['status' => 'confirmed']);
 
         return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+    }
+
+    /** Stoklu satış taslağı: soru türleri doğrudan cevaplanır; kayıt türleri özet + teyit (eksik varsa soru). */
+    private function saveTradeDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
+    {
+        if (in_array($this->kind($data), TradeDraft::ANSWER_KINDS, true)) {
+            $pending?->update(['status' => 'superseded']);
+
+            return TradeDraft::answer($data);
+        }
+
+        $question = TradeDraft::blocker($data);
+        // Sayım / ayar: eksik varsa (ürün, adet) yalnız soru — özet ürünsüz kurulamaz.
+        $summary = $question !== null && in_array($this->kind($data), [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING], true)
+            ? '❓ ' . $question
+            : TradeDraft::summary($data) . ($question !== null ? "\n❓ " . $question : '');
+        if ($question === null && (float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
+            $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
+        }
+        $footer = $question !== null
+            ? "\n\nCevabını yaz, vazgeçmek için *iptal*."
+            : (ChatAssistant::enabled()
+                ? "\n\nKaydedeyim mi? *evet* / *tamam* / *ok* — yanlış bir şey varsa düzeltmeyi yazman yeterli."
+                : "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.");
+
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $summary]);
+        } else {
+            WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+        }
+
+        return $summary . $footer;
     }
 
     /**
@@ -1585,6 +1658,10 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_COLLECTION => "• Gelen para: \"Ahmet Bey 50 bin ödedi\"",
             ExpenseExtractor::KIND_PAYMENT => "• Verdiğin para: \"Ahmet ustaya 10 bin ödedim\"",
             ExpenseExtractor::KIND_PURCHASE => "• Alış: \"Ahmet'ten 10 bin mal aldım\" (peşinse \"nakit ödedim\" ekle)",
+            ExpenseExtractor::KIND_TRADE_SALE => "• Satış: \"30 ekmek sattım\", \"Lokantaya 50 ekmek veresiye\", akşam ciro: \"bugün 10 bin nakit 15 bin kart\"",
+            ExpenseExtractor::KIND_TRADE_PURCHASE => "• Mal alışı: \"Ak Un'dan 20 çuval un aldım\" (peşinse \"nakit ödedim\" ekle)",
+            ExpenseExtractor::KIND_STOCK_COUNT => "• Sayım: \"un 9 çuval kaldı\"",
+            ExpenseExtractor::KIND_STOCK_SETTING => "• Uyarı: \"unu günde 3 kullanıyorum, 6 kala haber ver\"",
             ExpenseExtractor::KIND_DEBT_NOTE => "• Alacak / borç: \"Ali'den 40 bin alacağım var\""
                 . (config('modules.cari_supplier') ? ", \"Mehmet'e 15 bin borcum var\"" : ''),
         ];
@@ -1594,6 +1671,8 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_EXPENSE_SUMMARY => "• \"Bu ay ne kadar harcadım?\"",
             ExpenseExtractor::KIND_PARTY_LIST => "• \"Hangi carilerim var?\"",
             ExpenseExtractor::KIND_STATEMENT => "• \"Ahmet'in ekstresini at\" (PDF)",
+            ExpenseExtractor::KIND_STOCK_QUERY => "• \"Un ne kadar kaldı?\", \"stokta ne var?\"",
+            ExpenseExtractor::KIND_MONTH_RESULT => "• \"Bu ay ne kazandım?\"",
         ];
         $kinds = ExpenseExtractor::allowedKinds();
         $pick = fn (array $examples) => array_values(array_intersect_key($examples, array_flip($kinds)));

@@ -27,6 +27,8 @@ if (config('tenancy.enabled')) {
     Schedule::command('tenants:run "dues:remind"')->dailyAt('08:00')->timezone('Europe/Istanbul');
     // Otomatik stoktan düş (günlük kullanım) + "bitmek üzere" (fırın: un 6 çuval kalınca).
     Schedule::command('tenants:run "stock:remind"')->dailyAt('08:00')->timezone('Europe/Istanbul');
+    // Akşam ciro sorusu (yalnız ayarı açık firmada; o gün peşin satış yoksa).
+    Schedule::command('tenants:run "revenue:prompt"')->dailyAt('21:00')->timezone('Europe/Istanbul');
     Schedule::command('tenants:run "nudges:send"')->dailyAt('19:00')->timezone('Europe/Istanbul');
     // WhatsApp hatırlatmaları ("20 Ekim düğün çekimim var", "her ayın 10'u kart ödemesi").
     Schedule::command('tenants:run "reminders:send"')->everyFiveMinutes()->withoutOverlapping(10);
@@ -39,6 +41,7 @@ if (config('tenancy.enabled')) {
     Schedule::command('checks:remind')->dailyAt('08:00')->timezone('Europe/Istanbul');
     Schedule::command('dues:remind')->dailyAt('08:00')->timezone('Europe/Istanbul');
     Schedule::command('stock:remind')->dailyAt('08:00')->timezone('Europe/Istanbul');
+    Schedule::command('revenue:prompt')->dailyAt('21:00')->timezone('Europe/Istanbul');
     Schedule::command('model:prune')->daily()->at('04:30');
     Schedule::command('reminders:send')->everyFiveMinutes()->withoutOverlapping(10);
 }

@@ -50,6 +50,18 @@ class ExpenseContext
             ? '  (kayıtlı kategori yok)'
             : $categories->map(fn ($k) => sprintf('  %d: %s', $k->id, $k->name))->implode("\n");
 
+        // Stoklu satış paketi: ürün kataloğu (satış/alış/sayım bu listeden eşleşir). Eski firmalarda gösterilmez.
+        if (config('modules.sales_desk') || config('modules.purchases')) {
+            $products = \App\Models\Product::active()->with('unit')->orderBy('name')->get();
+            $lines[] = '';
+            $lines[] = 'ÜRÜNLER (id: ad [birim] — fiyat — stok):';
+            $lines[] = $products->isEmpty()
+                ? '  (kayıtlı ürün yok — ürün adı geçse de product_id null)'
+                : $products->map(fn ($p) => sprintf('  %d: %s%s — %s%s', $p->id, $p->name, $p->unit ? " [{$p->unit->name}]" : '',
+                    $p->default_price !== null ? (float) $p->default_price : 'fiyatsız',
+                    $p->isProduct() ? ' — stok ' . \App\Support\StockUsage::quantity($p->currentStock()) : ' — hizmet'))->implode("\n");
+        }
+
         // Ödenmemiş giderler: "kirayı ödedim" yeni gider açıp aynı kirayı ikinci kez saymasın — AI
         // ödemeyi buradaki açık borçla eşleştirir (settles_expense_id), kullanıcı teyit eder.
         if (config('modules.expenses')) {

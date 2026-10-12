@@ -57,6 +57,18 @@ class ExpenseExtractor
     public const KIND_AGENDA = 'agenda';
     public const KIND_PURCHASE = 'purchase';
 
+    // Stoklu satış paketi (Satışlar/Alışlar tezgahı açık firmada; diğer firmalarda bu türler YOK):
+    public const KIND_TRADE_SALE = 'trade_sale';         // satış belgesi (peşin carisiz / cariye), ürünlü ya da ürünsüz, toplu ciro
+    public const KIND_TRADE_PURCHASE = 'trade_purchase'; // alış belgesi (katalogdaki mal → stoğa girer)
+    public const KIND_STOCK_COUNT = 'stock_count';       // sayım: "un 9 kaldı"
+    public const KIND_STOCK_QUERY = 'stock_query';       // "un ne kadar kaldı?" — kayıt yok
+    public const KIND_STOCK_SETTING = 'stock_setting';   // "günde 3 kullanıyorum, 6 kala haber ver"
+    public const KIND_MONTH_RESULT = 'month_result';     // "bu ay ne kazandım?" — kayıt yok
+
+    /** Stoklu satış türleri — yalnız bu firmalarda; kayıt yolu TradeDraft. */
+    public const TRADE_KINDS = [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE, self::KIND_STOCK_COUNT,
+        self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING, self::KIND_MONTH_RESULT];
+
     private const KIND_HINTS = [
         self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
         self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş için peşin ("avans", "kapora", "iş yaptıracağım") → "advance"; geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / alınmış malın karşılığıysa ("sıva yaptırdım", "malzeme aldım") bu bir "expense"dir (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
@@ -71,6 +83,12 @@ class ExpenseExtractor
         self::KIND_HELP => '- "help": yukarıdaki türlerin HİÇBİRİNE uymayan mesaj — selam, teşekkür, "ne yapabilirsin", "cari hesap kayıt" gibi yarım/anlaşılmayan istekler, desteklenmeyen işler. Hiçbir şey kaydedilmez; amount=0. `reply` alanına KISA (en fazla 3 cümle), samimi Türkçe bir cevap yaz: ne anladığını söyle ve yapabildiğin bir işe ÖRNEK CÜMLEYLE yönlendir (örnekler yalnız bu listedeki türlerden). Yapamadığın şeyi yapabilirmiş gibi, kayıt yapmışsın gibi SÖYLEME (cariye / üçüncü kişiye mesaj gönderemezsin, "iletebilirim" deme). Bir cariye mesaj ya da ekstre gönderme isteği ("Ferdi\'ye mesaj at") "help" DEĞİL → "statement" + `forward_to_party`=true. Tutarı ya da ismi eksik bir İŞLEM ise "help" SEÇME — o türü seç ve `question` ile eksiği sor.',
         self::KIND_TOTALS_QUERY => '- "totals_query": TÜM CARİLER için toplam SORUSU, belirli bir cari YOK ("Toplam alacağım ne kadar?", "Kimden alacağım var?", "Toplam borcum ne?", "Kime borçluyum?", "Genel durum ne?"). GİDER/HARCAMA/MASRAF sorusu bu DEĞİLDİR (→ "expense_summary"). Hiçbir şey kaydedilmez; amount=0. `totals_side`: alacak sorusu → "receivable", borç sorusu → "payable", genel/ikisi → "both". Proje söylendiyse `project_id`.',
         self::KIND_EXPENSE_SUMMARY => '- "expense_summary": bir DÖNEMDE ne kadar HARCANDIĞI sorusu ("Bu ay ne kadar giderim var?", "Gider ?", "Giderlerim", "Masraflar ne durumda?", "Eylül\'de ne harcadım?", "Bu yıl toplam masrafım ne?", "Cumhuriyet\'te bu ay ne harcadım?", "Geçen ay yakıta ne verdim?"). Borç/alacak sorusu DEĞİL. Hiçbir şey kaydedilmez; amount=0. Dönem: `date_from`/`date_to` ("bu ay" → ayın 1\'i / bugün; "geçen ay" → geçen ayın 1\'i / son günü; "Eylül" → bu yılın 09-01 / 09-30; "bu yıl" → 01-01 / bugün); dönem söylenmediyse ikisi de null (bu ay sayılır). Proje söylendiyse `project_id`.',
+        self::KIND_TRADE_SALE => '- "trade_sale": BİZ MAL/ÜRÜN SATTIK ya da günün CİROSU. ("30 ekmek sattım", "Lokantaya 50 ekmek veresiye verdim", "Ali\'ye 4 lastik + montaj 12 bin", "bugün 10.000 nakit 15.000 kart", "bugünkü ciro 25 bin"). Ürünler aşağıdaki ÜRÜNLER listesinden: her biri `items`\'a {product_id, description, quantity, unit_price?, amount?}; listede yoksa product_id null ve description\'a adı. Fiyat söylenmediyse unit_price/amount boş bırak (karttaki fiyat kullanılır). Ürün sayılmadan sadece tutar ("bugün 25 bin ciro") → items boş, `amount` toplam. Nakit/kart ayrı söylendiyse `cash_amount` / `card_amount`. CARİ: kişi/firma adı geçiyorsa (veresiye) `party_id`/`party_name`, `paid`=false; "peşin / nakit aldım / parasını aldım" denirse `paid`=true; kişi adı yoksa `paid`=true (peşin, cari sorma). Mal verip parası sonra alınacaksa bu "debt_note" DEĞİL, "trade_sale"dir.',
+        self::KIND_TRADE_PURCHASE => '- "trade_purchase": ÜRÜNLER listesindeki bir MALI ALDIK — stoğa girer ("Ak Un\'dan 20 çuval un aldım", "10 çuval un aldım 8.500 nakit ödedim", "Lastikçi Ali\'den 8 lastik aldım"). `items` aynı biçimde (product_id + quantity + varsa unit_price/amount). Kimden alındıysa `party_id`/`party_name`. `paid`: "ödedim / nakit / peşin / havale" → true (alış + ödeme birlikte); "veresiye / sonra ödeyeceğim" ya da söylenmediyse false. LİSTEDE OLMAYAN şey (mazot, kira, fatura, yemek) bu DEĞİL → "expense".',
+        self::KIND_STOCK_COUNT => '- "stock_count": SAYIM — elde kalan miktar söyleniyor ("un 9 çuval kaldı", "elimde 12 lastik var", "maya 3 paket"). `product_id` (ÜRÜNLER listesinden) ve `counted_quantity`. Kayıt sistemdeki stoğu bu sayıya eşitler. Soru biçimindeyse ("un ne kadar kaldı?") bu DEĞİL → "stock_query".',
+        self::KIND_STOCK_QUERY => '- "stock_query": STOK SORUSU ("un ne kadar kaldı?", "stokta ne var?", "hangi mallar bitiyor?"). Belirli ürün varsa `product_id`, yoksa null (tüm liste). Hiçbir şey kaydedilmez; amount=0.',
+        self::KIND_STOCK_SETTING => '- "stock_setting": GÜNLÜK KULLANIM / UYARI AYARI ("unu günde 3 çuval kullanıyorum, 6 kala haber ver", "maya 2 paket kalınca haber ver"). `product_id`, `daily_usage` (her gün aynı miktar kullanılıyorsa), `reorder_level` (kaç kalınca haber verilsin). Söylenmeyeni null bırak; amount=0.',
+        self::KIND_MONTH_RESULT => '- "month_result": KAZANÇ / AY SONUCU sorusu ("bu ay ne kazandım?", "Eylül ne kaldı?", "ciro ne kadar?", "bu ayki durum"). `month` (YYYY-MM; söylenmediyse null = bu ay). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`. Kullanıcı ekstrenin ya da bir mesajın CARİYE (üçüncü kişiye) gönderilmesini istiyorsa ("Ferdi\'ye at", "Ferdi Cengiz\'e mesaj at", "ekstresini ona gönder", "müşteriye yolla") → yine "statement" ve `forward_to_party`=true (biz cariye mesaj atamayız, kullanıcıya iletmesi söylenir).',
     ];
 
@@ -101,7 +119,20 @@ class ExpenseExtractor
             // Gider takibi kapalı ama tedarikçi tarafı açık (alacak-verecek, gidersiz): "mal aldım" alış olur —
             // yoksa en yakın kalıp "ödeme" seçiliyor, yön ters çıkıyordu (Burak, 2026-10-10).
             ! config('modules.expenses') && config('modules.cari_supplier') ? self::KIND_PURCHASE : null,
+            // Stoklu satış paketi: yalnız Satışlar/Alışlar tezgahı açık firmada (mevcut firmalarda hiçbiri yok).
+            config('modules.sales_desk') ? self::KIND_TRADE_SALE : null,
+            config('modules.purchases') && config('modules.stock') ? self::KIND_TRADE_PURCHASE : null,
+            self::tradeStock() ? self::KIND_STOCK_COUNT : null,
+            self::tradeStock() ? self::KIND_STOCK_QUERY : null,
+            self::tradeStock() ? self::KIND_STOCK_SETTING : null,
+            config('modules.report_monthly') ? self::KIND_MONTH_RESULT : null,
         ]));
+    }
+
+    /** Stok türleri (sayım / soru / ayar) yalnız stoklu satış paketinde — Yeni Yapı gibi eski stoklu firmada değişiklik yok. */
+    private static function tradeStock(): bool
+    {
+        return config('modules.stock') && (config('modules.sales_desk') || config('modules.purchases'));
     }
 
     /**
@@ -111,6 +142,9 @@ class ExpenseExtractor
      */
     public static function fitToModules(array $d): array
     {
+        // Stoklu satış paketi: hedef (gider / alış belgesi / satış belgesi) KODDA, katalog eşleşmesine göre.
+        $d = TradeDraft::route($d);
+
         if (($d['kind'] ?? self::KIND_EXPENSE) !== self::KIND_EXPENSE || config('modules.expenses')) {
             return $d;
         }
@@ -456,20 +490,9 @@ class ExpenseExtractor
             'description' => 'Çıkarılan işlem bilgisini yapılandırılmış olarak döndürür.',
             'input_schema' => [
                 'type' => 'object',
-                'properties' => [
+                'properties' => self::tradeProperties() + [
                     'kind' => ['type' => 'string', 'enum' => self::allowedKinds(), 'description' => 'Entry kind; see system prompt'],
-                    'items' => [
-                        'type' => 'array',
-                        'description' => 'Only for kind=sale with several jobs: one item per job',
-                        'items' => [
-                            'type' => 'object',
-                            'properties' => [
-                                'description' => ['type' => 'string'],
-                                'amount' => ['type' => 'number'],
-                            ],
-                            'required' => ['description', 'amount'],
-                        ],
-                    ],
+                    'items' => self::itemsSchema(),
                     'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
                     'date_from' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary: period start (YYYY-MM-DD) if a period was named, else null'],
                     'date_to' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary: period end (YYYY-MM-DD) if a period was named, else null'],
@@ -501,6 +524,65 @@ class ExpenseExtractor
                 ],
                 'required' => ['kind', 'amount', 'description', 'paid', 'confidence'],
             ],
+        ];
+    }
+
+    /** Stoklu satış paketi açık mı (ek şema alanları ve ürün listesi yalnız o zaman). */
+    public static function tradeEnabled(): bool
+    {
+        return (bool) (config('modules.sales_desk') || config('modules.purchases'));
+    }
+
+    /** Kalem şeması — eski firmalarda AYNEN eskisi (iş kalemi: açıklama + tutar). */
+    private static function itemsSchema(): array
+    {
+        if (! self::tradeEnabled()) {
+            return [
+                'type' => 'array',
+                'description' => 'Only for kind=sale with several jobs: one item per job',
+                'items' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'description' => ['type' => 'string'],
+                        'amount' => ['type' => 'number'],
+                    ],
+                    'required' => ['description', 'amount'],
+                ],
+            ];
+        }
+
+        return [
+            'type' => 'array',
+            'description' => 'kind=trade_sale / trade_purchase: one item per product (product_id from ÜRÜNLER, quantity, unit_price / amount if said)',
+            'items' => [
+                'type' => 'object',
+                'properties' => [
+                    'description' => ['type' => 'string'],
+                    'amount' => ['type' => ['number', 'null']],
+                    'product_id' => ['type' => ['integer', 'null'], 'description' => 'matched product id from ÜRÜNLER, else null'],
+                    'quantity' => ['type' => ['number', 'null']],
+                    'unit_price' => ['type' => ['number', 'null'], 'description' => 'unit price if said'],
+                ],
+                'required' => ['description'],
+            ],
+        ];
+    }
+
+    /** Stoklu satış alanları (yalnız paket açıkken şemaya eklenir). */
+    private static function tradeProperties(): array
+    {
+        if (! self::tradeEnabled()) {
+            return [];
+        }
+
+        return [
+            'product_id' => ['type' => ['integer', 'null'], 'description' => 'Only for stock_count / stock_query / stock_setting: product id from ÜRÜNLER'],
+            'counted_quantity' => ['type' => ['number', 'null'], 'description' => 'Only for stock_count: quantity on hand'],
+            'daily_usage' => ['type' => ['number', 'null'], 'description' => 'Only for stock_setting: daily usage'],
+            'reorder_level' => ['type' => ['number', 'null'], 'description' => 'Only for stock_setting: warn when stock falls to this'],
+            'cash_amount' => ['type' => ['number', 'null'], 'description' => 'Only for trade_sale: cash part if said'],
+            'card_amount' => ['type' => ['number', 'null'], 'description' => 'Only for trade_sale: card part if said'],
+            'month' => ['type' => ['string', 'null'], 'description' => 'Only for month_result: YYYY-MM, null = this month'],
         ];
     }
 
@@ -537,18 +619,36 @@ class ExpenseExtractor
         $kind = in_array($input['kind'] ?? null, self::allowedKinds(), true) ? $input['kind'] : self::KIND_EXPENSE;
 
         $items = [];
+        $tradeItems = in_array($kind, [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE], true);
         foreach ((array) ($input['items'] ?? []) as $item) {
             $amount = (float) ($item['amount'] ?? 0);
-            if ($amount > 0) {
+            if ($tradeItems) {
+                // Ürünlü kalem: tutar boş olabilir (karttaki fiyat) — TradeDraft::route hesaplar.
+                $items[] = [
+                    'description' => trim((string) ($item['description'] ?? '')),
+                    'amount' => $amount > 0 ? $amount : null,
+                    'product_id' => ! empty($item['product_id']) ? (int) $item['product_id'] : null,
+                    'quantity' => isset($item['quantity']) ? (float) $item['quantity'] : null,
+                    'unit_price' => isset($item['unit_price']) ? (float) $item['unit_price'] : null,
+                ];
+            } elseif ($amount > 0) {
                 $items[] = ['description' => trim((string) ($item['description'] ?? '')), 'amount' => $amount];
             }
         }
+        $stockKind = in_array($kind, [self::KIND_STOCK_COUNT, self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING], true);
 
         $paymentType = $input['payment_type'] ?? null;
 
         return [
             'kind' => $kind,
-            'items' => $kind === self::KIND_SALE ? $items : [],
+            'items' => $kind === self::KIND_SALE || $tradeItems ? $items : [],
+            'product_id' => $stockKind && ! empty($input['product_id']) ? (int) $input['product_id'] : null,
+            'counted_quantity' => $kind === self::KIND_STOCK_COUNT && isset($input['counted_quantity']) ? (float) $input['counted_quantity'] : null,
+            'daily_usage' => $kind === self::KIND_STOCK_SETTING && isset($input['daily_usage']) ? (float) $input['daily_usage'] : null,
+            'reorder_level' => $kind === self::KIND_STOCK_SETTING && isset($input['reorder_level']) ? (float) $input['reorder_level'] : null,
+            'cash_amount' => $kind === self::KIND_TRADE_SALE && isset($input['cash_amount']) ? (float) $input['cash_amount'] : null,
+            'card_amount' => $kind === self::KIND_TRADE_SALE && isset($input['card_amount']) ? (float) $input['card_amount'] : null,
+            'month' => $kind === self::KIND_MONTH_RESULT && is_string($input['month'] ?? null) && preg_match('/^\d{4}-\d{2}$/', $input['month']) ? $input['month'] : null,
             'totals_side' => $kind === self::KIND_TOTALS_QUERY
                 ? (in_array($input['totals_side'] ?? null, ['receivable', 'payable'], true) ? $input['totals_side'] : 'both')
                 : null,
