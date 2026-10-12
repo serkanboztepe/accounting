@@ -56,6 +56,11 @@ class Party extends Model
         return $this->hasMany(Sale::class);
     }
 
+    public function purchases(): HasMany
+    {
+        return $this->hasMany(Purchase::class);
+    }
+
     /**
      * Müşterinin TÜM satışlarındaki iade edilebilir kalemler — üstteki "İade Al" listesi.
      * Her satır kendi satışına + fiyatına bağlı (LIFO/tahmin yok). En yeni satış üstte.

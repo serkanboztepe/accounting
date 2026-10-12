@@ -29,9 +29,19 @@ class ProductResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Ürün / Hizmet';
 
-    protected static ?int $navigationSort = 6;
+    protected static ?int $navigationSort = 6; // Alış-Satış grubunda Satışlar(1) · Alışlar(2) · Ürünler(6)
 
     protected static ?string $recordTitleAttribute = 'name';
+
+    public static function getNavigationLabel(): string
+    {
+        return config('modules.sales_desk') ? 'Ürünler' : 'Hizmet / Ürün';
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return config('modules.sales_desk') || config('modules.purchases') ? 'Alış-Satış' : 'Ürün & Stok';
+    }
 
     public static function canAccess(): bool
     {

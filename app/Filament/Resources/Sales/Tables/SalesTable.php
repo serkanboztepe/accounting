@@ -33,16 +33,27 @@ class SalesTable
 
                 TextColumn::make('party.name')
                     ->label('Müşteri')
+                    // Peşin (carisiz) satış — yalnız Satışlar tezgahında oluşur.
+                    ->default('Peşin müşteri')
                     ->searchable()
                     ->sortable(),
 
+                TextColumn::make('payment')
+                    ->label('Ödeme')
+                    ->state(fn (Sale $record) => $record->paymentLabel() ?? 'Veresiye')
+                    ->badge()
+                    ->color(fn (Sale $record) => $record->isCash() ? 'success' : 'warning')
+                    ->visible(fn () => (bool) config('modules.sales_desk')),
+
                 TextColumn::make('project.name')
                     ->label('Şantiye')
+                    ->visible(fn () => (bool) config('modules.projects'))
                     ->toggleable(),
 
                 TextColumn::make('lines_count')
                     ->label('Kalem')
                     ->counts('lines')
+                    ->formatStateUsing(fn ($state, Sale $record) => $state ?: ((float) $record->manual_amount > 0 ? 'Ürünsüz' : '0'))
                     ->alignEnd(),
 
                 TextColumn::make('total_amount')
@@ -56,13 +67,27 @@ class SalesTable
                     ->limit(30)
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->filters([
+            // Tezgahta az önce kaydedilen satır vurgulanır.
+            ->recordClasses(fn (Sale $record, $livewire) => ($livewire->lastSavedId ?? null) === $record->id
+                ? 'bg-primary-50 dark:bg-primary-500/10'
+                : null)
+            ->filters(array_values(array_filter([
+                config('modules.sales_desk') ? SelectFilter::make('period')
+                    ->label('Dönem')
+                    ->options(['today' => 'Bugün', 'month' => 'Bu ay', 'all' => 'Tümü'])
+                    ->default('today')
+                    ->selectablePlaceholder(false)
+                    ->query(fn ($query, array $data) => match ($data['value'] ?? 'today') {
+                        'today' => $query->whereDate('sale_date', now()->toDateString()),
+                        'month' => $query->whereBetween('sale_date', [now()->startOfMonth()->toDateString(), now()->toDateString()]),
+                        default => $query,
+                    }) : null,
                 SelectFilter::make('party_id')
                     ->label('Müşteri')
                     ->relationship('party', 'name')
                     ->searchable()
                     ->preload(),
-            ])
+            ])))
             ->recordActions([
                 Action::make('return')
                     ->label('İade Al')

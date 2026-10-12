@@ -200,10 +200,12 @@ class EditParty extends EditRecord
             ))
             ->action(function (array $data): void {
                 $sale = Sale::create([
-                    'party_id'   => $this->record->id,
-                    'project_id' => $data['project_id'] ?? null,
-                    'sale_date'  => $data['sale_date'],
-                    'notes'      => $data['notes'] ?? null,
+                    'party_id'      => $this->record->id,
+                    'project_id'    => $data['project_id'] ?? null,
+                    'sale_date'     => $data['sale_date'],
+                    // Ürünsüz tutar alanı yalnız Satışlar tezgahı açık firmada var; diğerlerinde boş.
+                    'manual_amount' => $data['manual_amount'] ?? null,
+                    'notes'         => $data['notes'] ?? null,
                 ]);
 
                 $sale->rebuildFromLines($data['lines'] ?? []);
@@ -365,9 +367,10 @@ class EditParty extends EditRecord
                 $sale = Sale::findOrFail($arguments['sale']);
 
                 return [
-                    'project_id' => $sale->project_id,
-                    'sale_date'  => $sale->sale_date,
-                    'notes'      => $sale->notes,
+                    'project_id'    => $sale->project_id,
+                    'sale_date'     => $sale->sale_date,
+                    'manual_amount' => $sale->manual_amount,
+                    'notes'         => $sale->notes,
                     'lines'      => $sale->lines()->orderBy('id')->get()->map(fn ($m) => [
                         'product_id' => $m->product_id,
                         'quantity'   => number_format((float) $m->quantity, 2, '.', ''),
@@ -395,6 +398,7 @@ class EditParty extends EditRecord
                     'project_id' => $data['project_id'] ?? null,
                     'sale_date'  => $data['sale_date'],
                     'notes'      => $data['notes'] ?? null,
+                    ...(array_key_exists('manual_amount', $data) ? ['manual_amount' => $data['manual_amount']] : []),
                 ]);
 
                 $sale->rebuildFromLines($data['lines'] ?? []);

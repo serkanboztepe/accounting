@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Sales\Schemas;
 use App\Models\Party;
 use App\Models\Product;
 use App\Models\Project;
+use App\Models\Sale;
 use App\Support\Forms\MoneyInput;
 use App\Support\Money;
 use Filament\Forms\Components\DatePicker;
@@ -40,6 +41,8 @@ class SaleForm
                 ->searchable()
                 ->preload()
                 ->required()
+                // Peşin (carisiz) satış — Satışlar tezgahından; düzenlemede cari sorulmaz.
+                ->visible(fn (?Sale $record) => ! $record?->isCash())
                 ->live() : null,
 
             Select::make('project_id')
@@ -69,12 +72,13 @@ class SaleForm
                 ->addActionLabel('Ürün Ekle')
                 ->columns(4)
                 ->columnSpanFull()
-                ->minItems(1)
+                // Satışlar tezgahı açıkken ürünsüz satış olabilir (toplu ciro).
+                ->minItems(fn () => config('modules.sales_desk') ? 0 : 1)
                 ->schema([
                     Select::make('product_id')
                         ->label('Ürün')
                         ->options(fn () => Product::active()
-                            ->where('type', Product::TYPE_PRODUCT)
+                            ->when(! config('modules.sales_desk'), fn ($q) => $q->where('type', Product::TYPE_PRODUCT))
                             ->orderBy('name')
                             ->pluck('name', 'id'))
                         ->searchable()
@@ -123,6 +127,10 @@ class SaleForm
                         ->required(false)
                         ->columnSpan(3),
                 ]),
+
+            config('modules.sales_desk') ? MoneyInput::make('manual_amount', 'Ürünsüz tutar')
+                ->required(false)
+                ->helperText('Ürün seçmeden satış / toplu ciro.') : null,
 
             Textarea::make('notes')
                 ->label('Not')

@@ -12,6 +12,6 @@ class EditProduct extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [DeleteAction::make()];
+        return [\App\Filament\Resources\Products\Actions\CountStockAction::make(), DeleteAction::make()];
     }
 }

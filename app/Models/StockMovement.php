@@ -44,6 +44,7 @@ class StockMovement extends Model
         'contract_id',
         'sale_id',
         'sale_return_id',
+        'purchase_id',
         'movement_date',
         'related_movement_id',
         'notes',
@@ -94,6 +95,11 @@ class StockMovement extends Model
     public function saleReturn(): BelongsTo
     {
         return $this->belongsTo(SaleReturn::class);
+    }
+
+    public function purchase(): BelongsTo
+    {
+        return $this->belongsTo(Purchase::class);
     }
 
     /** İade → orijinal satış hareketi. */

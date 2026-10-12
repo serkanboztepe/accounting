@@ -37,6 +37,7 @@ class PartyDeletion
         $deleted = array_values(array_filter([
             self::count(PartyLedgerEntry::where('party_id', $party->id)->count(), 'cari hareketi'),
             self::count(Sale::where('party_id', $party->id)->count(), 'satış'),
+            self::count(\App\Models\Purchase::where('party_id', $party->id)->count(), 'alış'),
         ]));
         $expenses = Expense::where('party_id', $party->id)->count();
 

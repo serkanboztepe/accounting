@@ -71,6 +71,7 @@ class ProductsTable
                     ->options(Product::TYPE_LABELS),
             ])
             ->recordActions([
+                \App\Filament\Resources\Products\Actions\CountStockAction::make(),
                 EditAction::make(),
                 DeleteAction::make(),
             ]);

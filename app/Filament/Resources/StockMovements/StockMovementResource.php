@@ -29,6 +29,11 @@ class StockMovementResource extends Resource
 
     protected static ?int $navigationSort = 5;
 
+    public static function getNavigationGroup(): ?string
+    {
+        return config('modules.purchases') ? 'Raporlar' : 'Ürün & Stok';
+    }
+
     public static function canAccess(): bool
     {
         return config('modules.stock');

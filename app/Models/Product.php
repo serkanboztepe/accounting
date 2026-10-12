@@ -98,6 +98,26 @@ class Product extends Model
         return $in - $out;
     }
 
+    /**
+     * Sayım: "elinde kaç tane var?" — sistemdeki stokla fark Düzeltme hareketi olarak yazılır
+     * (fazla → giren, eksik → çıkan). Fark yoksa hareket yazılmaz.
+     */
+    public function countTo(float $counted, ?string $date = null, ?string $note = null): ?StockMovement
+    {
+        $diff = round($counted - $this->currentStock(), 2);
+        if (abs($diff) < 0.005) {
+            return null;
+        }
+
+        return $this->stockMovements()->create([
+            'direction'     => $diff > 0 ? StockMovement::DIRECTION_IN : StockMovement::DIRECTION_OUT,
+            'reason'        => StockMovement::REASON_ADJUSTMENT,
+            'quantity'      => abs($diff),
+            'movement_date' => $date ?? now()->toDateString(),
+            'notes'         => $note ?? 'Sayım: ' . rtrim(rtrim(number_format($counted, 2, ',', '.'), '0'), ','),
+        ]);
+    }
+
     /** Eşik girilmiş ve stok eşiğe (veya altına) inmiş mi. */
     public function isLowStock(?float $stock = null): bool
     {

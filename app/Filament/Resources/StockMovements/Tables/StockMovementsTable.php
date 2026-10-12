@@ -83,11 +83,11 @@ class StockMovementsTable
                     ->preload(),
             ])
             ->recordActions([
-                // Satış/İade'den gelen (sale_id'li) satırlar salt-okunur — satıştan yönetilir.
+                // Satış/İade/Alış belgesinden gelen satırlar salt-okunur — belgeden yönetilir.
                 EditAction::make()
-                    ->visible(fn (StockMovement $record) => $record->sale_id === null),
+                    ->visible(fn (StockMovement $record) => $record->sale_id === null && $record->purchase_id === null),
                 DeleteAction::make()
-                    ->visible(fn (StockMovement $record) => $record->sale_id === null),
+                    ->visible(fn (StockMovement $record) => $record->sale_id === null && $record->purchase_id === null),
             ]);
     }
 }

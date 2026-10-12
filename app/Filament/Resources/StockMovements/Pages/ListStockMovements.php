@@ -16,6 +16,12 @@ class ListStockMovements extends ListRecords
 
     protected function getHeaderActions(): array
     {
+        // Alışlar ekranı açık firmada mal girişi Alışlar'dan, sayım Ürünler'den ("Sayım") yapılır;
+        // burası salt okunur rapor. Diğer firmalarda (Yeni Yapı) butonlar eskisi gibi.
+        if (config('modules.purchases')) {
+            return [];
+        }
+
         return [
             // Mal Girişi — hep giren + alım. Yön/sebep sorulmaz.
             CreateAction::make('malGirisi')

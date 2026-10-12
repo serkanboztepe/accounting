@@ -166,6 +166,28 @@ class AutoUsageTest extends TestCase
             ->assertFormFieldVisible('daily_usage');
     }
 
+    public function test_count_writes_difference_as_adjustment(): void
+    {
+        $p = $this->flour(20);
+
+        $this->assertSame(StockMovement::DIRECTION_OUT, $p->countTo(9)->direction);
+        $this->assertSame(9.0, $p->currentStock());
+        $this->assertSame(StockMovement::DIRECTION_IN, $p->countTo(12)->direction);
+        $this->assertSame(12.0, $p->currentStock());
+        $this->assertNull($p->countTo(12), 'Fark yoksa hareket yazılmaz');
+    }
+
+    public function test_count_action_from_products_list(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $p = $this->flour(20);
+
+        Livewire::test(\App\Filament\Resources\Products\Pages\ListProducts::class)
+            ->callTableAction('countStock', $p, ['counted' => 7, 'date' => now()->toDateString()]);
+
+        $this->assertSame(7.0, $p->fresh()->currentStock());
+    }
+
     public function test_edit_page_shows_toggle_and_fields(): void
     {
         $this->actingAs(User::factory()->create());

@@ -8,6 +8,7 @@ namespace App\Support;
  *   mimar     = yildiz   (sadece Mimar grubu + basit cari Satış/Tahsilat)
  *   muteahhit = muhasebe (proje maliyeti: sözleşme, gider, çek, alış/ödeme)
  *   toptanci  = yenyapi  (stoklu satış: direkt satış, teklif, satış sözleşmesi; alış tarafı yok)
+ *   trade     = Stoklu satış (fırın, toptancı, lastikçi…): Satışlar + Alışlar tezgahı, stok, cari iki yön, gider
  *   alacak_verecek = esnaf defteri: sadece cari (iki yön: satış/tahsilat + alış/ödeme) + gider; proje YOK
  * Burada olmayan anahtar = açık (true). Tek tek MOD_* env satırı her zaman profili ezer.
  */
@@ -61,6 +62,23 @@ class ModuleProfiles
             'purchase_contracts' => false,
             'cari_supplier'      => false,
         ],
+        // Stoklu satış (fırın, toptancı, lastikçi, nalbur…): mal alır, stoklu satar. Sektöre özel paket yok;
+        // farklar hub'daki tek tek anahtarlar + ürün kartı ayarlarıyla (otomatik düşüş, eşik).
+        'trade' => [
+            'land_share'         => false,
+            'property_tax'       => false,
+            'projects'           => false,
+            'contracts'          => false,
+            'purchase_contracts' => false,
+            'sales_contracts'    => false,
+            'quotes'             => false,
+            'checks'             => false,
+            'report_project'     => false,
+            'dashboard'          => false,
+            'sales_desk'         => true,
+            'purchases'          => true,
+            'report_monthly'     => true,
+        ],
     ];
 
     /** config('modules') anahtarları — hub firma ayarları ekranı da bu listeyi kullanır. */
@@ -68,10 +86,15 @@ class ModuleProfiles
         'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
         'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
         'report_project', 'report_stock', 'report_sales', 'smart_assistant', 'daily_nudge',
+        'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt',
     ];
 
-    /** Varsayılanı KAPALI olanlar (sektörde de açık değil; hub'dan firma firma açılır). */
-    public const DEFAULT_OFF = ['smart_assistant'];
+    /**
+     * Varsayılanı KAPALI olanlar (sektörde de açık değil; hub'dan firma firma açılır).
+     * Satışlar/Alışlar tezgahı, Ay Sonucu ve akşam ciro sorusu: canlı firmalarda kendiliğinden AÇILMAZ
+     * (yalnız "Stoklu satış" paketinde açık) — mevcut akışlar değişmesin.
+     */
+    public const DEFAULT_OFF = ['smart_assistant', 'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt'];
 
     /** Hub ekranındaki Türkçe adlar. */
     public const LABELS = [
@@ -93,6 +116,10 @@ class ModuleProfiles
         'report_sales'       => 'Satış özeti',
         'smart_assistant'    => 'Akıllı WhatsApp asistanı (deneme)',
         'daily_nudge'        => 'Akşam mesajı (19:00 "Bugün aklında bir şey var mı?")',
+        'sales_desk'         => 'Satışlar ekranı (peşin + cariye satış, ürünsüz tutar / toplu ciro)',
+        'purchases'          => 'Alışlar ekranı (stoklu alış, peşin alış = alış + ödeme)',
+        'report_monthly'     => 'Ay Sonucu raporu (ciro − alış − gider)',
+        'revenue_prompt'     => 'Akşam ciro sorusu (21:00 "Bugünkü ciro ne?")',
     ];
 
     /** Sektör bir şey demiyorsa: açık — DEFAULT_OFF hariç. */

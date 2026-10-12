@@ -29,7 +29,7 @@ class SaleResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Satışlar';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 1;
 
     public static function canAccess(): bool
     {
@@ -42,7 +42,18 @@ class SaleResource extends Resource
      */
     public static function shouldRegisterNavigation(): bool
     {
-        return false;
+        // Satışlar tezgahı açık firmada menüde; diğerlerinde (Yeni Yapı) eskisi gibi gizli.
+        return (bool) config('modules.sales_desk');
+    }
+
+    public static function getNavigationGroup(): ?string
+    {
+        return config('modules.sales_desk') ? 'Alış-Satış' : 'Ürün & Stok';
+    }
+
+    public static function getNavigationLabel(): string
+    {
+        return config('modules.sales_desk') ? 'Satışlar' : 'Direkt Satış';
     }
 
     public static function form(Schema $schema): Schema

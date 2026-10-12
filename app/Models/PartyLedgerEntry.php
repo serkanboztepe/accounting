@@ -38,6 +38,7 @@ class PartyLedgerEntry extends Model
         'project_id',
         'sale_id',
         'sale_return_id',
+        'purchase_id',
         'entry_date',
         'due_date',
         'description',

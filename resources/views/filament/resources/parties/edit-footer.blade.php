@@ -150,6 +150,11 @@
                                         <a href="{{ \App\Filament\Resources\Sales\SaleResource::getUrl('edit', ['record' => $r['sale_id']]) }}"
                                             class="text-xs text-primary-600 hover:underline">Aç</a>
                                     </span>
+                                @elseif (! empty($r['purchase_id']))
+                                    <span class="ml-2 inline-flex align-middle">
+                                        <a href="{{ \App\Filament\Resources\Purchases\PurchaseResource::getUrl('edit', ['record' => $r['purchase_id']]) }}"
+                                            class="text-xs text-primary-600 hover:underline">Aç</a>
+                                    </span>
                                 @elseif (! empty($r['sale_return_id']))
                                     <span class="ml-2 inline-flex align-middle">
                                         <button type="button" class="text-xs font-medium text-danger-600 hover:underline"

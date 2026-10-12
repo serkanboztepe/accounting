@@ -116,14 +116,16 @@ class PartyStatement
                 $entry->project_id,
                 $entry->project?->name,
                 $entry->id,
-                // Satışa/iadeye bağlı satırlar buradan düzenlenmez (kaynak = Direkt Satış).
-                $entry->sale_id === null && $entry->sale_return_id === null,
+                // Satışa/iadeye/alış belgesine bağlı satırlar buradan düzenlenmez (kaynak = belge).
+                $entry->sale_id === null && $entry->sale_return_id === null && $entry->purchase_id === null,
                 // Yalnız satış (borç) satırına Düzenle / Aç bağla — iade satırına değil.
                 $isSaleRow ? $entry->sale_id : null,
                 // İadesi varsa düzenleme kilitli.
                 $isSaleRow && in_array($entry->sale_id, $returnedSaleIds, true),
                 // İade (satis_iade) satırına Geri Al bağla.
                 $entry->type === PartyLedgerEntry::TYPE_SALE_RETURN ? $entry->sale_return_id : null,
+                // Alış belgesinden (Alışlar) gelen satır → belgeyi aç.
+                $entry->purchase_id,
             );
         }
 
@@ -187,7 +189,7 @@ class PartyStatement
         ];
     }
 
-    protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null, ?int $entryId = null, bool $editable = false, ?int $saleId = null, bool $saleHasReturns = false, ?int $saleReturnId = null): array
+    protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null, ?int $entryId = null, bool $editable = false, ?int $saleId = null, bool $saleHasReturns = false, ?int $saleReturnId = null, ?int $purchaseId = null): array
     {
         return [
             'ts'           => $date ? $date->timestamp : 0,
@@ -207,6 +209,8 @@ class PartyStatement
             'sale_has_returns' => $saleHasReturns,
             // İade (satis_iade) satırıysa SaleReturn id'si (Geri Al için).
             'sale_return_id'   => $saleReturnId,
+            // Alış belgesi satırıysa Purchase id'si (Aç için).
+            'purchase_id'      => $purchaseId,
         ];
     }
 }

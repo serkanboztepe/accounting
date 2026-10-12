@@ -84,7 +84,8 @@ class HubFirmResource extends Resource
     public const PROFILE_OPTIONS = [
         'mimar'     => 'Mimar',
         'muteahhit' => 'Müteahhit',
-        'toptanci'  => 'Toptancı / nalbur',
+        'trade'     => 'Stoklu satış (fırın, toptancı, lastikçi…)',
+        'toptanci'  => 'Toptancı / nalbur (eski — Yeni Yapı)',
         'alacak_verecek' => 'Alacak-verecek (esnaf: cari + gider, projesiz)',
     ];
 

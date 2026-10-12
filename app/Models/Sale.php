@@ -18,13 +18,47 @@ class Sale extends Model
         'project_id',
         'sale_date',
         'total_amount',
+        'manual_amount',
+        'cash_amount',
+        'bank_amount',
         'notes',
     ];
 
     protected $casts = [
-        'sale_date'    => 'date',
-        'total_amount' => 'decimal:2',
+        'sale_date'     => 'date',
+        'total_amount'  => 'decimal:2',
+        'manual_amount' => 'decimal:2',
+        'cash_amount'   => 'decimal:2',
+        'bank_amount'   => 'decimal:2',
     ];
+
+    /** Peşin (carisiz) satış: cariye hiçbir şey yazılmaz, para alınmış sayılır. */
+    public function isCash(): bool
+    {
+        return $this->party_id === null;
+    }
+
+    /** Peşin satışta ödeme şekli: "Nakit", "Kart" ya da "Nakit + Kart". */
+    public function paymentLabel(): ?string
+    {
+        if (! $this->isCash()) {
+            return null;
+        }
+        $cash = (float) $this->cash_amount > 0;
+        $bank = (float) $this->bank_amount > 0;
+
+        return match (true) {
+            $cash && $bank => 'Nakit + Kart',
+            $bank          => 'Kart',
+            default        => 'Nakit',
+        };
+    }
+
+    /** Fişte / listede müşteri adı; carisizde "Peşin müşteri". */
+    public function customerLabel(): string
+    {
+        return $this->party?->name ?? 'Peşin müşteri';
+    }
 
     public function party(): BelongsTo
     {
@@ -151,9 +185,50 @@ class Sale extends Model
             $total += (float) ($amount ?? 0);
         }
 
+        // Ürünsüz tutar (toplu ciro, lokantaya ekmek): kalemlere eklenir. Eski satışlarda boş → toplam aynı.
+        $total += (float) ($this->manual_amount ?? 0);
+
         $this->forceFill(['total_amount' => $total])->saveQuietly();
 
+        // Peşin satış düzenlenince nakit/kart dağılımı yeni toplama uyar (aynı ödeme şekli korunur).
+        if ($this->isCash()) {
+            $this->payWith($this->paymentMethod(), (float) $this->cash_amount);
+        }
+
         $this->syncLedger($total);
+    }
+
+    /** Peşin satışın ödeme şekli: cash | card | mixed (dağılımdan). */
+    public function paymentMethod(): string
+    {
+        $cash = (float) $this->cash_amount > 0;
+        $bank = (float) $this->bank_amount > 0;
+
+        return match (true) {
+            $cash && $bank => 'mixed',
+            $bank          => 'card',
+            default        => 'cash',
+        };
+    }
+
+    /**
+     * Peşin satışın nakit/kart dağılımını toplamdan kurar. mixed: nakit kısmı verilir, kalan kart.
+     * Carili satışta dağılım tutulmaz (tahsilat ayrıca girilir).
+     */
+    public function payWith(string $method, float $cashPart = 0.0): void
+    {
+        if (! $this->isCash()) {
+            return;
+        }
+
+        $total = (float) $this->total_amount;
+        [$cash, $bank] = match ($method) {
+            'card'  => [0.0, $total],
+            'mixed' => [min(max(0.0, $cashPart), $total), max(0.0, $total - min(max(0.0, $cashPart), $total))],
+            default => [$total, 0.0],
+        };
+
+        $this->forceFill(['cash_amount' => $cash, 'bank_amount' => $bank])->saveQuietly();
     }
 
     /**
@@ -211,7 +286,8 @@ class Sale extends Model
             ]);
         }
 
-        if ($totalReturn > 0) {
+        // Peşin (carisiz) satışın iadesi cariye yazılmaz; stok yine geri girer.
+        if ($totalReturn > 0 && $this->party_id) {
             PartyLedgerEntry::create([
                 'party_id'       => $this->party_id,
                 'project_id'     => $this->project_id,
@@ -230,6 +306,13 @@ class Sale extends Model
     /** Satış tutarını cari borç (satis) kaydına yazar/günceller. */
     protected function syncLedger(float $total): void
     {
+        // Peşin satış cariye yazılmaz.
+        if (! $this->party_id) {
+            $this->ledgerEntry()->delete();
+
+            return;
+        }
+
         $this->ledgerEntry()->updateOrCreate(
             ['sale_id' => $this->id],
             [
