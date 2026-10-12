@@ -334,19 +334,19 @@ class TenancyTest extends TestCase
     {
         // Pencerenin kendisi tarayıcıda kontrol edildi; burada kaydettiği ayarın firmaya etkisi.
         $this->b->saveSettingsForm([
-            'profile' => 'toptanci', 'mod_quotes' => '0', 'mod_stock' => '',
+            'profile' => 'trade', 'mod_quotes' => '0', 'mod_stock' => '',
             'cari_lock' => true, 'cari_lock_minutes' => 10, 'check_reminder_days' => '5, 1,0',
         ]);
 
         $s = $this->b->fresh()->settingsWithDefaults();
-        $this->assertSame('toptanci', $s['profile']);
+        $this->assertSame('trade', $s['profile']);
         $this->assertSame(['quotes' => false], $s['modules']);
         $this->assertSame([5, 1, 0], $s['check_reminder_days']);
 
         Tenancy::run($this->b->fresh(), function () {
             $this->assertFalse(config('modules.quotes'), 'zorla kapalı');
-            $this->assertTrue(config('modules.stock'), 'toptancı varsayılanı');
-            $this->assertFalse(config('modules.cari_supplier'), 'toptancı varsayılanı');
+            $this->assertTrue(config('modules.stock'), 'stoklu satış varsayılanı');
+            $this->assertFalse(config('modules.projects'), 'stoklu satış varsayılanı');
             $this->assertTrue(config('app.cari_lock'));
             $this->assertSame(10, config('app.cari_lock_minutes'));
         });

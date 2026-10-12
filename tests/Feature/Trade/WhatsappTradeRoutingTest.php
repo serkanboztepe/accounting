@@ -43,9 +43,9 @@ class WhatsappTradeRoutingTest extends TestCase
         StockMovement::create(['product_id' => $this->bread->id, 'direction' => 'in', 'reason' => 'adjustment', 'quantity' => 100, 'movement_date' => now()]);
     }
 
-    private function useProfile(string $profile): void
+    private function useProfile(string $profile, array $overrides = []): void
     {
-        config(['modules' => ModuleProfiles::resolve($profile), 'app.profile' => $profile]);
+        config(['modules' => ModuleProfiles::resolve($profile, $overrides), 'app.profile' => $profile]);
     }
 
     private function fakeAi(array ...$responses): void
@@ -244,16 +244,16 @@ class WhatsappTradeRoutingTest extends TestCase
 
     public function test_old_profiles_have_no_trade_kinds(): void
     {
-        foreach (['mimar', 'muteahhit', 'toptanci', 'alacak_verecek'] as $profile) {
+        foreach (['mimar', 'muteahhit', 'alacak_verecek'] as $profile) {
             $this->useProfile($profile);
             $this->assertSame([], array_values(array_intersect(ExpenseExtractor::TRADE_KINDS, ExpenseExtractor::allowedKinds())), $profile);
         }
     }
 
-    public function test_toptanci_expense_with_product_name_stays_expense(): void
+    public function test_stock_without_trade_package_expense_stays_expense(): void
     {
-        // Yeni Yapı (toptancı): stok açık ama Stoklu satış paketi kapalı — "un aldım" eskisi gibi gider.
-        $this->useProfile('toptanci');
+        // Stok açık ama Satışlar/Alışlar ekranı kapalı: "un aldım" eskisi gibi gider.
+        $this->useProfile('alacak_verecek', ['stock' => true, 'direct_sales' => true]);
         $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 17000, 'description' => '20 çuval un', 'paid' => true]));
         $before = $this->counts();
 

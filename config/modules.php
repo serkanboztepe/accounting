@@ -26,11 +26,10 @@
 | MOD (APP_PROFILE) — tek satırla hazır set, bkz App\Support\ModuleProfiles:
 |   APP_PROFILE=mimar       # Mimar grubu (Kat Karşılığı + Emlak Beyanı) + basit cari Satış/Tahsilat
 |   APP_PROFILE=muteahhit   # Proje maliyeti: sözleşme, gider, çek, cari alış/ödeme
-|   APP_PROFILE=toptanci    # Stoklu satış: direkt satış, teklif, satış sözleşmesi; alış tarafı yok
 |   APP_PROFILE=trade       # Stoklu satış (fırın, toptancı, lastikçi…): Satışlar + Alışlar tezgahı, stok, cari, gider
 |   APP_PROFILE=alacak_verecek  # Esnaf defteri: cari (iki yön) + gider; proje yok
 |   MOD_PROJECTS=false      # Projeler menüsü + gider/caride proje seçimi (WhatsApp da proje sormaz)
-| Boşsa her şey açık. Tek tek MOD_* satırı her zaman profili ezer (ör. APP_PROFILE=toptanci + MOD_QUOTES=false).
+| Boşsa her şey açık. Tek tek MOD_* satırı her zaman profili ezer (ör. APP_PROFILE=trade + MOD_QUOTES=true).
 */
 
 $overrides = [];

@@ -7,7 +7,6 @@ namespace App\Support;
  * Her set, o tipteki ilk canlı kurulumun gerçek ayarlarının kopyasıdır:
  *   mimar     = yildiz   (sadece Mimar grubu + basit cari Satış/Tahsilat)
  *   muteahhit = muhasebe (proje maliyeti: sözleşme, gider, çek, alış/ödeme)
- *   toptanci  = yenyapi  (stoklu satış: direkt satış, teklif, satış sözleşmesi; alış tarafı yok)
  *   trade     = Stoklu satış (fırın, toptancı, lastikçi…): Satışlar + Alışlar tezgahı, stok, cari iki yön, gider
  *   alacak_verecek = esnaf defteri: sadece cari (iki yön: satış/tahsilat + alış/ödeme) + gider; proje YOK
  * Burada olmayan anahtar = açık (true). Tek tek MOD_* env satırı her zaman profili ezer.
@@ -56,12 +55,6 @@ class ModuleProfiles
             'report_stock'       => false,
             'report_sales'       => false,
         ],
-        'toptanci' => [
-            'land_share'         => false,
-            'property_tax'       => false,
-            'purchase_contracts' => false,
-            'cari_supplier'      => false,
-        ],
         // Stoklu satış (fırın, toptancı, lastikçi, nalbur…): mal alır, stoklu satar. Sektöre özel paket yok;
         // farklar hub'daki tek tek anahtarlar + ürün kartı ayarlarıyla (otomatik düşüş, eşik).
         'trade' => [
@@ -80,6 +73,9 @@ class ModuleProfiles
             'report_monthly'     => true,
         ],
     ];
+
+    /** Kaldırılan paket adları → yerine geçen (2026-10-13: toptancı paketi "Stoklu satış"a katıldı). */
+    public const LEGACY = ['toptanci' => 'trade'];
 
     /** config('modules') anahtarları — hub firma ayarları ekranı da bu listeyi kullanır. */
     public const KEYS = [
@@ -133,7 +129,7 @@ class ModuleProfiles
      */
     public static function defaults(?string $profile): array
     {
-        return self::PROFILES[$profile] ?? [];
+        return self::PROFILES[self::LEGACY[$profile] ?? $profile] ?? [];
     }
 
     /**

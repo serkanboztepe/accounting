@@ -24,7 +24,7 @@ class RevenuePromptTest extends TestCase
 
         $this->artisan('revenue:prompt', ['--dry-run' => true])->expectsOutputToContain('Bugünkü ciro')->assertSuccessful();
 
-        TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '1000']);
+        TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '1000', 'sale_date' => now(\App\Models\Reminder::TIMEZONE)->toDateString()]);
         $this->artisan('revenue:prompt', ['--dry-run' => true])->expectsOutputToContain('sorulmadı')->assertSuccessful();
     }
 }

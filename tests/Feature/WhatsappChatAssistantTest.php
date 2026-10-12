@@ -65,7 +65,7 @@ class WhatsappChatAssistantTest extends TestCase
 
     public function test_module_is_off_by_default_in_every_profile(): void
     {
-        foreach ([null, 'mimar', 'muteahhit', 'toptanci', 'alacak_verecek'] as $profile) {
+        foreach ([null, 'mimar', 'muteahhit', 'trade', 'alacak_verecek'] as $profile) {
             $this->assertFalse(ModuleProfiles::resolve($profile)['smart_assistant'], (string) $profile);
         }
         $this->assertTrue(ModuleProfiles::resolve('mimar', ['smart_assistant' => true])['smart_assistant']);

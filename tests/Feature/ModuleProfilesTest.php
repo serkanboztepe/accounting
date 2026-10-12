@@ -6,7 +6,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use Tests\TestCase;
 
 /**
- * APP_PROFILE (mimar / muteahhit / toptanci) — config/modules.php'nin ürettiği değerler,
+ * APP_PROFILE (mimar / muteahhit / trade / alacak_verecek) — config/modules.php'nin ürettiği değerler,
  * canlı kurulumların (yildiz / muhasebe / yenyapi) bugünkü elle yazılmış MOD_* setiyle birebir aynı olmalı.
  * Ayrıca WhatsApp asistanının her modda kabul ettiği işlem türleri.
  */
@@ -74,19 +74,17 @@ class ModuleProfilesTest extends TestCase
         ], $this->modulesFor(['APP_PROFILE' => 'muteahhit']));
     }
 
-    public function test_toptanci_matches_yenyapi(): void
+    public function test_legacy_toptanci_resolves_to_trade(): void
     {
-        $this->assertOnlyDisabled([
-            'land_share', 'property_tax', 'purchase_contracts', 'cari_supplier',
-        ], $this->modulesFor(['APP_PROFILE' => 'toptanci']));
+        $this->assertSame($this->modulesFor(['APP_PROFILE' => 'trade']), $this->modulesFor(['APP_PROFILE' => 'toptanci']));
     }
 
     public function test_single_mod_line_overrides_profile(): void
     {
-        $modules = $this->modulesFor(['APP_PROFILE' => 'toptanci', 'MOD_QUOTES' => 'false', 'MOD_STOCK' => 'true']);
+        $modules = $this->modulesFor(['APP_PROFILE' => 'trade', 'MOD_QUOTES' => 'true', 'MOD_STOCK' => 'false']);
 
-        $this->assertFalse($modules['quotes']);
-        $this->assertTrue($modules['stock']);
+        $this->assertTrue($modules['quotes']);
+        $this->assertFalse($modules['stock']);
     }
 
     public function test_whatsapp_kinds_per_mode(): void
@@ -94,7 +92,6 @@ class ModuleProfilesTest extends TestCase
         $expected = [
             'mimar' => ['sale', 'collection', 'balance_query', 'statement', 'totals_query', 'debt_note', 'party_list', 'help', 'reminder', 'agenda'],
             'muteahhit' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help', 'reminder', 'agenda'],
-            'toptanci' => ['expense', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help', 'reminder', 'agenda'],
             'alacak_verecek' => ['expense', 'payment', 'sale', 'collection', 'balance_query', 'statement', 'totals_query', 'expense_summary', 'debt_note', 'party_list', 'help', 'reminder', 'agenda'],
         ];
 

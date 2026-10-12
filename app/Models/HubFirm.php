@@ -33,7 +33,7 @@ class HubFirm extends Model
 
     /** Firma ayarları varsayılanları (hub ekranında boş bırakılanlar). */
     public const DEFAULT_SETTINGS = [
-        'profile'             => null,  // mimar | muteahhit | toptanci (ModuleProfiles)
+        'profile'             => null,  // mimar | muteahhit | trade | alacak_verecek (ModuleProfiles)
         'modules'             => [],    // anahtar => bool; olmayan = profile bırak
         'cari_lock'           => false,
         'cari_lock_minutes'   => 5,

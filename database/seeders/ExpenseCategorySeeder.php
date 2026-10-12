@@ -20,7 +20,7 @@ class ExpenseCategorySeeder extends Seeder
     /** @return list<string> */
     public static function forProfile(?string $profile): array
     {
-        return in_array($profile, ['toptanci', 'alacak_verecek'], true)
+        return in_array($profile, ['trade', 'alacak_verecek'], true)
             ? self::GENERAL
             : self::CONSTRUCTION; // müteahhit, mimar, "hepsi açık"
     }

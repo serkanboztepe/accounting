@@ -18,7 +18,7 @@ class ExpenseCategorySeederTest extends TestCase
 
     public function test_other_profiles_start_with_general_categories(): void
     {
-        foreach (['toptanci', 'alacak_verecek'] as $profile) {
+        foreach (['trade', 'alacak_verecek'] as $profile) {
             $categories = ExpenseCategorySeeder::forProfile($profile);
             $this->assertNotContains('Vinç', $categories);
             $this->assertNotContains('Nakliye', $categories);
