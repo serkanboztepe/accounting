@@ -8,7 +8,7 @@ LOGO = '<span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" st
 FAVICON = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='16' fill='%230E8A5F'/><path d='M18 22h28M18 32h28M18 42h16' stroke='white' stroke-width='5' stroke-linecap='round'/></svg>"
 
 ALL = [("ciftci", "Çiftçi ve üretici"), ("esnaf", "Dükkan ve esnaf"), ("usta", "Usta ve taşeron"),
-       ("muteahhit", "Müteahhit"), ("mimar", "Mimar"), ("toptanci", "Toptancı ve nalbur"), ("alacak-verecek", "Alacak-verecek")]
+       ("muteahhit", "Müteahhit"), ("mimar", "Mimar"), ("toptanci", "Toptancı"), ("alacak-verecek", "Alacak-verecek")]
 
 
 def wa(text):
@@ -366,9 +366,9 @@ PAGES = [
         cta_h="Ofisinin hesabını sadeleştir",
     ),
     dict(
-        slug="toptanci", crumb="Toptancı ve nalbur", wa_as="toptancı",
-        title="Toptancı ve nalburlar için", desc="Stok, satış, iade, teklif, veresiye ve müşteri alacakları. Gelen parayı ve masrafını WhatsApp'tan yaz, kimden ne alacağın var tek mesajla öğren.",
-        eyebrow="Toptancı ve nalburlar için",
+        slug="toptanci", crumb="Toptancı", wa_as="toptancı",
+        title="Toptancılar için", desc="Stok, satış, iade, teklif, veresiye ve müşteri alacakları. Gelen parayı ve masrafını WhatsApp'tan yaz, kimden ne alacağın var tek mesajla öğren.",
+        eyebrow="Nalbur, hırdavat, elektrik, tesisat… stokla satış yapan herkes için",
         h1="Rafındaki mal, <em>müşterideki alacak.</em>",
         lead="Ne sattın, kime veresiye verdin, depoda ne kaldı; hepsi tek yerde. Gelen parayı ve dükkân masrafını WhatsApp'tan yaz, alacak listesini tek mesajla al.",
         chat=[
@@ -457,8 +457,8 @@ SEO = {
                   "Müteahhitler için hesap takip programı: şantiye gider takibi, usta ve malzemeci ödemeleri, sözleşme ve çek takibi. Masrafı WhatsApp'tan yaz, fişin fotoğrafını at; proje proje maliyeti gör."),
     "mimar": ("Kat Karşılığı Hisse Hesaplama ve Emlak Beyannamesi",
               "Mimarlar için kat karşılığı hisse dağılım cetveli hesaplama, paylı mülkiyette emlak vergisi beyannamesi hazırlama ve müşteri alacak takibi. Bedeli ve gelen parayı WhatsApp'tan yaz."),
-    "toptanci": ("Toptancı ve Nalbur Programı · Stok, Satış, Veresiye Takibi",
-                 "Toptancı ve nalbur programı: stok takibi, satış ve iade, teklif, veresiye ve müşteri alacak takibi. Gelen parayı WhatsApp'tan yaz, kimden ne alacağın var tek mesajla öğren."),
+    "toptanci": ("Toptancı Programı · Stok, Satış, Veresiye Takibi",
+                 "Toptancı programı (nalbur, hırdavat, elektrik ve tesisat malzemecisi dahil): stok takibi, satış ve iade, teklif, veresiye ve müşteri alacak takibi. Gelen parayı WhatsApp'tan yaz, kimden ne alacağın var tek mesajla öğren."),
     "alacak-verecek": ("Veresiye Defteri ve Alacak Verecek Takibi WhatsApp'tan",
                        "Dijital veresiye defteri: kime ne borcun var, kimden ne alacağın var, WhatsApp'tan yaz. Borç alacak takibi, harcama kaydı ve PDF hesap dökümü; uygulama indirmeden."),
 }

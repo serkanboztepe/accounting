@@ -252,3 +252,6 @@
   .sectors { grid-template-columns: repeat(3, 1fr); }
   @media (max-width: 960px) { .sectors { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 560px) { .sectors { grid-template-columns: 1fr; } }
+  /* Kim kullanıyor: 6 kart her zaman 3'lü (ya da telefonda tek sütun) — 2'li ızgarada 3 satır dağınık duruyordu */
+  @media (max-width: 960px) { .sectors { grid-template-columns: repeat(3, 1fr); gap: 12px; } .sector { padding: 18px; } }
+  @media (max-width: 720px) { .sectors { grid-template-columns: 1fr; } }
