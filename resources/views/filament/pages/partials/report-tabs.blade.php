@@ -7,7 +7,7 @@
         (config('modules.stock') && config('modules.report_stock'))
             ? ['key' => 'stock', 'label' => 'Stok Raporu', 'url' => \App\Filament\Pages\StockReport::getUrl()]
             : null,
-        (config('modules.direct_sales') && config('modules.report_sales'))
+        \App\Filament\Pages\SalesSummary::canAccess()
             ? ['key' => 'sales', 'label' => 'Satış Özeti', 'url' => \App\Filament\Pages\SalesSummary::getUrl()]
             : null,
     ]));

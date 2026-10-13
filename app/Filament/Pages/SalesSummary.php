@@ -25,7 +25,9 @@ class SalesSummary extends Page
 
     public static function canAccess(): bool
     {
-        return config('modules.direct_sales') && config('modules.report_sales');
+        // Satışlar ekranı açıkken yok: bu özet yalnız ürün satırlarını sayar (ürünsüz satış / akşam cirosu
+        // dışarıda kalır) ve Ay Sonucu'ndan farklı ciro gösterirdi. Ciro orada + Satışlar'ın Bugün / Bu ay özetinde.
+        return config('modules.direct_sales') && config('modules.report_sales') && ! config('modules.sales_desk');
     }
 
     // Menüde gizli — "Raporlar" (Proje Raporları) sayfasındaki sekmeden açılır.
