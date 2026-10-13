@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StockMovements\Tables;
 
+use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Models\StockMovement;
 use App\Support\Money;
 use Filament\Actions\DeleteAction;
@@ -16,10 +17,13 @@ class StockMovementsTable
     {
         return $table
             ->defaultSort('movement_date', 'desc')
-            ->description('🔒 satırlar Direkt Satış / İade’den gelir — düzenleme/silme satış ekranından yapılır. Yalnız elle Mal Girişi / Düzeltme satırları buradan yönetilir.')
+            ->description(StockMovementResource::readOnly()
+                ? 'Stok giriş-çıkışlarının dökümü. Satır buradan değiştirilmez: satış/alış yanlışsa Satışlar ya da Alışlar’dan düzelt, sayı tutmuyorsa Ürünler’de "Sayım" yap.'
+                : '🔒 satırlar Direkt Satış / İade’den gelir — düzenleme/silme satış ekranından yapılır. Yalnız elle Mal Girişi / Düzeltme satırları buradan yönetilir.')
             ->columns([
                 TextColumn::make('sale_id')
                     ->label('')
+                    ->visible(fn () => ! StockMovementResource::readOnly())
                     ->formatStateUsing(fn ($state) => $state ? '🔒' : '')
                     ->tooltip(fn ($state) => $state ? 'Satış/İade’den gelir — buradan değiştirilemez' : null),
 
@@ -62,6 +66,7 @@ class StockMovementsTable
 
                 TextColumn::make('project.name')
                     ->label('Proje')
+                    ->visible(fn () => (bool) config('modules.projects'))
                     ->toggleable(),
 
                 TextColumn::make('notes')
@@ -85,9 +90,9 @@ class StockMovementsTable
             ->recordActions([
                 // Satış/İade/Alış belgesinden gelen satırlar salt-okunur — belgeden yönetilir.
                 EditAction::make()
-                    ->visible(fn (StockMovement $record) => $record->sale_id === null && $record->purchase_id === null),
+                    ->visible(fn (StockMovement $record) => ! StockMovementResource::readOnly() && $record->sale_id === null && $record->purchase_id === null),
                 DeleteAction::make()
-                    ->visible(fn (StockMovement $record) => $record->sale_id === null && $record->purchase_id === null),
+                    ->visible(fn (StockMovement $record) => ! StockMovementResource::readOnly() && $record->sale_id === null && $record->purchase_id === null),
             ]);
     }
 }
