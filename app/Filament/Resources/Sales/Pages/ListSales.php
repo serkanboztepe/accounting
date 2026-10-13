@@ -214,8 +214,8 @@ class ListSales extends ListRecords
 
         return [
             'all'   => Tab::make('Tümü'),
-            'cash'  => Tab::make('Peşin')->modifyQueryUsing(fn (Builder $q) => $q->whereNull('party_id')),
-            'party' => Tab::make('Cariye')->modifyQueryUsing(fn (Builder $q) => $q->whereNotNull('party_id')),
+            'cash'  => Tab::make('Peşin')->modifyQueryUsing(fn (Builder $query) => $query->whereNull('party_id')),
+            'party' => Tab::make('Cariye')->modifyQueryUsing(fn (Builder $query) => $query->whereNotNull('party_id')),
         ];
     }
 

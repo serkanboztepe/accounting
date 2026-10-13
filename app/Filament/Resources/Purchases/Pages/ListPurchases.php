@@ -178,8 +178,8 @@ class ListPurchases extends ListRecords
     {
         return [
             'all'   => Tab::make('Tümü'),
-            'party' => Tab::make('Cariden')->modifyQueryUsing(fn (Builder $q) => $q->where('paid', false)),
-            'cash'  => Tab::make('Peşin')->modifyQueryUsing(fn (Builder $q) => $q->where('paid', true)),
+            'party' => Tab::make('Cariden')->modifyQueryUsing(fn (Builder $query) => $query->where('paid', false)),
+            'cash'  => Tab::make('Peşin')->modifyQueryUsing(fn (Builder $query) => $query->where('paid', true)),
         ];
     }
 
