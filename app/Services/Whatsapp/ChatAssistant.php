@@ -217,6 +217,8 @@ class ChatAssistant
             ? json_encode(array_intersect_key($pending, array_flip([
                 'kind', 'amount', 'description', 'date', 'due_date', 'party_id', 'party_name', 'project_id', 'project_name',
                 'category_id', 'category_name', 'paid', 'debt_side', 'payment_purpose', 'items', 'payment_type',
+                // Stoklu satış taslağı düzeltilirken bunlar kaybolmasın (nakit/kart, sayım, ürün ayarı).
+                'product_id', 'cash_amount', 'card_amount', 'counted_quantity', 'daily_usage', 'reorder_level', 'month',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];
