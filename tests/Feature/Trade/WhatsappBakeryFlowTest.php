@@ -253,6 +253,23 @@ class WhatsappBakeryFlowTest extends TestCase
         $this->assertStringContainsString('Un 20 çuval (~6 gün)', $reply);
     }
 
+    public function test_missing_unit_is_filled_from_message_but_existing_unit_kept(): void
+    {
+        $yeast = Product::create(['name' => 'Maya', 'type' => Product::TYPE_PRODUCT]);
+        $this->fakeAi(
+            $this->entry(['kind' => 'trade_purchase', 'party_id' => $this->boztepe->id, 'items' => [$this->item('maya', 10, amount: 400, productId: $yeast->id, unit: 'paket')]]),
+            $this->entry(['kind' => 'trade_purchase', 'party_id' => $this->boztepe->id, 'items' => [$this->item('un', 5, amount: 4000, productId: $this->flour->id, unit: 'kg')]]),
+        );
+
+        $this->send('10 paket maya aldım 400');
+        $this->send('evet');
+        $this->assertSame('paket', mb_strtolower($yeast->fresh()->unit->name));
+
+        $this->send('5 kg un 4000');
+        $this->send('evet');
+        $this->assertSame('çuval', $this->flour->fresh()->unit->name, 'var olan birim değişmez');
+    }
+
     public function test_old_dated_purchase_edit_does_not_override_card_price(): void
     {
         $this->earlierPurchase();

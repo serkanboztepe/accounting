@@ -577,6 +577,9 @@ class TradeDraft
                 $created[] = $product->name;
             }
         }
+        foreach ($d['items'] ?? [] as $item) {
+            self::fillUnit($item['product_id'] ?? null, $item['unit'] ?? null);
+        }
         [$lines, $manual] = self::splitLines($d);
 
         $purchase = TradeDesk::savePurchase([
@@ -602,6 +605,7 @@ class TradeDraft
 
     private static function commitCount(array $d): array
     {
+        self::fillUnit($d['product_id'] ?? null, $d['unit'] ?? null);
         $product = ! empty($d['product_id'])
             ? Product::with('unit')->findOrFail($d['product_id'])
             : self::createProduct($d['new_product']['name'], $d['new_product']['unit'] ?? null)->load('unit');
@@ -656,6 +660,14 @@ class TradeDraft
             'purchase_price' => $purchasePrice > 0 ? $purchasePrice : null,
             'is_active' => true,
         ]);
+    }
+
+    /** Kartta birim yoksa mesajdaki birim yazılır ("20 çuval un" → Un: çuval). Var olan birim değiştirilmez. */
+    private static function fillUnit(mixed $productId, ?string $unit): void
+    {
+        if ($productId && $unit && ($product = Product::find($productId)) && $product->unit_id === null) {
+            $product->update(['unit_id' => self::unitId($unit)]);
+        }
     }
 
     private static function unitId(?string $unit): ?int
