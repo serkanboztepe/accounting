@@ -246,6 +246,13 @@ class WhatsappWebhookController extends Controller
             return $this->twiml('Onay bekleyen bir kayıt yok (taslaklar 30 dk geçerli). Yeni bir işlem yazabilirsin.');
         }
 
+        // Kartta olmayan malın alışı: "gider" → ürün kartı açılmaz, aynı alış gider olarak yazılır (AI'sız, kesin cevap).
+        if ($pending && $image === null && $this->word($body) === 'gider' && TradeDraft::canBecomeExpense($pending->extracted)) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, TradeDraft::toExpense($pending->extracted)));
+        }
+
         // Sohbet asistanı (deneme, ayarla açılır): yazılı mesajlar konuşmayı gören asistana gider.
         // Kesin cevaplar (evet / iptal / numara) eskisi gibi kodda kalır — onu AI'a sormaya gerek yok.
         if (ChatAssistant::enabled() && $image === null && $body !== ''
@@ -1659,9 +1666,10 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_PAYMENT => "• Verdiğin para: \"Ahmet ustaya 10 bin ödedim\"",
             ExpenseExtractor::KIND_PURCHASE => "• Alış: \"Ahmet'ten 10 bin mal aldım\" (peşinse \"nakit ödedim\" ekle)",
             ExpenseExtractor::KIND_TRADE_SALE => "• Satış: \"30 ekmek sattım\", \"Lokantaya 50 ekmek veresiye\", akşam ciro: \"bugün 10 bin nakit 15 bin kart\"",
-            ExpenseExtractor::KIND_TRADE_PURCHASE => "• Mal alışı: \"Ak Un'dan 20 çuval un aldım\" (peşinse \"nakit ödedim\" ekle)",
+            ExpenseExtractor::KIND_TRADE_PURCHASE => "• Mal alışı: \"Ak Un'dan 20 çuval un aldım\", \"unlar geldi 35 çuval\" (peşinse \"nakit ödedim\" ekle)",
+            ExpenseExtractor::KIND_PRODUCT_ADD => "• Ürün ekle: \"un, maya, tuz kullanıyorum\"",
             ExpenseExtractor::KIND_STOCK_COUNT => "• Sayım: \"un 9 çuval kaldı\"",
-            ExpenseExtractor::KIND_STOCK_SETTING => "• Uyarı: \"unu günde 3 kullanıyorum, 6 kala haber ver\"",
+            ExpenseExtractor::KIND_STOCK_SETTING => "• Uyarı / fiyat: \"unu günde 3 kullanıyorum, 6 kala haber ver\", \"unu çuvalı 850'den alıyorum\"",
             ExpenseExtractor::KIND_DEBT_NOTE => "• Alacak / borç: \"Ali'den 40 bin alacağım var\""
                 . (config('modules.cari_supplier') ? ", \"Mehmet'e 15 bin borcum var\"" : ''),
         ];

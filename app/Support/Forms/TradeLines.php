@@ -35,10 +35,12 @@ class TradeLines
                     ->searchable()
                     ->required()
                     ->live()
-                    ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                    ->afterStateUpdated(function (Get $get, Set $set, $state) use ($direction) {
                         $product = $state ? Product::find($state) : null;
-                        if ($product && $product->default_price !== null) {
-                            $set('unit_price', Money::format((float) $product->default_price));
+                        // Alışta satış fiyatı DEĞİL alış fiyatı (son alış / karttaki alış fiyatı).
+                        $price = $product ? ($direction === 'in' ? $product->buyPrice() : $product->default_price) : null;
+                        if ($price !== null) {
+                            $set('unit_price', Money::format((float) $price));
                             self::recalc($get, $set);
                         }
                     })

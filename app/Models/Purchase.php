@@ -93,12 +93,28 @@ class Purchase extends Model
             ]);
 
             $total += (float) ($amount ?? 0);
+            $this->rememberPrice((int) $productId, $unitPrice ?? ($amount !== null ? round($amount / $quantity, 2) : null));
         }
 
         $total += (float) ($this->manual_amount ?? 0);
         $this->forceFill(['total_amount' => $total])->saveQuietly();
 
         $this->syncLedger($total);
+    }
+
+    /** Ürün kartındaki alış fiyatı = en son alıştaki fiyat (eski tarihli bir alış düzeltilirse ezmez). */
+    private function rememberPrice(int $productId, ?float $price): void
+    {
+        if ($price === null || $price <= 0) {
+            return;
+        }
+        $newer = StockMovement::where('product_id', $productId)
+            ->where('reason', StockMovement::REASON_PURCHASE)
+            ->where('movement_date', '>', $this->purchase_date)
+            ->exists();
+        if (! $newer) {
+            Product::whereKey($productId)->update(['purchase_price' => $price]);
+        }
     }
 
     /** Cariden alış → "alış" satırı; peşinse + "ödeme" satırı (net bakiye 0). Carisizde cari satırı yok. */

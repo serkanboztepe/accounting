@@ -26,6 +26,7 @@ class Product extends Model
         'category',
         'unit_id',
         'default_price',
+        'purchase_price',
         'is_active',
         'auto_usage',
         'daily_usage',
@@ -37,6 +38,7 @@ class Product extends Model
 
     protected $casts = [
         'default_price' => 'decimal:2',
+        'purchase_price' => 'decimal:2',
         'is_active'     => 'boolean',
         'auto_usage'    => 'boolean',
         'daily_usage'   => 'decimal:2',
@@ -134,5 +136,45 @@ class Product extends Model
         }
 
         return max(0, (int) floor(($stock ?? $this->currentStock()) / (float) $this->daily_usage));
+    }
+
+    /**
+     * Fiyatı söylenmeyen alışta kullanılacak birim fiyat: o tedarikçiden son alış → karttaki alış fiyatı →
+     * herhangi birinden son alış. Satış fiyatı (default_price) ASLA kullanılmaz. Hiçbiri yoksa null (sorulur).
+     */
+    public function buyPrice(?int $partyId = null): ?float
+    {
+        if ($partyId && ($price = $this->lastPurchasePrice($partyId)) !== null) {
+            return $price;
+        }
+        if ($this->purchase_price !== null) {
+            return (float) $this->purchase_price;
+        }
+
+        return $this->lastPurchasePrice();
+    }
+
+    public function lastPurchasePrice(?int $partyId = null): ?float
+    {
+        $price = $this->stockMovements()
+            ->where('direction', StockMovement::DIRECTION_IN)
+            ->where('reason', StockMovement::REASON_PURCHASE)
+            ->whereNotNull('unit_price')
+            ->when($partyId, fn ($q) => $q->where('party_id', $partyId))
+            ->latest('movement_date')->latest('id')
+            ->value('unit_price');
+
+        return $price !== null ? (float) $price : null;
+    }
+
+    /** Bu ürünün en son alındığı cari ("Boztepe'den" denmese de "unlar geldi" → Boztepe). */
+    public function lastSupplierId(): ?int
+    {
+        return $this->stockMovements()
+            ->where('direction', StockMovement::DIRECTION_IN)
+            ->where('reason', StockMovement::REASON_PURCHASE)
+            ->whereNotNull('party_id')
+            ->latest('movement_date')->latest('id')
+            ->value('party_id');
     }
 }

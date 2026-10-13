@@ -2,10 +2,13 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\Expense;
 use App\Models\Party;
 use App\Models\Product;
 use App\Models\Purchase;
+use App\Models\Reminder;
 use App\Models\Sale;
+use App\Models\Unit;
 use App\Support\Money;
 use App\Support\MonthlyResult;
 use App\Support\PartyBalances;
@@ -13,6 +16,7 @@ use App\Support\PartyStatement;
 use App\Support\StockUsage;
 use App\Support\TradeDesk;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * WhatsApp — Stoklu satış paketi (Satışlar/Alışlar tezgahı açık firma). Kaydın NEREYE gideceğine AI değil
@@ -63,8 +67,10 @@ class TradeDraft
             }
         }
 
-        // Alış ama katalogda mal yok (mazot, kira) → gider (gider takibi açıksa); kapalıysa ürünsüz alış.
-        if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && ! self::hasCatalogItem($d['items'] ?? []) && config('modules.expenses')) {
+        // Alış ama katalogda mal yok: adetle sayılan mal ("20 çuval un") → yeni ürün kartı önerilir (onayla);
+        // adetsiz masraf (mazot, kira) → gider (gider takibi açıksa); kapalıysa ürünsüz alış.
+        if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && ! self::hasCatalogItem($d['items'] ?? [])
+            && ! self::hasNewProductItem($d['items'] ?? []) && config('modules.expenses')) {
             $d['kind'] = ExpenseExtractor::KIND_EXPENSE;
             $d['items'] = [];
 
@@ -85,11 +91,19 @@ class TradeDraft
         if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE) {
             return self::normalizePurchase($d);
         }
+        if ($kind === ExpenseExtractor::KIND_PRODUCT_ADD) {
+            return self::normalizeProductAdd($d);
+        }
         if (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_STOCK_QUERY], true)) {
             $product = self::validProduct($d['product_id'] ?? null) ?? self::productFromItems($d['items'] ?? [])
+                ?? self::matchProduct((string) ($d['product_name'] ?? ''))
                 ?? self::matchProduct((string) ($d['description'] ?? ''));
             $d['product_id'] = $product?->id;
-            if (! $product && $kind !== ExpenseExtractor::KIND_STOCK_QUERY) {
+            $d['new_product'] = null;
+            // Kartta olmayan ürünün sayımı / ayarı ("elimde 15 çuval un var") → onaylanınca kart açılır.
+            if (! $product && $kind !== ExpenseExtractor::KIND_STOCK_QUERY && ! empty($d['product_name'])) {
+                $d['new_product'] = ['name' => self::title($d['product_name']), 'unit' => $d['unit'] ?? null];
+            } elseif (! $product && $kind !== ExpenseExtractor::KIND_STOCK_QUERY) {
                 $d['question'] = 'Hangi ürün? Ürün kartındaki adıyla yazar mısın?';
             }
         }
@@ -123,48 +137,106 @@ class TradeDraft
         return $d;
     }
 
+    /**
+     * Alış: kimden söylenmediyse o malın son alındığı yer ("unlar geldi" → Boztepe), özette "son aldığın yer"
+     * diye görünür. Ödeme söylenmediyse cariden (veresiye) — özette yazar, "peşin ödedim" ile düzelir.
+     * Hiç alınmamış malda kimden de söylenmediyse sorulur.
+     */
     private static function normalizePurchase(array $d): array
     {
-        $d = self::normalizeItems($d);
         $hasParty = ! empty($d['party_id']) || ! empty($d['party_name']);
-        $d['paid'] = $d['paid'] ?? ! $hasParty;
+        $d['party_auto'] = false;
+        if (! $hasParty && ($d['paid'] ?? null) !== true) {
+            $product = self::productFromItems($d['items'] ?? []) ?? self::firstMatchedItem($d['items'] ?? []);
+            if ($supplierId = $product?->lastSupplierId()) {
+                $d['party_id'] = $supplierId;
+                $d['party_auto'] = $hasParty = true;
+            }
+        }
+        $d['paid_assumed'] = ($d['paid'] ?? null) === null && $hasParty;
+        $d['paid'] = $d['paid'] ?? ($hasParty ? false : null);
+
+        return self::normalizeItems($d);
+    }
+
+    /** "Un, maya, tuz kullanıyorum": kartta olmayanlar açılacak; hepsi zaten varsa stok listesi gösterilir. */
+    private static function normalizeProductAdd(array $d): array
+    {
+        $new = [];
+        foreach ((array) ($d['items'] ?? []) as $item) {
+            $name = trim((string) ($item['description'] ?? ''));
+            if ($name === '' || self::matchProduct($name) || isset($new[self::lower($name)])) {
+                continue;
+            }
+            $new[self::lower($name)] = [
+                'description' => self::title($name),
+                'unit' => $item['unit'] ?? null,
+                'unit_price' => isset($item['unit_price']) && $item['unit_price'] > 0 ? (float) $item['unit_price'] : null,
+                'product_id' => null, 'quantity' => null, 'amount' => null,
+            ];
+        }
+        if ($new === []) {
+            return ['kind' => ExpenseExtractor::KIND_STOCK_QUERY, 'product_id' => null] + $d;
+        }
+        $d['items'] = array_values($new);
+        $d['amount'] = 0.0;
 
         return $d;
     }
 
-    /** Kalemler: ürün id'si doğrulanır; tutar yoksa adet × (söylenen ya da karttaki) fiyat. Toplam = kalemler. */
+    /**
+     * Kalemler: ürün id'si doğrulanır; tutar yoksa adet × fiyat. Satışta fiyat = karttaki satış fiyatı;
+     * ALIŞTA = son alış fiyatı (o tedarikçiden → karttaki alış fiyatı → herhangi biri) — satış fiyatı ASLA.
+     * Alışta söylenen fiyat öncekinden farklıysa özette "fiyat değişti" (prev_price). Toplam = kalemler.
+     */
     private static function normalizeItems(array $d): array
     {
         $items = [];
         $missing = [];
+        $isPurchase = ($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE;
+        $partyId = ! empty($d['party_id']) ? (int) $d['party_id'] : null;
         foreach ((array) ($d['items'] ?? []) as $item) {
             $product = self::validProduct($item['product_id'] ?? null) ?? self::matchProduct((string) ($item['description'] ?? ''));
             $qty = isset($item['quantity']) && $item['quantity'] !== null ? (float) $item['quantity'] : null;
             $price = isset($item['unit_price']) && $item['unit_price'] !== null ? (float) $item['unit_price'] : null;
             $amount = ! empty($item['amount']) ? (float) $item['amount'] : null;
+            $prev = null;
+            // Alışta kartta olmayan, adetle sayılan mal: onaylanınca ürün kartı açılır.
+            $new = ! $product && $isPurchase && $qty > 0 && trim((string) ($item['description'] ?? '')) !== '';
 
-            if ($product) {
+            if ($product || $new) {
                 // Satışta adet söylenmediyse 1; alışta stoğa ne gireceği belli olmalı → boş kalır, sorulur.
                 if (($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_SALE) {
                     $qty ??= 1.0;
                 }
+                $known = match (true) {
+                    $new => null,
+                    $isPurchase => $product->buyPrice($partyId),
+                    default => $product->default_price !== null ? (float) $product->default_price : null,
+                };
+                // Fiyat ya da tutar söylendiyse (ikisi birden de olabilir) öncekiyle karşılaştır: "fiyat değişti".
+                $said = $price !== null || $amount !== null;
                 if ($amount === null && $qty !== null) {
-                    $price ??= $product->default_price !== null ? (float) $product->default_price : null;
+                    $price ??= $known;
                     $amount = $price !== null ? round($qty * $price, 2) : null;
                 } elseif ($amount !== null && $price === null && $qty > 0) {
                     $price = round($amount / $qty, 2);
                 }
+                $prev = $isPurchase && $said ? $known : null;
                 if ($amount === null && $qty !== null) {
-                    $missing[] = $product->name;
+                    $missing[] = $product?->name ?? self::title((string) $item['description']);
                 }
             }
 
             $items[] = [
-                'description' => $product?->name ?? trim((string) ($item['description'] ?? '')),
+                'description' => $product?->name ?? ($new ? self::title((string) $item['description']) : trim((string) ($item['description'] ?? ''))),
                 'product_id' => $product?->id,
                 'quantity' => $qty,
                 'unit_price' => $price,
                 'amount' => $amount,
+                'unit' => $item['unit'] ?? null,
+                'new' => $new,
+                'prev_price' => $prev !== null && $price !== null && abs($prev - $price) >= 0.005 ? $prev : null,
             ];
         }
 
@@ -195,22 +267,53 @@ class TradeDraft
             ExpenseExtractor::KIND_TRADE_PURCHASE => self::purchaseSummary($d),
             ExpenseExtractor::KIND_STOCK_COUNT => self::countSummary($d),
             ExpenseExtractor::KIND_STOCK_SETTING => self::settingSummary($d),
+            ExpenseExtractor::KIND_PRODUCT_ADD => self::productAddSummary($d),
             default => '',
         };
+    }
+
+    /** Alışta kartta olmayan mal var mı ("gider" cevabıyla gidere çevrilebilir). */
+    public static function canBecomeExpense(array $d): bool
+    {
+        return ($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE && config('modules.expenses')
+            && self::hasNewProductItem($d['items'] ?? []);
+    }
+
+    /** "gider" cevabı: yeni ürün açma, aynı alışı gider olarak yaz (cari ve ödeme bilgisi korunur). */
+    public static function toExpense(array $d): array
+    {
+        $names = collect($d['items'] ?? [])->map(fn ($i) => trim(($i['quantity'] !== null ? StockUsage::quantity((float) $i['quantity']) . ' ' . ($i['unit'] ?? '') . ' ' : '') . $i['description']))->implode(', ');
+        $d['kind'] = ExpenseExtractor::KIND_EXPENSE;
+        $d['description'] = $names ?: ($d['description'] ?? '');
+        $d['items'] = [];
+        $d['is_new_entry'] = false;
+        if (! empty($d['party_auto'])) {
+            $d['party_id'] = null;
+        }
+        if (! empty($d['paid_assumed'])) {
+            $d['paid'] = null;
+        }
+        unset($d['party_auto'], $d['paid_assumed']);
+
+        return $d;
     }
 
     /** Taslak kaydedilebilir mi? Değilse kullanıcıya sorulacak soru. */
     public static function blocker(array $d): ?string
     {
         $kind = $d['kind'];
+        if ($kind === ExpenseExtractor::KIND_PRODUCT_ADD) {
+            return null;
+        }
         if (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING], true)) {
-            if (empty($d['product_id'])) {
+            if (empty($d['product_id']) && empty($d['new_product'])) {
                 return $d['question'] ?: 'Hangi ürün?';
             }
             if ($kind === ExpenseExtractor::KIND_STOCK_COUNT && ($d['counted_quantity'] ?? null) === null) {
                 return 'Elinde kaç tane var?';
             }
-            if ($kind === ExpenseExtractor::KIND_STOCK_SETTING && ($d['daily_usage'] ?? null) === null && ($d['reorder_level'] ?? null) === null) {
+            if ($kind === ExpenseExtractor::KIND_STOCK_SETTING && ($d['daily_usage'] ?? null) === null
+                && ($d['reorder_level'] ?? null) === null && ($d['purchase_price'] ?? null) === null) {
                 return 'Günde kaç tane kullanıyorsun, ya da kaç tane kalınca haber vereyim?';
             }
 
@@ -227,7 +330,7 @@ class TradeDraft
             if (! empty($item['product_id']) && $kind === ExpenseExtractor::KIND_TRADE_PURCHASE && empty($item['quantity'])) {
                 return 'Kaç ' . (Product::find($item['product_id'])?->unit?->name ?? 'tane') . ' aldın? (stoğa girecek)';
             }
-            if (! empty($item['product_id']) && $item['amount'] === null) {
+            if ((! empty($item['product_id']) || ! empty($item['new'])) && $item['amount'] === null) {
                 return $d['question'] ?: 'Fiyatı ne?';
             }
         }
@@ -277,10 +380,20 @@ class TradeDraft
         $party = self::party($d);
         $name = self::partyName($d);
         $lines = [$name
-            ? '🛒 *Alış* ← ' . ($party ? $name : $name . ' (yeni cari)') . (! empty($d['paid']) ? ' (parası verildi)' : ' (ona borçlanırsın)')
+            ? '🛒 *Alış* ← ' . ($party ? $name : $name . ' (yeni cari)') . (! empty($d['party_auto']) ? ' (son aldığın yer)' : '')
+                . (! empty($d['paid']) ? ' · parası verildi' : ' · ona borçlanırsın')
             : (! empty($d['paid']) ? '🛒 *Peşin alış — kontrol et:*' : '🛒 *Alış — kontrol et:*')];
         $lines = array_merge($lines, self::itemLines($d, 'in'));
         $lines[] = '• Toplam: ' . Money::format((float) $d['amount']) . ' ₺';
+        if (! empty($d['paid_assumed'])) {
+            $lines[] = '• Ödeme söylemedin → veresiye yazılır. Parasını verdiysen *peşin ödedim* yaz.';
+        }
+        if (! empty($d['party_auto'])) {
+            $lines[] = '• Başka yerden aldıysan adını yaz.';
+        }
+        if (self::canBecomeExpense($d)) {
+            $lines[] = '🆕 Kartta olmayan ürün onaylayınca açılır ve stoğa girer. Stok takibi istemiyorsan *gider* yaz.';
+        }
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
         if ($party) {
             $before = PartyStatement::build($party)['balance'];
@@ -296,17 +409,26 @@ class TradeDraft
         $lines = [];
         foreach ($d['items'] ?? [] as $item) {
             $product = ! empty($item['product_id']) ? Product::with('unit')->find($item['product_id']) : null;
-            $qty = $item['quantity'] !== null ? StockUsage::quantity((float) $item['quantity']) . ' ' . ($product?->unit?->name ?? 'adet') . ' ' : '';
+            $qty = $item['quantity'] !== null ? StockUsage::quantity((float) $item['quantity']) . ' ' . ($product?->unit?->name ?? $item['unit'] ?? 'adet') . ' ' : '';
             $line = '   • ' . $qty . ($item['description'] ?: '—')
                 . ($item['amount'] !== null ? ': ' . Money::format((float) $item['amount']) . ' ₺' : '');
             if ($product?->isProduct() && $item['quantity'] !== null) {
                 $now = $product->currentStock();
                 $after = $direction === 'in' ? $now + (float) $item['quantity'] : $now - (float) $item['quantity'];
                 $line .= ' (stok ' . StockUsage::quantity($now) . ' → ' . StockUsage::quantity($after) . ')';
+            } elseif (! empty($item['new'])) {
+                $line .= ' (🆕 yeni ürün' . (! empty($item['unit']) ? ', birim ' . $item['unit'] : '') . ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ')';
             } elseif (! $product) {
                 $line .= ' _(kartta yok — stok değişmez)_';
             }
             $lines[] = $line;
+            if (($item['prev_price'] ?? null) !== null && $item['unit_price'] !== null) {
+                $prev = (float) $item['prev_price'];
+                $now = (float) $item['unit_price'];
+                $lines[] = ($now > $prev * 3 || $now < $prev / 3)
+                    ? '     ⚠️ Birim fiyat ' . Money::format($now) . ' ₺ — son alış ' . Money::format($prev) . ' ₺ idi. Doğru mu? (tanesi mi, toplam mı?)'
+                    : '     Fiyat değişti: ' . Money::format($prev) . ' → ' . Money::format($now) . ' ₺ (bundan sonra bu)';
+            }
         }
 
         return $lines;
@@ -314,6 +436,10 @@ class TradeDraft
 
     private static function countSummary(array $d): string
     {
+        if (! empty($d['new_product'])) {
+            return "📦 *Yeni ürün + stok — kontrol et:*\n• " . $d['new_product']['name'] . ': ' . StockUsage::quantity((float) $d['counted_quantity'])
+                . ' ' . ($d['new_product']['unit'] ?? '') . "\n🆕 Ürün kartı açılacak (birim: " . ($d['new_product']['unit'] ?? 'adet') . ').';
+        }
         $product = Product::with('unit')->find($d['product_id']);
         $now = $product->currentStock();
         $counted = (float) $d['counted_quantity'];
@@ -327,16 +453,37 @@ class TradeDraft
 
     private static function settingSummary(array $d): string
     {
-        $product = Product::with('unit')->find($d['product_id']);
-        $unit = $product->unit?->name ?? 'tane';
-        $lines = ['⚙️ *' . $product->name . ' — stok ayarı:*'];
+        $product = ! empty($d['product_id']) ? Product::with('unit')->find($d['product_id']) : null;
+        $name = $product?->name ?? $d['new_product']['name'];
+        $unit = $product?->unit?->name ?? $d['new_product']['unit'] ?? 'tane';
+        $lines = ['⚙️ *' . $name . ' — ayar:*'];
+        if (! $product) {
+            $lines[] = '🆕 Ürün kartı açılacak (birim: ' . $unit . ')';
+        }
+        if (($d['purchase_price'] ?? null) !== null) {
+            $old = $product?->buyPrice();
+            $lines[] = '• Alış fiyatı: ' . ($old !== null && abs($old - (float) $d['purchase_price']) >= 0.005 ? Money::format($old) . ' → ' : '')
+                . Money::format((float) $d['purchase_price']) . ' ₺ (fiyat yazmadığın alışlarda bu kullanılır)';
+        }
         if (($d['daily_usage'] ?? null) !== null) {
             $lines[] = '• Her sabah ' . StockUsage::quantity((float) $d['daily_usage']) . ' ' . $unit . ' stoktan düşülecek';
         }
         if (($d['reorder_level'] ?? null) !== null) {
             $lines[] = '• ' . StockUsage::quantity((float) $d['reorder_level']) . ' ' . $unit . ' kalınca sabah 08:00\'de haber vereceğim';
         }
-        $lines[] = '• Şu an stok: ' . StockUsage::quantity($product->currentStock()) . ' ' . $unit;
+        $lines[] = '• Şu an stok: ' . StockUsage::quantity($product?->currentStock() ?? 0.0) . ' ' . $unit;
+
+        return implode("\n", $lines);
+    }
+
+    private static function productAddSummary(array $d): string
+    {
+        $lines = ['🆕 *Ürün kartı açılacak — kontrol et:*'];
+        foreach ($d['items'] as $item) {
+            $lines[] = '• ' . $item['description'] . ' (' . ($item['unit'] ?? 'adet') . ')'
+                . ($item['unit_price'] !== null ? ' · alış ' . Money::format((float) $item['unit_price']) . ' ₺' : '');
+        }
+        $lines[] = 'Birim yanlışsa düzeltmeyi yaz (ör. "maya paket").';
 
         return implode("\n", $lines);
     }
@@ -351,6 +498,7 @@ class TradeDraft
             ExpenseExtractor::KIND_TRADE_PURCHASE => self::commitPurchase($d),
             ExpenseExtractor::KIND_STOCK_COUNT => self::commitCount($d),
             ExpenseExtractor::KIND_STOCK_SETTING => self::commitSetting($d),
+            ExpenseExtractor::KIND_PRODUCT_ADD => self::commitProductAdd($d),
         };
     }
 
@@ -381,13 +529,54 @@ class TradeDraft
         if ($party) {
             $text .= "\n" . PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
         }
+        // Akşam cirosu (ürünsüz peşin): günün tek mesajlık özeti — panele girmeden günü görsün.
+        if (! $party && $lines === []) {
+            $text .= "\n\n" . self::daySummary((string) ($d['date'] ?? now(Reminder::TIMEZONE)->toDateString()));
+        }
 
         return [$text, $party?->id];
+    }
+
+    /** "Bugün: ciro · alış · gider" + takip edilen hammaddelerin stoğu (kaç gün yeter). */
+    public static function daySummary(string $date): string
+    {
+        $isToday = $date === now(Reminder::TIMEZONE)->toDateString();
+        $sales = TradeDesk::salesSummary($date, $date);
+        $purchases = TradeDesk::purchaseSummary($date, $date);
+        $parts = ['ciro ' . Money::format($sales['total'])];
+        if ($purchases['total'] > 0) {
+            $parts[] = 'alış ' . Money::format($purchases['total']);
+        }
+        if (config('modules.expenses') && ($exp = (float) Expense::whereDate('expense_date', $date)->sum('amount')) > 0) {
+            $parts[] = 'gider ' . Money::format($exp);
+        }
+        $lines = ['📊 *' . ($isToday ? 'Bugün' : Carbon::parse($date)->locale('tr')->translatedFormat('j F')) . ':* ' . implode(' · ', $parts) . ' ₺'];
+
+        $tracked = Product::active()->with('unit')
+            ->where('type', Product::TYPE_PRODUCT)
+            ->where(fn ($q) => $q->where('auto_usage', true)->orWhereNotNull('reorder_level'))
+            ->orderBy('name')->get();
+        foreach ($tracked as $p) {
+            $stock = $p->currentStock();
+            $days = $p->daysLeft($stock);
+            $lines[] = ($p->isLowStock($stock) ? '⚠️ ' : '📦 ') . $p->name . ' ' . StockUsage::quantity($stock) . ' ' . ($p->unit?->name ?? '')
+                . ($days !== null ? ' (~' . $days . ' gün)' : '');
+        }
+
+        return implode("\n", $lines);
     }
 
     private static function commitPurchase(array $d): array
     {
         $party = (! empty($d['party_id']) || ! empty($d['party_name'])) ? self::resolveParty($d) : null;
+        $created = [];
+        foreach ($d['items'] ?? [] as $i => $item) {
+            if (! empty($item['new']) && empty($item['product_id'])) {
+                $product = self::createProduct($item['description'], $item['unit'] ?? null, $item['unit_price'] ?? null);
+                $d['items'][$i]['product_id'] = $product->id;
+                $created[] = $product->name;
+            }
+        }
         [$lines, $manual] = self::splitLines($d);
 
         $purchase = TradeDesk::savePurchase([
@@ -401,7 +590,8 @@ class TradeDraft
         ]);
 
         $text = '✅ Alış kaydedildi: ' . Money::format((float) $purchase->total_amount) . ' ₺'
-            . ($party ? ' · ' . $party->name : '') . (! empty($d['paid']) ? ' (ödendi)' : '');
+            . ($party ? ' · ' . $party->name : '') . (! empty($d['paid']) ? ' (ödendi)' : '')
+            . ($created !== [] ? "\n🆕 Ürün kartı açıldı: " . implode(', ', $created) : '');
         $text .= self::stockAfterLines($lines);
         if ($party) {
             $text .= "\n" . PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
@@ -412,7 +602,9 @@ class TradeDraft
 
     private static function commitCount(array $d): array
     {
-        $product = Product::with('unit')->findOrFail($d['product_id']);
+        $product = ! empty($d['product_id'])
+            ? Product::with('unit')->findOrFail($d['product_id'])
+            : self::createProduct($d['new_product']['name'], $d['new_product']['unit'] ?? null)->load('unit');
         $product->countTo((float) $d['counted_quantity'], $d['date'] ?? null);
 
         return ['✅ Sayım kaydedildi: ' . $product->name . ' ' . StockUsage::quantity($product->currentStock()) . ' ' . ($product->unit?->name ?? ''), null];
@@ -420,8 +612,13 @@ class TradeDraft
 
     private static function commitSetting(array $d): array
     {
-        $product = Product::findOrFail($d['product_id']);
+        $product = ! empty($d['product_id'])
+            ? Product::findOrFail($d['product_id'])
+            : self::createProduct($d['new_product']['name'], $d['new_product']['unit'] ?? null);
         $update = [];
+        if (($d['purchase_price'] ?? null) !== null) {
+            $update['purchase_price'] = $d['purchase_price'];
+        }
         if (($d['daily_usage'] ?? null) !== null) {
             $update['auto_usage'] = (float) $d['daily_usage'] > 0;
             $update['daily_usage'] = (float) $d['daily_usage'] > 0 ? $d['daily_usage'] : null;
@@ -432,6 +629,44 @@ class TradeDraft
         $product->update($update);
 
         return ['✅ Tamam, ' . $product->name . ' için ayar kaydedildi. Panelde ürün kartından da değiştirebilirsin.', null];
+    }
+
+    private static function commitProductAdd(array $d): array
+    {
+        $names = [];
+        foreach ($d['items'] as $item) {
+            $names[] = self::createProduct($item['description'], $item['unit'] ?? null, $item['unit_price'] ?? null)->name;
+        }
+
+        return ['✅ Ürün kartı açıldı: ' . implode(', ', $names)
+            . "\nŞimdi elindekini yazabilirsin, ör. \"" . $names[0] . ' 15 ' . ($d['items'][0]['unit'] ?? 'adet') . ' var"', null];
+    }
+
+    /** Ürün kartı (stoklu). Aynı adlı ürün o arada açıldıysa onu kullanır — çift kart olmasın. */
+    private static function createProduct(string $name, ?string $unit, ?float $purchasePrice = null): Product
+    {
+        if ($existing = self::matchProduct($name)) {
+            return $existing;
+        }
+
+        return Product::create([
+            'name' => self::title($name),
+            'type' => Product::TYPE_PRODUCT,
+            'unit_id' => self::unitId($unit),
+            'purchase_price' => $purchasePrice > 0 ? $purchasePrice : null,
+            'is_active' => true,
+        ]);
+    }
+
+    private static function unitId(?string $unit): ?int
+    {
+        $unit = trim((string) $unit);
+        if ($unit === '') {
+            return null;
+        }
+        $found = Unit::all()->first(fn (Unit $u) => self::lower($u->name) === self::lower($unit) || self::lower((string) $u->code) === self::lower($unit));
+
+        return ($found ?? Unit::firstOrCreate(['code' => Str::slug($unit) ?: Str::random(6)], ['name' => self::lower($unit)]))->id;
     }
 
     /** Katalogdaki kalemler → belge kalemi; katalogda olmayanlar → ürünsüz tutar. */
@@ -535,6 +770,36 @@ class TradeDraft
         }
 
         return null;
+    }
+
+    private static function hasNewProductItem(array $items): bool
+    {
+        foreach ($items as $item) {
+            if (empty($item['product_id']) && (float) ($item['quantity'] ?? 0) > 0 && trim((string) ($item['description'] ?? '')) !== ''
+                && ! self::matchProduct((string) $item['description'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function firstMatchedItem(array $items): ?Product
+    {
+        foreach ($items as $item) {
+            if ($p = self::matchProduct((string) ($item['description'] ?? ''))) {
+                return $p;
+            }
+        }
+
+        return null;
+    }
+
+    private static function title(string $s): string
+    {
+        $s = trim($s);
+
+        return mb_strtoupper(mb_substr(strtr(mb_substr($s, 0, 1), ['i' => 'İ']), 0, 1)) . mb_substr($s, 1);
     }
 
     private static function hasCatalogItem(array $items): bool

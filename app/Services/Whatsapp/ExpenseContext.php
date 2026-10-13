@@ -54,11 +54,12 @@ class ExpenseContext
         if (config('modules.sales_desk') || config('modules.purchases')) {
             $products = \App\Models\Product::active()->with('unit')->orderBy('name')->get();
             $lines[] = '';
-            $lines[] = 'ÜRÜNLER (id: ad [birim] — fiyat — stok):';
+            $lines[] = 'ÜRÜNLER (id: ad [birim] — satış fiyatı / alış fiyatı — stok):';
             $lines[] = $products->isEmpty()
                 ? '  (kayıtlı ürün yok — ürün adı geçse de product_id null)'
                 : $products->map(fn ($p) => sprintf('  %d: %s%s — %s%s', $p->id, $p->name, $p->unit ? " [{$p->unit->name}]" : '',
-                    $p->default_price !== null ? (float) $p->default_price : 'fiyatsız',
+                    ($p->default_price !== null ? 'satış ' . (float) $p->default_price : 'satış fiyatsız')
+                        . (($buy = $p->buyPrice()) !== null ? ' / alış ' . $buy : ''),
                     $p->isProduct() ? ' — stok ' . \App\Support\StockUsage::quantity($p->currentStock()) : ' — hizmet'))->implode("\n");
         }
 

@@ -51,8 +51,15 @@ class ProductForm
                 ->preload(),
 
             MoneyInput::make('default_price', 'Varsayılan fiyat')
+                ->label(fn () => config('modules.purchases') ? 'Satış fiyatı' : 'Varsayılan fiyat')
                 ->required(false)
                 ->helperText('Teslimat/satışta seçilince otomatik gelir; düzenlenebilir.'),
+
+            // Alışlar ekranı açık firmada: alışta gelen fiyat (her alışta kendiliğinden güncellenir).
+            MoneyInput::make('purchase_price', 'Alış fiyatı')
+                ->required(false)
+                ->visible(fn () => (bool) config('modules.purchases'))
+                ->helperText('Alışta fiyat yazılmazsa bu kullanılır; her alışta son fiyatla güncellenir.'),
 
             Toggle::make('is_active')
                 ->label('Aktif')
