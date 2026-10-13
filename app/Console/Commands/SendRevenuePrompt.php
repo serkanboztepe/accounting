@@ -6,6 +6,7 @@ use App\Models\HubPhone;
 use App\Models\Reminder;
 use App\Models\Sale;
 use App\Models\WhatsappMessage;
+use App\Support\DailyNudge;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Support\TemplateApproval;
 use App\Tenancy\Tenancy;
@@ -54,14 +55,22 @@ class SendRevenuePrompt extends Command
             return self::SUCCESS;
         }
 
-        $contentSid = (string) config('services.whatsapp.reminder_content_sid');
-        $useTemplate = TemplateApproval::approved($contentSid);
+        // Kendi şablonu (ciro_sorusu) onaylıysa o; değilse genel "hatirlatma" şablonu; o da yoksa düz metin (24 saat).
+        $revenueSid = (string) config('services.whatsapp.revenue_content_sid');
+        $reminderSid = (string) config('services.whatsapp.reminder_content_sid');
+        $template = match (true) {
+            TemplateApproval::approved($revenueSid) => 'ciro_sorusu',
+            TemplateApproval::approved($reminderSid) => 'hatirlatma',
+            default => null,
+        };
 
-        foreach ($this->recipients() as $phone) {
-            $ok = $useTemplate
-                ? $sender->sendTemplate($phone, $contentSid, ['1' => self::TEXT], 'hatirlatma')
-                : $sender->sendText($phone, '🧾 ' . self::TEXT);
-            $this->line('  → ' . $phone . ($ok ? ' ✓' : ' ✗ (log)'));
+        foreach ($this->recipients() as $phone => $name) {
+            $ok = match ($template) {
+                'ciro_sorusu' => $sender->sendTemplate($phone, $revenueSid, ['1' => DailyNudge::firstName($name)], 'ciro_sorusu'),
+                'hatirlatma' => $sender->sendTemplate($phone, $reminderSid, ['1' => self::TEXT], 'hatirlatma'),
+                default => $sender->sendText($phone, '🧾 ' . self::TEXT),
+            };
+            $this->line('  → ' . $phone . ' (' . ($template ?? 'düz metin') . ')' . ($ok ? ' ✓' : ' ✗ (log)'));
             if ($ok) {
                 WhatsappMessage::create(['phone' => $phone, 'direction' => 'out', 'body' => self::TEXT, 'kind' => 'revenue_prompt']);
             }
@@ -70,14 +79,14 @@ class SendRevenuePrompt extends Command
         return self::SUCCESS;
     }
 
-    /** @return list<string> */
+    /** @return array<string, ?string> telefon => kişi adı */
     private function recipients(): array
     {
-        $phones = config('services.whatsapp.reminder_phones', []);
+        $phones = array_fill_keys(config('services.whatsapp.reminder_phones', []), null);
         if ($phones === [] && Tenancy::current()) {
-            $phones = HubPhone::where('hub_firm_id', Tenancy::current()->id)->where('is_active', true)->pluck('phone')->all();
+            $phones = HubPhone::where('hub_firm_id', Tenancy::current()->id)->where('is_active', true)->pluck('name', 'phone')->all();
         }
 
-        return array_values(array_unique($phones));
+        return $phones;
     }
 }
