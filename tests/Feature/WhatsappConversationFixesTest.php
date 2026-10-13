@@ -401,10 +401,11 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame('2026-11-14', PartyLedgerEntry::where('party_id', $party->id)->sole()->due_date->toDateString());
     }
 
-    /** Gider takibi kapalı firma (Burak): "mal aldım" alıştır — eskiden en yakın kalıp "ödeme" seçilip yön ters çıkıyordu. */
-    public function test_purchase_kind_only_without_expenses_and_records_ledger_purchase(): void
+    /** "mal aldım" alıştır (tedarikçi tarafı açık her firmada) — eskiden gider kapalıyken en yakın kalıp "ödeme" seçilip yön ters çıkıyordu (Burak). */
+    public function test_purchase_kind_with_supplier_side_and_records_ledger_purchase(): void
     {
-        $this->assertNotContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds()); // gider açık
+        config(['modules.cari_supplier' => false]);
+        $this->assertNotContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds()); // tedarikçi tarafı kapalı (mimar)
         config(['modules.expenses' => false, 'modules.cari_supplier' => true]);
         $this->assertContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds());
 

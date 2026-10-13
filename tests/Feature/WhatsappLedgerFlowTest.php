@@ -125,7 +125,8 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertSame(0, Expense::where('party_id', $party->id)->count());
     }
 
-    public function test_payment_without_debt_choice_one_becomes_paid_expense(): void
+    /** "1" (iş/mal aldım) → peşin alış: alış + ödeme cari hesabında, gider açılmaz (Taner, 13 Ekim). */
+    public function test_payment_without_debt_choice_one_becomes_paid_purchase(): void
     {
         $party = Party::create(['name' => 'Ali Usta']);
         $this->fakeAi($this->entry([
@@ -137,9 +138,9 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertStringContainsString('Ne için ödedin?', $this->send('1'));
         $this->send('evet'); // amacı atla
 
-        $expense = Expense::where('party_id', $party->id)->sole();
-        $this->assertSame('paid', $expense->payment_status);
-        $this->assertSame(0, PartyLedgerEntry::where('party_id', $party->id)->count());
+        $this->assertSame(0, Expense::where('party_id', $party->id)->count());
+        $this->assertEqualsCanonicalizing([PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT],
+            PartyLedgerEntry::where('party_id', $party->id)->pluck('type')->all());
         $this->assertSame(0.0, $this->balance($party));
     }
 
@@ -303,9 +304,11 @@ class WhatsappLedgerFlowTest extends TestCase
             $this->entry(['amount' => 5000, 'paid' => null, 'description' => 'Yakıt Varsayılan', 'is_new_entry' => true]),
         );
 
-        $this->assertStringContainsString('Durum: Ödenmedi (borç)', $this->send("Ahmet'ten 100 bin malzeme aldım"));
+        // Carili → alış (gider değil); ödendiği söylenmedi → ona borçlandın.
+        $this->assertStringContainsString('(ona borçlandın)', $this->send("Ahmet'ten 100 bin malzeme aldım"));
         $this->send('evet');
-        $this->assertSame('unpaid', Expense::where('party_id', $party->id)->sole()->payment_status);
+        $this->assertSame(0, Expense::where('party_id', $party->id)->count());
+        $this->assertSame(-100000.0, $this->balance($party));
 
         $this->assertStringContainsString('Durum: Ödendi', $this->send('5 bin yakıt'));
         $this->send('evet');

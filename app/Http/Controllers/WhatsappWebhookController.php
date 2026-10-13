@@ -49,7 +49,7 @@ use Illuminate\Support\Str;
  *   expense → Expense; payment/sale/collection → cari hareketi (party_ledger_entries);
  *   balance_query → sadece cevap, kayıt yok.
  * Ödeme (payment) maliyet DEĞİLDİR — borcu düşürür. Carinin açık borcu yoksa
- * "yeni masraf mı, avans mı?" sorulur (çift sayımı önler). Cevap TwiML olarak döner
+ * "iş/mal mı aldın, avans mı?" sorulur (çift sayımı önler). Cevap TwiML olarak döner
  * (aynı sohbette görünür, REST gönderime gerek yok).
  */
 class WhatsappWebhookController extends Controller
@@ -340,13 +340,13 @@ class WhatsappWebhookController extends Controller
             // cevapları hâlâ geçerli.
             if ($this->needsPaymentChoice($pending->extracted)) {
                 if ($body === '1') {
-                    // Yeni iş/masraf → ödenmiş gider taslağı. Önce "ne için?" sorulur: yoksa açıklama
+                    // Yapılmış iş / gelmiş mal → peşin alış (fitToModules carili gideri alışa çevirir). Önce "ne için?" sorulur: yoksa açıklama
                     // sadece "Ali'ye ödeme" kalıyor, işin ne olduğu/kategorisi görünmüyordu. Cevap
                     // düzeltme (refine) olarak işlenir → açıklama + kategori dolar, sonra özet.
                     $data = $pending->extracted;
                     $data['kind'] = ExpenseExtractor::KIND_EXPENSE;
                     $data['paid'] = true;
-                    $data = ExpenseExtractor::fitToModules($data); // gider kapalı → peşin alış
+                    $data = ExpenseExtractor::fitToModules($data); // carili → peşin alış
                     $pending->update(['extracted' => $data]);
 
                     return $this->twiml("Ne için ödedin? Kısaca yaz (ör. \"sıva işçiliği\", \"kaba inşaat\").\nAtlamak için *evet*.");
@@ -937,7 +937,7 @@ class WhatsappWebhookController extends Controller
                 return 'Önce yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).';
             }
             if ($this->needsPaymentChoice($d)) {
-                return 'Önce seç: *1* yeni masraf, *2* avans.';
+                return 'Önce seç: *1* iş/mal aldım, *2* avans.';
             }
             if ($kind === ExpenseExtractor::KIND_PAYMENT && $this->paymentContract($d)) {
                 return $this->commitContractPayment($pending, $d, $this->paymentContract($d));
@@ -1455,6 +1455,11 @@ class WhatsappWebhookController extends Controller
         } elseif ($kind === ExpenseExtractor::KIND_PURCHASE) {
             $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
                 . (! empty($d['paid']) ? ' (ödendi)' : ' (ona borçlandın)');
+            // Sözleşmeli cariden alış: işin bedeli zaten sözleşmede → çift maliyet riski.
+            if ($party && $this->activeContracts($party)->isNotEmpty()) {
+                $lines[] = '⚠️ ' . $party->name . ' ile sözleşmen var. Bu, sözleşmedeki işin parasıysa *iptal* yaz ve '
+                    . 'ödeme olarak gönder (ör. "… ödedim"), yoksa iki kez sayılır. Sözleşme dışı ek işse devam et.';
+            }
         } elseif ($kind === ExpenseExtractor::KIND_DEBT_NOTE && $this->needsDebtSide($d)) {
             return '📒 ' . $label . ': ' . Money::format($amount) . " ₺ — *kim kime borçlu?*\n"
                 . '• ' . $name . ' mi sana borçlu, yoksa sen mi ona borçlusun?';

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Expenses\Schemas;
 
+use App\Models\Expense;
 use App\Support\Forms\MoneyInput;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -27,11 +28,15 @@ class ExpenseForm
                 ->preload()
                 ->helperText('Boş bırakılırsa genel gider olarak değerlendirilir.')
                 ->visible(fn () => config('modules.projects')),
+            // Gider = carisiz harcama; bir kişiden/firmadan alım Cariler'den "Alış" olarak girilir.
+            // Alan yalnız eskiden cariye bağlanmış kayıtta görünür (o veri bozulmasın).
             Select::make('party_id')
                 ->label('Cari')
                 ->relationship('party', 'name')
                 ->searchable()
-                ->preload(),
+                ->preload()
+                ->helperText('Yeni alımları Cariler → ilgili cari → Alış olarak girin.')
+                ->visible(fn (?Expense $record): bool => $record?->party_id !== null),
             Select::make('expense_category_id')
                 ->label('Kategori')
                 ->relationship('category', 'name')

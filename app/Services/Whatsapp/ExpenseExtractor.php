@@ -71,8 +71,8 @@ class ExpenseExtractor
         self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING, self::KIND_MONTH_RESULT, self::KIND_PRODUCT_ADD];
 
     private const KIND_HINTS = [
-        self::KIND_EXPENSE => '- "expense": bir MALİYET — mal/hizmet ALINDI ("Ahmet\'ten 100 bin malzeme aldım", "5 bin yakıt", "işçiye 3 bin yevmiye"). Ödendi de olsa veresiye de olsa gider budur.',
-        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş için peşin ("avans", "kapora", "iş yaptıracağım") → "advance"; geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / alınmış malın karşılığıysa ("sıva yaptırdım", "malzeme aldım") bu bir "expense"dir (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
+        self::KIND_EXPENSE => '- "expense": CARİSİZ genel harcama — belli bir kişi/firma hesabına bağlı OLMAYAN masraf ("5 bin yakıt", "kira 20 bin ödendi", "elektrik faturası", "yemek 800", "markette 2 bin"). Ödendi de olsa ödenmedi de olsa gider budur. Bir KİŞİDEN/FİRMADAN (cari) mal ya da hizmet alındıysa ("Ahmet\'ten 100 bin malzeme aldım", "Abdullah Usta\'ya sıva yaptırdım") bu gider DEĞİL, "purchase"tır.',
+        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş ya da sonra gelecek mal için peşin ("avans", "kapora", "iş yaptıracağım", "bağlantı" / "bağlantısı ödendi" — malı önceden parasını verip sabitlemek, "ön ödeme", "peşin verdim mal sonra gelecek") → "advance" (ör. "Sinan\'a yapılan 2026 bağlantısı 2.500.000 ödendi" → payment, advance); geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / gelmiş malın karşılığıysa ("sıva yaptırdım", "malzeme aldım ödedim") bu bir "purchase"tır (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". "X\'e veresiye" / "X\'e veresiye yazdım" ("Ayşe hanıma 1.250 lira veresiye") → "sale", `paid`=false — veresiye = malı verdik, parası sonra alınacak; gider ya da borç kaydı DEĞİLDİR. Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null.',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
@@ -118,9 +118,9 @@ class ExpenseExtractor
             self::KIND_HELP,
             self::KIND_REMINDER,
             self::KIND_AGENDA,
-            // Gider takibi kapalı ama tedarikçi tarafı açık (alacak-verecek, gidersiz): "mal aldım" alış olur —
-            // yoksa en yakın kalıp "ödeme" seçiliyor, yön ters çıkıyordu (Burak, 2026-10-10).
-            ! config('modules.expenses') && config('modules.cari_supplier') ? self::KIND_PURCHASE : null,
+            // Tedarikçi tarafı açık: "Ahmet'ten mal aldım" alış olur (cari hesabı), gider değil — gider yalnız carisiz
+            // harcama. Gider kapalı firmada yoksa en yakın kalıp "ödeme" seçiliyor, yön ters çıkıyordu (Burak, 2026-10-10).
+            config('modules.cari_supplier') ? self::KIND_PURCHASE : null,
             // Stoklu satış paketi: yalnız Satışlar/Alışlar tezgahı açık firmada (mevcut firmalarda hiçbiri yok).
             config('modules.sales_desk') ? self::KIND_TRADE_SALE : null,
             config('modules.purchases') && config('modules.stock') ? self::KIND_TRADE_PURCHASE : null,
@@ -148,16 +148,26 @@ class ExpenseExtractor
         // Stoklu satış paketi: hedef (gider / alış belgesi / satış belgesi) KODDA, katalog eşleşmesine göre.
         $d = TradeDraft::route($d);
 
-        if (($d['kind'] ?? self::KIND_EXPENSE) !== self::KIND_EXPENSE || config('modules.expenses')) {
+        if (($d['kind'] ?? self::KIND_EXPENSE) !== self::KIND_EXPENSE) {
             return $d;
         }
 
-        if (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) && (! empty($d['party_id']) || ! empty($d['party_name']))) {
+        // Carisi olan kayıt gidere değil carinin hesabına yazılır (alış); gider yalnız carisiz harcama.
+        // "Sinan'a bağlantı ödendi" carili gider olunca hem gider şişti hem ekstre "hesap kapalı" dedi (Taner, 13 Ekim).
+        // İstisna: eski ödenmemiş carili giderin ödemesi (settles_expense_id) gider yolunda kapanır.
+        if (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) && (! empty($d['party_id']) || ! empty($d['party_name']))
+            && empty($d['settles_expense_id'])) {
             $d['kind'] = self::KIND_PURCHASE;
             $d['category_id'] = $d['category_name'] = $d['settles_expense_id'] = null;
-            $d['project_id'] = $d['project_name'] = null; // alış cari hareketidir, maliyete girmez
-            $d['paid'] = (bool) ($d['paid'] ?? false);
+            if (! config('modules.projects')) {
+                $d['project_id'] = $d['project_name'] = null;
+            }
+            $d['paid'] = (bool) ($d['paid'] ?? false); // carili ve ödendiği söylenmemiş → ona borçlandın
 
+            return $d;
+        }
+
+        if (config('modules.expenses')) {
             return $d;
         }
 
@@ -272,10 +282,13 @@ class ExpenseExtractor
         // Fiilsiz/yönü belirsiz mesaj ("Abdullah Uçar 2 milyon kaba inşaat"): müteahhitte bu bir
         // maliyettir; satış yalnız açık fiille. Gider kapalıysa (mimar) varsayılan satış.
         $ambiguousRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
-            ? '- Fiil YOKSA ya da yön belirsizse ("Abdullah Uçar 2 milyon kaba inşaat", "Ahmet 50 bin sıva") → "expense" (yaptırdığımız iş = maliyet). "sale" SADECE açık fiille: "yaptım", "sattım", "fatura kestim", "iş yaptım" — cari daha önce müşteri olarak görünse bile fiil yoksa satış SEÇME.'
+            ? '- Fiil YOKSA ya da yön belirsizse ("Abdullah Uçar 2 milyon kaba inşaat", "Ahmet 50 bin sıva") → '
+                . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? '"purchase" (cariye yaptırdığımız iş = alış)' : '"expense" (yaptırdığımız iş = maliyet)')
+                . '. "sale" SADECE açık fiille: "yaptım", "sattım", "fatura kestim", "iş yaptım" — cari daha önce müşteri olarak görünse bile fiil yoksa satış SEÇME.'
             : '- Fiil YOKSA ("Ali Bey 80 bin proje") → "sale" (yaptığımız iş).';
         $photoRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
-            ? '- Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense".'
+            ? '- Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense". Fişteki/faturadaki SATICI (market, akaryakıt, mağaza, restoran) cari DEĞİLDİR: '
+                . 'kullanıcı mesajda o kişiyi/firmayı adıyla yazmadıysa ve satıcı aşağıdaki mevcut cari listesinde yoksa `party_id`/`party_name` null.'
             : '- Fotoğraf (dekont/çek) → belgeden yönü çıkar: bize gelen para → "collection".';
         // Harcama takibi kapalı: kişisiz harcama / "ne harcadım" sorusu zorla başka kalıba girmesin.
         $noExpenseRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true) ? '' : '- HARCAMA (GİDER) TAKİBİ KAPALI: kişisiz bir harcama ("5 bin mazot aldım", "kira ödedim" — kime belli değil) ya da harcama sorusu ("bu ay ne harcadım") → "help", `reply`: "Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor.'
@@ -295,12 +308,12 @@ class ExpenseExtractor
         $refine = '';
         if ($previous !== null) {
             $prevJson = json_encode($previous, JSON_UNESCAPED_UNICODE);
-            // Gider kapalı firmada "Ne için verdin? → malzeme aldım" gider değil, peşin alış (Burak, 11 Ekim).
-            $doneWork = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
+            // "Ne için verdin? → malzeme aldım": cariye verilen para gider değil, peşin alış (Burak 11 Ekim, Taner 13 Ekim).
+            $doneWork = ! in_array(self::KIND_PURCHASE, self::allowedKinds(), true)
                 ? 'kind "expense",
                 `paid`=true, `description` işin kısa adı, uygun kategori'
                 : 'kind "purchase",
-                `paid`=true, `description` mal/işin kısa adı (gider takibi KAPALI — "expense" SEÇME)';
+                `paid`=true, `description` mal/işin kısa adı (cariye verilen para — "expense" SEÇME)';
             $refine = <<<REFINE
 
             ÖNEMLİ — Aşağıda ONAY BEKLEYEN önceki bir taslak var. Kullanıcının yeni mesajı ya
