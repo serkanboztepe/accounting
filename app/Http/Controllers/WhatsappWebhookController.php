@@ -788,7 +788,8 @@ class WhatsappWebhookController extends Controller
         }
 
         $pending?->update(['status' => 'superseded']);
-        $summary = "🗑️ *Şu kaydı sileceğim:*\n" . trim((string) $last->summary);
+        $isSettle = collect($targets)->contains(fn ($t) => ($t[0] ?? null) === 'settle');
+        $summary = ($isSettle ? "↩️ *Şu ödemeyi geri alacağım (borç tekrar açılır):*\n" : "🗑️ *Şu kaydı sileceğim:*\n") . trim((string) $last->summary);
         if ($replacement !== null) {
             $summary .= "\n\n✏️ *Yerine yazacağım:*\n" . $this->shortLine($replacement);
         }
@@ -799,7 +800,11 @@ class WhatsappWebhookController extends Controller
             'status' => 'awaiting_confirmation',
         ]);
 
-        return $summary . ($replacement !== null ? "\n\nDüzelteyim mi? *evet* / *iptal*" : "\n\nSileyim mi? *evet* / *iptal*");
+        return $summary . match (true) {
+            $replacement !== null => "\n\nDüzelteyim mi? *evet* / *iptal*",
+            $isSettle => "\n\nGeri alayım mı? *evet* / *iptal*",
+            default => "\n\nSileyim mi? *evet* / *iptal*",
+        };
     }
 
     /** Düzeltmede yeni kaydın tek satırlık özeti (bakiye yok — eski kayıt silinince değişir). */
@@ -827,7 +832,7 @@ class WhatsappWebhookController extends Controller
     private function undoModel(array $target): ?\Illuminate\Database\Eloquent\Model
     {
         return match ($target[0] ?? null) {
-            'expense' => Expense::find($target[1] ?? 0),
+            'expense', 'settle' => Expense::find($target[1] ?? 0),
             'ledger' => PartyLedgerEntry::find($target[1] ?? 0),
             'sale' => Sale::find($target[1] ?? 0),
             'purchase' => Purchase::find($target[1] ?? 0),
@@ -843,7 +848,12 @@ class WhatsappWebhookController extends Controller
         \Illuminate\Support\Facades\DB::transaction(function () use ($pending, &$partyIds, &$deleted) {
             foreach ((array) ($pending->extracted['targets'] ?? []) as $target) {
                 $model = $this->undoModel($target);
-                if ($model) {
+                if ($model && ($target[0] ?? null) === 'settle') {
+                    // Borç ödemesi geri alınır: gider silinmez, ödeme öncesi hâline döner (borç tekrar açılır).
+                    $model->update(['amount' => $target[2], 'payment_status' => $target[3], 'party_id' => $target[4] ?? null]);
+                    $partyIds[] = $model->party_id;
+                    $deleted++;
+                } elseif ($model) {
                     $partyIds[] = $model->party_id;
                     $model->delete();
                     $deleted++;
@@ -869,7 +879,9 @@ class WhatsappWebhookController extends Controller
         }
         $party = Party::find(collect($partyIds)->filter()->last());
 
-        return '🗑️ Silindi.' . ($party ? ' ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']) : '')
+        $settled = collect((array) ($pending->extracted['targets'] ?? []))->contains(fn ($t) => ($t[0] ?? null) === 'settle');
+
+        return ($settled ? '↩️ Ödeme geri alındı, borç tekrar açık.' : '🗑️ Silindi.') . ($party ? ' ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']) : '')
             . "\nDoğrusunu yazarsan hemen kaydederim.";
     }
 
@@ -1216,6 +1228,10 @@ class WhatsappWebhookController extends Controller
             $open = Expense::whereKey($d['settles_expense_id'])->whereIn('payment_status', ['unpaid', 'partial'])->lockForUpdate()->first();
             if (! $open) {
                 return 'Bu borç bu arada kapanmış görünüyor. Yeni gider olarak yazmak için tekrar gönder.';
+            }
+            // "Son kaydı sil" bu ödemeyi geri alabilsin: borcun ödeme öncesi hâli (kalan parça ayrıca 'expense' olarak kaydolur).
+            if (self::$recording !== null) {
+                self::$recording[] = ['settle', $open->id, (string) $open->amount, $open->payment_status, $open->party_id];
             }
 
             $paid = (float) $d['amount'];

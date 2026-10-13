@@ -147,6 +147,24 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(0, $this->ledgerCount('Geri Al Yakup'));
     }
 
+    public function test_undo_of_debt_payment_reopens_debt(): void
+    {
+        $bill = \App\Models\Expense::create(['amount' => 3500, 'description' => 'Geri Al Elektrik', 'expense_date' => now(), 'payment_status' => 'unpaid']);
+        $pay = ['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 2000, 'settles_expense_id' => $bill->id, 'paid' => true, 'description' => 'Elektrik'] + $this->sale(2000, 'x');
+        $pay['party_name'] = null;
+        $this->chat(['type' => 'entry', 'data' => $pay, 'text' => ''], ['type' => 'undo']);
+
+        $this->send('elektriğin 2000 ini ödedim');
+        $this->send('evet');
+        $this->assertSame(['2000.00', 'paid'], [$bill->fresh()->amount, $bill->fresh()->payment_status]);
+        $this->assertTrue(\App\Models\Expense::where('description', 'like', 'Geri Al Elektrik (kalan)')->exists());
+
+        $this->assertStringContainsString('Şu ödemeyi geri alacağım', $this->send('son kaydı sil'));
+        $this->assertStringContainsString('Ödeme geri alındı', $this->send('evet'));
+        $this->assertSame(['3500.00', 'unpaid'], [$bill->fresh()->amount, $bill->fresh()->payment_status]);
+        $this->assertFalse(\App\Models\Expense::where('description', 'like', 'Geri Al Elektrik (kalan)')->exists());
+    }
+
     public function test_correction_replaces_last_record_in_one_confirm(): void
     {
         $this->chat(
