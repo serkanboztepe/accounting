@@ -517,7 +517,8 @@ class WhatsappConversationFixesTest extends TestCase
         $first = $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '47 tl otobüs', 'NumMedia' => 0])->getContent();
         $this->assertSame(2, substr_count($first, '<Message>'));
         $this->assertStringContainsString('Hoş geldin', $first);
-        $this->assertStringContainsString('Kaydetmek için', $first);
+        $this->assertStringContainsString('Daha fazla örnek için *nasıl* yaz', $first);
+        $this->assertStringNotContainsString('Kaydetmek için', $first); // uzun liste ilk mesajda yok
 
         $this->send('evet');
         $second = $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '50 tl çay', 'NumMedia' => 0])->getContent();
@@ -568,5 +569,41 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('Kaydetmek için', $reply);
         $this->assertStringContainsString("Ali'den 40 bin alacağım var", $reply);
         $this->assertStringContainsString('Bu ay ne kadar harcadım?', $reply);
+    }
+
+    /** Akkuş Fırın (13 Ekim): 30 satırlık rehberi alan iki kişi bir daha yazmadı → ilk mesajda kısa, sektöre göre karşılama. */
+    public function test_first_contact_nasil_gets_short_sector_welcome_full_list_later(): void
+    {
+        config(['modules' => \App\Support\ModuleProfiles::resolve('trade'), 'app.profile' => 'trade']);
+        $firm = HubFirm::create(['name' => 'Fırın Karşılama Test', 'url' => 'https://example.test']);
+        HubPhone::create(['phone' => '0555 777 00 00', 'hub_firm_id' => $firm->id])
+            ->forceFill(['created_at' => '2026-10-12 10:00:00'])->save();
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldNotReceive('extract');
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $first = $this->send('Nasıl');
+        $this->assertStringContainsString('Hoş geldin', $first);
+        $this->assertStringContainsString('Bugün 10 bin nakit 15 bin kart', $first);
+        $this->assertStringContainsString("Ak Un'dan 20 çuval un aldım", html_entity_decode($first, ENT_QUOTES));
+        $this->assertStringContainsString('Un ne kadar kaldı?', $first);
+        $this->assertStringNotContainsString('düğün', $first);
+        $this->assertLessThanOrEqual(10, substr_count(html_entity_decode($first), "\n") + 1);
+
+        $this->assertStringContainsString('Kaydetmek için', $this->send('Nasıl')); // ikinci kez → uzun liste
+    }
+
+    /** İlk mesaj anlaşılmadıysa ("Hesap takibi") genel AI cevabı + karşılama üst üste gitmez — yalnız karşılama. */
+    public function test_first_contact_help_sends_only_welcome(): void
+    {
+        $firm = HubFirm::create(['name' => 'Yardım Karşılama Test', 'url' => 'https://example.test']);
+        HubPhone::create(['phone' => '0555 777 00 00', 'hub_firm_id' => $firm->id])
+            ->forceFill(['created_at' => '2026-10-12 10:00:00'])->save();
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_HELP, 'amount' => 0, 'reply' => 'Genel yardım cevabı']));
+
+        $reply = $this->send('Hesap takibi');
+        $this->assertSame(1, substr_count($reply, '<Message>'));
+        $this->assertStringContainsString('Hoş geldin', $reply);
+        $this->assertStringNotContainsString('Genel yardım cevabı', $reply);
     }
 }

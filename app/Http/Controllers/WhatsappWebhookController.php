@@ -87,15 +87,19 @@ class WhatsappWebhookController extends Controller
         }
 
         try {
-            $firstContact = $this->isFirstContact($phone);
+            $firstContact = $this->firstContact = $this->isFirstContact($phone);
             $incoming = $this->logMessage($phone, 'in', $body, $numMedia > 0);
 
             $response = $this->respond($request, $extractor, $phone, $body, $numMedia);
 
-            // İlk kez yazan: cevabın ardından ikinci mesaj olarak rehber (ne yazabileceğini bilmeden
-            // deneme-yanılmayla vazgeçmesin — Arda vakası).
+            // İlk kez yazan: cevabın ardından ikinci mesaj olarak KISA karşılama (ne yazabileceğini bilmeden
+            // deneme-yanılmayla vazgeçmesin — Arda vakası). Uzun liste yalnız "nasıl"da: 30 satırlık rehberi alan
+            // iki kişi bir daha yazmadı (Akkuş Fırın, 13 Ekim). İlk mesaj anlaşılmadıysa ("Hesap takibi") genel AI
+            // cevabı + karşılama üst üste gitmesin — yalnız karşılama.
             if ($firstContact && $this->inboundKind !== 'guide') {
-                $response = $this->twimlMany([...$this->replies, $this->guideText(firstContact: true)]);
+                $replies = $this->inboundKind === 'help' ? [] : $this->replies;
+                $this->replies = [...$replies, $this->welcomeText()];
+                $response = $this->twimlMany($this->replies);
             }
             // Bekleyen duyuru: ilk mesajda iptal (hoş geldin yeter, ikisi birden asla); değilse iş bitince bir kez.
             if ($firstContact) {
@@ -131,6 +135,9 @@ class WhatsappWebhookController extends Controller
 
     /** Bu mesajda KAYDEDİLEN (onaylanan) işlemin carisi — bekleyen hatırlatmayı kapatmak için. */
     private ?int $committedPartyId = null;
+
+    /** Bu numaranın ilk mesajı mı (karşılama)? */
+    private bool $firstContact = false;
 
     /** Son gelen mesajın türü (konuşma kaydı): AI türü / quick / guide / checks / error / no_draft. */
     private ?string $inboundKind = null;
@@ -168,7 +175,7 @@ class WhatsappWebhookController extends Controller
         if ($numMedia === 0 && in_array($this->word($body), ['nasıl', 'nasil', 'yardım', 'yardim', 'menü', 'menu', 'neler yapabilirsin'], true)) {
             $this->inboundKind = 'guide';
 
-            return $this->twiml($this->guideText());
+            return $this->twiml($this->firstContact ? $this->welcomeText() : $this->guideText());
         }
 
         // "hatırlatmalarım" — bekleyen hatırlatmalar; "iptal 2" — listedeki 2. hatırlatmayı sil. AI'sız.
@@ -1685,7 +1692,44 @@ class WhatsappWebhookController extends Controller
      * Rehber ("nasıl" / boş mesaj / ilk mesaj) — yalnız bu kurulumda açık işlemleri örnekler
      * (mimar'a "gider" denmesin). Kaydet / sor diye ikiye ayrılır.
      */
-    private function guideText(bool $firstContact = false): string
+    /**
+     * İlk mesajın karşılaması: kısa, firmanın işine göre 3 kayıt + 1 soru + 1 hatırlatma örneği.
+     * Uzun liste "nasıl" ile (guideText).
+     */
+    private function welcomeText(): string
+    {
+        $record = [
+            ExpenseExtractor::KIND_TRADE_SALE => '• "Bugün 10 bin nakit 15 bin kart" (günlük ciro)',
+            ExpenseExtractor::KIND_TRADE_PURCHASE => '• "Ak Un\'dan 20 çuval un aldım" (alış, stoğa girer)',
+            ExpenseExtractor::KIND_PURCHASE => '• "Ahmet\'ten 10 bin malzeme aldım" (alış)',
+            ExpenseExtractor::KIND_SALE => '• "Ahmet Bey\'e 20 bine iş yaptım" (satış)',
+            ExpenseExtractor::KIND_EXPENSE => '• "5 bin mazot aldım" (gider)',
+            ExpenseExtractor::KIND_COLLECTION => '• "Ahmet Bey 50 bin ödedi" (gelen para)',
+            ExpenseExtractor::KIND_DEBT_NOTE => '• "Ali\'den 40 bin alacağım var" (alacak)',
+        ];
+        // Müteahhit çoğunlukla alır: satış örneği alış/giderin arkasına.
+        if (config('app.profile') === 'muteahhit') {
+            $sale = $record[ExpenseExtractor::KIND_SALE];
+            unset($record[ExpenseExtractor::KIND_SALE]);
+            $record[ExpenseExtractor::KIND_SALE] = $sale;
+        }
+        $kinds = ExpenseExtractor::aiKinds();
+        $lines = array_slice(array_values(array_intersect_key($record, array_flip($kinds))), 0, 3);
+        $lines[] = in_array(ExpenseExtractor::KIND_STOCK_QUERY, $kinds, true)
+            ? '• "Un ne kadar kaldı?" (soru)'
+            : '• "Ahmet\'in borcu ne?" (soru)';
+        $lines[] = '• "Cuma Ali\'den parayı almayı hatırlat"';
+
+        return implode("\n", [
+            '👋 Hoş geldin! Ben *Hesap Asistanım*. Bana normal konuşur gibi yaz, kaydı ben tutarım; kaydetmeden önce sana sorarım.',
+            '',
+            ...$lines,
+            '',
+            'Daha fazla örnek için *nasıl* yaz.',
+        ]);
+    }
+
+    private function guideText(): string
     {
         $record = [
             ExpenseExtractor::KIND_EXPENSE => "• Harcama: \"5 bin yakıt aldım\", \"Kira 20 bin ödendi\"",
@@ -1713,9 +1757,7 @@ class WhatsappWebhookController extends Controller
         $kinds = ExpenseExtractor::aiKinds();
         $pick = fn (array $examples) => array_values(array_intersect_key($examples, array_flip($kinds)));
 
-        $lines = [$firstContact
-            ? "👋 Hoş geldin! Ben *Hesap Asistanım*. Bana normal konuşur gibi yaz, kaydı ben tutarım; kaydetmeden önce her seferinde sana sorarım."
-            : 'Bana normal konuşur gibi yazman yeterli. Örnekler:'];
+        $lines = ['Bana normal konuşur gibi yazman yeterli. Örnekler:'];
         $lines[] = '';
         $lines[] = '*Kaydetmek için:*';
         array_push($lines, ...$pick($record));
