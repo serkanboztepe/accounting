@@ -1710,7 +1710,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_STOCK_QUERY => "• \"Un ne kadar kaldı?\", \"stokta ne var?\"",
             ExpenseExtractor::KIND_MONTH_RESULT => "• \"Bu ay ne kazandım?\"",
         ];
-        $kinds = ExpenseExtractor::allowedKinds();
+        $kinds = ExpenseExtractor::aiKinds();
         $pick = fn (array $examples) => array_values(array_intersect_key($examples, array_flip($kinds)));
 
         $lines = [$firstContact

@@ -132,6 +132,23 @@ class ExpenseExtractor
         ]));
     }
 
+    /**
+     * AI'ya sunulan türler. Stoklu alış (Mal alışı) açık firmada basit cari alışı GÖSTERİLMEZ: "Ak Un'dan 20 çuval un
+     * aldım" stoğa girmeyen basit alışa düşmesin. Carili kayıt yine cariye gider — AI gider seçer, fitToModules
+     * (TradeDraft::route sonrası) ürünsüz carili gideri basit alışa çevirir.
+     *
+     * @return list<string>
+     */
+    public static function aiKinds(): array
+    {
+        $kinds = self::allowedKinds();
+        if (in_array(self::KIND_TRADE_PURCHASE, $kinds, true)) {
+            $kinds = array_values(array_diff($kinds, [self::KIND_PURCHASE]));
+        }
+
+        return $kinds;
+    }
+
     /** Stok türleri (sayım / soru / ayar) yalnız stoklu satış paketinde — Yeni Yapı gibi eski stoklu firmada değişiklik yok. */
     private static function tradeStock(): bool
     {
@@ -283,7 +300,7 @@ class ExpenseExtractor
         // maliyettir; satış yalnız açık fiille. Gider kapalıysa (mimar) varsayılan satış.
         $ambiguousRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
             ? '- Fiil YOKSA ya da yön belirsizse ("Abdullah Uçar 2 milyon kaba inşaat", "Ahmet 50 bin sıva") → '
-                . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? '"purchase" (cariye yaptırdığımız iş = alış)' : '"expense" (yaptırdığımız iş = maliyet)')
+                . (in_array(self::KIND_PURCHASE, self::aiKinds(), true) ? '"purchase" (cariye yaptırdığımız iş = alış)' : '"expense" (yaptırdığımız iş = maliyet)')
                 . '. "sale" SADECE açık fiille: "yaptım", "sattım", "fatura kestim", "iş yaptım" — cari daha önce müşteri olarak görünse bile fiil yoksa satış SEÇME.'
             : '- Fiil YOKSA ("Ali Bey 80 bin proje") → "sale" (yaptığımız iş).';
         $photoRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
@@ -302,14 +319,14 @@ class ExpenseExtractor
             : 'Sen bir esnafın / küçük işletmenin (çiftçi, üretici, satıcı) kayıt asistanısın; kullanıcı mal ya da hizmet SATAR, alır, para alır ve verir.';
         $kinds = implode("\n", array_map(
             fn (string $k) => self::KIND_HINTS[$k],
-            self::allowedKinds(),
+            self::aiKinds(),
         ));
 
         $refine = '';
         if ($previous !== null) {
             $prevJson = json_encode($previous, JSON_UNESCAPED_UNICODE);
             // "Ne için verdin? → malzeme aldım": cariye verilen para gider değil, peşin alış (Burak 11 Ekim, Taner 13 Ekim).
-            $doneWork = ! in_array(self::KIND_PURCHASE, self::allowedKinds(), true)
+            $doneWork = ! in_array(self::KIND_PURCHASE, self::aiKinds(), true)
                 ? 'kind "expense",
                 `paid`=true, `description` işin kısa adı, uygun kategori'
                 : 'kind "purchase",
@@ -507,7 +524,7 @@ class ExpenseExtractor
             'input_schema' => [
                 'type' => 'object',
                 'properties' => self::tradeProperties() + [
-                    'kind' => ['type' => 'string', 'enum' => self::allowedKinds(), 'description' => 'Entry kind; see system prompt'],
+                    'kind' => ['type' => 'string', 'enum' => self::aiKinds(), 'description' => 'Entry kind; see system prompt'],
                     'items' => self::itemsSchema(),
                     'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
                     'date_from' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary: period start (YYYY-MM-DD) if a period was named, else null'],
@@ -631,7 +648,7 @@ class ExpenseExtractor
     /** İzinli işlem türlerinin tanımları (prompt'a). */
     public static function kindGuide(): string
     {
-        return implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::allowedKinds()));
+        return implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::aiKinds()));
     }
 
     private function normalizeRaw(array $input): array

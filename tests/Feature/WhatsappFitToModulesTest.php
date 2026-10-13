@@ -89,4 +89,16 @@ class WhatsappFitToModulesTest extends TestCase
         $d = ExpenseExtractor::fitToModules($this->expense(['party_name' => 'Ahmet']));
         $this->assertSame(ExpenseExtractor::KIND_EXPENSE, $d['kind']);
     }
+
+    /** Stoklu alış açık firma (fırın): AI'ya basit alış gösterilmez ("20 çuval un" stoğa girmeyen alışa düşmesin), kural yine geçerli. */
+    public function test_trade_firm_hides_simple_purchase_from_ai_but_keeps_rule(): void
+    {
+        config(['modules' => \App\Support\ModuleProfiles::resolve('trade')]);
+        $this->assertContains(ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::aiKinds());
+        $this->assertNotContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::aiKinds());
+        $this->assertContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds());
+
+        $d = ExpenseExtractor::fitToModules($this->expense(['party_name' => 'Tamirci Ahmet', 'description' => 'Fırın tamiri']));
+        $this->assertSame(ExpenseExtractor::KIND_PURCHASE, $d['kind']); // ürünsüz carili iş → cari alışı, gider değil
+    }
 }
