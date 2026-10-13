@@ -7,6 +7,9 @@ use App\Models\HubFirm;
 use App\Models\HubPhone;
 use App\Models\WhatsappMessage;
 use App\Services\Whatsapp\ExpenseExtractor;
+use App\Services\Whatsapp\WhatsappSender;
+use App\Support\Announcements;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Http;
 use Mockery;
@@ -125,5 +128,72 @@ class WhatsappAnnouncementTest extends TestCase
         $this->ai($this->entry(['kind' => ExpenseExtractor::KIND_HELP, 'reply' => 'Merhaba!']));
 
         $this->assertSame(1, substr_count($this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'selam', 'NumMedia' => 0])->getContent(), '<Message>'));
+    }
+
+    // ------------------------------------------------ "yenilikler" şablonu: yazmayana da ulaşsın
+
+    private function sender(): \Mockery\MockInterface
+    {
+        $sender = Mockery::mock(WhatsappSender::class);
+        $this->app->instance(WhatsappSender::class, $sender);
+
+        return $sender;
+    }
+
+    public function test_push_sends_text_inside_24h_window(): void
+    {
+        $this->oldUser();
+        $firm = HubFirm::create(['name' => 'Duyuru Push', 'url' => 'https://example.test']);
+        $a = HubAnnouncement::create(['hub_firm_id' => $firm->id, 'phone' => '0555 777 43 21', 'body' => self::BODY]);
+        $this->sender()->shouldReceive('sendText')->once()->with('905557774321', self::BODY)->andReturn(true);
+
+        $lines = Announcements::push($firm->id, app(WhatsappSender::class));
+
+        $this->assertStringContainsString('metin ✓', implode("\n", $lines));
+        $this->assertSame('sent', $a->fresh()->status);
+    }
+
+    public function test_push_sends_template_outside_window_then_button_shows_body_once(): void
+    {
+        WhatsappMessage::create(['phone' => '905557774321', 'direction' => 'in', 'body' => 'eski'])
+            ->forceFill(['created_at' => now()->subDays(3)])->save();
+        $firm = HubFirm::create(['name' => 'Duyuru Push', 'url' => 'https://example.test']);
+        HubPhone::create(['phone' => '0555 777 43 21', 'hub_firm_id' => $firm->id, 'name' => 'Ferhat Yıldız']);
+        $a = HubAnnouncement::create(['hub_firm_id' => $firm->id, 'phone' => '0555 777 43 21', 'body' => self::BODY]);
+        config(['services.whatsapp.news_content_sid' => 'HXnews']);
+        Cache::put('wa-template-approval:HXnews', 'approved', 600);
+        $this->sender()->shouldReceive('sendTemplate')->once()->with('905557774321', 'HXnews', ['1' => 'Ferhat'], 'yenilikler')->andReturn(true);
+
+        Announcements::push($firm->id, app(WhatsappSender::class));
+        $this->assertSame('notified', $a->fresh()->status);
+
+        // Düğme cevabı (ButtonPayload) → metnin kendisi, AI'sız.
+        $reply = html_entity_decode($this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'Yenilikleri göster', 'ButtonPayload' => Announcements::BUTTON, 'NumMedia' => 0])->getContent(), ENT_QUOTES | ENT_XML1);
+        $this->assertStringContainsString(self::BODY, $reply);
+        $this->assertSame(1, substr_count($reply, self::BODY), 'aynı mesajda iki kez değil');
+        $this->assertSame('sent', $a->fresh()->status);
+
+        // Tekrar "yenilikler" → yine en son duyuru (bilgi), yeni gönderim sayılmaz.
+        $this->assertStringContainsString(self::BODY, $this->send('yenilikler'));
+    }
+
+    public function test_push_without_approved_template_waits_for_user(): void
+    {
+        WhatsappMessage::create(['phone' => '905557774321', 'direction' => 'in', 'body' => 'eski'])
+            ->forceFill(['created_at' => now()->subDays(3)])->save();
+        $firm = HubFirm::create(['name' => 'Duyuru Push', 'url' => 'https://example.test']);
+        $a = HubAnnouncement::create(['hub_firm_id' => $firm->id, 'phone' => '0555 777 43 21', 'body' => self::BODY]);
+        config(['services.whatsapp.news_content_sid' => 'HXnews2']);
+        Cache::put('wa-template-approval:HXnews2', 'pending', 600);
+        $this->sender()->shouldNotReceive('sendTemplate', 'sendText');
+
+        $this->assertStringContainsString('yazınca gidecek', implode("\n", Announcements::push($firm->id, app(WhatsappSender::class))));
+        $this->assertSame('pending', $a->fresh()->status);
+    }
+
+    public function test_yenilikler_without_any_announcement(): void
+    {
+        $this->oldUser();
+        $this->assertStringContainsString('yeni bir duyuru yok', $this->send('yenilikler'));
     }
 }

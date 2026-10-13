@@ -21,14 +21,28 @@ class HubAnnouncement extends Model
         static::saving(fn (HubAnnouncement $a) => $a->phone = Phone::normalize($a->phone));
     }
 
-    /** Bu numaranın (ve şu anki firmanın) bekleyen duyurusu. */
+    /**
+     * Bu numaranın (ve şu anki firmanın) bekleyen duyurusu. Durumlar: pending → (şablonla haber verildiyse
+     * notified) → sent | cancelled. "notified" da bekleyen sayılır: metin henüz gitmedi.
+     */
     public static function pendingFor(string $phone): ?self
     {
         return static::query()
             ->where('phone', Phone::normalize($phone))
-            ->where('status', 'pending')
+            ->whereIn('status', ['pending', 'notified'])
             ->when(Tenancy::current(), fn ($q, $firm) => $q->where('hub_firm_id', $firm->id))
             ->oldest('id')
+            ->first();
+    }
+
+    /** "Yenilikleri göster" — bekleyen yoksa en son gönderilen duyuru. */
+    public static function latestSentFor(string $phone): ?self
+    {
+        return static::query()
+            ->where('phone', Phone::normalize($phone))
+            ->where('status', 'sent')
+            ->when(Tenancy::current(), fn ($q, $firm) => $q->where('hub_firm_id', $firm->id))
+            ->latest('sent_at')
             ->first();
     }
 }

@@ -67,6 +67,8 @@ return [
         'reminder_content_sid' => env('WHATSAPP_REMINDER_SID'),
         // Akşam ciro sorusu ("ciro_sorusu", {{1}} = ilk ad). Onaylanana kadar "hatirlatma" şablonuyla gider.
         'revenue_content_sid' => env('WHATSAPP_REVENUE_SID'),
+        // Duyuru haberi ("yenilikler", düğme "Yenilikleri göster", {{1}} = ilk ad) — yazmayana da ulaşsın.
+        'news_content_sid' => env('WHATSAPP_NEWS_SID'),
         // Hub'da numara eklenince giden karşılama şablonu ("hos_geldin", {{1}} = ad). Boşsa gönderilmez.
         'welcome_content_sid' => env('WHATSAPP_WELCOME_SID'),
         // Akşam mesajı ("aksam_sorusu", düğmeli, {{1}} = ilk ad). Onaylı değilse yalnız son 24 saatte yazana düz metin.

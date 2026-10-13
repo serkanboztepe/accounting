@@ -21,6 +21,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
 use App\Support\Agenda;
+use App\Support\Announcements;
 use App\Support\DailyNudge;
 use App\Support\CheckReminders;
 use App\Support\ContractStatus;
@@ -142,6 +143,12 @@ class WhatsappWebhookController extends Controller
         // Akşam mesajının düğmeleri ("Kayıt gireceğim / Hatırlatma kur / Bugün yok") ve aç/kapa — AI'sız.
         if ($numMedia === 0) {
             $word = $this->word($body);
+            // "yenilikler" şablonunun düğmesi ya da "yenilikler" yazısı → duyurunun metni (AI'sız).
+            if (Announcements::isRequest((string) $request->input('ButtonPayload', ''), $word)) {
+                $this->inboundKind = 'announcement';
+
+                return $this->twiml(Announcements::answer($phone));
+            }
             if ($button = DailyNudge::button((string) $request->input('ButtonPayload', ''), $word)) {
                 $this->inboundKind = 'nudge_reply';
 
