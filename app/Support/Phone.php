@@ -19,6 +19,20 @@ class Phone
         return $digits;
     }
 
+    /** WhatsApp kullanıcı kimliği (numarasını gizleyen, Twilio'dan "TR.1601…" gelir; normalize harfleri siler) — telefon 15 haneyi geçmez. */
+    public static function isWhatsappId(string $phone): bool
+    {
+        return strlen(self::normalize($phone)) > 15;
+    }
+
+    /** Twilio "To" adresi: telefon → "whatsapp:+90…", gizli kimlik → "whatsapp:TR.…" (Oktay, 14 Ekim teslim edildi). */
+    public static function whatsappAddress(string $phone): string
+    {
+        $d = self::normalize($phone);
+
+        return self::isWhatsappId($phone) ? 'whatsapp:TR.' . $d : 'whatsapp:+' . $d;
+    }
+
     /** Gösterim: "905321234567" → "+90 532 123 45 67"; diğer ülkeler "+" + rakamlar. */
     public static function display(string $phone): string
     {

@@ -94,6 +94,23 @@ class DailyNudgeTest extends TestCase
         $this->assertTrue(WhatsappMessage::where('kind', 'nudge')->exists());
     }
 
+    /** Oktay (14 Ekim): numarasını gizleyen kullanıcı "TR.…" kimliğiyle — şablon değil, pencere içinde düz metin "TR." adresine. */
+    public function test_hidden_number_gets_plain_text_to_whatsapp_id_inside_window_only(): void
+    {
+        $id = '1601102951502711';
+        $this->phone(['phone' => $id, 'name' => 'Oktay Boztepe']);
+        WhatsappMessage::create(['phone' => $id, 'direction' => 'in', 'body' => 'x'])
+            ->forceFill(['created_at' => $this->at('2026-10-11 22:00')])->save();
+
+        $this->nudge();
+        Http::assertSent(fn (ClientRequest $r) => str_contains($r->url(), 'Messages.json')
+            && $r['To'] === 'whatsapp:TR.' . $id && ! isset($r['ContentSid']) && str_contains($r['Body'], 'Oktay'));
+
+        Carbon::setTestNow(Carbon::parse('2026-10-13 19:00', 'Europe/Istanbul'));
+        $this->assertStringContainsString('gizli numara', implode("\n", $this->nudge()));
+        $this->assertSame(1, $this->sentCount());
+    }
+
     public function test_not_sent_if_wrote_today_or_disabled_or_already_sent(): void
     {
         $this->phone();

@@ -66,13 +66,20 @@ class DailyNudge
 
                 continue;
             }
+            // Gizli numara (WhatsApp kimliği): şablon gitmez (Twilio 21211) — pencere içindeyse düz metin.
+            $hidden = Phone::isWhatsappId($phone->phone);
+            if ($hidden && ! self::inWindow($lastIn, $now)) {
+                $out[] = "  · {$label}: atlandı (gizli numara, 24 saat penceresi dışında)";
+
+                continue;
+            }
             if ($dryRun) {
-                $out[] = "  → {$label}: " . ($useTemplate ? 'şablon' : 'düz metin');
+                $out[] = "  → {$label}: " . ($useTemplate && ! $hidden ? 'şablon' : 'düz metin');
 
                 continue;
             }
 
-            $ok = $useTemplate
+            $ok = $useTemplate && ! $hidden
                 ? $sender->sendTemplate($phone->phone, $contentSid, ['1' => self::firstName($phone->name)], 'aksam_mesaji')
                 : $sender->sendText($phone->phone, self::plainText($phone->name));
             $out[] = "  → {$label}: " . ($ok ? '✓' : '✗ (log)');

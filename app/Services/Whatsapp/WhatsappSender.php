@@ -31,7 +31,7 @@ class WhatsappSender
             ->timeout(15)
             ->post("https://api.twilio.com/2010-04-01/Accounts/{$sid}/Messages.json", [
                 'From' => 'whatsapp:+' . Phone::normalize($from),
-                'To' => 'whatsapp:+' . Phone::normalize($to),
+                'To' => Phone::whatsappAddress($to),
                 'ContentSid' => $contentSid,
                 'ContentVariables' => json_encode((object) array_map('strval', $variables), JSON_UNESCAPED_UNICODE),
             ]);
@@ -68,7 +68,7 @@ class WhatsappSender
             ->timeout(15)
             ->post("https://api.twilio.com/2010-04-01/Accounts/{$sid}/Messages.json", [
                 'From' => 'whatsapp:+' . Phone::normalize($from),
-                'To' => 'whatsapp:+' . Phone::normalize($to),
+                'To' => Phone::whatsappAddress($to),
                 'Body' => $body,
             ]);
 
