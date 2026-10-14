@@ -625,6 +625,27 @@ class ExpenseExtractor
         ];
     }
 
+    /**
+     * Emniyet (AI'dan bağımsız): "parasını aldım, peyniri sonra VERECEĞİM" peşin satış değil müşteri avansıdır.
+     * AI yine satış derse mesajdaki gelecek zamanlı teslim sözü yakalanır ve tahsilata (avans) çevrilir.
+     * Mesajda teslim edildiği de söylendiyse ("gönderdim", "verdim") dokunulmaz. Hıdır / Zülfikar / Ayten, Erkan 12-13 Ekim.
+     */
+    public static function guardUndeliveredSale(array $d, string $text): array
+    {
+        if (($d['kind'] ?? null) !== self::KIND_SALE || empty($d['paid']) || trim($text) === '') {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $later = '/(verece[gğk]|verice[mk]|verece[mk]|g[oö]nderece[gğk]|g[oö]nderice[mk]|g[oö]nderece[mk]|g[oö]t[uü]rece[gğk]|g[oö]t[uü]r[uü]?ce[mk]'
+            . '|teslim edece[gğk]|teslim edilecek|verilecek|g[oö]nderilecek|g[oö]t[uü]r[uü]lecek)/u';
+        $done = '/(verdim|g[oö]nderdim|g[oö]t[uü]rd[uü]m|teslim ettim|teslim edildi|verildi|g[oö]nderildi)/u';
+        if (! preg_match($later, $t) || preg_match($done, $t)) {
+            return $d;
+        }
+
+        return array_merge($d, ['kind' => self::KIND_COLLECTION, 'payment_purpose' => 'advance', 'paid' => null, 'items' => []]);
+    }
+
     private static function validDate(mixed $value): ?string
     {
         return is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : null;

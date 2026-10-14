@@ -144,11 +144,15 @@ class WhatsappWebhookController extends Controller
     /** Son gelen mesajın türü (konuşma kaydı): AI türü / quick / guide / checks / error / no_draft. */
     private ?string $inboundKind = null;
 
+    /** Gelen mesajın metni — kod emniyetleri (ör. teslim edilmemiş satış = avans) AI'dan bağımsız buna bakar. */
+    private string $inboundBody = '';
+
     /** @var list<string|array{0:string,1:string}> bu isteğin cevap(lar)ı — kayıt ve ilk mesaj rehberi için */
     private array $replies = [];
 
     private function respond(Request $request, ExpenseExtractor $extractor, string $phone, string $body, int $numMedia)
     {
+        $this->inboundBody = $body;
         // Akşam mesajının düğmeleri ("Kayıt gireceğim / Hatırlatma kur / Bugün yok") ve aç/kapa — AI'sız.
         if ($numMedia === 0) {
             $word = $this->word($body);
@@ -600,7 +604,7 @@ class WhatsappWebhookController extends Controller
      */
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
-        $data = ExpenseExtractor::fitToModules($data);
+        $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $this->inboundKind = $this->kind($data);
         if (! empty($data['party_id']) && Party::whereKey($data['party_id'])->exists()) {
             $this->touchedPartyId = (int) $data['party_id']; // bakiye / ekstre / taslak — sınırlı bağlam

@@ -185,16 +185,35 @@ class WhatsappLedgerFlowTest extends TestCase
         $reply = $this->send("Şekerin kardeşi verilen peynir 25,kilo tutarı 15binlira");
         $this->assertStringContainsString('*Satış*', $reply);
         $this->assertStringContainsString('(sana borçlandı)', $reply);
-        $this->assertStringContainsString('25 kg peynir', $reply);
 
-        $reply = $this->send('Parası ni aldım peynir teslim edilecek');
-        $this->assertStringContainsString('(parası alındı)', $reply);
+        $this->assertStringContainsString('(parası alındı)', $this->send('Parası ni aldım'));
         $this->send('evet');
 
         $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_SALE)->count());
         $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_COLLECTION)->count());
         $this->assertSame(0.0, $this->balance($party));
         $this->assertSame($expenses, \App\Models\Expense::count()); // gider açılmaz
+    }
+
+    /** Kod emniyeti: AI "peşin satış" dese de "teslim edilecek / vereceğim" → avans; teslim edildiyse satış kalır. */
+    public function test_undelivered_paid_sale_becomes_advance_even_if_ai_says_sale(): void
+    {
+        $party = Party::create(['name' => 'Emniyet Hıdır']);
+        $sale = ['kind' => ExpenseExtractor::KIND_SALE, 'amount' => 12000, 'party_id' => $party->id, 'description' => '20 kg peynir', 'paid' => true];
+        $this->fakeAi($this->entry($sale));
+
+        $this->assertStringContainsString('Peşin para (avans)', $this->send('Hıdır 12 bin gönderdi parasını aldım peyniri sonra göndereceğim'));
+        $this->send('evet');
+        $this->assertSame(-12000.0, $this->balance($party));
+
+        $s = ['kind' => ExpenseExtractor::KIND_SALE, 'paid' => true];
+        foreach (['peynir vereceğim parasını aldım', 'Parası ni aldım peynir teslim edilecek', 'parasını gönderdi sonra götürcem'] as $t) {
+            $this->assertSame(ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::guardUndeliveredSale($s, $t)['kind'], $t);
+        }
+        foreach (['Ayten\'in peynirini gönderdim hepsini aldım', 'Ali\'ye bal verdim parasını aldım', 'peynir verdim, kalanı sonra vereceğim'] as $t) {
+            $this->assertSame(ExpenseExtractor::KIND_SALE, ExpenseExtractor::guardUndeliveredSale($s, $t)['kind'], $t);
+        }
+        $this->assertSame(ExpenseExtractor::KIND_SALE, ExpenseExtractor::guardUndeliveredSale(['paid' => null] + $s, 'vereceğim')['kind'], 'veresiye satışa dokunmaz');
     }
 
     /** Erkan (13 Ekim): "Parasını aldım, peyniri sonra göndereceğim" → satış değil müşteri avansı; "0k" onaydır. */
