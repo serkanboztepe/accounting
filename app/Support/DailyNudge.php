@@ -163,6 +163,12 @@ class DailyNudge
                 return $id;
             }
         }
+        // Yazım farkları: "Bugün birsey yok" (Oktay, 14 Ekim — takvim sorusu sanıldı), "bugun hic bisey yok", "bir şey yok".
+        // Tek başına "yok" sayılmaz (başka bir soruya cevap olabilir).
+        $folded = strtr($word, ['ü' => 'u', 'ş' => 's', 'ı' => 'i', 'ğ' => 'g', 'ç' => 'c', 'ö' => 'o']);
+        if (preg_match('/^(bu ?gun ?)?(hic ?)?(bir ?s[e]y|bisey) ?yok$|^bu ?gun ?(hic ?)?yok$/u', $folded)) {
+            return self::BUTTON_NONE;
+        }
 
         return null;
     }

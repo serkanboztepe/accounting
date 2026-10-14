@@ -176,6 +176,15 @@ class DailyNudgeTest extends TestCase
         $this->assertStringContainsString('ne zaman hatırlatayım', $this->send('Hatırlatma kur', ['ButtonPayload' => DailyNudge::BUTTON_REMINDER]));
     }
 
+    public function test_none_reply_spelling_variants(): void
+    {
+        foreach (['bugün birsey yok', 'bugun hic bisey yok', 'bir şey yok', 'bugün yok', 'bugun hiç yok'] as $w) {
+            $this->assertSame(DailyNudge::BUTTON_NONE, DailyNudge::button('', $w), $w);
+        }
+        $this->assertNull(DailyNudge::button('', 'yok'));
+        $this->assertNull(DailyNudge::button('', 'bugün ne var'));
+    }
+
     public function test_bana_yazma_turns_off_and_can_turn_back_on(): void
     {
         $phone = $this->phone();
