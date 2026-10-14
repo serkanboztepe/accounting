@@ -698,6 +698,10 @@ class WhatsappWebhookController extends Controller
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_DEBT_NOTE
             && ($data['debt_side'] ?? null) === 'payable' && ! config('modules.cari_supplier')) {
+            // Düzeltmeyle yön "biz borçluyuz" çıktı: eski (ters yönlü) taslak açık kalıp sonra "kaydedeyim mi?"
+            // diye hatırlatılmasın (Ferhat, 14 Ekim: Akın Dil borcu alacak olarak hatırlatıldı).
+            $pending?->update(['status' => 'superseded']);
+
             return 'Bu hesapta borç kaydı (biz borçluyuz) açık değil; alacaklarını yazabilirsin. Örnek: "Ali\'den 40 bin alacağım var"';
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_BALANCE_QUERY) {

@@ -209,6 +209,21 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->assertSame(445.0, $this->balance(Party::where('name', 'Vedat Yön')->sole()));
     }
 
+    /** Ferhat (14 Ekim): tedarikçi tarafı kapalı firmada "ben borçluyum" düzeltmesi → ters yönlü taslak kapanır, hatırlatılmaz. */
+    public function test_payable_correction_in_customer_only_firm_closes_wrong_draft(): void
+    {
+        config(['modules.cari_supplier' => false]);
+        $note = $this->entry(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'amount' => 40000, 'party_name' => 'Akın Dil Test',
+            'debt_side' => 'receivable', 'question' => 'O mu size, siz mi ona borçlusunuz?']);
+        $this->fakeAi($note, ['debt_side' => 'payable', 'is_new_entry' => false, 'question' => null] + $note);
+
+        $this->send("Akın dil'e 40000 borç var");
+        $this->assertStringContainsString('açık değil', $this->send('Ben akın dile 40000 borçluyum'));
+
+        $this->assertSame(0, \App\Models\WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->count());
+        $this->assertStringContainsString('Onay bekleyen', $this->send('evet'));
+    }
+
     public function test_name_check_rules(): void
     {
         $p = fn (string $n) => new Party(['name' => $n]);
