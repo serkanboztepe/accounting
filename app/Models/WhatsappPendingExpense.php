@@ -12,9 +12,12 @@ class WhatsappPendingExpense extends Model
         'summary',
         'media_url',
         'status',
+        'follow_ups',
+        'followed_up_at',
     ];
 
     protected $casts = [
         'extracted' => 'array',
+        'followed_up_at' => 'datetime',
     ];
 }

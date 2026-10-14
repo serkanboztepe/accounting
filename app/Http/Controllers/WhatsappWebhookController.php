@@ -17,6 +17,7 @@ use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ChatAssistant;
+use App\Services\Whatsapp\DraftFollowUp;
 use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
@@ -214,10 +215,12 @@ class WhatsappWebhookController extends Controller
         // 1) Onay / iptal — bekleyen taslağa cevap mı? Yalnızca SON 30 DK içindeki taslak
         // "önceki" sayılır; terk edilmiş eski taslaklar yeni mesaja bağlam olup proje/cari
         // sızdırmasın (updated_at: aktif gidip gelme penceresi taze tutar).
+        // Birden fazla açık taslak olabilir (yeni kayıt eskisini kapatmaz, yarım kalan olarak takip edilir):
+        // en son dokunulan etkindir — hatırlatılan yarım kayıt da bu yüzden cevabı alır.
         $pending = WhatsappPendingExpense::where('phone', $phone)
             ->where('status', 'awaiting_confirmation')
             ->where('updated_at', '>=', now()->subMinutes(30))
-            ->latest('id')
+            ->orderByDesc('updated_at')->orderByDesc('id')
             ->first();
 
         // Ses / video / belge: şimdilik okuyamıyoruz — sessizce yardım metni yerine açıkça söyle.
@@ -404,9 +407,8 @@ class WhatsappWebhookController extends Controller
                 }
 
                 if (! empty($data['is_new_entry'])) {
-                    // Yeni gider → eski taslağı kapat ve SIFIRDAN çıkar: previous verilince model
-                    // önceki proje/cari'yi sızdırabiliyor; temiz çıkarım için previous=null ile yeniden.
-                    $pending->update(['status' => 'superseded']);
+                    // Yeni gider → SIFIRDAN çıkar: previous verilince model önceki proje/cari'yi sızdırabiliyor;
+                    // temiz çıkarım için previous=null ile yeniden. Eski taslak açık kalır (yarım kayıt takibi).
                     try {
                         $data = $extractor->extract($body, null, null, ConversationContext::get($phone));
                     } catch (\Throwable $e) {
@@ -429,10 +431,7 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
-            // Yeni fotoğraf → yeni gider (düzeltme değil). Eski taslağı geç, aşağıda taze başla.
-            if ($image !== null) {
-                $pending->update(['status' => 'superseded']);
-            }
+            // Yeni fotoğraf → yeni gider (düzeltme değil): aşağıda taze başla, eski taslak yarım kayıt olarak kalır.
         }
 
         // 2) Yeni gider girişi (metin ve/veya fotoğraf)
@@ -462,8 +461,11 @@ class WhatsappWebhookController extends Controller
     {
         $done = $this->commit($pending);
         $next = $pending->extracted['next_items'] ?? null;
-        if (! ChatAssistant::enabled() || ! $next || $pending->fresh()?->status !== 'confirmed') {
+        if ($pending->fresh()?->status !== 'confirmed') {
             return $done;
+        }
+        if (! ChatAssistant::enabled() || ! $next) {
+            return $this->withLeftover($done, $phone, $pending->id);
         }
 
         try {
@@ -481,6 +483,27 @@ class WhatsappWebhookController extends Controller
         $out = $this->saveDraft(null, $phone, $data);
 
         return is_string($out) ? $done . "\n\n➡️ *Sıradaki:*\n" . $out : $done;
+    }
+
+    /** İş bitti: yarım kalan en eski kayıt varsa cevabın sonunda sorulur (Oktay "kira" yazıp onaylamadı). */
+    private function withLeftover(string|array $done, string $phone, int $exceptId): string|array
+    {
+        if (! is_string($done)) {
+            return $done;
+        }
+        try {
+            $left = DraftFollowUp::inlineCandidate($phone, $exceptId);
+            if ($left === null) {
+                return $done;
+            }
+            DraftFollowUp::markSent($left);
+
+            return $done . "\n\n" . DraftFollowUp::inlineText($left);
+        } catch (\Throwable $e) {
+            Log::warning('Yarım kayıt kontrolü yapılamadı', ['error' => $e->getMessage()]);
+
+            return $done;
+        }
     }
 
     /** Duyuru yalnız iş bitmişse: onay bekleyen kayıt (taslak) varken araya girmez. Hata akışı bozmaz. */
@@ -551,8 +574,7 @@ class WhatsappWebhookController extends Controller
             case 'entry':
                 $data = $result['data'];
                 if ($pending && ! empty($data['is_new_entry'])) {
-                    $pending->update(['status' => 'superseded']);
-                    $pending = null;
+                    $pending = null; // eski taslak açık kalır — iş bitince "yarım kalan var" diye sorulur
                 }
                 if ($pending && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
                     $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true]);
@@ -613,12 +635,10 @@ class WhatsappWebhookController extends Controller
             return $this->saveTradeDraft($pending, $phone, $data);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_AGENDA) {
-            $pending?->update(['status' => 'superseded']);
 
             return Agenda::text($data['date_from'] ?? null, $data['date_to'] ?? null, $phone);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_PARTY_LIST) {
-            $pending?->update(['status' => 'superseded']);
 
             return $this->partyListAnswer();
         }
@@ -631,17 +651,14 @@ class WhatsappWebhookController extends Controller
             return 'Bu hesapta borç kaydı (biz borçluyuz) açık değil; alacaklarını yazabilirsin. Örnek: "Ali\'den 40 bin alacağım var"';
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_BALANCE_QUERY) {
-            $pending?->update(['status' => 'superseded']);
 
             return $this->balanceAnswer($data);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_TOTALS_QUERY) {
-            $pending?->update(['status' => 'superseded']);
 
             return $this->totalsAnswer($data);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_STATEMENT) {
-            $pending?->update(['status' => 'superseded']);
             $answer = $this->statementAnswer($data);
 
             // "Ferdi'ye at": cariye biz yazamayız (Meta izni / karşı tarafın onayı yok) — sessizce kullanıcıya
@@ -655,7 +672,6 @@ class WhatsappWebhookController extends Controller
             return $answer;
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_EXPENSE_SUMMARY) {
-            $pending?->update(['status' => 'superseded']);
 
             return ExpenseSummary::text($data['date_from'] ?? null, $data['date_to'] ?? null, $data['project_id'] ?? null);
         }
@@ -1119,7 +1135,6 @@ class WhatsappWebhookController extends Controller
     private function saveTradeDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
     {
         if (in_array($this->kind($data), TradeDraft::ANSWER_KINDS, true)) {
-            $pending?->update(['status' => 'superseded']);
 
             return TradeDraft::answer($data);
         }
