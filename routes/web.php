@@ -159,6 +159,21 @@ Route::get('/invoice-file/{filename}', function (string $filename) {
     ]);
 })->middleware('auth')->name('invoice.file');
 
+// Yerel geliştirme → hub: gerçek AI denemesinin maliyeti (DEV_USAGE_SECRET imzasıyla).
+Route::post('/hub/dev-usage', function (\Illuminate\Http\Request $request) {
+    $params = $request->only(['model', 'input_tokens', 'output_tokens', 'cache_write_tokens', 'cache_read_tokens', 'cost_usd']);
+    abort_unless(\App\Support\HubSignature::verify(
+        $params,
+        (string) config('services.dev_usage.secret'),
+        (string) $request->header(\App\Support\HubSignature::HEADER, ''),
+        (string) $request->header(\App\Support\HubSignature::TIMESTAMP_HEADER, ''),
+    ), 403);
+
+    \App\Models\DevUsage::create(['source' => 'local'] + array_map(fn ($v) => is_numeric($v) ? $v + 0 : $v, $params));
+
+    return response()->json(['ok' => true]);
+})->middleware('throttle:120,1')->name('hub.dev-usage');
+
 // Hub → firma: ay maliyet özeti (AI + şablon). Sadece hub imzasıyla (HUB_SECRET).
 Route::get('/hub/usage', function (\Illuminate\Http\Request $request) {
     $params = $request->query();

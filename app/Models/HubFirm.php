@@ -120,6 +120,20 @@ class HubFirm extends Model
             ->all();
     }
 
+    /** Bir andan bu yana AI maliyeti (bakiye takibi). Tek panelde doğrudan; ulaşılamazsa null. */
+    public function aiCostSince(\Illuminate\Support\Carbon $since): ?float
+    {
+        if (! $this->isLocal()) {
+            return null;
+        }
+        try {
+            return Tenancy::run($this, fn () => (float) UsageLog::where('type', UsageLog::TYPE_AI)
+                ->where('created_at', '>=', $since)->sum('cost_usd'));
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     /** Ay özeti (AI + şablon maliyeti). Tek panelde doğrudan; ayrı kurulumda imzalı istek. Ulaşılamazsa null. */
     public function fetchUsage(string $month): ?array
     {

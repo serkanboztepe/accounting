@@ -87,4 +87,11 @@ return [
         'secret' => env('HUB_SECRET'),
     ],
 
+    // Yerel gerçek AI denemelerinin maliyeti canlı hub'a gider (aynı Anthropic anahtarı → toplu maliyet).
+    // Yerelde: DEV_USAGE_URL=https://panel.hesapasistanim.com/hub/dev-usage + DEV_USAGE_SECRET; sunucuda yalnız SECRET.
+    'dev_usage' => [
+        'url' => env('DEV_USAGE_URL'),
+        'secret' => env('DEV_USAGE_SECRET'),
+    ],
+
 ];

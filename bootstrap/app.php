@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Twilio webhook'u CSRF token göndermez.
         $middleware->validateCsrfTokens(except: [
             'whatsapp/webhook',
+            'hub/dev-usage', // imzalı makine isteği
         ]);
 
         // Tek panel: firma, oturum açıldıktan HEMEN sonra seçilmeli — kullanıcıyı yükleyen

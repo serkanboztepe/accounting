@@ -35,14 +35,34 @@ class UsageLog extends Model
                 + $write * $in * config('costs.cache_write_multiplier')
                 + $read * $in * config('costs.cache_read_multiplier')) / 1_000_000;
 
-            static::create([
-                'type' => self::TYPE_AI, 'model' => $model,
+            $row = [
+                'model' => $model,
                 'input_tokens' => $input, 'output_tokens' => $output,
                 'cache_write_tokens' => $write, 'cache_read_tokens' => $read,
                 'cost_usd' => round($cost, 6),
-            ]);
+            ];
+            self::reportDevUsage($row);
+            static::create(['type' => self::TYPE_AI] + $row);
         } catch (Throwable $e) {
             Log::warning('AI kullanım kaydı yazılamadı', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /** Yerel denemeler: aynı anahtardan harcanan para hub'daki toplu maliyete gitsin (testler AI'ı mock'lar, gönderilmez). */
+    private static function reportDevUsage(array $row): void
+    {
+        $url = (string) config('services.dev_usage.url');
+        $secret = (string) config('services.dev_usage.secret');
+        if ($url === '' || $secret === '' || app()->runningUnitTests()) {
+            return;
+        }
+        try {
+            $params = array_map('strval', $row);
+            \Illuminate\Support\Facades\Http::timeout(3)->asForm()
+                ->withHeaders(\App\Support\HubSignature::headers($params, $secret))
+                ->post($url, $params);
+        } catch (Throwable $e) {
+            Log::warning('Yerel AI maliyeti hub\'a gönderilemedi', ['error' => $e->getMessage()]);
         }
     }
 

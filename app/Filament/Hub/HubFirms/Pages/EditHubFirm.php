@@ -192,33 +192,8 @@ class EditHubFirm extends EditRecord
         ]);
     }
 
-    /** Bu ay: hub'daki mesaj sayıları + firmadan çekilen AI/şablon maliyeti (5 dk önbellek). */
     private function usageData(): array
     {
-        $month = now()->format('Y-m');
-        $logs = $this->record->messageLogs()->where('created_at', '>=', now()->startOfMonth());
-        $in = (clone $logs)->where('direction', 'in')->count();
-        $out = (clone $logs)->where('direction', 'out')->count();
-
-        $usage = Cache::remember("hub-usage:{$this->record->id}:{$month}", 300, fn () => $this->record->fetchUsage($month));
-
-        $templates = (int) ($usage['templates'] ?? 0);
-        $waCost = ($in + $out) * config('costs.twilio_per_message') + (float) ($usage['template_cost_usd'] ?? 0);
-
-        // Numara kirası tüm firmalara ortak → aktif firma sayısına bölünür.
-        $activeFirms = max(1, HubFirm::where('is_active', true)->count());
-        $numberShare = config('costs.twilio_number_monthly') / $activeFirms;
-
-        return [
-            'monthLabel' => now()->locale('tr')->translatedFormat('F Y'),
-            'in' => $in,
-            'out' => $out,
-            'templates' => $templates,
-            'usage' => $usage,
-            'waCost' => $waCost,
-            'numberShare' => $numberShare,
-            'activeFirms' => $activeFirms,
-            'total' => $waCost + $numberShare + (float) ($usage['ai_cost_usd'] ?? 0),
-        ];
+        return \App\Support\HubCosts::firmMonth($this->record);
     }
 }
