@@ -197,6 +197,34 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertSame($expenses, \App\Models\Expense::count()); // gider açılmaz
     }
 
+    /** Erkan (13 Ekim): "Parasını aldım, peyniri sonra göndereceğim" → satış değil müşteri avansı; "0k" onaydır. */
+    public function test_customer_advance_is_collection_and_0k_confirms(): void
+    {
+        $party = Party::create(['name' => 'Zülfikar']);
+        $this->fakeAi($this->entry([
+            'kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => 3000, 'party_id' => $party->id,
+            'description' => '5 kg peynir', 'payment_purpose' => 'advance',
+        ]));
+
+        $reply = $this->send('Zülfikar 3 bin verdi peyniri sonra vereceğim');
+        $this->assertStringContainsString('Peşin para (avans)', $reply);
+        $this->assertStringContainsString('borcun 3.000,00', $reply);
+
+        $this->send('0k');
+
+        $entry = PartyLedgerEntry::where('party_id', $party->id)->sole();
+        $this->assertSame(PartyLedgerEntry::TYPE_COLLECTION, $entry->type);
+        $this->assertSame('Avans — 5 kg peynir', $entry->description);
+        $this->assertSame(-3000.0, $this->balance($party)); // müşteri alacaklı: mal borcumuz var
+    }
+
+    public function test_assent_words_cover_common_spellings(): void
+    {
+        foreach (['0k', 'Tmm', 'tamamdır', 'Olur.', 'okey', 'kaydet'] as $w) {
+            $this->assertTrue(\App\Services\Whatsapp\ChatAssistant::hasAssent($w), $w);
+        }
+    }
+
     public function test_balance_query_answers_without_draft(): void
     {
         $party = Party::create(['name' => 'Kuşak Beton']);

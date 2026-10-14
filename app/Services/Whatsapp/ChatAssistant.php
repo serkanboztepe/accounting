@@ -140,13 +140,17 @@ class ChatAssistant
         return ! preg_match('/-5-5\b|-[6-9]\b|-[6-9]-/', $model);
     }
 
+    /** Onay sayılan kelimeler — tek kelimelik cevap (kontrolcü) ve cümle içi (hasAssent) aynı listeyi kullanır. "0k" Erkan, 13 Ekim. */
+    public const ASSENT_WORDS = ['evet', 'tamam', 'tamamdır', 'tamamdir', 'olur', 'kaydet', 'onay', 'onayla',
+        'ok', '0k', 'okey', 'okay', 'tmm', 'e'];
+
     /** Mesajda onay kelimesi var mı: evet / tamam / ok / olur / kaydet / onay — ya da tek harf yazım hatası ("evert"). */
     public static function hasAssent(string $text): bool
     {
         $lower = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
         $words = preg_split('/[\s\p{P}]+/u', $lower, -1, PREG_SPLIT_NO_EMPTY) ?: [];
         foreach ($words as $w) {
-            foreach (['evet', 'tamam', 'olur', 'kaydet', 'onay', 'onayla', 'ok', 'tmm', 'e'] as $yes) {
+            foreach (self::ASSENT_WORDS as $yes) {
                 if ($w === $yes || (mb_strlen($yes) >= 4 && mb_strlen($w) >= 3 && levenshtein($w, $yes) <= 1)) {
                     return true;
                 }

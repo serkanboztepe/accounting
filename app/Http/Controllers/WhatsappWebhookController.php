@@ -1049,7 +1049,8 @@ class WhatsappWebhookController extends Controller
             $note = ($d['debt_side'] ?? null) === 'payable' ? 'Borç kaydı' : 'Alacak kaydı';
             $description = $note . ($this->isTrivialDebtText($description) ? '' : ' — ' . $description);
         }
-        if ($kind === ExpenseExtractor::KIND_PAYMENT && ! empty($d['advance'])) {
+        if (($kind === ExpenseExtractor::KIND_PAYMENT && ! empty($d['advance']))
+            || ($kind === ExpenseExtractor::KIND_COLLECTION && ($d['payment_purpose'] ?? null) === 'advance')) {
             $label = ($d['payment_purpose'] ?? null) === 'loan' ? 'Borç verildi' : 'Avans';
             // "Avans — Avans ödemesi" / "Borç verildi — Borç verildi" tekrarı olmasın.
             $word = $label === 'Avans' ? 'avans' : 'borç';
@@ -1474,6 +1475,9 @@ class WhatsappWebhookController extends Controller
             $lines[] = ($d['debt_side'] ?? null) === 'payable'
                 ? '📒 *Borç kaydı*: ' . $label . ' → sen ona ' . Money::format($amount) . ' ₺ borçlusun'
                 : '📒 *Alacak kaydı*: ' . $label . ' → sana ' . Money::format($amount) . ' ₺ borçlu';
+        } elseif ($kind === ExpenseExtractor::KIND_COLLECTION && ($d['payment_purpose'] ?? null) === 'advance') {
+            // Müşteri avansı: para geldi, mal/iş borcu bizde — ekstrede müşteri alacaklı görünür.
+            $lines[] = '💰 *Peşin para (avans)* ← ' . $label . ': ' . Money::format($amount) . ' ₺ aldın, mal/iş sonra verilecek';
         } else {
             $lines[] = '💰 ' . $label . ' → *sana*: ' . Money::format($amount) . ' ₺ ödedi';
         }
@@ -1977,7 +1981,7 @@ class WhatsappWebhookController extends Controller
 
     private function isConfirm(string $body): bool
     {
-        return in_array($this->word($body), ['evet', 'onayla', 'tamam', 'ok', 'e', 'onay'], true);
+        return in_array($this->word($body), ChatAssistant::ASSENT_WORDS, true);
     }
 
     private function isCancel(string $body): bool
