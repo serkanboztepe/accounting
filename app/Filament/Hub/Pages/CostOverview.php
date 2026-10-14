@@ -26,22 +26,22 @@ class CostOverview extends Page
 
     protected string $view = 'filament.hub.pages.cost-overview';
 
-    protected function getHeaderActions(): array
+    public function creditAction(): Action
     {
-        return [
-            Action::make('credit')
-                ->label('Bakiye gir')
-                ->icon(Heroicon::OutlinedPencilSquare)
-                ->modalDescription('console.anthropic.com → Settings → Billing sayfasındaki güncel bakiyeyi yaz. Bundan sonraki harcama bundan düşülür.')
-                ->schema([
-                    TextInput::make('balance_usd')->label('Bakiye ($)')->numeric()->minValue(0)->required(),
-                    TextInput::make('note')->label('Not')->placeholder('ör. 20 $ yüklendi'),
-                ])
-                ->action(function (array $data) {
-                    AiCredit::create(['balance_usd' => (float) $data['balance_usd'], 'note' => $data['note'] ?? null]);
-                    Notification::make()->title('Bakiye kaydedildi')->success()->send();
-                }),
-        ];
+        return Action::make('credit')
+            ->label('Güncelle')
+            ->link()
+            ->size('sm')
+            ->icon(Heroicon::OutlinedPencilSquare)
+            ->modalDescription('console.anthropic.com → Settings → Billing sayfasındaki güncel bakiyeyi yaz. Bundan sonraki harcama bundan düşülür.')
+            ->schema([
+                TextInput::make('balance_usd')->label('Bakiye ($)')->numeric()->minValue(0)->required(),
+                TextInput::make('note')->label('Not')->placeholder('ör. 20 $ yüklendi'),
+            ])
+            ->action(function (array $data) {
+                AiCredit::create(['balance_usd' => (float) $data['balance_usd'], 'note' => $data['note'] ?? null]);
+                Notification::make()->title('Bakiye kaydedildi')->success()->send();
+            });
     }
 
     protected function getViewData(): array

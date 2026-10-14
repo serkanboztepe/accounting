@@ -22,7 +22,9 @@ class HubCosts
         $usage = Cache::remember("hub-usage:{$firm->id}:{$month}", 300, fn () => $firm->fetchUsage($month));
 
         $templates = (int) ($usage['templates'] ?? 0);
-        $waCost = ($in + $out) * config('costs.twilio_per_message') + (float) ($usage['template_cost_usd'] ?? 0);
+        $msgCost = ($in + $out) * config('costs.twilio_per_message');
+        $templateCost = (float) ($usage['template_cost_usd'] ?? 0);
+        $waCost = $msgCost + $templateCost;
 
         // Numara kirası tüm firmalara ortak → aktif firma sayısına bölünür.
         $activeFirms = max(1, HubFirm::where('is_active', true)->count());
@@ -35,6 +37,8 @@ class HubCosts
             'templates' => $templates,
             'usage' => $usage,
             'aiCost' => (float) ($usage['ai_cost_usd'] ?? 0),
+            'msgCost' => $msgCost,
+            'templateCost' => $templateCost,
             'waCost' => $waCost,
             'numberShare' => $numberShare,
             'activeFirms' => $activeFirms,
@@ -73,6 +77,14 @@ class HubCosts
             'cacheHit' => $allInput > 0 ? $read / $allInput : null,
             'aiTotal' => $firmsAi + $analysis + $devCost,
             'grandTotal' => $firmsTotal + $analysis + $devCost,
+            'sum' => [
+                'ai' => $firmsAi + $analysis + $devCost,
+                'msgs' => array_sum(array_map(fn ($r) => $r['in'] + $r['out'], $rows)),
+                'msgCost' => array_sum(array_column($rows, 'msgCost')),
+                'templates' => array_sum(array_column($rows, 'templates')),
+                'templateCost' => array_sum(array_column($rows, 'templateCost')),
+                'numberShare' => array_sum(array_column($rows, 'numberShare')),
+            ],
         ];
     }
 
