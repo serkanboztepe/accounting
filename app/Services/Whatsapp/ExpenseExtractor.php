@@ -646,6 +646,42 @@ class ExpenseExtractor
         return array_merge($d, ['kind' => self::KIND_COLLECTION, 'payment_purpose' => 'advance', 'paid' => null, 'items' => []]);
     }
 
+    /**
+     * Emniyet (AI'dan bağımsız): takas / iki yönlü mesaj ("yemleme aleti ALDIM 12 bin, 5 kilo peynir VERDİM")
+     * AI ikinci kalemi `next_items`'a yazmayı unutursa kod yakalar: alışta "… verdim/sattım", satışta "… aldım"
+     * parçası sıraya eklenir — onaydan sonra sorulur. Para sözleri ("parasını verdim/aldım", "ödedim") takas
+     * değildir. Demirci Recep, Erkan 12 Ekim.
+     */
+    public static function guardSwap(array $d, string $text): array
+    {
+        $kind = $d['kind'] ?? null;
+        if (! in_array($kind, [self::KIND_PURCHASE, self::KIND_SALE], true) || ! empty($d['next_items']) || trim($text) === '') {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $verb = $kind === self::KIND_PURCHASE ? '(?:verdim|sattım|sattim)' : '(?:aldım|aldim)';
+        if (! preg_match_all('/((?:[^\s,.;]+\s+){0,5}' . $verb . ')(?=[\s,.;!]|$)/u', $t, $m)) {
+            return $d;
+        }
+        foreach ($m[1] as $segment) {
+            // "parasını verdim / para aldım / nakit verdim" = ödeme/tahsilat, takas değil.
+            if (preg_match('/(para|parası|parasını|parayı|nakit|peşin|ödeme|tutar)\s+' . $verb . '$/u', $segment)) {
+                continue;
+            }
+            $d['next_items'] = trim($segment) . ' (aynı mesajdan: "' . trim($text) . '" — ilk kalem kaydedildi, onu tekrar önerme)';
+
+            return $d;
+        }
+
+        return $d;
+    }
+
+    /** Sıradaki kalemin kullanıcıya görünen kısmı (kodun eklediği bağlam notu olmadan). */
+    public static function nextItemsLabel(string $next): string
+    {
+        return trim((string) preg_replace('/\s*\(aynı mesajdan: .*$/su', '', $next));
+    }
+
     private static function validDate(mixed $value): ?string
     {
         return is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : null;

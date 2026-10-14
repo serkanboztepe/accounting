@@ -479,7 +479,7 @@ class WhatsappWebhookController extends Controller
         } catch (\Throwable $e) {
             Log::warning('WhatsApp sıradaki kalem önerilemedi', ['msg' => $e->getMessage()]);
 
-            return $done . "\n\nAynı mesajdaki diğer kalemi (" . $next . ') ayrıca yazar mısın?';
+            return $done . "\n\nAynı mesajdaki diğer kalemi (" . ExpenseExtractor::nextItemsLabel($next) . ') ayrıca yazar mısın?';
         }
         if ($result['type'] !== 'entry') {
             return $done . "\n\n" . ($result['text'] ?? '');
@@ -607,6 +607,9 @@ class WhatsappWebhookController extends Controller
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
+        if ($pending === null && ChatAssistant::enabled()) {
+            $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
+        }
         $this->inboundKind = $this->kind($data);
         if (! empty($data['party_id']) && Party::whereKey($data['party_id'])->exists()) {
             $this->touchedPartyId = (int) $data['party_id']; // bakiye / ekstre / taslak — sınırlı bağlam
@@ -726,7 +729,7 @@ class WhatsappWebhookController extends Controller
         }
         // Aynı mesajdaki ikinci kalem görünsün — kullanıcı unutulduğunu sanıp tekrar yazmasın.
         if (! empty($data['next_items'])) {
-            $summary .= "\n➡️ Sırada: " . $data['next_items'] . ' (bunu onaylayınca sorarım)';
+            $summary .= "\n➡️ Sırada: " . ExpenseExtractor::nextItemsLabel($data['next_items']) . ' (bunu onaylayınca sorarım)';
         }
         $footer = match (true) {
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",

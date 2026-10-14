@@ -275,4 +275,26 @@ class WhatsappChatAssistantTest extends TestCase
         $party = \App\Models\Party::where('name', 'Takas Recep')->sole();
         $this->assertSame(-9000.0, \App\Support\PartyStatement::build($party)['balance']); // 12.000 borç − 3.000 peynir
     }
+
+    /** Kod emniyeti: AI takasın ikinci kalemini unutsa da "… peynir verdim" sıraya eklenir; para sözleri takas sayılmaz. */
+    public function test_swap_guard_adds_missed_second_item_but_not_money_words(): void
+    {
+        $purchase = ['kind' => ExpenseExtractor::KIND_PURCHASE, 'paid' => false, 'next_items' => null];
+        $recep = "Demirci recep'e bir tane otomatik kuzu yemleme kurunu aldım 12.000 lira 5 kilo da peynir verdim parasını almadım hesaptan düşülecek";
+        $d = ExpenseExtractor::guardSwap($purchase, $recep);
+        $this->assertStringContainsString('5 kilo da peynir verdim', (string) $d['next_items']);
+        $this->assertSame('… 5 kilo da peynir verdim', '… ' . ExpenseExtractor::nextItemsLabel(substr($d['next_items'], strpos($d['next_items'], '5 kilo'))));
+
+        foreach (["Ahmet'ten çimento aldım parasını verdim", "Ali'den yem aldım 5 bin nakit verdim", "Mehmetten un aldım"] as $t) {
+            $this->assertNull(ExpenseExtractor::guardSwap($purchase, $t)['next_items'], $t);
+        }
+        $sale = ['kind' => ExpenseExtractor::KIND_SALE, 'paid' => true, 'next_items' => null];
+        $this->assertNull(ExpenseExtractor::guardSwap($sale, "Ali'ye bal verdim parasını aldım")['next_items']);
+        $this->assertNotNull(ExpenseExtractor::guardSwap($sale, "Veli'ye 10 kilo bal verdim, ondan 2 çuval yem aldım")['next_items']);
+
+        $this->chat(['type' => 'entry', 'data' => $purchase + $this->sale(12000, 'Emniyet Recep'), 'text' => '']);
+        $reply = $this->send($recep);
+        $this->assertStringContainsString('➡️ Sırada:', $reply);
+        $this->assertStringContainsString('peynir verdim (bunu onaylayınca sorarım)', $reply);
+    }
 }
