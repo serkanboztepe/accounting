@@ -1,0 +1,162 @@
+<?php
+
+namespace App\Services\Whatsapp;
+
+use App\Models\Contract;
+use App\Models\Party;
+use App\Support\Money;
+use App\Support\PartyStatement;
+use Illuminate\Support\Collection;
+
+/**
+ * Bir WhatsApp taslağı neden henüz kaydedilemiyor? (tutar / kişi / seçim / yön / yalnız onay)
+ * Onay anındaki "❓ önce …" cevabı ve yarım kalan kayıt hatırlatması aynı sebebi söyler —
+ * kayıt sessizce kaybolmasın (Erkan, Doktor vakası 13 Ekim).
+ */
+final class DraftGaps
+{
+    public const AMOUNT = 'amount';
+
+    public const PARTY = 'party';
+
+    public const CHOICE = 'choice';
+
+    public const DIRECTION = 'direction';
+
+    public const DETAIL = 'detail';
+
+    public const CONFIRM = 'confirm';
+
+    private const LEDGER_KINDS = [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_SALE,
+        ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE];
+
+    /**
+     * Kaydı tutan ilk eksik. `ask`: kullanıcıdan istenen (onay anında), `why`: neden kaydedilemediği (takip mesajında).
+     *
+     * @return array{code:string,ask:string,why:string}
+     */
+    public static function reason(array $d): array
+    {
+        $kind = self::kind($d);
+
+        if (TradeDraft::handles($d) && ($question = TradeDraft::blocker($d))) {
+            return ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question];
+        }
+        if ($kind === ExpenseExtractor::KIND_REMINDER) {
+            return empty($d['event_date'])
+                ? ['code' => self::DETAIL, 'ask' => 'Ne zaman hatırlatayım?', 'why' => 'Ne zaman hatırlatacağımı yazmadığın için kuramadım.']
+                : self::confirm();
+        }
+        if (! TradeDraft::handles($d) && (float) ($d['amount'] ?? 0) <= 0) {
+            return ['code' => self::AMOUNT, 'ask' => 'Toplam ne kadar? Sadece rakamı yazman yeterli (ör. 20000).',
+                'why' => 'Tutar eksik olduğu için kaydedemedim.'];
+        }
+        if (self::missingParty($d)) {
+            return ['code' => self::PARTY, 'ask' => 'Kime/kimden olduğunu yazar mısın? (cari adı)',
+                'why' => 'Kime/kimden olduğunu yazmadığın için kaydedemedim.'];
+        }
+        if (self::needsContractChoice($d)) {
+            return ['code' => self::CHOICE, 'ask' => 'Hangi sözleşmeye ödendiğini seç (numara yaz).',
+                'why' => 'Hangi sözleşmeye ödediğini seçmediğin için kaydedemedim.'];
+        }
+        if (self::needsDebtSide($d)) {
+            return ['code' => self::DIRECTION, 'ask' => 'Yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).',
+                'why' => 'Kimin kime borçlu olduğunu yazmadığın için kaydedemedim.'];
+        }
+        if (self::needsPaymentChoice($d)) {
+            return ['code' => self::CHOICE, 'ask' => 'Seç: *1* iş/mal aldım, *2* avans.',
+                'why' => 'Ne için verdiğini seçmediğin için kaydedemedim.'];
+        }
+
+        return self::confirm();
+    }
+
+    /** Taslağın tek satırlık adı: "Satış — Doktor, 10 kg peynir" / "Gider 4.500 ₺, Yem". */
+    public static function label(array $d): string
+    {
+        $kind = self::kind($d);
+        $word = match ($kind) {
+            ExpenseExtractor::KIND_EXPENSE => 'Gider',
+            ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_TRADE_SALE => 'Satış',
+            ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_TRADE_PURCHASE => 'Alış',
+            ExpenseExtractor::KIND_PAYMENT => 'Ödeme',
+            ExpenseExtractor::KIND_COLLECTION => ($d['payment_purpose'] ?? null) === 'advance' ? 'Peşin para (avans)' : 'Tahsilat',
+            ExpenseExtractor::KIND_DEBT_NOTE => 'Borç/alacak kaydı',
+            ExpenseExtractor::KIND_REMINDER => 'Hatırlatma',
+            default => 'Kayıt',
+        };
+        $party = self::party($d)?->name ?? ($d['party_name'] ?? null);
+        $amount = (float) ($d['amount'] ?? 0);
+        $head = $word . ($party ? ' — ' . $party : '') . ($amount > 0 ? ' ' . Money::format($amount) . ' ₺' : '');
+        $desc = trim((string) ($d['description'] ?? ($d['text'] ?? '')));
+
+        return $desc !== '' ? $head . ', ' . $desc : $head;
+    }
+
+    public static function kind(array $d): string
+    {
+        return $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
+    }
+
+    public static function party(array $d): ?Party
+    {
+        return ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+    }
+
+    public static function missingParty(array $d): bool
+    {
+        return in_array(self::kind($d), self::LEDGER_KINDS, true)
+            && ! self::party($d)
+            && empty($d['party_name']);
+    }
+
+    /** Alacak/borç kaydında yön belirsiz (AI tahmin etmedi) — kullanıcıya sorulur. */
+    public static function needsDebtSide(array $d): bool
+    {
+        return self::kind($d) === ExpenseExtractor::KIND_DEBT_NOTE
+            && ($d['debt_side'] ?? null) === 'unclear'
+            && ! self::missingParty($d);
+    }
+
+    /**
+     * Carinin aktif ALIM sözleşmeleri (satış sözleşmeleri global scope ile hariç), sabit sıra.
+     *
+     * @return Collection<int, Contract>
+     */
+    public static function activeContracts(?Party $party): Collection
+    {
+        if (! $party) {
+            return collect();
+        }
+
+        return Contract::where('party_id', $party->id)->where('status', 'active')->orderBy('id')->get()->values();
+    }
+
+    public static function needsContractChoice(array $d): bool
+    {
+        return self::kind($d) === ExpenseExtractor::KIND_PAYMENT
+            && empty($d['contract_id'])
+            && self::activeContracts(self::party($d))->count() > 1;
+    }
+
+    /**
+     * Ödeme ama cariye açık borcumuz yok (yeni cari dahil) → bu para yeni bir masraf mı,
+     * avans mı? Sormadan yazarsak ya maliyet kaçar ya da çift sayılır.
+     */
+    public static function needsPaymentChoice(array $d): bool
+    {
+        if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || self::missingParty($d)
+            || self::activeContracts(self::party($d))->isNotEmpty()) {
+            return false; // sözleşmeli cari: ödeme sözleşmeye gider
+        }
+        $party = self::party($d);
+
+        return ! $party || PartyStatement::build($party)['balance'] > -0.01;
+    }
+
+    /** @return array{code:string,ask:string,why:string} */
+    private static function confirm(): array
+    {
+        return ['code' => self::CONFIRM, 'ask' => 'Kaydetmem için *evet* yaz.', 'why' => 'Onay vermediğin için kaydedemedim.'];
+    }
+}

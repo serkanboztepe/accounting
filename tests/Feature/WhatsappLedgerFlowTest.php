@@ -384,7 +384,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $before = Expense::count();
 
         $this->assertStringContainsString('Kira tutarı ne kadar?', $this->send('Kira'));
-        $this->assertStringContainsString('Önce tutarı yaz', $this->send('evet'));
+        $this->assertStringContainsString('Gider, Kira: tutar olmadan kaydedemiyorum', $this->send('evet'));
         $this->assertSame($before, Expense::count());
 
         $summary = $this->send('20.000 tl');

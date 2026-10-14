@@ -17,6 +17,7 @@ use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ChatAssistant;
+use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
@@ -929,22 +930,17 @@ class WhatsappWebhookController extends Controller
             return $text;
         }
 
-        if ((float) ($d['amount'] ?? 0) <= 0) {
-            return '❓ Önce tutarı yaz (ör. 20000).';
+        // Eksik varsa neyin eksik olduğu söylenir ("tamam" yazınca "onay bekleyen kayıt yok" denmesin).
+        $gap = DraftGaps::reason($d);
+        if ($gap['code'] === DraftGaps::AMOUNT) {
+            return '❓ ' . DraftGaps::label($d) . ": tutar olmadan kaydedemiyorum.\n" . $gap['ask'];
         }
 
         if ($kind !== ExpenseExtractor::KIND_EXPENSE) {
-            if ($this->missingParty($d)) {
-                return '❓ Kime/kimden olduğunu yazar mısın? (cari adı)';
-            }
-            if ($this->needsContractChoice($d)) {
-                return 'Önce hangi sözleşmeye ödendiğini seç (numara yaz).';
-            }
-            if ($this->needsDebtSide($d)) {
-                return 'Önce yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).';
-            }
-            if ($this->needsPaymentChoice($d)) {
-                return 'Önce seç: *1* iş/mal aldım, *2* avans.';
+            if ($gap['code'] !== DraftGaps::CONFIRM) {
+                return $gap['code'] === DraftGaps::PARTY
+                    ? '❓ ' . $gap['ask']
+                    : 'Önce ' . mb_strtolower(mb_substr($gap['ask'], 0, 1)) . mb_substr($gap['ask'], 1);
             }
             if ($kind === ExpenseExtractor::KIND_PAYMENT && $this->paymentContract($d)) {
                 return $this->commitContractPayment($pending, $d, $this->paymentContract($d));
@@ -1196,9 +1192,7 @@ class WhatsappWebhookController extends Controller
     /** Alacak/borç kaydında yön belirsiz (AI tahmin etmedi) — kullanıcıya sorulur. */
     private function needsDebtSide(array $d): bool
     {
-        return $this->kind($d) === ExpenseExtractor::KIND_DEBT_NOTE
-            && ($d['debt_side'] ?? null) === 'unclear'
-            && ! $this->missingParty($d);
+        return DraftGaps::needsDebtSide($d);
     }
 
     /** Hâlâ ödenmemiş (unpaid / partial) gider; değilse null. */
@@ -1842,7 +1836,7 @@ class WhatsappWebhookController extends Controller
 
     private function existingParty(array $d): ?Party
     {
-        return ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+        return DraftGaps::party($d);
     }
 
     private function resolveParty(array $d): Party
@@ -1852,10 +1846,7 @@ class WhatsappWebhookController extends Controller
 
     private function missingParty(array $d): bool
     {
-        return in_array($this->kind($d), [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_SALE,
-            ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE], true)
-            && ! $this->existingParty($d)
-            && empty($d['party_name']);
+        return DraftGaps::missingParty($d);
     }
 
     /**
@@ -1865,11 +1856,7 @@ class WhatsappWebhookController extends Controller
      */
     private function activeContracts(?Party $party): \Illuminate\Support\Collection
     {
-        if (! $party) {
-            return collect();
-        }
-
-        return Contract::where('party_id', $party->id)->where('status', 'active')->orderBy('id')->get()->values();
+        return DraftGaps::activeContracts($party);
     }
 
     /** Ödemenin yazılacağı sözleşme: seçildiyse o, tek aktif sözleşme varsa o, yoksa null. */
@@ -1888,9 +1875,7 @@ class WhatsappWebhookController extends Controller
 
     private function needsContractChoice(array $d): bool
     {
-        return $this->kind($d) === ExpenseExtractor::KIND_PAYMENT
-            && empty($d['contract_id'])
-            && $this->activeContracts($this->existingParty($d))->count() > 1;
+        return DraftGaps::needsContractChoice($d);
     }
 
     /**
@@ -1899,13 +1884,7 @@ class WhatsappWebhookController extends Controller
      */
     private function needsPaymentChoice(array $d): bool
     {
-        if ($this->kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || $this->missingParty($d)
-            || $this->activeContracts($this->existingParty($d))->isNotEmpty()) {
-            return false; // sözleşmeli cari: ödeme sözleşmeye gider
-        }
-        $party = $this->existingParty($d);
-
-        return ! $party || PartyStatement::build($party)['balance'] > -0.01;
+        return DraftGaps::needsPaymentChoice($d);
     }
 
     /**

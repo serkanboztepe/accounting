@@ -254,6 +254,10 @@ class ChatAssistant
           `question` YALNIZ gerçekten eksik/şüpheli bir bilgi için (ör. yön belirsiz); "onaylıyor musun?",
           "yeni cari açayım mı?" gibi soru YAZMA — onayı sistem zaten soruyor.
           Düz mesaj (soru, bilgi, yapamadığın şey) → `reply`. Sen ASLA "kaydettim" deme.
+        - Bir İŞLEM için eksik bilgi (tutar, kişi, yön) soracaksan `reply` KULLANMA: `propose_entry` ile bildiğin
+          alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
+          ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
+          sorarsan kayıt kaybolur. Türü tutar varmış gibi aynı kurallarla seç ("X'e yem verdim" = sale, "X'ten un aldım" = purchase).
         - Bekleyen taslak varken kullanıcı onaylıyorsa ("evet", "tamam", "ok", "olur", "kaydet", "evert",
           "Evet gider yaz") → `confirm_pending`. Onayla birlikte ödeme durumu söylediyse ("Ödendi evet") `paid` ver.
         - Kullanıcı taslakta bir şeyi düzeltiyorsa ("ödendi", "tutar 5000", "kategori çobanlar", "adı Silajcı

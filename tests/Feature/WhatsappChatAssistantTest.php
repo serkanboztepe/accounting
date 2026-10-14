@@ -113,6 +113,25 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(0, PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Onaysız Yusuf'))->count());
     }
 
+    /** Erkan, Doktor (13 Ekim): tutar sorulunca taslak açılır; "Tamam" → neyin eksik olduğu söylenir, kayıt kaybolmaz. */
+    public function test_missing_amount_question_keeps_draft_and_tamam_says_what_is_missing(): void
+    {
+        $draft = ['amount' => 0, 'description' => '10 kg peynir, 2 kavurma, mumbar',
+            'question' => 'Toplam ne kadar tuttu?'] + $this->sale(0, 'Doktor Test');
+        $this->chat(
+            ['type' => 'entry', 'data' => $draft, 'text' => ''],
+            ['type' => 'entry', 'data' => ['amount' => 8500, 'question' => null, 'is_new_entry' => false] + $draft, 'text' => ''],
+        );
+
+        $this->assertStringContainsString('Toplam ne kadar tuttu?', $this->send('Doktora 10 kilo peynir 2 kavurma mumbar verdim veresiye'));
+        $this->assertStringContainsString('Satış — Doktor Test, 10 kg peynir, 2 kavurma, mumbar: tutar olmadan kaydedemiyorum', $this->send('Tamam'));
+        $this->assertSame(0, PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Doktor Test'))->count());
+
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('8500 lira'));
+        $this->send('evet');
+        $this->assertSame(1, PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Doktor Test'))->count());
+    }
+
     public function test_assent_words_and_typos(): void
     {
         foreach (['Evet', 'Evert', 'evt', 'Tmam', 'tmm', 'ok', 'Evet gider yaz', 'Ödendi evet', 'olur'] as $yes) {
