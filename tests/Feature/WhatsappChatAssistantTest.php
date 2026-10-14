@@ -252,4 +252,27 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertStringContainsString('Sıradaki', $reply);
         $this->assertStringContainsString('10.000,00', $reply);
     }
+
+    /** Erkan, Recep takası (13 Ekim): ikinci kalem özette görünür, düzeltmede kaybolmaz, onaydan sonra sorulur. */
+    public function test_swap_second_item_shown_kept_on_correction_and_proposed(): void
+    {
+        $purchase = ['kind' => ExpenseExtractor::KIND_PURCHASE, 'description' => 'Yemleme aleti', 'paid' => false]
+            + $this->sale(12000, 'Takas Recep', '5 kg peynir verdim × 600 = 3.000');
+        $this->chat(
+            ['type' => 'entry', 'data' => $purchase, 'text' => ''],
+            ['type' => 'entry', 'data' => ['next_items' => null, 'is_new_entry' => false, 'description' => 'Yemleme makinesi'] + $purchase, 'text' => ''],
+            ['type' => 'entry', 'data' => ['description' => '5 kg peynir'] + $this->sale(3000, 'Takas Recep'), 'text' => ''],
+        );
+
+        $this->assertStringContainsString('➡️ Sırada: 5 kg peynir', $this->send('Recepten yemleme aleti aldım 12 bin, 5 kilo peynir verdim 600den'));
+        $this->assertStringContainsString('➡️ Sırada: 5 kg peynir', $this->send('adı yemleme makinesi'));
+
+        $reply = $this->send('evet');
+        $this->assertStringContainsString('Sıradaki', $reply);
+        $this->assertStringContainsString('3.000,00', $reply);
+        $this->send('evet');
+
+        $party = \App\Models\Party::where('name', 'Takas Recep')->sole();
+        $this->assertSame(-9000.0, \App\Support\PartyStatement::build($party)['balance']); // 12.000 borç − 3.000 peynir
+    }
 }

@@ -557,6 +557,10 @@ class WhatsappWebhookController extends Controller
                 if ($pending && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
                     $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true]);
                 }
+                // Düzeltmede sıradaki kalem unutulmasın (Recep takası: peynir satışı düzeltme turunda kayboldu).
+                if ($pending && empty($data['next_items']) && ! empty($pending->extracted['next_items'])) {
+                    $data['next_items'] = $pending->extracted['next_items'];
+                }
                 $out = $this->saveDraft($pending, $phone, $data);
                 $said = trim((string) ($result['text'] ?? ''));
 
@@ -685,6 +689,10 @@ class WhatsappWebhookController extends Controller
         if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data)
             && ! str_contains($summary, $data['question'])) {
             $summary .= "\n❓ " . $data['question'];
+        }
+        // Aynı mesajdaki ikinci kalem görünsün — kullanıcı unutulduğunu sanıp tekrar yazmasın.
+        if (! empty($data['next_items'])) {
+            $summary .= "\n➡️ Sırada: " . $data['next_items'] . ' (bunu onaylayınca sorarım)';
         }
         $footer = match (true) {
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",

@@ -223,7 +223,7 @@ class ChatAssistant
                 'category_id', 'category_name', 'paid', 'debt_side', 'payment_purpose', 'items', 'payment_type',
                 // Stoklu satış taslağı düzeltilirken bunlar kaybolmasın (nakit/kart, sayım, ürün ayarı).
                 'product_id', 'cash_amount', 'card_amount', 'counted_quantity', 'daily_usage', 'reorder_level', 'month',
-                'purchase_price', 'product_name', 'unit',
+                'purchase_price', 'product_name', 'unit', 'next_items',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];
@@ -269,6 +269,11 @@ class ChatAssistant
         - Miktar ve birim fiyat varsa çarp (34 kg × 600 = 20.400) ve açıklamaya yaz.
         - Tek mesajda birden fazla kalem varsa ("5400 parça, 10.000 işçilik"): satışta `items` kullan; diğer
           türlerde İLK kalemi öner ve kalanları `next_items`'a yaz — kullanıcı onaylayınca sistem sıradakini sorar.
+        - TAKAS / iki yönlü işlem: aynı kişiden hem bir şey ALDIK hem ona bir şey VERDİK ("yemleme aleti aldım 12 bin,
+          5 kilo peynir verdim 600'den, hesaptan düşecek") → ilk kalemi öner, diğerini MUTLAKA `next_items`'a yaz
+          ("Recep'e 5 kg peynir verdim × 600 = 3.000"). İkisini tek kayıtta birleştirme, birini atlama.
+        - Taslak düzeltilirken mesajda taslakta OLMAYAN yeni bir işlem varsa ("5 kilo peynirin parasını almadım 600'den")
+          onu da kaybetme: taslağı düzelt ve yeni işlemi `next_items`'a ekle (taslaktaki mevcut `next_items`'ı koru, sonuna ekle).
         - Açıklamayı (`description`) kullanıcının söylediği işten kısa yaz; söylemediği bilgi UYDURMA
           ("önceki dönemden", "devreden" gibi). "alacağım / alınacak" → o bize borçlu; yön belli, sorma.
         - KAYDEDİLMİŞ son işlemi silmek ("son kaydı sil") → `undo_last`. DÜZELTMEK ("bunu satış olarak değiştir",
