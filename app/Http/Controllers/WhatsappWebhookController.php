@@ -283,6 +283,21 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, TradeDraft::toExpense($pending->extracted)));
         }
 
+        // Satış mı alış mı belirsizdi → "sattım" / "aldım" (AI'sız, kesin cevap).
+        if ($pending && $image === null && DraftGaps::needsSaleOrPurchase($pending->extracted)) {
+            $kind = match ($this->word($body)) {
+                'sattım', 'satış', 'sattim', 'satis', 'götürdüm', 'ona götürdüm', 'verdim', 'ona verdim', 'o bana borçlu' => ExpenseExtractor::KIND_SALE,
+                'aldım', 'alış', 'aldim', 'alis', 'ondan aldım', 'o getirdi', 'ben borçluyum', 'ben ona borçluyum' => ExpenseExtractor::KIND_PURCHASE,
+                default => null,
+            };
+            if ($kind !== null) {
+                $this->inboundKind = 'quick';
+                $data = ['kind' => $kind, 'direction_unclear' => false, 'question' => null] + $pending->extracted;
+
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
+            }
+        }
+
         // Eşleşen cari ile yazılan ad farklıydı, "aynı kişi mi?" → "yeni": yazılan adla yeni cari (AI'sız, kesin cevap).
         if ($pending && $image === null && ! empty($pending->extracted['party_check'])
             && in_array($this->word($body), ['yeni', 'yeni cari', 'yeni kişi', 'farklı', 'farklı kişi', 'başka', 'başka kişi', 'aynı değil', 'değil'], true)) {
@@ -749,7 +764,7 @@ class WhatsappWebhookController extends Controller
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
         }
         // AI şüphelendiyse ("Bu borç ona mı, ondan mı?") alanlar dolu olsa bile soruyu göster — tahmin sessizce geçmesin.
-        if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data)
+        if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data) && ! DraftGaps::needsSaleOrPurchase($data)
             && ! str_contains($summary, $data['question'])) {
             $summary .= "\n❓ " . $data['question'];
         }
@@ -761,6 +776,7 @@ class WhatsappWebhookController extends Controller
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",
             $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
+            DraftGaps::needsSaleOrPurchase($data) => "\n\n*sattım* ya da *aldım* yaz, vazgeçmek için *iptal*.",
             $this->needsDebtSide($data) => "\n\n*o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun) yaz, vazgeçmek için *iptal*.",
             ! empty($data['settles_expense_id']) => "\n\n✅ Onaylamak için *evet*. Ayrı (yeni) bir gider ise *yeni* yaz, vazgeçmek için *iptal*.",
             ChatAssistant::enabled() => "\n\nKaydedeyim mi? *evet* / *tamam* / *ok* — yanlış bir şey varsa düzeltmeyi yazman yeterli.",
@@ -1478,6 +1494,10 @@ class WhatsappWebhookController extends Controller
         }
 
         $label = $party ? $name : $name . ' (yeni cari)';
+        if (DraftGaps::needsSaleOrPurchase($d)) {
+            return '📦 ' . $label . ': ' . Money::format($amount) . ' ₺' . (! empty($d['description']) ? ', ' . $d['description'] : '')
+                . " — *kim kime verdi?*\n• Sen mi ona götürdün (*sattım* → " . $name . ' sana borçlanır), yoksa ondan mı aldın (*aldım* → sen ona borçlanırsın)?';
+        }
         $before = $party ? PartyStatement::build($party)['balance'] : 0.0;
         $used = AdvanceOffset::used($d);
         // Ekstre konvansiyonu: bakiye > 0 → cari bize borçlu, < 0 → biz cariye borçluyuz.

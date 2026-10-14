@@ -59,6 +59,10 @@ final class DraftGaps
             return ['code' => self::CHOICE, 'ask' => 'Hangi sözleşmeye ödendiğini seç (numara yaz).',
                 'why' => 'Hangi sözleşmeye ödediğini seçmediğin için kaydedemedim.'];
         }
+        if (self::needsSaleOrPurchase($d)) {
+            return ['code' => self::DIRECTION, 'ask' => 'Yönü yaz: *sattım* (ona götürdün, o sana borçlanır) ya da *aldım* (ondan aldın, sen ona borçlanırsın).',
+                'why' => 'Malı ona mı götürdüğünü, ondan mı aldığını yazmadığın için kaydedemedim.'];
+        }
         if (self::needsDebtSide($d)) {
             return ['code' => self::DIRECTION, 'ask' => 'Yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).',
                 'why' => 'Kimin kime borçlu olduğunu yazmadığın için kaydedemedim.'];
@@ -108,6 +112,14 @@ final class DraftGaps
         return in_array(self::kind($d), self::LEDGER_KINDS, true)
             && ! self::party($d)
             && empty($d['party_name']);
+    }
+
+    /** Mal ona mı gitti, ondan mı geldi belli değil ("Vedat 445 sebze ekmek getirdim") — kullanıcıya sorulur. */
+    public static function needsSaleOrPurchase(array $d): bool
+    {
+        return in_array(self::kind($d), [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_PURCHASE], true)
+            && ! empty($d['direction_unclear'])
+            && ! self::missingParty($d);
     }
 
     /** Alacak/borç kaydında yön belirsiz (AI tahmin etmedi) — kullanıcıya sorulur. */

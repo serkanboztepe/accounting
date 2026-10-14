@@ -191,6 +191,24 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->assertSame(6000.0, $this->balance($party));
     }
 
+    /** Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" — yön sorulur, cevapsız kaydedilmez. */
+    public function test_unclear_direction_asks_and_blocks_confirm(): void
+    {
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 445, 'paid' => false,
+            'party_name' => 'Vedat Yön', 'description' => 'Sebze ekmek', 'direction_unclear' => true]));
+
+        $reply = $this->send('Vedat Yön 275+170 sebze ekmek getirdim');
+        $this->assertStringContainsString('*kim kime verdi?*', $reply);
+        $this->assertStringContainsString('*sattım* ya da *aldım* yaz', $reply);
+
+        $this->assertStringContainsString('Önce yönü yaz', $this->send('evet'));
+        $this->assertSame(0, Party::where('name', 'Vedat Yön')->count());
+
+        $this->assertStringContainsString('🧾 *Satış* → Vedat Yön (yeni cari): 445,00 ₺', $this->send('sattım'));
+        $this->send('evet');
+        $this->assertSame(445.0, $this->balance(Party::where('name', 'Vedat Yön')->sole()));
+    }
+
     public function test_name_check_rules(): void
     {
         $p = fn (string $n) => new Party(['name' => $n]);

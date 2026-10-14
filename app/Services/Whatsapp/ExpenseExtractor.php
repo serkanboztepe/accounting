@@ -540,6 +540,7 @@ class ExpenseExtractor
                     'project_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW project name if the user named one that is not in the list; null if matched or none named'],
                     'party_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing party id or null'],
                     'party_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW party name if the user named one that is not in the list; null if matched or none named'],
+                    'direction_unclear' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=sale/purchase: true if it is unclear whether the goods went TO the party (sale) or came FROM the party (purchase); the user is asked'],
                     'party_said' => ['type' => ['string', 'null'], 'description' => "How the user referred to the person/company in THIS message, nominative form, all descriptive words kept (\"Hüseyin BİM'in bacısı Ayten\", \"Ali usta\", \"Demirci Recep\"); null if not named (\"ona\", \"aynı kişi\")"],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
@@ -708,7 +709,17 @@ class ExpenseExtractor
     /** İzinli işlem türlerinin tanımları (prompt'a). */
     public static function kindGuide(): string
     {
-        return implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::aiKinds()));
+        $guide = implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::aiKinds()));
+        if (config('modules.cari_supplier')) {
+            // Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" sorulmadan alış sayıldı, satıştı.
+            $guide .= "\n" . '- YÖN BELİRSİZSE (sale mi purchase mı): malın ona mı gittiği, ondan mı geldiği cümleden anlaşılmıyorsa '
+                . '(kişi adında "-e/-a" ya da "-den/-dan" eki yok ve fiil iki yöne de okunuyor: "getirdim", "götürdüm", "geldi"; '
+                . 'ör. "Vedat Çağlar 275+170 sebze ekmek getirdim") en olası türü seç ama `direction_unclear`=true — sistem '
+                . '"ona mı götürdün, ondan mı aldın?" diye sorar. Ek ya da fiil yönü söylüyorsa ("Vedat\'a getirdim", '
+                . '"Vedat\'tan aldım", "X\'e verdim", "X\'ten aldım") ya da malı KİŞİ getirdiyse ("Hasan 2000 lira yem getirdi" → purchase) false.';
+        }
+
+        return $guide;
     }
 
     private function normalizeRaw(array $input): array
@@ -767,6 +778,8 @@ class ExpenseExtractor
             'project_name' => config('modules.projects') && ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
             'party_id' => isset($input['party_id']) ? (int) $input['party_id'] : null,
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
+            'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE], true) && config('modules.cari_supplier')
+                && ! empty($input['direction_unclear']),
             'party_said' => is_string($input['party_said'] ?? null) && trim($input['party_said']) !== '' ? trim($input['party_said']) : null,
             'category_id' => isset($input['category_id']) ? (int) $input['category_id'] : null,
             'category_name' => ! empty($input['category_name']) ? trim((string) $input['category_name']) : null,
