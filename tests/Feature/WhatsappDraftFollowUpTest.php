@@ -196,4 +196,29 @@ class WhatsappDraftFollowUpTest extends TestCase
         $this->assertSame('confirmed', $draft->fresh()->status);
         $this->assertSame(1, Expense::where('description', 'Kira Takip')->count());
     }
+
+    /** Doktor: hatırlatılan, eksiği yalnız tutar olan kayıt — saatler sonra gelen tutar tek adımda kaydedilir. */
+    public function test_followed_up_amount_reply_hours_later_saves_in_one_step(): void
+    {
+        $draft = $this->draft(['kind' => ExpenseExtractor::KIND_SALE, 'amount' => 0, 'paid' => false,
+            'party_name' => 'Doktor Tek Adım', 'description' => '10 kg peynir, 2 kavurma, mumbar']);
+        \App\Services\Whatsapp\DraftFollowUp::markSent($draft);
+
+        $this->travel(5)->hours();
+        $reply = $this->send('8500');
+
+        $this->assertStringContainsString('Kaydedildi', $reply);
+        $this->assertStringContainsString('son kaydı sil', $reply);
+        $this->assertSame('confirmed', $draft->fresh()->status);
+        $party = \App\Models\Party::where('name', 'Doktor Tek Adım')->sole();
+        $this->assertSame(8500.0, \App\Support\PartyStatement::build($party)['balance']);
+    }
+
+    public function test_normal_draft_amount_reply_still_asks_confirm(): void
+    {
+        $this->draft(['kind' => ExpenseExtractor::KIND_SALE, 'amount' => 0, 'paid' => false, 'party_name' => 'Normal Onay']);
+
+        $this->assertStringNotContainsString('Kaydedildi', $this->send('8500'));
+        $this->assertSame(0, \App\Models\Party::where('name', 'Normal Onay')->count());
+    }
 }

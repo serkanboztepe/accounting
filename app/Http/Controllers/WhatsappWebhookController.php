@@ -221,9 +221,11 @@ class WhatsappWebhookController extends Controller
         // sızdırmasın (updated_at: aktif gidip gelme penceresi taze tutar).
         // Birden fazla açık taslak olabilir (yeni kayıt eskisini kapatmaz, yarım kalan olarak takip edilir):
         // en son dokunulan etkindir — hatırlatılan yarım kayıt da bu yüzden cevabı alır.
+        // Hatırlatması gönderilmiş yarım kayıt 24 saat etkin kalır: geç gelen cevap ("8500") ona bağlansın.
         $pending = WhatsappPendingExpense::where('phone', $phone)
             ->where('status', 'awaiting_confirmation')
-            ->where('updated_at', '>=', now()->subMinutes(30))
+            ->where(fn ($q) => $q->where('updated_at', '>=', now()->subMinutes(30))
+                ->orWhere('followed_up_at', '>=', now()->subHours(24)))
             ->orderByDesc('updated_at')->orderByDesc('id')
             ->first();
 
@@ -698,6 +700,18 @@ class WhatsappWebhookController extends Controller
             }
 
             return $question . "\nVazgeçmek için *iptal*.";
+        }
+
+        // Hatırlatılan yarım kayıt, eksiği yalnız tutardı: kişi kaydı zaten anlatmıştı → tutar gelince
+        // ikinci onay sorulmadan kaydedilir (yanlışsa "son kaydı sil"). Normal kayıtlarda özet + onay aynen.
+        if ($pending && $pending->follow_ups > 0 && (float) ($pending->extracted['amount'] ?? 0) <= 0
+            && (float) ($data['amount'] ?? 0) > 0 && $this->kind($data) === $this->kind($pending->extracted)
+            && DraftGaps::reason($data)['code'] === DraftGaps::CONFIRM) {
+            $label = DraftGaps::label($data);
+            $pending->update(['extracted' => $data, 'summary' => $label]);
+            $done = $this->commitThenNext($pending, $phone);
+
+            return is_string($done) ? $label . "\n" . $done . "\n\nYanlışsa *son kaydı sil* yaz." : $done;
         }
 
         $summary = $this->buildSummary($data);
