@@ -56,6 +56,10 @@ class HubCosts
         $devCalls = (clone $dev)->count();
 
         $firmsAi = array_sum(array_column($rows, 'aiCost'));
+        // Önbellek isabeti: talimatın ne kadarı %10 fiyatla önbellekten okundu (düşerse sabit kısma değişen bir şey girmiştir).
+        $tok = fn (string $k) => array_sum(array_map(fn ($r) => (int) ($r['usage'][$k] ?? 0), $rows));
+        $read = $tok('ai_cache_read_tokens');
+        $allInput = $tok('ai_input_tokens') + $read + $tok('ai_cache_write_tokens');
         $firmsTotal = array_sum(array_column($rows, 'total'));
 
         return [
@@ -66,6 +70,7 @@ class HubCosts
             'analysis' => $analysis,
             'devCost' => $devCost,
             'devCalls' => $devCalls,
+            'cacheHit' => $allInput > 0 ? $read / $allInput : null,
             'aiTotal' => $firmsAi + $analysis + $devCost,
             'grandTotal' => $firmsTotal + $analysis + $devCost,
         ];

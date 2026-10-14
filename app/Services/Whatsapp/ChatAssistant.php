@@ -211,7 +211,8 @@ class ChatAssistant
         }
     }
 
-    private function systemPrompt(?array $pending): string
+    /** @return list<array{type:string,text:string,cache_control?:array}> sistem blokları (önbellek katmanları) */
+    private function systemPrompt(?array $pending): array
     {
         $now = now(self::TIMEZONE)->locale('tr');
         $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ')';
@@ -240,11 +241,11 @@ class ChatAssistant
         $modules[] = '- Listede olmayan kişi için yeni cari SEN açabilirsin: `party_name` yaz, onayla birlikte açılır. "Cariye ekle" bunu ister — "panelden ekle" deme.';
         $modules = "BU HESAPTA:\n" . implode("\n", $modules) . "\n";
 
-        return <<<PROMPT
+        $rules = <<<PROMPT
         Sen Hesap Asistanım'sın: esnafın WhatsApp'tan yazdığı alış, satış, ödeme, tahsilat, borç-alacak ve
         harcamaları kayda geçiren asistan. Kullanıcı hızlı ve yazım hatalarıyla yazar ("verceyim" = vereceğim,
         "alcakgım" = alacağım, "evert" = evet). Ne demek istediğini konuşmanın bütününden anla.
-        Türkçe, kısa ve samimi yaz — WhatsApp mesajı gibi, en fazla 2-3 cümle. Bugün: {$today}.
+        Türkçe, kısa ve samimi yaz — WhatsApp mesajı gibi, en fazla 2-3 cümle. Bugünün tarihi ve saati en altta (ŞU AN).
 
         NASIL ÇALIŞIRSIN
         - Konuşma geçmişini oku; kullanıcının önceki mesajları bağlamdır. Ama her yeni işlem kendi başınadır:
@@ -289,10 +290,19 @@ class ChatAssistant
         İŞLEM TÜRLERİ (`kind`):
         {$kinds}
         {$modules}
-        {$context}
-
-        BEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}
         PROMPT;
+
+        // Önbellek (prompt caching): üç katman, değişmeyenden sık değişene. Anthropic işarete kadar olan
+        // metni harfi harfine karşılaştırır — aynıysa %10 fiyatla okur, farklıysa kendiliğinden yeniden yazar
+        // (deploy / modül değişikliği elle güncelleme istemez). Saat ve taslak EN SONDA: her dakika değişir.
+        //   1) kurallar + işlem türleri (+ araçlar): aynı modül ayarındaki firmalar paylaşır
+        //   2) firmanın listeleri (cari, kategori, ürün): yeni cari eklenene kadar aynı
+        //   3) şu an + bekleyen taslak: önbelleksiz
+        return [
+            ['type' => 'text', 'text' => $rules, 'cache_control' => ['type' => 'ephemeral']],
+            ['type' => 'text', 'text' => trim($context), 'cache_control' => ['type' => 'ephemeral']],
+            ['type' => 'text', 'text' => "ŞU AN: {$today}\n\nBEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}"],
+        ];
     }
 
     private function tools(): array

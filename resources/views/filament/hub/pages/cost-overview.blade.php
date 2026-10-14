@@ -41,6 +41,7 @@
             <div class="text-xs text-gray-500 dark:text-gray-400">Yapay zekâ toplamı</div>
             <div class="text-2xl font-semibold text-gray-950 dark:text-white">{{ $usd($aiTotal) }}</div>
             <div class="text-xs text-gray-500 dark:text-gray-400">firmalar + analiz + denemeler</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">önbellek isabeti: {{ $cacheHit === null ? '—' : '%' . \App\Support\Money::format($cacheHit * 100, 0) }} (14 Ekim akşamından önce önbellek yoktu)</div>
         </x-filament::section>
         <x-filament::section>
             <div class="text-xs text-gray-500 dark:text-gray-400">Sabah analizi</div>

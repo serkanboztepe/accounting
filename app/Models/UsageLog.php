@@ -95,6 +95,8 @@ class UsageLog extends Model
             'ai_calls' => $ai->count(),
             'ai_input_tokens' => (int) $ai->sum('input_tokens'),
             'ai_output_tokens' => (int) $ai->sum('output_tokens'),
+            'ai_cache_read_tokens' => (int) $ai->sum('cache_read_tokens'),
+            'ai_cache_write_tokens' => (int) $ai->sum('cache_write_tokens'),
             'ai_cost_usd' => round((float) $ai->sum('cost_usd'), 4),
             'templates' => $tpl->count(),
             'template_cost_usd' => round((float) $tpl->sum('cost_usd'), 4),
