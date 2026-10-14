@@ -55,4 +55,19 @@ class RevenuePromptTest extends TestCase
         $this->app->instance(WhatsappSender::class, $sender);
         $this->artisan('revenue:prompt')->expectsOutputToContain('(ciro_sorusu) ✓')->assertSuccessful();
     }
+
+    /** Akkuş (14 Ekim): 3 numara — işaretli numara varsa yalnız ona, yoksa hepsine. */
+    public function test_marked_number_only_else_all_active(): void
+    {
+        $firm = \App\Models\HubFirm::create(['name' => 'Ciro Test', 'url' => 'https://example.test']);
+        $phone = fn (string $n, array $a = []) => \App\Models\HubPhone::create($a + ['phone' => $n, 'hub_firm_id' => $firm->id, 'name' => 'Kişi ' . $n]);
+        $phone('905550000101');
+        $chosen = $phone('905550000102');
+        $phone('905550000103', ['is_active' => false]);
+
+        $this->assertEquals(['905550000101', '905550000102'], array_keys(\App\Console\Commands\SendRevenuePrompt::firmRecipients($firm->id)));
+
+        $chosen->update(['receives_revenue_prompt' => true]);
+        $this->assertEquals(['905550000102'], array_keys(\App\Console\Commands\SendRevenuePrompt::firmRecipients($firm->id)));
+    }
 }

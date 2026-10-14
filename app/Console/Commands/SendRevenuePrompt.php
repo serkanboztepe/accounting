@@ -84,9 +84,22 @@ class SendRevenuePrompt extends Command
     {
         $phones = array_fill_keys(config('services.whatsapp.reminder_phones', []), null);
         if ($phones === [] && Tenancy::current()) {
-            $phones = HubPhone::where('hub_firm_id', Tenancy::current()->id)->where('is_active', true)->pluck('name', 'phone')->all();
+            $phones = self::firmRecipients(Tenancy::current()->id);
         }
 
         return $phones;
+    }
+
+    /**
+     * İşaretli ("Akşam ciro sorusu alsın") numara varsa yalnız onlar (Akkuş: 3 numara, ciroyu tek kişi yazıyor); yoksa tüm aktif numaralar.
+     *
+     * @return array<string, ?string>
+     */
+    public static function firmRecipients(int $firmId): array
+    {
+        $active = HubPhone::where('hub_firm_id', $firmId)->where('is_active', true);
+        $chosen = (clone $active)->where('receives_revenue_prompt', true);
+
+        return ($chosen->exists() ? $chosen : $active)->pluck('name', 'phone')->all();
     }
 }

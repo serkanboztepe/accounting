@@ -61,6 +61,9 @@ class PhonesRelationManager extends RelationManager
                 ->helperText('Kişi WhatsApp\'tan "bana yazma" derse kendiliğinden kapanır.')
                 ->default(true)
                 ->visible(fn () => $this->getOwnerRecord()->isLocal()),
+            Toggle::make('receives_revenue_prompt')->label('Akşam ciro sorusu alsın (21:00 "Bugünkü ciro ne kadar?")')
+                ->helperText('Firmada hiç işaretli numara yoksa soru tüm numaralara gider. Firmanın "Akşam ciro sorusu" modülü açık olmalı.')
+                ->visible(fn () => $this->getOwnerRecord()->isLocal()),
             Toggle::make('send_welcome')->label('Hoş geldin mesajı gönder')
                 ->helperText('WhatsApp\'tan "hesabın hazır, nasıl yaz" mesajı gider.')
                 ->default(true)

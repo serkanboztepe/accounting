@@ -13,10 +13,11 @@ class HubPhone extends Model
     use UsesCentralConnection;
 
     protected $fillable = ['phone', 'hub_firm_id', 'name', 'is_active', 'receives_reminders', 'welcomed_at',
-        'nudge_enabled', 'nudge_sent_at', 'nudge_unanswered'];
+        'nudge_enabled', 'nudge_sent_at', 'nudge_unanswered', 'receives_revenue_prompt'];
 
     protected $casts = ['is_active' => 'boolean', 'receives_reminders' => 'boolean', 'welcomed_at' => 'datetime',
-        'nudge_enabled' => 'boolean', 'nudge_sent_at' => 'datetime', 'nudge_unanswered' => 'integer'];
+        'nudge_enabled' => 'boolean', 'nudge_sent_at' => 'datetime', 'nudge_unanswered' => 'integer',
+        'receives_revenue_prompt' => 'boolean'];
 
     protected static function booted(): void
     {
