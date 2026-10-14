@@ -16,12 +16,14 @@ use App\Models\Sale;
 use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
+use App\Services\Whatsapp\AdvanceOffset;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\DraftFollowUp;
 use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
+use App\Services\Whatsapp\PartyNameCheck;
 use App\Support\Agenda;
 use App\Support\Announcements;
 use App\Support\DailyNudge;
@@ -61,6 +63,10 @@ class WhatsappWebhookController extends Controller
 
     /** Bu tutardan itibaren özette tutar yazıyla da gösterilir. */
     private const WORDS_FROM = 1_000_000;
+
+    /** Cari hareketi türleri — kişi eşleşmesi "aynı kişi mi?" kontrolünden geçer. */
+    private const PARTY_KINDS = [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_COLLECTION,
+        ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE];
 
     public function __invoke(Request $request, ExpenseExtractor $extractor)
     {
@@ -277,6 +283,18 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, TradeDraft::toExpense($pending->extracted)));
         }
 
+        // Eşleşen cari ile yazılan ad farklıydı, "aynı kişi mi?" → "yeni": yazılan adla yeni cari (AI'sız, kesin cevap).
+        if ($pending && $image === null && ! empty($pending->extracted['party_check'])
+            && in_array($this->word($body), ['yeni', 'yeni cari', 'yeni kişi', 'farklı', 'farklı kişi', 'başka', 'başka kişi', 'aynı değil', 'değil'], true)) {
+            $this->inboundKind = 'quick';
+            $data = $pending->extracted;
+            $data['party_name'] = $data['party_said'];
+            $data['party_id'] = Party::where('name', $data['party_said'])->value('id'); // aynı adla açılmış cari varsa o
+            $data['party_said'] = null;
+
+            return $this->twiml($this->saveDraft($pending, $phone, $data));
+        }
+
         // Sohbet asistanı (deneme, ayarla açılır): yazılı mesajlar konuşmayı gören asistana gider.
         // Kesin cevaplar (evet / iptal / numara) eskisi gibi kodda kalır — onu AI'a sormaya gerek yok.
         if (ChatAssistant::enabled() && $image === null && $body !== ''
@@ -431,7 +449,7 @@ class WhatsappWebhookController extends Controller
                 // Düzeltme/ek bilgi → mevcut taslağı güncelle. AI'ın bilmediği seçimler (sözleşme,
                 // avans) aynı cari için korunur — "nakit" diye düzeltince sözleşme tekrar sorulmasın.
                 if (($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
-                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true]);
+                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true, 'advance_declined' => true]);
                 }
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
@@ -583,7 +601,7 @@ class WhatsappWebhookController extends Controller
                     $pending = null; // eski taslak açık kalır — iş bitince "yarım kalan var" diye sorulur
                 }
                 if ($pending && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
-                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true]);
+                    $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true, 'advance_declined' => true]);
                 }
                 // Düzeltmede sıradaki kalem unutulmasın (Recep takası: peynir satışı düzeltme turunda kayboldu).
                 if ($pending && empty($data['next_items']) && ! empty($pending->extracted['next_items'])) {
@@ -610,6 +628,14 @@ class WhatsappWebhookController extends Controller
         if ($pending === null && ChatAssistant::enabled()) {
             $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
         }
+        // Tutar ikinci mesajda gelince AI kişinin yazılışını tekrarlamıyor — "aynı kişi mi?" kaybolmasın.
+        if ($pending && empty($data['party_said']) && ! empty($pending->extracted['party_said'])
+            && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
+            $data['party_said'] = $pending->extracted['party_said'];
+        }
+        $data = AdvanceOffset::apply($data, $this->inboundBody);
+        $data['party_check'] = in_array($this->kind($data), self::PARTY_KINDS, true) && ($party = $this->existingParty($data))
+            && PartyNameCheck::differs($party, $data['party_said'] ?? null);
         $this->inboundKind = $this->kind($data);
         if (! empty($data['party_id']) && Party::whereKey($data['party_id'])->exists()) {
             $this->touchedPartyId = (int) $data['party_id']; // bakiye / ekstre / taslak — sınırlı bağlam
@@ -709,7 +735,7 @@ class WhatsappWebhookController extends Controller
         // ikinci onay sorulmadan kaydedilir (yanlışsa "son kaydı sil"). Normal kayıtlarda özet + onay aynen.
         if ($pending && $pending->follow_ups > 0 && (float) ($pending->extracted['amount'] ?? 0) <= 0
             && (float) ($data['amount'] ?? 0) > 0 && $this->kind($data) === $this->kind($pending->extracted)
-            && DraftGaps::reason($data)['code'] === DraftGaps::CONFIRM) {
+            && DraftGaps::reason($data)['code'] === DraftGaps::CONFIRM && empty($data['party_check'])) {
             $label = DraftGaps::label($data);
             $pending->update(['extracted' => $data, 'summary' => $label]);
             $done = $this->commitThenNext($pending, $phone);
@@ -1121,28 +1147,31 @@ class WhatsappWebhookController extends Controller
             ]);
         }
 
+        // Avanstan düşülen kısım için ikinci kez para yazılmaz; yalnız kalan kısım ödendi/tahsil edildi.
+        $cashAmount = (float) ($d['amount'] ?? 0) - AdvanceOffset::used($d);
+
         // Peşin alış: alış + ödeme birlikte — borç oluşmaz ama ekstrede ne alındığı görünür.
-        if ($kind === ExpenseExtractor::KIND_PURCHASE && ! empty($d['paid'])) {
+        if ($kind === ExpenseExtractor::KIND_PURCHASE && ! empty($d['paid']) && $cashAmount > 0.009) {
             PartyLedgerEntry::create([
                 'party_id' => $party->id,
                 'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
                 'type' => PartyLedgerEntry::TYPE_PAYMENT,
                 'payment_type' => $d['payment_type'] ?? null,
                 'description' => 'Alış ödemesi' . ($description ? ' — ' . $description : ''),
-                'amount' => Money::store((float) ($d['amount'] ?? 0)),
+                'amount' => Money::store($cashAmount),
                 'notes' => 'WhatsApp üzerinden girildi.',
             ]);
         }
 
         // Peşin satış ("peynir sattım, parasını aldım"): satış + tahsilat birlikte — alacak oluşmaz ama ekstrede ne satıldığı görünür.
-        if ($kind === ExpenseExtractor::KIND_SALE && ! empty($d['paid'])) {
+        if ($kind === ExpenseExtractor::KIND_SALE && ! empty($d['paid']) && $cashAmount > 0.009) {
             PartyLedgerEntry::create([
                 'party_id' => $party->id,
                 'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
                 'type' => PartyLedgerEntry::TYPE_COLLECTION,
                 'payment_type' => $d['payment_type'] ?? null,
                 'description' => 'Satış tahsilatı' . ($description ? ' — ' . $description : ''),
-                'amount' => Money::store((float) ($d['amount'] ?? 0)),
+                'amount' => Money::store($cashAmount),
                 'notes' => 'WhatsApp üzerinden girildi.',
             ]);
         }
@@ -1450,13 +1479,14 @@ class WhatsappWebhookController extends Controller
 
         $label = $party ? $name : $name . ' (yeni cari)';
         $before = $party ? PartyStatement::build($party)['balance'] : 0.0;
+        $used = AdvanceOffset::used($d);
         // Ekstre konvansiyonu: bakiye > 0 → cari bize borçlu, < 0 → biz cariye borçluyuz.
         $after = match ($kind) {
             ExpenseExtractor::KIND_PAYMENT => $before + $amount,
-            ExpenseExtractor::KIND_SALE => ! empty($d['paid']) ? $before : $before + $amount,
+            ExpenseExtractor::KIND_SALE => ! empty($d['paid']) ? $before + $used : $before + $amount,
             ExpenseExtractor::KIND_COLLECTION => $before - $amount,
             ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? $before - $amount : $before + $amount,
-            ExpenseExtractor::KIND_PURCHASE => ! empty($d['paid']) ? $before : $before - $amount,
+            ExpenseExtractor::KIND_PURCHASE => ! empty($d['paid']) ? $before - $used : $before - $amount,
         };
 
         $lines = [];
@@ -1494,13 +1524,33 @@ class WhatsappWebhookController extends Controller
             }
         } elseif ($kind === ExpenseExtractor::KIND_SALE) {
             $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺'
-                . (! empty($d['paid']) ? ' (parası alındı)' : ' (sana borçlandı)');
+                . match (true) {
+                    $used >= $amount - 0.009 => ' (avanstan düşüldü)',
+                    ! empty($d['paid']) => ' (parası alındı)',
+                    default => ' (sana borçlandı)',
+                };
+            if ($used > 0) {
+                $rest = $amount - $used;
+                $lines[] = '💰 Önceden aldığın ' . Money::format($used) . ' ₺ avanstan düşülür'
+                    . ($rest > 0.009 ? ', kalan ' . Money::format($rest) . ' ₺ ' . (! empty($d['paid']) ? 'tahsil edildi' : 'sana borç') : '')
+                    . '. Ayrıca yeni para aldıysan *yeni para* yaz.';
+            }
             foreach ($d['items'] ?? [] as $item) {
                 $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
             }
         } elseif ($kind === ExpenseExtractor::KIND_PURCHASE) {
             $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
-                . (! empty($d['paid']) ? ' (ödendi)' : ' (ona borçlandın)');
+                . match (true) {
+                    $used >= $amount - 0.009 => ' (avanstan düşüldü)',
+                    ! empty($d['paid']) => ' (ödendi)',
+                    default => ' (ona borçlandın)',
+                };
+            if ($used > 0) {
+                $rest = $amount - $used;
+                $lines[] = '💸 Önceden verdiğin ' . Money::format($used) . ' ₺ avanstan düşülür'
+                    . ($rest > 0.009 ? ', kalan ' . Money::format($rest) . ' ₺ ' . (! empty($d['paid']) ? 'ödendi' : 'ona borç') : '')
+                    . '. Ayrıca yeni ödeme yaptıysan *yeni para* yaz.';
+            }
             // Sözleşmeli cariden alış: işin bedeli zaten sözleşmede → çift maliyet riski.
             if ($party && $this->activeContracts($party)->isNotEmpty()) {
                 $lines[] = '⚠️ ' . $party->name . ' ile sözleşmen var. Bu, sözleşmedeki işin parasıysa *iptal* yaz ve '
@@ -1537,6 +1587,9 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Proje: ' . $projectText;
         }
         $lines[] = '• Bakiye: ' . $this->balancePhrase($before) . ' → ' . $this->balancePhrase($after);
+        if (! empty($d['party_check'])) {
+            $lines[] = '❓ "' . $d['party_said'] . '" yazdın, *' . $name . '* ile eşleştirdim. *Aynı kişi mi?* Değilse *yeni* yaz.';
+        }
 
         return implode("\n", $lines);
     }

@@ -540,6 +540,7 @@ class ExpenseExtractor
                     'project_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW project name if the user named one that is not in the list; null if matched or none named'],
                     'party_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing party id or null'],
                     'party_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW party name if the user named one that is not in the list; null if matched or none named'],
+                    'party_said' => ['type' => ['string', 'null'], 'description' => "How the user referred to the person/company in THIS message, nominative form, all descriptive words kept (\"Hüseyin BİM'in bacısı Ayten\", \"Ali usta\", \"Demirci Recep\"); null if not named (\"ona\", \"aynı kişi\")"],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
                     'paid' => ['type' => ['boolean', 'null'], 'description' => 'expense/purchase: true only if explicitly paid / payment proof document, false if explicitly unpaid or future. sale: true if the money was already received (peşin, "parasını aldım"). null if not stated'],
@@ -766,6 +767,7 @@ class ExpenseExtractor
             'project_name' => config('modules.projects') && ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
             'party_id' => isset($input['party_id']) ? (int) $input['party_id'] : null,
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
+            'party_said' => is_string($input['party_said'] ?? null) && trim($input['party_said']) !== '' ? trim($input['party_said']) : null,
             'category_id' => isset($input['category_id']) ? (int) $input['category_id'] : null,
             'category_name' => ! empty($input['category_name']) ? trim((string) $input['category_name']) : null,
             // null = belirtilmedi → varsayılan kontrolcüde (carili: ödenmedi, carisiz: ödendi).
