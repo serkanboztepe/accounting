@@ -34,6 +34,12 @@ class ChatAssistant
 
     public function __construct(private ExpenseExtractor $extractor) {}
 
+    /**
+     * Twilio cevabı ~15 sn bekler. Bu ana (microtime) kadar bitmeyecek tur ertelenir (DeferTurn): kişiye "bakıyorum"
+     * gider, iş istek kapandıktan sonra süresiz sürer, sonuç ayrı mesajla gelir. null = süre sınırı yok (arka plan).
+     */
+    public static ?float $deadline = null;
+
     public static function enabled(): bool
     {
         // Firma bazında hub → Modüller → "Akıllı WhatsApp asistanı"; .env bayrağı yerel deneme için.
@@ -58,14 +64,15 @@ class ChatAssistant
         $system = $this->systemPrompt($pending);
 
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
-            $response = Http::withHeaders([
-                'x-api-key' => $apiKey,
-                'anthropic-version' => '2023-06-01',
-                'content-type' => 'application/json',
-            ])
-                ->connectTimeout(5)
-                ->retry(2, 300, fn ($e) => $e instanceof \Illuminate\Http\Client\ConnectionException, throw: false)
-                ->timeout(60)->post(self::ENDPOINT, [
+            $timeout = 60;
+            if (self::$deadline !== null) {
+                $timeout = (int) floor(self::$deadline - microtime(true));
+                if ($timeout < 2) {
+                    throw new DeferTurn('süre doldu (adım ' . $step . ')');
+                }
+            }
+            try {
+                $response = $this->call($apiKey, $timeout, [
                     'model' => $model,
                     'max_tokens' => 1024,
                     'system' => $system,
@@ -75,6 +82,12 @@ class ChatAssistant
                     'tool_choice' => ['type' => self::forcesTools((string) $model) ? 'any' : 'auto'],
                     'messages' => $messages,
                 ]);
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                if (self::$deadline !== null) {
+                    throw new DeferTurn('yapay zekâ ' . $timeout . ' sn içinde cevap vermedi');
+                }
+                throw $e;
+            }
 
             if ($response->failed()) {
                 throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
@@ -134,10 +147,31 @@ class ChatAssistant
                         'text' => is_string($input['find_text'] ?? null) && trim($input['find_text']) !== '' ? trim($input['find_text']) : null,
                     ]);
 
+                    // Onay bekleyen taslak varken "son kaydı düzelt" = TASLAĞI düzelt (henüz kayıt yok). "Recep değil Hüseyin"
+                    // ara sıra geri alma sanılıp "geri alacak kayıt yok" deniyordu, taslak eski kalıyordu (deneme seti 16.10).
+                    if ($pending !== null && ! $find) {
+                        if ($replacement !== null) {
+                            return ['type' => 'entry', 'data' => ['is_new_entry' => false] + $replacement, 'text' => $said];
+                        }
+                        $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
+                        $messages[] = ['role' => 'user', 'content' => [[
+                            'type' => 'tool_result',
+                            'tool_use_id' => $call['id'],
+                            'content' => 'Onay bekleyen TASLAK var (henüz kaydedilmedi). Kullanıcı taslağı düzeltiyorsa düzeltilmiş TAM kaydı '
+                                . 'propose_entry (is_new_entry=false) ile öner; taslaktan vazgeçiyorsa cancel_pending. Gerçekten daha önce '
+                                . 'KAYDEDİLMİŞ başka bir kaydı silmek istiyorsa undo_last\'u find_amount / find_date / find_text ile tekrar çağır.',
+                        ]]];
+                        break;
+                    }
+
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
                 case 'reply':
                     return ['type' => 'reply', 'text' => trim((string) ($input['text'] ?? '')) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'search_expenses':
+                    // Okuma bir tur daha ister — senkron süredeysek arka plana bırak (kişiye "bakıyorum" gider).
+                    if (self::$deadline !== null) {
+                        throw new DeferTurn('okuma aracı');
+                    }
                     // Salt okuma: sonucu modele ver, cevabı o yazsın.
                     $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
                     $messages[] = ['role' => 'user', 'content' => [[
@@ -152,6 +186,21 @@ class ChatAssistant
         }
 
         return ['type' => 'reply', 'text' => 'Şu an toparlayamadım, birazdan tekrar dener misin? 🙏'];
+    }
+
+    private function call(string $apiKey, int $timeout, array $payload): \Illuminate\Http\Client\Response
+    {
+        $request = Http::withHeaders([
+            'x-api-key' => $apiKey,
+            'anthropic-version' => '2023-06-01',
+            'content-type' => 'application/json',
+        ])->connectTimeout(min(5, $timeout))->timeout($timeout);
+        // Süre sınırlıyken tekrar deneme yok (zaman yetmez; arka planda yeniden denenir).
+        if (self::$deadline === null) {
+            $request = $request->retry(2, 300, fn ($e) => $e instanceof \Illuminate\Http\Client\ConnectionException, throw: false);
+        }
+
+        return $request->post(self::ENDPOINT, $payload);
     }
 
     /** claude-sonnet-5-5 / claude-opus-5-5 ve sonrası tool_choice any/tool kabul etmiyor. */
@@ -334,6 +383,8 @@ class ChatAssistant
           onu da kaybetme: taslağı düzelt ve yeni işlemi `next_items`'a ekle (taslaktaki mevcut `next_items`'ı koru, sonuna ekle).
         - Açıklamayı (`description`) kullanıcının söylediği işten kısa yaz; söylemediği bilgi UYDURMA
           ("önceki dönemden", "devreden" gibi). "alacağım / alınacak" → o bize borçlu; yön belli, sorma.
+        - Onay bekleyen TASLAK varken "X değil Y", "tutar yanlış" → taslağı düzelt (`propose_entry`, is_new_entry=false);
+          `undo_last` yalnız KAYDEDİLMİŞ işlem içindir.
         - KAYDEDİLMİŞ son işlemi silmek ("son kaydı sil") → `undo_last`. DÜZELTMEK ("bunu satış olarak değiştir",
           "8000 değil 10000 olacaktı", "kişi Ali değil Veli") → `undo_last` + `replacement` = kaydın doğru tam hâli
           (geri kalan her şey önceki kayıttaki gibi). Sistem ikisini gösterip tek onay ister. SON kayıt değil de DAHA ESKİ

@@ -25,7 +25,9 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
+use App\Services\Whatsapp\DeferTurn;
 use App\Services\Whatsapp\EmployeeDraft;
+use App\Services\Whatsapp\WhatsappSender;
 use App\Services\Whatsapp\ProjectChoice;
 use App\Support\Agenda;
 use App\Support\Announcements;
@@ -120,6 +122,10 @@ class WhatsappWebhookController extends Controller
             return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
         }
 
+        // Twilio ~15 sn bekler: AI turu isteğin başından en geç 10 sn içinde bitmezse ertelenir ("bakıyorum").
+        // İsteğin geldiği an (testte istek oluşturulduğu an); yoksa şimdi.
+        ChatAssistant::$deadline = (float) ($request->server('REQUEST_TIME_FLOAT') ?: microtime(true)) + self::SYNC_SECONDS;
+        $deferred = false;
         try {
             $firstContact = $this->firstContact = $this->isFirstContact($phone);
             $incoming = $this->logMessage($phone, 'in', $body, $numMedia > 0);
@@ -158,9 +164,84 @@ class WhatsappWebhookController extends Controller
                 $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply, is_array($reply));
             }
 
+            if ($this->deferredTurn !== null) {
+                // Kilit arka plandaki tur bitene kadar tutulur — sıradaki mesaj araya girmesin.
+                $this->runAfterResponse($phone, $incoming, $lock->owner());
+                $deferred = true;
+            }
+
             return $response;
         } finally {
-            $lock->release();
+            ChatAssistant::$deadline = null;
+            if (! $deferred) {
+                $lock->release();
+            }
+        }
+    }
+
+    /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
+    private const SYNC_SECONDS = 10;
+
+    /** @var array{pending_id:?int,body:string}|null bu mesajın turu arka plana bırakıldı (DeferTurn) */
+    private ?array $deferredTurn = null;
+
+    /**
+     * Ertelenen tur: istek kapandıktan sonra (Twilio cevabı aldı) aynı firmanın veritabanında süresiz yeniden çalışır,
+     * sonuç WhatsApp API ile ayrı mesaj olarak gider; kilit en sonda bırakılır.
+     */
+    private function runAfterResponse(string $phone, ?WhatsappMessage $incoming, string $lockOwner): void
+    {
+        $firm = Tenancy::current();
+        $turn = $this->deferredTurn;
+        $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
+
+        app()->terminating(function () use ($firm, $turn, $phone, $incoming, $lockName, $lockOwner) {
+            $work = function () use ($turn, $phone, $incoming) {
+                ChatAssistant::$deadline = null;
+                $this->deferredTurn = null;
+                $this->replies = [];
+                $pending = $turn['pending_id'] ? WhatsappPendingExpense::whereKey($turn['pending_id'])
+                    ->where('status', 'awaiting_confirmation')->first() : null;
+                try {
+                    $out = $this->chatTurn($pending, $phone, $turn['body']);
+                } catch (\Throwable $e) {
+                    Log::error('WhatsApp ertelenen tur hatası', ['msg' => $e->getMessage()]);
+                    $this->inboundKind = 'error';
+                    $out = 'Şu an toparlayamadım, birazdan tekrar yazar mısın? 🙏';
+                }
+                $this->deliver($phone, $out);
+                if ($this->touchedPartyId) {
+                    if ($this->committedPartyId
+                        && ($reminder = Reminder::awaitingReply(Phone::normalize($phone), $this->committedPartyId))) {
+                        $reminder->acknowledge();
+                    }
+                    ConversationContext::remember($phone, $this->touchedPartyId);
+                }
+                $incoming?->update(['kind' => $this->inboundKind]);
+            };
+            try {
+                $firm ? Tenancy::run($firm, $work) : $work();
+            } catch (\Throwable $e) {
+                Log::error('WhatsApp ertelenen tur çalıştırılamadı', ['msg' => $e->getMessage()]);
+            } finally {
+                Cache::restoreLock($lockName, $lockOwner)->release();
+            }
+        });
+    }
+
+    /** Ertelenen cevabı WhatsApp API ile gönder + konuşma ve maliyet kaydı. */
+    private function deliver(string $phone, string|array $out): void
+    {
+        [$text, $media] = is_array($out) ? [$out[0], $out[1] ?? null] : [$out, null];
+        $sender = app(WhatsappSender::class);
+        $ok = $media ? $sender->sendMedia($phone, $text, $media) : $sender->sendText($phone, $text);
+        $this->logMessage($phone, 'out', $text, $media !== null);
+        if ($ok && ($firm = Tenancy::current())) {
+            try {
+                \App\Models\HubMessageLog::create(['hub_firm_id' => $firm->id, 'phone' => Phone::normalize($phone), 'direction' => 'out']);
+            } catch (\Throwable) {
+                // maliyet kaydı yazılamadıysa cevap yine gitti
+            }
         }
     }
 
@@ -657,6 +738,14 @@ class WhatsappWebhookController extends Controller
         }
         try {
             $result = app(ChatAssistant::class)->respond($phone, $body, $pending?->extracted, $fresh ?? false);
+        } catch (DeferTurn $e) {
+            // early = isteği erken kapatabiliyor muyuz (LiteSpeed/FPM); yoksa "bakıyorum" iş bitince gider.
+            Log::info('WhatsApp tur arka plana bırakıldı', ['why' => $e->getMessage(),
+                'early' => function_exists('litespeed_finish_request') || function_exists('fastcgi_finish_request')]);
+            $this->deferredTurn = ['pending_id' => $pending?->id, 'body' => $body];
+            $this->inboundKind = 'deferred';
+
+            return '🔎 Bakıyorum, birkaç saniye…';
         } catch (\Throwable $e) {
             Log::error('WhatsApp sohbet asistanı hatası', ['msg' => $e->getMessage()]);
             $this->inboundKind = 'error';
