@@ -15,6 +15,15 @@ class Party extends Model
         'name',
         'phone',
         'notes',
+        'is_employee',
+        'salary_amount',
+        'salary_day',
+    ];
+
+    protected $casts = [
+        'is_employee'   => 'boolean',
+        'salary_amount' => 'float',
+        'salary_day'    => 'integer',
     ];
 
     /**

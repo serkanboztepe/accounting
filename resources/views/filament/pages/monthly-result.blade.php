@@ -3,11 +3,16 @@
         $months = $this->getMonths();
         $current = $months[0];
         $fmt = fn ($v) => '₺' . \App\Support\Money::format($v);
+        // Personel (maaş) yalnız personel işaretli carisi olan firmada görünür.
+        $hasPersonnel = collect($months)->contains(fn ($m) => ($m['personnel'] ?? 0) > 0);
+        $cards = array_values(array_filter([['Ciro', $current['revenue']], ['Alış', $current['purchases']],
+            $hasPersonnel ? ['Personel', $current['personnel']] : null, ['Gider', $current['expenses']],
+            [$current['result'] >= 0 ? 'Kalan' : 'Eksi', $current['result']]]));
     @endphp
 
-    <x-filament::section :heading="$current['label'] . ' (bu ay)'" description="Yaklaşık: ciro − alış − gider. Ödeme ve tahsilatlar sayılmaz; stokta kalan mal düşülmez.">
-        <div class="grid gap-4 sm:grid-cols-4">
-            @foreach ([['Ciro', $current['revenue']], ['Alış', $current['purchases']], ['Gider', $current['expenses']], [$current['result'] >= 0 ? 'Kalan' : 'Eksi', $current['result']]] as [$title, $value])
+    <x-filament::section :heading="$current['label'] . ' (bu ay)'" :description="'Yaklaşık: ciro − alış − ' . ($hasPersonnel ? 'personel − ' : '') . 'gider. Ödeme ve tahsilatlar sayılmaz; stokta kalan mal düşülmez.'">
+        <div class="grid gap-4 {{ $hasPersonnel ? 'sm:grid-cols-5' : 'sm:grid-cols-4' }}">
+            @foreach ($cards as [$title, $value])
                 <div>
                     <div class="text-xs text-gray-500 dark:text-gray-400">{{ $title }}</div>
                     <div class="text-xl font-semibold tabular-nums {{ $loop->last ? ($value >= 0 ? 'text-success-600' : 'text-danger-600') : 'text-gray-950 dark:text-white' }}">{{ $fmt(abs($value)) }}</div>
@@ -33,6 +38,9 @@
                         <th class="px-3 py-2 text-right font-medium">Ciro</th>
                         <th class="px-3 py-2 text-right font-medium">Nakit / Kart</th>
                         <th class="px-3 py-2 text-right font-medium">Alış</th>
+                        @if ($hasPersonnel)
+                            <th class="px-3 py-2 text-right font-medium">Personel</th>
+                        @endif
                         <th class="px-3 py-2 text-right font-medium">Gider</th>
                         <th class="py-2 pl-3 text-right font-medium">Sonuç</th>
                     </tr>
@@ -44,6 +52,9 @@
                             <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($m['revenue']) }}</td>
                             <td class="px-3 py-2 text-right tabular-nums text-gray-500">{{ \App\Support\Money::format($m['cash']) }} / {{ \App\Support\Money::format($m['bank']) }}</td>
                             <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($m['purchases']) }}</td>
+                            @if ($hasPersonnel)
+                                <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($m['personnel']) }}</td>
+                            @endif
                             <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($m['expenses']) }}</td>
                             <td class="py-2 pl-3 text-right font-medium tabular-nums {{ $m['result'] >= 0 ? 'text-success-600' : 'text-danger-600' }}">{{ $m['result'] < 0 ? '−' : '' }}{{ $fmt(abs($m['result'])) }}</td>
                         </tr>

@@ -46,8 +46,12 @@ class MonthlyResult
         $revenue = $salesDocs + $salesLedger - $returns;
 
         $purchaseDocs = (float) $p(Purchase::whereBetween('purchase_date', [$from, $to]))->sum('total_amount');
-        $purchaseLedger = (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->whereNull('purchase_id')
-            ->whereBetween('entry_date', [$from, $to]))->sum('amount');
+        // Personel carisinin hak edişleri (maaş) alış değil, ayrı "Personel" satırı — bir kez sayılır.
+        $employees = \App\Models\Party::where('is_employee', true)->pluck('id');
+        $ledgerIn = fn () => $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->whereNull('purchase_id')
+            ->whereBetween('entry_date', [$from, $to]));
+        $purchaseLedger = (float) $ledgerIn()->whereNotIn('party_id', $employees)->sum('amount');
+        $personnel = $employees->isEmpty() ? 0.0 : (float) $ledgerIn()->whereIn('party_id', $employees)->sum('amount');
         $goodsIn = $p(StockMovement::where('reason', StockMovement::REASON_PURCHASE)->whereNull('purchase_id')
             ->whereBetween('movement_date', [$from, $to]));
         $goodsInAmount = (float) (clone $goodsIn)->sum('amount');
@@ -75,7 +79,8 @@ class MonthlyResult
             'goods_in'        => $goodsInAmount,
             'unpriced_goods'  => $unpriced,
             'expenses'        => $expenses,
-            'result'          => $revenue - $purchases - $expenses,
+            'personnel'       => $personnel,
+            'result'          => $revenue - $purchases - $personnel - $expenses,
         ];
     }
 
@@ -115,6 +120,9 @@ class MonthlyResult
                 . ($r['cash'] + $r['bank'] > 0 ? ' (peşin nakit ' . Money::format($r['cash']) . ', kart ' . Money::format($r['bank']) . ')' : ''),
             'Alış: ' . Money::format($r['purchases']) . ' ₺',
         ];
+        if (($r['personnel'] ?? 0) > 0) {
+            $lines[] = 'Personel: ' . Money::format($r['personnel']) . ' ₺';
+        }
         if (config('modules.expenses')) {
             $lines[] = 'Gider: ' . Money::format($r['expenses']) . ' ₺';
         }

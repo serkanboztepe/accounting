@@ -21,7 +21,7 @@ use Illuminate\Support\Collection;
 final class ProjectChoice
 {
     public const KINDS = [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_SALE,
-        ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE];
+        ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_SALARY];
 
     public static function applies(array $d): bool
     {

@@ -39,6 +39,11 @@ final class DraftGaps
     {
         $kind = self::kind($d);
 
+        if (EmployeeDraft::handles($d)) {
+            return ($question = EmployeeDraft::blocker($d))
+                ? ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question]
+                : self::confirm();
+        }
         if (TradeDraft::handles($d) && ($question = TradeDraft::blocker($d) ?? ProjectChoice::blocker($d))) {
             return ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question];
         }
@@ -91,6 +96,8 @@ final class DraftGaps
             ExpenseExtractor::KIND_COLLECTION => ($d['payment_purpose'] ?? null) === 'advance' ? 'Peşin para (avans)' : 'Tahsilat',
             ExpenseExtractor::KIND_DEBT_NOTE => 'Borç/alacak kaydı',
             ExpenseExtractor::KIND_REMINDER => 'Hatırlatma',
+            ExpenseExtractor::KIND_SALARY => 'Maaş',
+            ExpenseExtractor::KIND_EMPLOYEE_SETTING => 'Personel bilgisi',
             default => 'Kayıt',
         };
         $party = self::party($d)?->name ?? ($d['party_name'] ?? null);

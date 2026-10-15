@@ -10,6 +10,7 @@ use App\Support\PartyStatement;
 use Filament\Notifications\Notification;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use WeakMap;
 
@@ -29,7 +30,11 @@ class PartiesTable
     {
         return $table
             ->columns([
-                TextColumn::make('name')->label('İsim')->searchable()->sortable(),
+                TextColumn::make('name')->label('İsim')->searchable()->sortable()
+                    ->description(fn (Party $record) => $record->is_employee
+                        ? '👷 Personel' . ($record->salary_amount ? ' · maaş ' . Money::format((float) $record->salary_amount) . ' ₺' : '')
+                            . ($record->salary_day ? ' · ayın ' . $record->salary_day . "'i" : '')
+                        : null),
                 TextColumn::make('phone')->label('Telefon')->searchable(),
                 // Ekstre bakiyesi (PartyStatement): > 0 cari bize borçlu, < 0 biz cariye borçluyuz.
                 TextColumn::make('balance_status')->label('Durum')->badge()
@@ -49,6 +54,9 @@ class PartiesTable
                     ->placeholder('—')->weight('medium')->alignEnd(),
                 TextColumn::make('notes')->label('Notlar')->limit(50),
                 TextColumn::make('created_at')->label('Oluşturulma')->dateTime()->sortable(),
+            ])
+            ->filters([
+                TernaryFilter::make('is_employee')->label('Personel'),
             ])
             ->recordActions([
                 EditAction::make(),

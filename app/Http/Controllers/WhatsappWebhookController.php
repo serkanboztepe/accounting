@@ -25,6 +25,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
+use App\Services\Whatsapp\EmployeeDraft;
 use App\Services\Whatsapp\ProjectChoice;
 use App\Support\Agenda;
 use App\Support\Announcements;
@@ -784,6 +785,10 @@ class WhatsappWebhookController extends Controller
             // Anlaşılamayan mesaj: zorla en yakın türe sokmak yerine yönlendir. Bekleyen taslağa dokunma.
             return $data['reply'] ?: $this->guideText();
         }
+        // Personel bilgisi / maaş (her firmada).
+        if (EmployeeDraft::handles($data)) {
+            return $this->saveEmployeeDraft($pending, $phone, $data);
+        }
         // Stoklu satış paketi (satış/alış belgesi, sayım, stok sorusu, ay sonucu) — yalnız o firmalarda.
         if (TradeDraft::handles($data)) {
             return $this->saveTradeDraft($pending, $phone, $data);
@@ -1247,6 +1252,18 @@ class WhatsappWebhookController extends Controller
             return $this->commitReminder($pending, $d);
         }
 
+        if (EmployeeDraft::handles($d)) {
+            if ($question = EmployeeDraft::blocker($d)) {
+                return '❓ ' . $question;
+            }
+            [$text, $partyId] = EmployeeDraft::commit($d, $pending->phone);
+            $this->touchedPartyId = $partyId ?: $this->touchedPartyId;
+            $this->committedPartyId = $partyId;
+            $pending->update(['status' => 'confirmed']);
+
+            return $text;
+        }
+
         if (TradeDraft::handles($d) && ! in_array($kind, TradeDraft::ANSWER_KINDS, true)) {
             if ($question = TradeDraft::blocker($d) ?? ProjectChoice::blocker($d)) {
                 return '❓ ' . $question;
@@ -1461,6 +1478,27 @@ class WhatsappWebhookController extends Controller
         $pending->update(['status' => 'confirmed']);
 
         return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+    }
+
+    /** Personel ayarı / maaş taslağı: özet + teyit (eksikse soru). */
+    private function saveEmployeeDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
+    {
+        $question = EmployeeDraft::blocker($data);
+        $summary = $question !== null && ! EmployeeDraft::party($data) && empty($data['party_name'])
+            ? '❓ ' . $question
+            : EmployeeDraft::summary($data) . (($pl = ProjectChoice::lines($data)) ? "\n" . implode("\n", $pl) : '')
+                . ($question !== null ? "\n❓ " . $question : '');
+        $footer = $question !== null
+            ? "\n\nCevabını yaz, vazgeçmek için *iptal*."
+            : "\n\nKaydedeyim mi? *evet* / *tamam* — yanlış bir şey varsa düzeltmeyi yazman yeterli.";
+
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $summary]);
+        } else {
+            WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+        }
+
+        return $summary . $footer;
     }
 
     /** Stoklu satış taslağı: soru türleri doğrudan cevaplanır; kayıt türleri özet + teyit (eksik varsa soru). */

@@ -99,7 +99,9 @@ class Reminders
             };
         }
 
-        $note = $r->party ? ' — ' . self::balanceNote($r->party) : '';
+        // Personelin maaş günü: bakiye yerine maaş − avans = ödenecek.
+        $salary = $r->party && mb_stripos($r->text, 'maaş') !== false ? \App\Services\Whatsapp\EmployeeDraft::reminderNote($r->party) : null;
+        $note = $r->party ? ' — ' . ($salary ?? self::balanceNote($r->party)) : '';
 
         return $prefix . $text . $note;
     }

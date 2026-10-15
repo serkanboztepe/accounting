@@ -52,7 +52,7 @@ class ExpenseContext
             ->orderBy('name')
             ->get(['id', 'name', 'cadastral_parcel']);
 
-        $parties = Party::query()->orderBy('name')->get(['id', 'name']);
+        $parties = Party::query()->orderBy('name')->get(['id', 'name', 'is_employee', 'salary_amount', 'salary_day']);
 
         $categories = ExpenseCategory::query()->orderBy('name')->get(['id', 'name']);
 
@@ -81,7 +81,7 @@ class ExpenseContext
         $lines[] = 'CARİLER (id: isim):';
         $lines[] = $parties->isEmpty()
             ? '  (kayıtlı cari yok)'
-            : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name))->implode("\n");
+            : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name) . self::employeeNote($c))->implode("\n");
 
         $lines[] = '';
         $lines[] = 'GİDER KATEGORİLERİ (id: isim):';
@@ -121,5 +121,16 @@ class ExpenseContext
         }
 
         return implode("\n", $lines);
+    }
+
+    /** Personel işaretli cari: " (personel, maaş 50.000, ayın 15'i)" — maaş/avans sorularında AI bilsin. */
+    private static function employeeNote($party): string
+    {
+        if (empty($party->is_employee)) {
+            return '';
+        }
+
+        return ' (personel' . ($party->salary_amount ? ', maaş ' . \App\Support\Money::format((float) $party->salary_amount) : '')
+            . ($party->salary_day ? ', ayın ' . $party->salary_day . "'i" : '') . ')';
     }
 }
