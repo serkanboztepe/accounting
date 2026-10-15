@@ -26,11 +26,13 @@ class ProjectForm
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->preload()
-                ->visible(fn () => config('app.profile') !== 'muteahhit')
+                ->visible(fn () => ! in_array(config('app.profile'), ['muteahhit', 'trade', 'alacak_verecek'], true))
                 ->helperText('Opsiyonel — proje bir müşteriye aitse seç. Kendi projelerinde boş bırak.'),
+            // Şube olarak kullanan firmalarda (ticaret, alacak-verecek) inşaat alanı gizli.
             TextInput::make('cadastral_parcel')
                 ->label('Ada / Parsel')
                 ->placeholder('880/294')
+                ->visible(fn () => ! in_array(config('app.profile'), ['trade', 'alacak_verecek'], true))
                 ->maxLength(255),
             Textarea::make('address')
                 ->label('Adres')

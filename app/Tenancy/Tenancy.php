@@ -52,6 +52,7 @@ class Tenancy
                 'app.profile'                 => config('app.profile'),
                 'app.cari_lock'               => config('app.cari_lock'),
                 'app.cari_lock_minutes'       => config('app.cari_lock_minutes'),
+                'app.project_label'           => config('app.project_label'),
                 'services.whatsapp.reminder_phones'     => config('services.whatsapp.reminder_phones'),
                 'services.whatsapp.check_reminder_days' => config('services.whatsapp.check_reminder_days'),
                 'filesystems.disks.public'    => config('filesystems.disks.public'),
@@ -77,6 +78,7 @@ class Tenancy
             'app.profile'                 => $settings['profile'],
             'app.cari_lock'               => $settings['cari_lock'],
             'app.cari_lock_minutes'       => $settings['cari_lock_minutes'],
+            'app.project_label'           => $settings['project_label'],
             'services.whatsapp.reminder_phones'     => $firm->reminderPhones(),
             'services.whatsapp.check_reminder_days' => $settings['check_reminder_days'],
             'filesystems.disks.public'    => array_merge($public, [

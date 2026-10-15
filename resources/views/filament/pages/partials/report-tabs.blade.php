@@ -2,7 +2,7 @@
     // Etkin modüllere göre rapor sekmeleri — tek "Raporlar" bölümü hissi.
     $reportTabs = array_values(array_filter([
         config('modules.report_project')
-            ? ['key' => 'project', 'label' => 'Proje Raporları', 'url' => \App\Filament\Pages\ProjectReports::getUrl()]
+            ? ['key' => 'project', 'label' => \App\Support\Labels::project() . ' Raporları', 'url' => \App\Filament\Pages\ProjectReports::getUrl()]
             : null,
         (config('modules.stock') && config('modules.report_stock'))
             ? ['key' => 'stock', 'label' => 'Stok Raporu', 'url' => \App\Filament\Pages\StockReport::getUrl()]

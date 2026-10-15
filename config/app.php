@@ -27,6 +27,9 @@ return [
     'cari_lock' => (bool) env('CARI_LOCK', false),
     'cari_lock_minutes' => (int) env('CARI_LOCK_MINUTES', 5),
 
+    // "Proje" yerine görünen ad (hub → firma ayarı; boş = sektöre göre — App\Support\Labels).
+    'project_label' => env('PROJECT_LABEL'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

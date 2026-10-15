@@ -30,36 +30,39 @@ class MonthlyResult
      * Herhangi bir aralık (gün, birkaç gün, ay) — WhatsApp "dünkü ciro", "14 Ekim", "iki günlük" (Akkuş: 17 kez ay sonucu
      * gelmişti). Hesap ay sonucuyla aynı; başlık aralığa göre.
      */
-    public static function forRange(Carbon $fromDate, Carbon $toDate): array
+    public static function forRange(Carbon $fromDate, Carbon $toDate, ?int $projectId = null): array
     {
         $from = $fromDate->toDateString();
         $to = $toDate->toDateString();
+        // Şube / proje süzgeci (Akkuş "dünkü Ergenekon ciro"): her kaynakta project_id.
+        $p = fn ($q) => $projectId ? $q->where('project_id', $projectId) : $q;
 
-        $salesDocs = (float) Sale::whereBetween('sale_date', [$from, $to])->sum('total_amount');
-        $cash = (float) Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to])->sum('cash_amount');
-        $bank = (float) Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to])->sum('bank_amount');
-        $salesLedger = (float) PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE)->whereNull('sale_id')
-            ->whereBetween('entry_date', [$from, $to])->sum('amount');
-        $returns = (float) SaleReturn::whereBetween('return_date', [$from, $to])->sum('total_amount');
+        $salesDocs = (float) $p(Sale::whereBetween('sale_date', [$from, $to]))->sum('total_amount');
+        $cash = (float) $p(Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to]))->sum('cash_amount');
+        $bank = (float) $p(Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to]))->sum('bank_amount');
+        $salesLedger = (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE)->whereNull('sale_id')
+            ->whereBetween('entry_date', [$from, $to]))->sum('amount');
+        $returns = (float) $p(SaleReturn::whereBetween('return_date', [$from, $to]))->sum('total_amount');
         $revenue = $salesDocs + $salesLedger - $returns;
 
-        $purchaseDocs = (float) Purchase::whereBetween('purchase_date', [$from, $to])->sum('total_amount');
-        $purchaseLedger = (float) PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->whereNull('purchase_id')
-            ->whereBetween('entry_date', [$from, $to])->sum('amount');
-        $goodsIn = StockMovement::where('reason', StockMovement::REASON_PURCHASE)->whereNull('purchase_id')
-            ->whereBetween('movement_date', [$from, $to]);
+        $purchaseDocs = (float) $p(Purchase::whereBetween('purchase_date', [$from, $to]))->sum('total_amount');
+        $purchaseLedger = (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->whereNull('purchase_id')
+            ->whereBetween('entry_date', [$from, $to]))->sum('amount');
+        $goodsIn = $p(StockMovement::where('reason', StockMovement::REASON_PURCHASE)->whereNull('purchase_id')
+            ->whereBetween('movement_date', [$from, $to]));
         $goodsInAmount = (float) (clone $goodsIn)->sum('amount');
         $unpriced = (clone $goodsIn)->whereNull('amount')->count();
         $purchases = $purchaseDocs + $purchaseLedger + $goodsInAmount;
 
         $expenses = config('modules.expenses')
-            ? (float) Expense::whereBetween('expense_date', [$from, $to])->sum('amount')
+            ? (float) $p(Expense::whereBetween('expense_date', [$from, $to]))->sum('amount')
             : 0.0;
 
         return [
             'from'            => $fromDate->copy()->startOfDay(),
             'to'              => $toDate->copy()->startOfDay(),
-            'label'           => self::rangeLabel($fromDate, $toDate),
+            'label'           => self::rangeLabel($fromDate, $toDate)
+                . ($projectId && ($pn = \App\Models\Project::whereKey($projectId)->value('name')) ? ' · ' . $pn : ''),
             'revenue'         => $revenue,
             'sales_docs'      => $salesDocs,
             'sales_ledger'    => $salesLedger,

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StockMovements\Tables;
 
+use App\Support\Labels;
 use App\Filament\Resources\StockMovements\StockMovementResource;
 use App\Models\StockMovement;
 use App\Support\Money;
@@ -65,7 +66,7 @@ class StockMovementsTable
                     ->toggleable(),
 
                 TextColumn::make('project.name')
-                    ->label('Proje')
+                    ->label(Labels::project())
                     ->visible(fn () => (bool) config('modules.projects'))
                     ->toggleable(),
 

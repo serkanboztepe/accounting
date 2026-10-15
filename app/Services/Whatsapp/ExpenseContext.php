@@ -63,7 +63,10 @@ class ExpenseContext
         }
 
         if (config('modules.projects')) {
-            $lines[] = 'PROJELER (id: isim [ada/parsel]):';
+            $one = \App\Support\Labels::project();
+            $lines[] = \App\Support\Labels::projectsUpper() . ' (id: isim' . ($one === 'Proje' ? ' [ada/parsel]' : '') . ') — kaydın ait olduğu '
+                . mb_strtolower($one) . '; mesajda adı geçiyorsa ("Ergenekon kasa", "Cumhuriyet için sıva", "dünkü Ergenekon ciro") `project_id` o '
+                . mb_strtolower($one) . '. Geçmiyorsa null bırak (sistem sorar). Ödeme/tahsilatta doldurma:';
             $lines[] = $projects->isEmpty()
                 ? '  (kayıtlı proje yok)'
                 : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->cadastral_parcel ? " [{$p->cadastral_parcel}]" : ''))->implode("\n");

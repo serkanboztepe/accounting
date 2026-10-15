@@ -34,6 +34,7 @@ class TradeDesk
         return DB::transaction(function () use ($data, $partyId, $manual, $isCash) {
             $sale = Sale::create([
                 'party_id'      => $partyId,
+                'project_id'    => $data['project_id'] ?? null,
                 'sale_date'     => $data['sale_date'] ?? now()->toDateString(),
                 'manual_amount' => $manual > 0 ? $manual : null,
                 'notes'         => $data['notes'] ?? null,
@@ -69,6 +70,7 @@ class TradeDesk
         return DB::transaction(function () use ($data, $partyId, $manual, $isCash) {
             $purchase = Purchase::create([
                 'party_id'      => $partyId,
+                'project_id'    => $data['project_id'] ?? null,
                 'purchase_date' => $data['purchase_date'] ?? now()->toDateString(),
                 'manual_amount' => $manual > 0 ? $manual : null,
                 'paid'          => $isCash,

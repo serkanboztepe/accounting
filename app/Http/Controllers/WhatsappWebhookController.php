@@ -25,6 +25,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
+use App\Services\Whatsapp\ProjectChoice;
 use App\Support\Agenda;
 use App\Support\Announcements;
 use App\Support\DailyNudge;
@@ -444,20 +445,16 @@ class WhatsappWebhookController extends Controller
 
             // Sadece sayı → proje menüsünden seçim (yalnız gider taslağında menü gösterilir). Kullanıcı tüm özeti ilk mesajda
             // zaten gördü; numara = "her şey doğru + proje bu" → direkt kaydet (tek adım).
-            if (config('modules.projects') && ctype_digit($body) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE
+            if (ctype_digit($body) && ProjectChoice::applies($pending->extracted) && ProjectChoice::menuShown($pending->extracted)
                 && empty($pending->extracted['settles_expense_id'])) {
-                $projects = $this->activeProjects();
-                $chosen = $projects->get((int) $body - 1);
-                if ($chosen) {
-                    $data = $pending->extracted;
-                    $data['project_id'] = $chosen->id;
-                    $data['project_name'] = null;
+                $data = ProjectChoice::choose($pending->extracted, (int) $body);
+                if ($data !== null) {
                     $pending->update(['extracted' => $data]);
 
-                    return $this->twiml($this->commit($pending));
+                    return $this->twiml($this->commitThenNext($pending, $phone));
                 }
 
-                return $this->twiml('Listede o numara yok. Tekrar bir numara yaz ya da proje adını yaz.');
+                return $this->twiml('Listede o numara yok. Numarayı yaz (0 = genel).');
             }
 
             // Metin (fotoğrafsız): önceki taslağa düzeltme mi, yoksa tamamen yeni bir kayıt mı?
@@ -744,6 +741,12 @@ class WhatsappWebhookController extends Controller
         }
         $data = $this->applyReceiptPayment($pending, $data);
         $data = $this->askCheckParty($data);
+        if ($pending && ! empty($pending->extracted['project_choice_done']) && $this->kind($data) === $this->kind($pending->extracted)
+            && empty($data['project_id']) && empty($data['project_name'])) {
+            $data['project_choice_done'] = true; // "0 = genel" seçimi düzeltme turunda kaybolmasın
+            $data['project_id'] = $pending->extracted['project_id'] ?? null;
+        }
+        $data = ProjectChoice::prepare($data, $phone);
         $data = AdvanceOffset::apply($data, $this->inboundBody);
         $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
         $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null);
@@ -864,6 +867,9 @@ class WhatsappWebhookController extends Controller
         }
 
         $summary = $this->buildSummary($data);
+        if ($projectLines = ProjectChoice::lines($data)) {
+            $summary .= "\n" . implode("\n", $projectLines);
+        }
         // Büyük tutar yazıyla: "96 tosun 17.017000 tl" tek "tamam"la 17 milyon girdi — rakam gözden kaçmasın.
         if ((float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
@@ -1242,7 +1248,7 @@ class WhatsappWebhookController extends Controller
         }
 
         if (TradeDraft::handles($d) && ! in_array($kind, TradeDraft::ANSWER_KINDS, true)) {
-            if ($question = TradeDraft::blocker($d)) {
+            if ($question = TradeDraft::blocker($d) ?? ProjectChoice::blocker($d)) {
                 return '❓ ' . $question;
             }
             [$text, $partyId] = TradeDraft::commit($d);
@@ -1465,11 +1471,12 @@ class WhatsappWebhookController extends Controller
             return TradeDraft::answer($data);
         }
 
-        $question = TradeDraft::blocker($data);
+        $question = TradeDraft::blocker($data) ?? ProjectChoice::blocker($data);
         // Sayım / ayar: eksik varsa (ürün, adet) yalnız soru — özet ürünsüz kurulamaz.
         $summary = $question !== null && in_array($this->kind($data), [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING], true)
             ? '❓ ' . $question
-            : TradeDraft::summary($data) . ($question !== null ? "\n❓ " . $question : '');
+            : TradeDraft::summary($data) . (($pl = ProjectChoice::lines($data)) ? "\n" . implode("\n", $pl) : '')
+                . ($question !== null && ProjectChoice::blocker($data) === null ? "\n❓ " . $question : '');
         if ($question === null && (float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
         }
@@ -1675,14 +1682,7 @@ class WhatsappWebhookController extends Controller
         $lines[] = '• Açıklama: ' . ($d['description'] ?: '—');
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
 
-        // Projesiz kurulumda (alacak-verecek) proje satırı ve proje menüsü yok.
-        $usesProjects = (bool) config('modules.projects');
-        $project = $d['project_id'] ? Project::find($d['project_id']) : null;
-        if ($usesProjects) {
-            $projectText = $project?->name
-                ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : '—');
-            $lines[] = '• Proje: ' . $projectText;
-        }
+        // Proje / şube satırı ve menüsü genel mekanizmada (ProjectChoice::lines, özetin sonuna).
 
         $party = $d['party_id'] ? Party::find($d['party_id']) : null;
         $partyText = $party?->name
@@ -1713,18 +1713,6 @@ class WhatsappWebhookController extends Controller
                 . 'ödeme olarak gönder (ör. "… ödedim"), yoksa maliyet iki kez sayılır. Sözleşme dışı ek işse devam et.';
         }
 
-        // Proje boşsa numaralı menü — müteahhit sadece "2" yazsın.
-        if ($usesProjects && ! $project && empty($d['project_name'])) {
-            $projects = $this->activeProjects();
-            if ($projects->isNotEmpty()) {
-                $lines[] = '';
-                $lines[] = '❓ Hangi proje? Numarayı yaz:';
-                foreach ($projects as $i => $p) {
-                    $lines[] = '   ' . ($i + 1) . ') ' . $p->name;
-                }
-                $lines[] = '(bu gider projesizse boş geç, direkt *evet* yaz)';
-            }
-        }
 
         if (! empty($d['question'])) {
             $lines[] = '';
@@ -1875,10 +1863,8 @@ class WhatsappWebhookController extends Controller
         if (! empty($d['payment_type']) && ! $this->paymentContract($d)) {
             $lines[] = '• Şekli: ' . (self::PAYMENT_TYPE_LABELS[$d['payment_type']] ?? $d['payment_type']);
         }
-        $project = ! empty($d['project_id']) ? Project::find($d['project_id']) : null;
-        $projectText = $project?->name ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : null);
-        if ($projectText) {
-            $lines[] = '• Proje: ' . $projectText;
+        if (! ProjectChoice::applies($d) && ($project = ! empty($d['project_id']) ? Project::find($d['project_id']) : null)) {
+            $lines[] = '• ' . \App\Support\Labels::project() . ': ' . $project->name; // ödeme/tahsilatta yalnız bilgi
         }
         if (! empty($d['paid_from_habit'])) {
             $lines[] = ! empty($d['paid'])

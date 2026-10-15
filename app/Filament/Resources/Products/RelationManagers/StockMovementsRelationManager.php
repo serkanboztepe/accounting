@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Products\RelationManagers;
 
+use App\Support\Labels;
 use App\Models\StockMovement;
 use App\Support\Money;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -60,7 +61,7 @@ class StockMovementsRelationManager extends RelationManager
                     ->placeholder('—'),
 
                 TextColumn::make('project.name')
-                    ->label('Proje')
+                    ->label(Labels::project())
                     ->placeholder('—'),
 
                 TextColumn::make('notes')

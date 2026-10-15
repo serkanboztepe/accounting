@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Support\Labels;
 use App\Models\Check;
 use App\Models\Contract;
 use App\Models\ContractDelivery;
@@ -28,7 +29,10 @@ class ProjectReports extends Page implements HasSchemas
 
     protected static ?int $navigationSort = 1;
 
-    protected static ?string $title = 'Proje Raporları';
+    public function getTitle(): string
+    {
+        return Labels::project() . ' Raporları';
+    }
 
     // Tek "Raporlar" menü girişi — Stok/Satış sekmeden açılır (menüde gizli).
     protected static ?string $navigationLabel = 'Raporlar';
@@ -57,7 +61,7 @@ class ProjectReports extends Page implements HasSchemas
         return $schema
             ->components([
                 Select::make('projectId')
-                    ->label('Proje')
+                    ->label(Labels::project())
                     ->options(Project::query()->orderBy('name')->pluck('name', 'id'))
                     ->searchable()
                     ->live()

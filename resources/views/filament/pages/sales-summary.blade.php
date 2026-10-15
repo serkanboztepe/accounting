@@ -2,7 +2,7 @@
     @include('filament.pages.partials.report-tabs', ['active' => 'sales'])
     @php
         $rows = $this->getRows();
-        $groupLabel = $groupBy === 'project' ? 'Şantiye / Proje' : 'Müşteri';
+        $groupLabel = $groupBy === 'project' ? (\App\Support\Labels::project() === 'Proje' ? 'Şantiye / Proje' : \App\Support\Labels::project()) : 'Müşteri';
         $totalNet = collect($rows)->sum('net');
     @endphp
 

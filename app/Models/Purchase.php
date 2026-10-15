@@ -17,6 +17,7 @@ class Purchase extends Model
 {
     protected $fillable = [
         'party_id',
+        'project_id',
         'purchase_date',
         'total_amount',
         'manual_amount',
@@ -89,6 +90,7 @@ class Purchase extends Model
                 'unit_price'    => $unitPrice,
                 'amount'        => $amount,
                 'party_id'      => $this->party_id,
+                'project_id'    => $this->project_id,
                 'movement_date' => $this->purchase_date,
             ]);
 
@@ -132,6 +134,7 @@ class Purchase extends Model
             ['type' => PartyLedgerEntry::TYPE_PURCHASE],
             [
                 'party_id'    => $this->party_id,
+                'project_id'  => $this->project_id,
                 'entry_date'  => $this->purchase_date,
                 'amount'      => $total,
                 'description' => $description,

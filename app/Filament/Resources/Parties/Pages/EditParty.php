@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Parties\Pages;
 
+use App\Support\Labels;
 use App\Filament\Resources\Parties\PartyResource;
 use App\Models\Check;
 use App\Models\Contract;
@@ -124,7 +125,7 @@ class EditParty extends EditRecord
             MoneyInput::make('amount', 'Tutar'),
 
             Select::make('project_id')
-                ->label('Proje (opsiyonel)')
+                ->label(Labels::project() . ' (opsiyonel)')
                 ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
@@ -270,7 +271,7 @@ class EditParty extends EditRecord
                     ->visible(fn (Get $get) => $get('payment_type') === 'check')
                     ->required(fn (Get $get) => $get('payment_type') === 'check'),
                 Select::make('project_id')
-                    ->label('Proje (opsiyonel)')
+                    ->label(Labels::project() . ' (opsiyonel)')
                     ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                     ->searchable()
                     ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')

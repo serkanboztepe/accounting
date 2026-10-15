@@ -39,7 +39,7 @@ final class DraftGaps
     {
         $kind = self::kind($d);
 
-        if (TradeDraft::handles($d) && ($question = TradeDraft::blocker($d))) {
+        if (TradeDraft::handles($d) && ($question = TradeDraft::blocker($d) ?? ProjectChoice::blocker($d))) {
             return ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question];
         }
         if ($kind === ExpenseExtractor::KIND_REMINDER) {

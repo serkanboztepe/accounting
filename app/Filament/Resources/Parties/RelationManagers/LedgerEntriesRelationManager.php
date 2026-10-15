@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Parties\RelationManagers;
 
+use App\Support\Labels;
 use App\Filament\Resources\Sales\SaleResource;
 use App\Models\PartyLedgerEntry;
 use App\Support\Forms\MoneyInput;
@@ -42,7 +43,7 @@ class LedgerEntriesRelationManager extends RelationManager
             MoneyInput::make('amount', 'Tutar'),
 
             Select::make('project_id')
-                ->label('Proje (opsiyonel)')
+                ->label(Labels::project() . ' (opsiyonel)')
                 ->relationship('project', 'name')
                 ->searchable()
                 ->preload()

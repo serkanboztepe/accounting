@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Expenses\Tables;
 
+use App\Support\Labels;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
@@ -19,7 +20,7 @@ class ExpensesTable
                     ->date()
                     ->sortable(),
                 TextColumn::make('project.name')
-                    ->label('Proje')
+                    ->label(Labels::project())
                     ->placeholder('Genel Gider')
                     ->searchable()
                     ->visible(fn () => config('modules.projects')),
@@ -57,11 +58,11 @@ class ExpensesTable
             ])
             ->filters([
                 SelectFilter::make('project_id')
-                    ->label('Proje')
+                    ->label(Labels::project())
                     ->relationship('project', 'name')
                     ->searchable()
                     ->preload()
-                    ->placeholder('Tüm Projeler')
+                    ->placeholder('Tüm ' . Labels::projects())
                     ->visible(fn () => config('modules.projects')),
 
                 SelectFilter::make('payment_status')

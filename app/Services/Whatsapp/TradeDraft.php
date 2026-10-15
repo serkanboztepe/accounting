@@ -522,6 +522,7 @@ class TradeDraft
             'payment' => $cash > 0 && $card > 0 ? 'mixed' : ($card > 0 ? 'card' : 'cash'),
             'cash_part' => $cash,
             'notes' => trim(($d['description'] ?? '') . ' (WhatsApp)'),
+            'project_id' => self::projectId($d),
         ]);
         if ($party && ! empty($d['due_date'])) {
             $sale->ledgerEntry?->update(['due_date' => $d['due_date']]);
@@ -535,6 +536,7 @@ class TradeDraft
                 'amount' => Money::store($extra),
                 'payment_status' => 'paid',
                 'description' => $d['extra_expense']['description'] ?? 'Gider',
+                'project_id' => self::projectId($d),
                 'notes' => 'WhatsApp üzerinden girildi (kasa mesajı).',
             ]);
             $extraText = "\n📝 Gider kaydedildi: " . Money::format($extra) . ' ₺';
@@ -607,6 +609,7 @@ class TradeDraft
             'manual_amount' => $manual > 0 ? $manual : null,
             'payment_type' => in_array($d['payment_type'] ?? null, ['bank_transfer', 'eft'], true) ? 'bank_transfer' : 'cash',
             'notes' => trim(($d['description'] ?? '') . ' (WhatsApp)'),
+            'project_id' => self::projectId($d),
         ]);
 
         $text = '✅ Alış kaydedildi: ' . Money::format((float) $purchase->total_amount) . ' ₺'
@@ -731,11 +734,28 @@ class TradeDraft
         return $out;
     }
 
+    /** Proje / şube: seçilen ya da mesajda adı geçen (yeni ad ise açılır). */
+    private static function projectId(array $d): ?int
+    {
+        if (! config('modules.projects')) {
+            return null;
+        }
+        if (! empty($d['project_id'])) {
+            return (int) $d['project_id'];
+        }
+
+        return ! empty($d['project_name'])
+            ? \App\Models\Project::firstOrCreate(['name' => $d['project_name']], ['status' => 'active'])->id
+            : null;
+    }
+
     // ---------------------------------------------------------------- sorular (kayıt yok)
 
     public static function answer(array $d): string
     {
         if ($d['kind'] === ExpenseExtractor::KIND_MONTH_RESULT) {
+            // Şube sorusu ("dünkü Ergenekon ciro") — yalnız mevcut şube; soru cevabında yeni şube açılmaz.
+            $branch = config('modules.projects') && ! empty($d['project_id']) ? (int) $d['project_id'] : null;
             if (! empty($d['date_from'])) {
                 $from = Carbon::parse($d['date_from']);
                 $to = ! empty($d['date_to']) ? Carbon::parse($d['date_to']) : $from->copy();
@@ -751,11 +771,13 @@ class TradeDraft
                     [$from, $to] = [$to, $from];
                 }
 
-                return MonthlyResult::whatsappText(MonthlyResult::forRange($from, $to)) . $note;
+                return MonthlyResult::whatsappText(MonthlyResult::forRange($from, $to, $branch)) . $note;
             }
             $month = ! empty($d['month']) ? Carbon::parse($d['month'] . '-01') : now();
 
-            return MonthlyResult::whatsappText(MonthlyResult::forMonth($month));
+            return MonthlyResult::whatsappText($branch
+                ? MonthlyResult::forRange($month->copy()->startOfMonth(), $month->copy()->endOfMonth(), $branch)
+                : MonthlyResult::forMonth($month));
         }
 
         return self::stockAnswer($d['product_id'] ?? null);

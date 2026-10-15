@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Expenses\Schemas;
 
+use App\Support\Labels;
 use App\Models\Expense;
 use App\Support\Forms\MoneyInput;
 use Filament\Forms\Components\DatePicker;
@@ -22,7 +23,7 @@ class ExpenseForm
                 ->required(),
             MoneyInput::make('amount'),
             Select::make('project_id')
-                ->label('Proje')
+                ->label(Labels::project())
                 ->relationship('project', 'name')
                 ->searchable()
                 ->preload()

@@ -38,6 +38,7 @@ class HubFirm extends Model
         'cari_lock'           => false,
         'cari_lock_minutes'   => 5,
         'check_reminder_days' => [3, 0],
+        'project_label'       => null,  // "Proje" / "Şube" / serbest; boş = sektöre göre (Labels::project)
     ];
 
     protected static function booted(): void
@@ -82,6 +83,7 @@ class HubFirm extends Model
             'cari_lock'           => (bool) $s['cari_lock'],
             'cari_lock_minutes'   => max(1, (int) $s['cari_lock_minutes']),
             'check_reminder_days' => array_values(array_map('intval', (array) $s['check_reminder_days'])),
+            'project_label'       => is_string($s['project_label'] ?? null) && trim($s['project_label']) !== '' ? trim($s['project_label']) : null,
         ];
     }
 
@@ -107,6 +109,7 @@ class HubFirm extends Model
             'cari_lock'           => (bool) ($data['cari_lock'] ?? false),
             'cari_lock_minutes'   => (int) (($data['cari_lock_minutes'] ?? null) ?: 5),
             'check_reminder_days' => array_values(array_unique(array_map('intval', $days))),
+            'project_label'       => trim((string) ($data['project_label'] ?? '')) ?: null,
         ]]);
     }
 

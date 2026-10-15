@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Projects;
 
+use App\Support\Labels;
 use App\Filament\Resources\Projects\Pages\CreateProject;
 use App\Filament\Resources\Projects\Pages\EditProject;
 use App\Filament\Resources\Projects\Pages\ListProjects;
@@ -31,6 +32,22 @@ class ProjectResource extends Resource
     protected static ?string $pluralModelLabel = 'Projeler';
 
     protected static ?int $navigationSort = 2;
+
+    // Ad firmaya göre: Proje / Şube (hub ayarı) — App\Support\Labels.
+    public static function getNavigationLabel(): string
+    {
+        return Labels::projects();
+    }
+
+    public static function getModelLabel(): string
+    {
+        return Labels::project();
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return Labels::projects();
+    }
 
     protected static ?string $recordTitleAttribute = 'name';
 

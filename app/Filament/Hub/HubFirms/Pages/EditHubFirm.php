@@ -144,6 +144,7 @@ class EditHubFirm extends EditRecord
                     'cari_lock'           => $s['cari_lock'],
                     'cari_lock_minutes'   => $s['cari_lock_minutes'],
                     'check_reminder_days' => implode(',', $s['check_reminder_days']),
+                    'project_label'       => $s['project_label'],
                 ];
                 foreach (ModuleProfiles::KEYS as $key) {
                     $data["mod_{$key}"] = array_key_exists($key, $s['modules']) ? ($s['modules'][$key] ? '1' : '0') : '';
@@ -172,6 +173,11 @@ class EditHubFirm extends EditRecord
                         Toggle::make('cari_lock')->label('Cariler şifre/PIN ile kilitli'),
                         TextInput::make('cari_lock_minutes')->label('Kaç dk işlemsizlikte kilitlensin')->numeric()->minValue(1)->default(5),
                     ]),
+                TextInput::make('project_label')
+                    ->label('Proje / Şube adı')
+                    ->placeholder('Boş = sektöre göre (müteahhit/mimar "Proje", diğerleri "Şube")')
+                    ->helperText('Panelde ve WhatsApp\'ta "Proje" yerine görünen ad: Şube, Proje, Ahır… Aynı özellik, yalnız adı değişir.')
+                    ->maxLength(30),
                 TextInput::make('check_reminder_days')
                     ->label('Çek hatırlatması: vadeden kaç gün önce')
                     ->helperText('Virgülle: 3,0 = 3 gün önce ve vade günü. Hatırlatmayı alacak numaralar "Numaralar"da işaretlenir.')
