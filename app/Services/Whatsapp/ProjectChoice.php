@@ -25,7 +25,13 @@ final class ProjectChoice
 
     public static function applies(array $d): bool
     {
-        return (bool) config('modules.projects') && in_array($d['kind'] ?? ExpenseExtractor::KIND_EXPENSE, self::KINDS, true);
+        $kind = $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
+        // Mimar (Ferhat, kullanıcı kararı 15.10): eskisi gibi — yalnız giderde proje menüsü, alış/satışta soru yok.
+        if (config('app.profile') === 'mimar' && $kind !== ExpenseExtractor::KIND_EXPENSE) {
+            return false;
+        }
+
+        return (bool) config('modules.projects') && in_array($kind, self::KINDS, true);
     }
 
     /** @return Collection<int, Project> sabit sıra — menü numaraları bununla */

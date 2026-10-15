@@ -155,4 +155,17 @@ class WhatsappBranchTest extends TestCase
         $this->send('evet');
         $this->assertSame($this->branches['İzzetpaşa']->id, Sale::latest('id')->value('project_id'));
     }
+
+    /** Mimar (Ferhat): alış / satışta proje sorulmaz — eskisi gibi. */
+    public function test_architect_sale_has_no_project_question(): void
+    {
+        config(['modules' => ModuleProfiles::resolve('mimar', ['projects' => true]), 'app.profile' => 'mimar']);
+        $this->ai(['kind' => ExpenseExtractor::KIND_SALE, 'items' => [], 'amount' => 20000, 'paid' => false, 'date' => now()->format('Y-m-d'),
+            'description' => 'EKB belgesi', 'party_id' => null, 'party_name' => 'Mimar Müşteri', 'project_id' => null, 'project_name' => null,
+            'confidence' => 'high', 'question' => null, 'is_new_entry' => true]);
+
+        $reply = $this->send('Mimar müşteri 20000 EKB belgesi');
+        $this->assertStringNotContainsString('Hangi proje', $reply);
+        $this->assertStringNotContainsString('0) Genel', $reply);
+    }
 }
