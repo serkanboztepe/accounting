@@ -8,6 +8,7 @@ use App\Models\WhatsappMessage;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Support\ConversationContext;
 use App\Support\Phone;
+use App\Support\WhatsappQueue;
 use App\Support\Reminders;
 use App\Support\TemplateApproval;
 use App\Tenancy\Tenancy;
@@ -40,7 +41,18 @@ class SendReminders extends Command
         $due = Reminder::where('status', 'active')->whereNotNull('next_fire_at')->where('next_fire_at', '<=', now())
             ->with('party')->orderBy('next_fire_at')->get();
 
+        $sentNow = [];
         foreach ($due as $reminder) {
+            // K5+K6: gün hatırlatmaları sıraya — aynı kişiye bu turda ikincisi ya da cevaplanmamış sorunun üstüne gitmez
+            // (en geç 1 saat sonra ya da kişi cevap verince sıradaki). Saatli alarmlar bekletilmez.
+            $queued = ! $reminder->is_alarm && empty($reminder->event_time);
+            $key = Phone::normalize($reminder->phone);
+            if ($queued && (isset($sentNow[$key]) || WhatsappQueue::busy($reminder->phone))) {
+                $this->line("{$reminder->phone}: sırada bekliyor — " . $reminder->text);
+
+                continue;
+            }
+
             // Sunucu kapalı kaldıysa aynı olayın birikmiş hatırlatmalarını art arda gönderme: geçmiş olanların sonuncusu.
             while (($later = $reminder->nextAlarmAfter($reminder->next_fire_at)) && $later[0]->lte(now())) {
                 $reminder->next_fire_at = $later[0];
@@ -78,6 +90,7 @@ class SendReminders extends Command
                 $reminder->save();
 
                 WhatsappMessage::create(['phone' => $reminder->phone, 'direction' => 'out', 'body' => "⏰ Hatırlatma: {$text}", 'kind' => 'reminder']);
+                $sentNow[$key] = true;
                 ConversationContext::remember($reminder->phone, $reminder->party_id, $reminder->text, Reminder::REPLY_WINDOW_HOURS * 60);
                 $this->line('  ✓' . ($reminder->next_fire_at ? ' sonraki: ' . Reminders::when($reminder->next_fire_at) : ''));
 

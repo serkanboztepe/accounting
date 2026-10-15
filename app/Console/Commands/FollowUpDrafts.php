@@ -34,6 +34,11 @@ class FollowUpDrafts extends Command
             if ($dry) {
                 continue;
             }
+            if (\App\Support\WhatsappQueue::busy($draft->phone)) {
+                $this->line('  sırada: son sorumuz henüz cevaplanmadı');
+
+                continue; // K5: üst üste soru yok — cevap gelince ya da 1 saat sonra
+            }
             if (! $this->phoneStillActive($draft->phone)) {
                 $draft->update(['status' => 'superseded']);
                 $this->line('  numara artık bu firmada değil, kapatıldı');

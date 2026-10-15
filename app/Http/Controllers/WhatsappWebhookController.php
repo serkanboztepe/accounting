@@ -239,6 +239,7 @@ class WhatsappWebhookController extends Controller
                 ->orWhere('followed_up_at', '>=', now()->subHours(24)))
             ->orderByDesc('updated_at')->orderByDesc('id')
             ->first();
+        $this->openDraft = $pending;
 
         // Ses / video / belge: şimdilik okuyamıyoruz — sessizce yardım metni yerine açıkça söyle.
         // (Sesi yazıya çevirme planlı; bkz. hafıza: ses kaydı desteği.)
@@ -301,6 +302,15 @@ class WhatsappWebhookController extends Controller
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
+        }
+
+        // K2: çek kime sorusuna "gider/masraf" → gider olarak kalsın (AI'sız).
+        if ($pending && $image === null && ! empty($pending->extracted['check_payment'])
+            && in_array($this->word($body), ['gider', 'masraf', 'gider yaz', 'masraf yaz'], true)) {
+            $this->inboundKind = 'quick';
+            $data = ['kind' => ExpenseExtractor::KIND_EXPENSE, 'check_payment' => false, 'check_answered' => true, 'question' => null] + $pending->extracted;
+
+            return $this->twiml($this->saveDraft($pending, $phone, $data));
         }
 
         // Fiş: "ödedim" / "veresiye" (soru ya da alışkanlıkla yazılanı değiştirme) — AI'sız, kesin cevap.
@@ -538,6 +548,11 @@ class WhatsappWebhookController extends Controller
      */
     private function commitThenNext(WhatsappPendingExpense $pending, string $phone): string|array
     {
+        // K8: hatırlatılmış ve AI'ın şüphe sorusu cevaplanmamış taslak tek "evet"le kaydolmaz — önce soru.
+        if ($pending->follow_ups > 0 && ($gap = DraftFollowUp::gap($pending))['code'] === DraftGaps::DETAIL
+            && trim((string) ($pending->extracted['question'] ?? '')) !== '') {
+            return $gap['ask'] . "\nGerek yoksa *iptal* yaz.";
+        }
         $done = $this->commit($pending);
         $next = $pending->extracted['next_items'] ?? null;
         if ($pending->fresh()?->status !== 'confirmed') {
@@ -644,7 +659,7 @@ class WhatsappWebhookController extends Controller
             case 'undo':
                 $this->inboundKind = 'undo';
 
-                return $this->undoDraft($pending, $phone, $result['replacement'] ?? null);
+                return $this->undoDraft($pending, $phone, $result['replacement'] ?? null, $result['find'] ?? null);
             case 'cancel':
                 $this->inboundKind = 'quick';
                 $pending?->update(['status' => 'cancelled']);
@@ -677,10 +692,40 @@ class WhatsappWebhookController extends Controller
      * Taslağı kaydet/güncelle ve müteahhide gidecek metni döndür.
      * Bakiye sorusu taslak açmaz — direkt cevaplanır.
      */
+    /** Bu mesaj geldiğinde açık (onay bekleyen) taslak — soru cevabının altında hatırlatılır (K7). */
+    private ?WhatsappPendingExpense $openDraft = null;
+
+    /** Kayıt açmayan soru türleri: cevap verilir, bekleyen taslak varsa altına "onay bekliyor" eklenir. */
+    private const ANSWER_KINDS = [ExpenseExtractor::KIND_BALANCE_QUERY, ExpenseExtractor::KIND_TOTALS_QUERY,
+        ExpenseExtractor::KIND_STATEMENT, ExpenseExtractor::KIND_EXPENSE_SUMMARY, ExpenseExtractor::KIND_AGENDA,
+        ExpenseExtractor::KIND_PARTY_LIST, ExpenseExtractor::KIND_MONTH_RESULT, ExpenseExtractor::KIND_STOCK_QUERY];
+
+    /**
+     * Akkuş 15.10 22:13: kasa onay beklerken "toplam ciro?" soruldu, cevap bekleyen 51.517'yi anmadı (dahil sandı).
+     * Soru cevabının sonuna "⏳ … onay bekliyor — kaydedeyim mi?" eklenir; taslak açık kalır, *evet* ona gider.
+     */
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
+    {
+        $out = $this->saveDraftInner($pending, $phone, $data, $mediaUrl);
+        $draft = $this->openDraft?->fresh();
+        if (! in_array($this->inboundKind, self::ANSWER_KINDS, true) || ! $draft || $draft->status !== 'awaiting_confirmation') {
+            return $out;
+        }
+        $note = "\n\n⏳ Onay bekleyen: *" . DraftGaps::label($draft->extracted) . "* — kaydedeyim mi? *evet* / *iptal*";
+        if (is_array($out)) {
+            $out[0] = (is_string($out[0] ?? null) ? $out[0] : '') . $note;
+
+            return $out;
+        }
+
+        return $out . $note;
+    }
+
+    private function saveDraftInner(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
+        $data = ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody);
         $data = ExpenseExtractor::guardSelfParty($data, ExpenseContext::selfNames($phone), $this->inboundBody);
         if ($pending === null && ChatAssistant::enabled()) {
             $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
@@ -698,6 +743,7 @@ class WhatsappWebhookController extends Controller
             $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
         }
         $data = $this->applyReceiptPayment($pending, $data);
+        $data = $this->askCheckParty($data);
         $data = AdvanceOffset::apply($data, $this->inboundBody);
         $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
         $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null);
@@ -859,6 +905,28 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
+     * K2 (Akkuş 15.10: "105.000 çek ödendi" gider sayıldı, ay sonucu eksiye düştü): çek modülü kapalı firmada carisiz
+     * "çek ödendi/ödedim" bir borcun ödemesidir → kime yazıldığı sorulur (ödeme). Masrafsa kullanıcı *gider* yazar.
+     */
+    private function askCheckParty(array $data): array
+    {
+        if ($this->kind($data) !== ExpenseExtractor::KIND_EXPENSE || ! empty($data['check_answered'])
+            || ! empty($data['party_id']) || ! empty($data['party_name']) || config('modules.checks')
+            || ! in_array(ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::allowedKinds(), true)
+            || (float) ($data['amount'] ?? 0) <= 0) {
+            return $data;
+        }
+        $t = mb_strtolower(strtr($this->inboundBody . ' ' . ($data['description'] ?? ''), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        if (! preg_match('/(^|[^\p{L}])[çc]ek(i|in|ini)?([^\p{L}]|$)/u', $t)) {
+            return $data;
+        }
+
+        return array_merge($data, ['kind' => ExpenseExtractor::KIND_PAYMENT, 'check_payment' => true, 'category_id' => null,
+            'category_name' => null, 'settles_expense_id' => null,
+            'question' => 'Bu çek kime yazılmıştı? Adını yaz (borcun ondan düşsün). Masrafsa *gider* yaz.']);
+    }
+
+    /**
      * Fiş (belge) ödeme kuralları (Ferhat, 15 Ekim):
      *  - gider AÇIK firmada fişe "ödemedim" → gider değil, fişteki satıcının carisine veresiye alış (gider↔cari ayrılıyor);
      *  - gider KAPALI firmada fiş = satıcıdan alış; ödendi mi söylenmediyse o carinin son alışı gibi (veresiye/peşin),
@@ -967,8 +1035,11 @@ class WhatsappWebhookController extends Controller
      * "Son kaydı sil / yanlış girdim": bu numaradan son 24 saatte onaylanan SON kaydı göster, onayla sil.
      * Yalnız o onayın OLUŞTURDUĞU gider/cari satırları (created_records) silinir; cari/kategori kalır.
      */
-    private function undoDraft(?WhatsappPendingExpense $pending, string $phone, ?array $replacement = null): string
+    private function undoDraft(?WhatsappPendingExpense $pending, string $phone, ?array $replacement = null, ?array $find = null): string
     {
+        if ($find) {
+            return $this->undoFound($pending, $phone, $replacement, $find);
+        }
         $last = WhatsappPendingExpense::where('phone', $phone)
             ->where('status', 'confirmed')
             ->where('updated_at', '>=', now()->subDay())
@@ -1007,6 +1078,71 @@ class WhatsappWebhookController extends Controller
             $isSettle => "\n\nGeri alayım mı? *evet* / *iptal*",
             default => "\n\nSileyim mi? *evet* / *iptal*",
         };
+    }
+
+    /**
+     * K3 (Akkuş 15.10: "kategorisiz olan yanlış, 25.113, 14.10.2026" 4 kez denendi, bulunamadı): son 60 günde tutar /
+     * tarih / açıklama kelimesiyle gider, cari hareketi ve satış aranır. Tek eşleşme → göster + tek onayla sil/düzelt
+     * (mevcut geri alma akışı); birden çok → kısa liste, daha belirgin yazması istenir; yoksa söylenir.
+     */
+    private function undoFound(?WhatsappPendingExpense $pending, string $phone, ?array $replacement, array $find): string
+    {
+        $since = now()->subDays(60)->toDateString();
+        $amount = $find['amount'] ?? null;
+        $date = $find['date'] ?? null;
+        $text = $find['text'] ?? null;
+        $filter = function ($q, string $amountCol, string $dateCol, string $textCol) use ($amount, $date, $text, $since) {
+            $q->where($dateCol, '>=', $since);
+            if ($amount) {
+                $q->whereBetween($amountCol, [$amount - 0.01, $amount + 0.01]);
+            }
+            if ($date) {
+                $q->whereDate($dateCol, $date);
+            }
+            if ($text) {
+                $q->where($textCol, 'like', '%' . $text . '%');
+            }
+
+            return $q->limit(6)->get();
+        };
+        $hits = collect()
+            ->merge($filter(Expense::query(), 'amount', 'expense_date', 'description')
+                ->map(fn ($e) => [['expense', $e->id], '📝 Gider — ' . $e->expense_date->format('d.m') . ' — ' . Money::format((float) $e->amount) . ' ₺ — ' . ($e->description ?: '—')]))
+            ->merge($filter(PartyLedgerEntry::with('party'), 'amount', 'entry_date', 'description')
+                ->map(fn ($l) => [['ledger', $l->id], '📒 ' . (PartyLedgerEntry::TYPES[$l->type]['label'] ?? $l->type) . ' — ' . ($l->party?->name ?? '—') . ' — '
+                    . $l->entry_date->format('d.m') . ' — ' . Money::format((float) $l->amount) . ' ₺ — ' . ($l->description ?: '—')]))
+            // Satış: yalnız ürünsüz, carisiz kasa (ciro) — silince bağlı stok/cari satırı kalmasın.
+            ->merge($filter(Sale::query()->whereNull('party_id')->whereDoesntHave('lines'), 'total_amount', 'sale_date', 'notes')
+                ->map(fn ($x) => [['sale', $x->id], '🧾 Satış — ' . \Illuminate\Support\Carbon::parse($x->sale_date)->format('d.m') . ' — ' . Money::format((float) $x->total_amount) . ' ₺ — ' . ($x->notes ?: '—')]));
+
+        if ($hits->isEmpty()) {
+            return 'Tarif ettiğin kaydı bulamadım (son 60 gün). Tutarı ya da tarihi yazar mısın? (ör. "14 Ekim 25.113 gider")';
+        }
+        if ($hits->count() > 1) {
+            return "Birden çok kayıt buldum:\n" . $hits->take(5)->map(fn ($h, $i) => ($i + 1) . ') ' . $h[1])->implode("\n")
+                . "\nHangisi olduğunu tarih ya da açıklamayla yaz (ör. \"14 Ekim'deki 25.113\").";
+        }
+
+        [$target, $line] = $hits->first();
+        if ($replacement !== null) {
+            $replacement = ExpenseExtractor::fitToModules($replacement);
+            if ($this->kind($replacement) === ExpenseExtractor::KIND_HELP || (float) ($replacement['amount'] ?? 0) <= 0) {
+                $replacement = null;
+            }
+        }
+        $pending?->update(['status' => 'superseded']);
+        $summary = "🗑️ *Şu kaydı sileceğim:*\n" . $line;
+        if ($replacement !== null) {
+            $summary .= "\n\n✏️ *Yerine yazacağım:*\n" . $this->shortLine($replacement);
+        }
+        WhatsappPendingExpense::create([
+            'phone' => $phone,
+            'extracted' => ['kind' => self::KIND_UNDO, 'undo_of' => null, 'targets' => [$target], 'replacement' => $replacement],
+            'summary' => $summary,
+            'status' => 'awaiting_confirmation',
+        ]);
+
+        return $summary . ($replacement !== null ? "\n\nDüzelteyim mi? *evet* / *iptal*" : "\n\nSileyim mi? *evet* / *iptal*");
     }
 
     /** Düzeltmede yeni kaydın tek satırlık özeti (bakiye yok — eski kayıt silinince değişir). */

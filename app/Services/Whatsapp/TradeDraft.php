@@ -364,6 +364,10 @@ class TradeDraft
             $lines[] = '• Açıklama: ' . $d['description'];
         }
         $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
+        if (($extra = (float) ($d['extra_expense']['amount'] ?? 0)) > 0) {
+            $lines[] = '📝 *+ Gider:* ' . Money::format($extra) . ' ₺ — ' . ($d['extra_expense']['description'] ?? 'gider') . ' (ayrı kayıt)';
+            $lines[] = 'İkisini birden kaydederim.';
+        }
         if (! empty($d['due_date']) && empty($d['paid'])) {
             $lines[] = '• Ödeme tarihi: ' . Carbon::parse($d['due_date'])->locale('tr')->translatedFormat('j F Y');
         }
@@ -523,8 +527,21 @@ class TradeDraft
             $sale->ledgerEntry?->update(['due_date' => $d['due_date']]);
         }
 
+        // K4: aynı mesajdaki gider ayrı kayıt.
+        $extraText = '';
+        if (($extra = (float) ($d['extra_expense']['amount'] ?? 0)) > 0 && config('modules.expenses')) {
+            Expense::create([
+                'expense_date' => $d['date'] ?? now()->toDateString(),
+                'amount' => Money::store($extra),
+                'payment_status' => 'paid',
+                'description' => $d['extra_expense']['description'] ?? 'Gider',
+                'notes' => 'WhatsApp üzerinden girildi (kasa mesajı).',
+            ]);
+            $extraText = "\n📝 Gider kaydedildi: " . Money::format($extra) . ' ₺';
+        }
+
         $text = '✅ Satış kaydedildi: ' . Money::format((float) $sale->total_amount) . ' ₺ · '
-            . ($party ? $party->name : 'Peşin (' . $sale->paymentLabel() . ')');
+            . ($party ? $party->name : 'Peşin (' . $sale->paymentLabel() . ')') . $extraText;
         $text .= self::stockAfterLines($lines);
         if ($party) {
             $text .= "\n" . PartyBalances::line($party->name, PartyStatement::build($party)['balance']);

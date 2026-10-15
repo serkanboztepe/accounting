@@ -205,4 +205,59 @@ class WhatsappReminderFlowTest extends TestCase
         $this->send('evet');
         $this->assertNotNull($r->fresh()->acknowledged_at);
     }
+
+    private function twilioSends(): int
+    {
+        return count(Http::recorded(fn (ClientRequest $q) => str_contains($q->url(), 'api.twilio.com') && str_contains($q->url(), 'Messages')));
+    }
+
+    /** K5+K6 (Akkuş 15.10 08:00 çek + kira): aynı kişiye iki gün hatırlatması sırayla — cevap gelince ya da 1 saat sonra. */
+    public function test_day_reminders_are_queued_per_person(): void
+    {
+        foreach (['Çek ödemesi (105.000 TL)', 'Kira ödemesi'] as $text) {
+            $r = Reminder::create(['phone' => self::NORM, 'text' => $text, 'event_date' => '2026-10-15', 'lead_minutes' => 0]);
+            $r->scheduleNext();
+            $r->save();
+        }
+        Carbon::setTestNow(Carbon::parse('2026-10-15 08:01', Reminder::TIMEZONE));
+        $this->artisan('reminders:send')->assertSuccessful();
+        $this->assertSame(1, $this->twilioSends(), 'ilk tur yalnız biri');
+
+        Carbon::setTestNow(Carbon::parse('2026-10-15 08:06', Reminder::TIMEZONE));
+        $this->artisan('reminders:send')->assertSuccessful();
+        $this->assertSame(1, $this->twilioSends(), 'cevap yokken ikincisi beklemede');
+
+        WhatsappMessage::create(['phone' => self::NORM, 'direction' => 'in', 'body' => 'Ödendi']);
+        Carbon::setTestNow(Carbon::parse('2026-10-15 08:11', Reminder::TIMEZONE));
+        $this->artisan('reminders:send')->assertSuccessful();
+        $this->assertSame(2, $this->twilioSends(), 'cevap gelince sıradaki');
+    }
+
+    public function test_queued_reminder_goes_after_an_hour_without_reply(): void
+    {
+        foreach (['Birinci iş', 'İkinci iş'] as $text) {
+            $r = Reminder::create(['phone' => self::NORM, 'text' => $text, 'event_date' => '2026-10-15', 'lead_minutes' => 0]);
+            $r->scheduleNext();
+            $r->save();
+        }
+        Carbon::setTestNow(Carbon::parse('2026-10-15 08:01', Reminder::TIMEZONE));
+        $this->artisan('reminders:send')->assertSuccessful();
+        Carbon::setTestNow(Carbon::parse('2026-10-15 09:05', Reminder::TIMEZONE));
+        $this->artisan('reminders:send')->assertSuccessful();
+        $this->assertSame(2, $this->twilioSends());
+    }
+
+    public function test_timed_alarm_is_not_queued(): void
+    {
+        $day = Reminder::create(['phone' => self::NORM, 'text' => 'Gün işi', 'event_date' => '2026-10-15', 'lead_minutes' => 0]);
+        $day->scheduleNext();
+        $day->save();
+        $alarm = Reminder::create(['phone' => self::NORM, 'text' => 'Ahmet ara', 'event_date' => '2026-10-15', 'event_time' => '08:00', 'is_alarm' => true]);
+        $alarm->scheduleNext();
+        $alarm->save();
+
+        Carbon::setTestNow(Carbon::parse('2026-10-15 08:01', Reminder::TIMEZONE));
+        $this->artisan('reminders:send')->assertSuccessful();
+        $this->assertSame(2, $this->twilioSends(), 'saatli alarm beklemez');
+    }
 }

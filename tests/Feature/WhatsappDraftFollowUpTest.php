@@ -221,4 +221,29 @@ class WhatsappDraftFollowUpTest extends TestCase
         $this->assertStringNotContainsString('Kaydedildi', $this->send('8500'));
         $this->assertSame(0, \App\Models\Party::where('name', 'Normal Onay')->count());
     }
+
+    /** K5 (Akkuş 15.10 12:35 + 12:40): iki yarım kayıt sorusu üst üste gitmez — ilki cevaplanmadan ikincisi beklemede. */
+    public function test_second_draft_question_waits_for_reply(): void
+    {
+        $start = Carbon::parse('2026-10-14 14:00', 'Europe/Istanbul');
+        $this->travelTo($start);
+        $this->inbound($start);
+        $this->draft(['description' => 'Birinci yarım']);
+        $this->travelTo($start->copy()->addMinutes(2));
+        $this->draft(['description' => 'İkinci yarım']);
+
+        $this->travelTo($start->copy()->addMinutes(35));
+        $this->artisan('drafts:follow-up')->assertSuccessful();
+        $this->assertSame(1, $this->sent());
+
+        $this->travelTo($start->copy()->addMinutes(40));
+        $this->artisan('drafts:follow-up')->assertSuccessful();
+        $this->assertSame(1, $this->sent(), 'cevapsız soru varken ikincisi gitmez');
+        $this->assertTrue(\App\Support\WhatsappQueue::busy(self::PHONE), 'son soru cevaplanmadı');
+
+        WhatsappMessage::create(['phone' => '905558880000', 'direction' => 'in', 'body' => 'tamam']);
+        $this->assertFalse(\App\Support\WhatsappQueue::busy(self::PHONE), 'cevap gelince sıradaki gidebilir');
+        $this->travelTo($start->copy()->addMinutes(100));
+        $this->assertFalse(\App\Support\WhatsappQueue::busy(self::PHONE), '1 saat sonra da serbest');
+    }
 }

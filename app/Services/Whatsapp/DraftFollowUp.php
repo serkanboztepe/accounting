@@ -85,15 +85,33 @@ final class DraftFollowUp
     /** ① cevabın sonuna eklenen satırlar. */
     public static function inlineText(WhatsappPendingExpense $p): string
     {
-        $gap = DraftGaps::reason($p->extracted);
+        $gap = self::gap($p);
 
         return '⏳ Bir de yarım kalan var: *' . self::name($p) . "*\n" . $gap['why'] . ' ' . self::ask($gap);
+    }
+
+    /**
+     * Eksik sebebi; AI taslakta bir şüphe sorusu bıraktıysa (`question`) "onay vermedin" değil o soru sorulur (K8 —
+     * Akkuş 14.10: "tam anlayamadım, ayrı mı toplam mı?" diyen 25.113 taslağı hatırlatmada "evet"le yanlış kaydedildi).
+     *
+     * @return array{code:string,ask:string,why:string}
+     */
+    public static function gap(WhatsappPendingExpense $p): array
+    {
+        $gap = DraftGaps::reason($p->extracted);
+        $question = trim((string) ($p->extracted['question'] ?? ''));
+        if ($gap['code'] === DraftGaps::CONFIRM && $question !== '') {
+            return ['code' => DraftGaps::DETAIL, 'ask' => '❓ ' . $question . ' Cevabını yaz.',
+                'why' => 'Bir sorum vardı, cevaplanmadığı için kaydetmedim.'];
+        }
+
+        return $gap;
     }
 
     /** ② ayrı mesaj. */
     public static function messageText(WhatsappPendingExpense $p): string
     {
-        $gap = DraftGaps::reason($p->extracted);
+        $gap = self::gap($p);
 
         return "⏳ Yarım kalan 1 kaydın var:\n• " . self::name($p) . "\n" . $gap['why'] . "\n" . self::ask($gap);
     }

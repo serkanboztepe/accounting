@@ -696,6 +696,78 @@ class ExpenseExtractor
     }
 
     /**
+     * K4 (Akkuş 14.10: "Ergenekon 5000 tl kart 19483 tl 1630 tl gider var" tek gider 25.113 sanıldı): kasa (nakit + kart/pos)
+     * ve "X gider" aynı mesajda → peşin satış (ciro) + ayrı gider (`extra_expense`), tek özet, tek onay.
+     */
+    public static function guardSaleWithExpense(array $d, string $text): array
+    {
+        if (! in_array(self::KIND_TRADE_SALE, self::allowedKinds(), true) || ! config('modules.expenses') || trim($text) === '') {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $num = '(\d[\d.,]*)';
+        if (! preg_match('/' . $num . '\s*(?:tl|₺|lira)?\s*(?:gider|masraf)/u', $t, $g)) {
+            return $d;
+        }
+        // Kasa rakamları: "Nakit 9150 / Pos 13390" (etiket önce) ya da "5700 tl nakit 19261 tl kart" (rakam önce).
+        // Hangisi olduğu ilk rakamın ilk etiketten önce gelip gelmediğinden anlaşılır; toplam her durumda doğru.
+        if (! preg_match('/nakit|kart|pos/u', $t, $lm, PREG_OFFSET_CAPTURE)) {
+            return $d; // kasa kalıbı yok — tek başına gider
+        }
+        preg_match('/\d/u', $t, $nm, PREG_OFFSET_CAPTURE);
+        $numberFirst = isset($nm[0]) && $nm[0][1] < $lm[0][1];
+        $pick = function (string $label) use ($t, $num, $numberFirst): float {
+            $re = $numberFirst
+                ? '/' . $num . '\s*(?:tl|₺|lira)?\s*(?:' . $label . ')/u'
+                : '/(?:' . $label . ')\s*:?\s*' . $num . '/u';
+
+            return preg_match($re, $t, $m) ? self::trNumber($m[1]) : 0.0;
+        };
+        $cash = $pick('nakit');
+        $card = $pick('kart|pos');
+        $expense = self::trNumber($g[1]);
+        // Gider dışındaki rakamların toplamı = ciro; etiketi eksik kısım nakit/kart farkı olarak tamamlanır.
+        preg_match_all('/' . $num . '/u', (string) preg_replace('/' . $num . '\s*(?:tl|₺|lira)?\s*(?:gider|masraf)/u', ' ', $t), $all);
+        $total = array_sum(array_map(fn ($n) => self::trNumber($n), $all[1]));
+        if ($total <= 0) {
+            return $d;
+        }
+        if ($cash + $card < $total - 0.01) {
+            if ($card > 0) {
+                $cash = $total - $card;
+            } else {
+                $card = $total - $cash;
+            }
+        }
+        // Açıklama: ilk rakamdan / nakit-kart etiketinden önceki kısım ("Ergenekon kasa", "Akkuş ergenekon").
+        $base = trim((string) preg_replace('/(\d|nakit|kart|pos).*$/ius', '', $text), " \t\n/-–:");
+        if (($d['kind'] ?? null) !== self::KIND_TRADE_SALE) {
+            $d = array_merge($d, ['kind' => self::KIND_TRADE_SALE, 'items' => [], 'paid' => true, 'party_id' => null, 'party_name' => null,
+                'cash_amount' => $cash, 'card_amount' => $card, 'amount' => $cash + $card, 'category_id' => null, 'category_name' => null,
+                'question' => null, 'description' => trim($base . ' günlük ciro')]);
+        }
+        $d['extra_expense'] = ['amount' => $expense, 'description' => trim($base . ' gideri')];
+        if (! empty($d['next_items']) && preg_match('/gider|masraf/u', mb_strtolower((string) $d['next_items']))) {
+            $d['next_items'] = null; // aynı gider sıraya ikinci kez girmesin
+        }
+
+        return $d;
+    }
+
+    /** "5.000" / "19483" / "1.630,50" → float (Türkçe binlik nokta, ondalık virgül). */
+    private static function trNumber(string $s): float
+    {
+        $s = trim($s, " .,\t\n");
+        if (str_contains($s, ',')) {
+            $s = str_replace(['.', ','], ['', '.'], $s);
+        } elseif (preg_match('/^\d{1,3}(\.\d{3})+$/', $s)) {
+            $s = str_replace('.', '', $s);
+        }
+
+        return (float) $s;
+    }
+
+    /**
      * Emniyet (AI'dan bağımsız): kendi adımız cari olamaz (Ferhat, 15 Ekim: dekontta alıcı "FERHAT YILDIZ" kendisiydi →
      * "Sen → Ferhat 75.000 ödedin" ve "Ferhat'a borçlusun" önerildi). Cari BİZ adını tam içeriyorsa cari boşaltılır, yön
      * düzeltilir (ödeme/borç notu → tahsilat, tahsilat → ödeme) ve karşı taraf sorulur. "bana geldi / hesabıma geldi"

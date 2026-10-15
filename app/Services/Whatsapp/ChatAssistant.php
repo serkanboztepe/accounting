@@ -107,19 +107,38 @@ class ChatAssistant
 
                     return ['type' => 'confirm', 'paid' => isset($input['paid']) ? (bool) $input['paid'] : null];
                 case 'cancel_pending':
-                    return ['type' => 'cancel'];
+                    // İki anahtar (onaydaki gibi): mesajda iptal sözü yoksa iptal ETME. Akkuş 15.10 21:51: açık taslak varken
+                    // "Ergenekon kasa / Nakit 5900 / Pos 21540" iptal sanıldı, kasa kaydedilmedi. Mesaj yeni işlemse AI'a bir tur daha.
+                    if (self::hasCancel($text)) {
+                        return ['type' => 'cancel'];
+                    }
+                    $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
+                    $messages[] = ['role' => 'user', 'content' => [[
+                        'type' => 'tool_result',
+                        'tool_use_id' => $call['id'],
+                        'content' => 'İPTAL EDİLMEDİ: kullanıcı iptal/vazgeç demedi. Bekleyen taslağa dokunma. Bu mesaj yeni bir işlemse '
+                            . 'propose_entry (is_new_entry=true) ile öner; düzeltmeyse düzeltilmiş taslağı öner; değilse reply.',
+                    ]]];
+                    break;
                 case 'undo_last':
                     // Düzeltme: kaydın doğru hâli verildiyse tek onayla sil + yeniden yaz.
                     $replacement = is_array($input['replacement'] ?? null) && ! empty($input['replacement']['kind'])
                         ? ['confidence' => 'high'] + $this->extractor->normalizeEntry($input['replacement'])
                         : null;
 
-                    return ['type' => 'undo', 'replacement' => $replacement];
+                    // K3: son kayıt değil, tarif edilen eski kayıt ("kategorisiz olan 25.113", "14.10'daki gider").
+                    $find = array_filter([
+                        'amount' => isset($input['find_amount']) && (float) $input['find_amount'] > 0 ? (float) $input['find_amount'] : null,
+                        'date' => is_string($input['find_date'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $input['find_date']) ? $input['find_date'] : null,
+                        'text' => is_string($input['find_text'] ?? null) && trim($input['find_text']) !== '' ? trim($input['find_text']) : null,
+                    ]);
+
+                    return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
                 case 'reply':
                     return ['type' => 'reply', 'text' => trim((string) ($input['text'] ?? '')) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'search_expenses':
                     // Salt okuma: sonucu modele ver, cevabı o yazsın.
-                    $messages[] = ['role' => 'assistant', 'content' => $content];
+                    $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
                     $messages[] = ['role' => 'user', 'content' => [[
                         'type' => 'tool_result',
                         'tool_use_id' => $call['id'],
@@ -143,6 +162,34 @@ class ChatAssistant
     /** Onay sayılan kelimeler — tek kelimelik cevap (kontrolcü) ve cümle içi (hasAssent) aynı listeyi kullanır. "0k" Erkan, 13 Ekim. */
     public const ASSENT_WORDS = ['evet', 'tamam', 'tamamdır', 'tamamdir', 'olur', 'kaydet', 'onay', 'onayla',
         'ok', '0k', 'okey', 'okay', 'tmm', 'e'];
+
+    /** Modelin cevabını geçmişe geri koyarken boş araç girdisi JSON'da {} olmalı ([] → API 400 "Input should be an object"). */
+    private static function echoable(array $content): array
+    {
+        return array_map(function ($b) {
+            if (($b['type'] ?? null) === 'tool_use' && (($b['input'] ?? []) === [] || ! isset($b['input']))) {
+                $b['input'] = (object) [];
+            }
+
+            return $b;
+        }, $content);
+    }
+
+    /** İptal sayılan sözler — AI "vazgeçiyor" dese de mesajda bunlardan biri yoksa iptal edilmez. */
+    public const CANCEL_WORDS = ['iptal', 'vazgeç', 'vazgec', 'vazgeçtim', 'vazgectim', 'gerek yok', 'boşver', 'bosver', 'boş ver',
+        'sil', 'silin', 'kaydetme', 'istemiyorum', 'hayır', 'hayir', 'olmasın', 'olmasin', 'yanlış', 'yanlis', 'kalsın', 'kalsin'];
+
+    public static function hasCancel(string $text): bool
+    {
+        $lower = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        foreach (self::CANCEL_WORDS as $w) {
+            if (preg_match('/(^|[^\p{L}])' . preg_quote($w, '/') . '/u', $lower)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /** Mesajda onay kelimesi var mı: evet / tamam / ok / olur / kaydet / onay — ya da tek harf yazım hatası ("evert"). */
     public static function hasAssent(string $text): bool
@@ -238,7 +285,13 @@ class ChatAssistant
         $modules[] = config('modules.expenses')
             ? '- Fiil YOKSA ("Abdullah Uçar 2 milyon kaba inşaat", "Ahmet 50 bin sıva") → yaptırdığımız iş = "expense". "sale" yalnız açık fiille ("yaptım", "sattım", "fatura kestim").'
             : '- Fiil YOKSA ya da "… ekle / … yaz" ise ("Bahadır Pir 20000 EKB belgesi ekle", "Ali Bey 80 bin proje") → müşteriye yaptığımız iş = "sale".';
+        // Stoklu firmada "stok tutamıyorum" demesin (Çiftlik, 15 Ekim: "elimde ne kadar saman var" reddedildi).
+        $stock = in_array(ExpenseExtractor::KIND_STOCK_QUERY, ExpenseExtractor::allowedKinds(), true);
+        if ($stock) {
+            $modules[] = '- Stok takibi AÇIK: "ne kadar kaldı" (stock_query), "elimde X var" (stock_count), günlük kullanım / "kaç kalınca haber ver" (stock_setting), ürün tanıtma (product_add) kaydedilir — "stok tutamıyorum" deme. Üretim girişi ("ürettim", "sağdım", "kaldırdım") henüz yok: elde kalan miktarı söylemesini iste, sayım (stock_count) olarak kaydet.';
+        }
         $modules[] = '- Listede olmayan kişi için yeni cari SEN açabilirsin: `party_name` yaz, onayla birlikte açılır. "Cariye ekle" bunu ister — "panelden ekle" deme.';
+        $cannot = $stock ? 'hayvan sayımı, hayvan listesi' : 'hayvan sayımı, stok listesi';
         $modules = "BU HESAPTA:\n" . implode("\n", $modules) . "\n";
 
         $rules = <<<PROMPT
@@ -279,13 +332,15 @@ class ChatAssistant
           ("önceki dönemden", "devreden" gibi). "alacağım / alınacak" → o bize borçlu; yön belli, sorma.
         - KAYDEDİLMİŞ son işlemi silmek ("son kaydı sil") → `undo_last`. DÜZELTMEK ("bunu satış olarak değiştir",
           "8000 değil 10000 olacaktı", "kişi Ali değil Veli") → `undo_last` + `replacement` = kaydın doğru tam hâli
-          (geri kalan her şey önceki kayıttaki gibi). Sistem ikisini gösterip tek onay ister. Daha eski kayıtlar panelden.
+          (geri kalan her şey önceki kayıttaki gibi). Sistem ikisini gösterip tek onay ister. SON kayıt değil de DAHA ESKİ
+          bir kayıt tarif ediliyorsa ("kategorisiz olan 25.113 yanlış", "14.10'daki gideri sil", "Ergenekon gideri yanlış") → yine
+          `undo_last` + `find_amount` / `find_date` / `find_text` (sistem bulup gösterir). Kayıt bilgisi istemek için `reply` KULLANMA.
         - Kategoriyi her kayıt için KENDİ içeriğine göre seç; önceki kaydın kategorisini taşıma (tosun/hayvan alımı ≠ "Çobanlar").
         - "Traktöre ne harcadım" gibi bir şeye/kişiye göre harcama sorusu → `search_expenses` (yazım
           varyantlarıyla: traktör, traktor). Dönem toplamı ("bu ay ne harcadım") → propose_entry kind "expense_summary".
         - Bakiye, toplam, ekstre, cari listesi, takvim soruları ve hatırlatmalar da `propose_entry` ile (ilgili kind).
         - Ekstre (kişinin hesap dökümü) PDF olarak gönderilir; "PDF" isteğinde hangi kişinin ekstresi olduğunu sor.
-        - Yapamadığın bir şeyse (hayvan sayımı, stok listesi…) kibarca söyle ve yapabildiğin bir örnek ver.
+        - Yapamadığın bir şeyse ({$cannot}…) kibarca söyle ve yapabildiğin bir örnek ver.
 
         İŞLEM TÜRLERİ (`kind`):
         {$kinds}
@@ -348,6 +403,9 @@ class ChatAssistant
                 'input_schema' => [
                     'type' => 'object',
                     'properties' => [
+                        'find_amount' => ['type' => ['number', 'null'], 'description' => 'Yalnız SON kayıt değilse: aranan kaydın tutarı (ör. 25113)'],
+                        'find_date' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: aranan kaydın tarihi YYYY-MM-DD'],
+                        'find_text' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: açıklamadaki bir kelime (ör. "Ergenekon")'],
                         'replacement' => [
                             'type' => ['object', 'null'],
                             'description' => 'Yalnız düzeltmede: kaydın doğru hâli (propose_entry ile aynı alanlar). Önceki kayıttan kişi, tutar, açıklama, tarih KORUNUR; yalnız istenen değişir. Sadece silme isteniyorsa null.',
