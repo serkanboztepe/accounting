@@ -52,7 +52,7 @@ class HubPanelProvider extends PanelProvider
                 'gray'    => Color::Zinc,
             ])
             ->resources([HubFirmResource::class, ConversationReportResource::class])
-            ->pages([\App\Filament\Hub\Pages\CostOverview::class])
+            ->pages([\App\Filament\Hub\Pages\CostOverview::class, \App\Filament\Hub\Pages\AssistantScorecardPage::class])
             ->homeUrl(fn (): string => HubFirmResource::getUrl('index', panel: 'hub'))
             ->middleware([
                 EncryptCookies::class,
