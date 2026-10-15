@@ -204,6 +204,114 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $this->assertStringContainsString('*Aynı kişi mi?*', $this->send("Ali Metin'in oğluna 5000 ödedim"));
     }
 
+    private function writerIs(string $name): void
+    {
+        \App\Models\HubPhone::where('phone', '905558880002')->delete();
+        $firm = \App\Models\HubFirm::create(['name' => 'Biz Firma Test', 'url' => 'https://example.test']);
+        \App\Models\HubPhone::create(['phone' => '905558880002', 'hub_firm_id' => $firm->id, 'name' => $name]);
+    }
+
+    /** Ferhat (15 Ekim): dekontta alıcı kendisi → AI "Sen → FERHAT YILDIZ ödedin" dese de tahsilat, gönderen sorulur. */
+    public function test_receipt_with_our_name_as_party_becomes_collection_and_asks_sender(): void
+    {
+        $this->writerIs('Ferhat Biz Yıldız');
+        $this->fakeAi(
+            $this->entry(['amount' => 75000, 'party_name' => 'FERHAT BİZ YILDIZ', 'party_said' => 'FERHAT BİZ YILDIZ', 'payment_type' => 'eft']),
+            $this->entry(['kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => 75000, 'party_name' => 'Fuat Gönderen', 'is_new_entry' => false]),
+        );
+
+        $reply = $this->sendPdf();
+        $this->assertStringContainsString('Bu para kimden geldi?', $reply);
+        $this->assertStringNotContainsString('ödedin', $reply);
+        $this->assertSame(0, Party::where('name', 'FERHAT BİZ YILDIZ')->count());
+
+        $this->assertStringContainsString('Fuat Gönderen (yeni cari) → *sana*: 75.000,00', $this->send('Fuat Gönderen'));
+        $this->send('evet');
+        $this->assertSame(-75000.0, $this->balance('Fuat Gönderen'));
+        $this->assertSame(0, Party::where('name', 'FERHAT BİZ YILDIZ')->count(), 'kendi adı cari açılmaz');
+    }
+
+    /** "BANA GELDİ" düzeltmesi: AI borç kaydı dese de tahsilat. */
+    public function test_bana_geldi_turns_payment_or_debt_note_into_collection(): void
+    {
+        $d = $this->entry(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'payable', 'amount' => 5, 'party_name' => 'Ali Test']);
+        $this->assertSame(ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::guardSelfParty($d, [], 'BANA GELDİ')['kind']);
+        $p = $this->entry(['amount' => 5, 'party_name' => 'Ali Test']);
+        $this->assertSame(ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::guardSelfParty($p, [], 'hesabıma geldi')['kind']);
+        $this->assertSame(ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::guardSelfParty($p, [], 'Ali\'ye gönderdim')['kind']);
+    }
+
+    /** Taner: gönderen biz, alıcı başkası → ödeme aynen; kısa/tek kelime ad (ör. "Ferhat") başka cari olabilir, dokunulmaz. */
+    public function test_other_party_and_partial_name_untouched(): void
+    {
+        $self = ['Taner Biz Köse'];
+        $p = $this->entry(['amount' => 5, 'party_name' => 'Hazal Doğan', 'debt_repayment' => true]);
+        $this->assertSame($p, ExpenseExtractor::guardSelfParty($p, $self, ''));
+        $q = $this->entry(['amount' => 5, 'party_name' => 'Taner']);
+        $this->assertSame('Taner', ExpenseExtractor::guardSelfParty($q, $self, '')['party_name']);
+    }
+
+    private function sendPhoto(): string
+    {
+        return $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/ME2', 'MediaContentType0' => 'image/jpeg']);
+    }
+
+    /** Gider kapalı (Ferhat): ilk fiş → "Ödedin mi?"; veresiye → alış; sonraki fiş sormadan veresiye. */
+    public function test_receipt_in_no_expense_firm_asks_then_follows_habit(): void
+    {
+        config(['modules.expenses' => false]);
+        $fuel = fn ($amt) => $this->entry(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => $amt, 'party_name' => 'Fiş Petrol',
+            'seller_name' => 'Fiş Petrol', 'description' => '55,45 lt Kurşunsuz 95 — 24 FC 004', 'paid' => null]);
+        $this->fakeAi($fuel(4760.38), $fuel(1000));
+
+        $reply = $this->sendPhoto();
+        $this->assertStringContainsString('*Ödedin mi?*', $reply);
+        $this->assertStringContainsString('24 FC 004', $reply);
+        $this->assertStringContainsString('Önce', $this->send('evet'), 'cevapsız kaydedilmez');
+
+        $this->assertStringContainsString('(ona borçlandın)', $this->send('veresiye'));
+        $this->send('evet');
+        $this->assertSame(-4760.38, $this->balance('Fiş Petrol'));
+
+        $reply = $this->sendPhoto();
+        $this->assertStringNotContainsString('Ödedin mi?', $reply);
+        $this->assertStringContainsString('Önceki alışlar gibi *veresiye*', $reply);
+        $this->send('evet');
+        $this->assertSame(-5760.38, $this->balance('Fiş Petrol'));
+        $this->assertSame(0, PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Fiş Petrol'))->where('type', 'odeme')->count());
+    }
+
+    public function test_habit_paid_when_last_purchase_was_paid_same_day(): void
+    {
+        config(['modules.expenses' => false]);
+        $party = Party::create(['name' => 'Peşin Market']);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now()->subDays(3), 'type' => 'alis', 'amount' => 300, 'description' => 'Su']);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now()->subDays(3), 'type' => 'odeme', 'amount' => 300, 'description' => 'Alış ödemesi — Su']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 500, 'party_id' => $party->id, 'paid' => null]));
+
+        $this->assertStringContainsString('Önceki alışlar gibi *peşin*', $this->sendPhoto());
+        $this->send('evet');
+        $this->assertSame(0.0, $this->balance('Peşin Market'));
+    }
+
+    /** Gider açık: fişe "ödemedim" → gider değil, satıcının carisine veresiye alış. "ödendi" → gider (değişmedi). */
+    public function test_expense_firm_unpaid_receipt_goes_to_seller_cari(): void
+    {
+        $receipt = $this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 850, 'seller_name' => 'Fiş Market', 'description' => 'Temizlik', 'paid' => null]);
+        $this->fakeAi($receipt, $receipt);
+        $before = Expense::count();
+
+        $this->sendPhoto();
+        $this->assertStringContainsString('🛒 *Alış* ← Fiş Market (yeni cari): 850,00 ₺ (ona borçlandın)', $this->send('ödemedim'));
+        $this->send('evet');
+        $this->assertSame($before, Expense::count());
+        $this->assertSame(-850.0, $this->balance('Fiş Market'));
+
+        $this->sendPhoto();
+        $this->send('evet');
+        $this->assertSame($before + 1, Expense::count(), 'ödendi/söylenmedi → gider aynen');
+    }
+
     public function test_other_documents_still_get_clear_answer(): void
     {
         $this->assertStringContainsString('PDF', $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://x/y', 'MediaContentType0' => 'application/vnd.ms-excel']));

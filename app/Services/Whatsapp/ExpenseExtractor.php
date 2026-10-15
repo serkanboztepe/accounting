@@ -309,7 +309,19 @@ class ExpenseExtractor
             . 'ALICI biz ve GÖNDEREN başkası ise → "collection". Cari = karşı taraf (ALICI ya da GÖNDEREN adı; listede benzeri varsa onunla eşleştir). '
             . '`amount` = İŞLEM TUTARI (FAST/EFT ücreti, BSMV, masraf HARİÇ — "TOPLAM" satırı DEĞİL). Ücret + BSMV toplamı varsa `bank_fee`. '
             . '`date` = işlem tarihi, `payment_type` = "eft", `description` = dekonttaki AÇIKLAMA (yoksa "Havale/EFT"). '
+            . 'ALICI ya da GÖNDEREN adı yukarıdaki BİZ listesindeyse o taraf BİZİZ — cari = DİĞER taraf (bize gelen para → "collection", cari = gönderen). '
             . 'Açıklama ya da kullanıcı "borç iade / borcum ödendi" diyorsa `debt_repayment`=true. Kullanıcının mesajı varsa önce o (bekleyen taslağa ek bilgi olabilir).';
+        // Fiş/fatura: satıcı adı her zaman `seller_name`; akaryakıtta plaka açıklamaya (Ferhat, 15 Ekim: "plakayı fişten oku").
+        $receiptRule .= "\n" . '- FİŞ / FATURA (alışveriş belgesi): fişteki SATICI firmanın adını HER ZAMAN `seller_name`\'e yaz. AKARYAKIT fişinde '
+            . '`description` = litre + yakıt türü + PLAKA (fişte "PLAKA" yazar; ör. "55,45 lt Kurşunsuz 95 — 24 FC 004"). '
+            . 'ÖDEME SATIRI (TOPLAM altı): "KREDİ(CH)", "CH", "CARİ", "CARİ HESAP", "VERESİYE", "AÇIK HESAP" → veresiye: `paid`=false '
+            . '(DİKKAT: "KREDİ(CH)" kredi kartı DEĞİL, istasyonun cari hesabıdır); "NAKİT", "KREDİ KARTI", "K.KARTI", "KART", "POS" → `paid`=true; '
+            . 'ödeme satırı yoksa ya da okunmuyorsa `paid`=null (kullanıcı ayrıca söylemediyse).';
+        if (! in_array(self::KIND_EXPENSE, self::allowedKinds(), true) && in_array(self::KIND_PURCHASE, self::allowedKinds(), true)) {
+            // Gider kapalı: fiş = satıcıdan ALIŞ (cari = satıcı). Ödendi mi sistem karar verir (önceki alışlar / soru).
+            $receiptRule .= "\n" . '- GİDER KAPALI: FİŞ / FATURA → "purchase", cari = SATICI (listede benzeri varsa onunla eşleştir, yoksa `party_name` = satıcı adı). '
+                . '`paid`: önce kullanıcının sözü ("ödedim / nakit" → true, "veresiye / ödemedim" → false), yoksa fişin ödeme satırı (yukarıdaki kural), o da yoksa null. "help" CEVABI VERME.';
+        }
         $photoRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
             ? $receiptRule . "\n" . '- Fotoğraf (fiş/fatura/çek) → her zaman "expense". Fişteki/faturadaki SATICI (market, akaryakıt, mağaza, restoran) cari DEĞİLDİR: '
                 . 'kullanıcı mesajda o kişiyi/firmayı adıyla yazmadıysa ve satıcı aşağıdaki mevcut cari listesinde yoksa `party_id`/`party_name` null.'
@@ -550,6 +562,7 @@ class ExpenseExtractor
                     'direction_unclear' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=sale/purchase: true if it is unclear whether the goods went TO the party (sale) or came FROM the party (purchase); the user is asked'],
                     'debt_repayment' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=payment: true if this payment repays OUR existing debt ("borcum ödendi", "borç iade")'],
                     'bank_fee' => ['type' => ['number', 'null'], 'description' => 'Only from a bank receipt (dekont): transfer fee + BSMV total, NOT included in amount; else null'],
+                    'seller_name' => ['type' => ['string', 'null'], 'description' => 'Only from a receipt/invoice image: the SELLER company name printed on it (market, fuel station…); else null'],
                     'party_said' => ['type' => ['string', 'null'], 'description' => "How the user referred to the person/company in THIS message, nominative form, all descriptive words kept (\"Hüseyin BİM'in bacısı Ayten\", \"Ali usta\", \"Demirci Recep\"); null if not named (\"ona\", \"aynı kişi\")"],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
@@ -680,6 +693,55 @@ class ExpenseExtractor
 
         return array_merge($d, ['kind' => self::KIND_PAYMENT, 'debt_repayment' => true, 'debt_side' => null,
             'payment_purpose' => null, 'advance' => false]);
+    }
+
+    /**
+     * Emniyet (AI'dan bağımsız): kendi adımız cari olamaz (Ferhat, 15 Ekim: dekontta alıcı "FERHAT YILDIZ" kendisiydi →
+     * "Sen → Ferhat 75.000 ödedin" ve "Ferhat'a borçlusun" önerildi). Cari BİZ adını tam içeriyorsa cari boşaltılır, yön
+     * düzeltilir (ödeme/borç notu → tahsilat, tahsilat → ödeme) ve karşı taraf sorulur. "bana geldi / hesabıma geldi"
+     * cevabı da ödeme/borç notunu tahsilata çevirir.
+     *
+     * @param  list<string>  $selfNames
+     */
+    public static function guardSelfParty(array $d, array $selfNames, string $text): array
+    {
+        $kind = $d['kind'] ?? null;
+        if (! in_array($kind, [self::KIND_PAYMENT, self::KIND_COLLECTION, self::KIND_DEBT_NOTE], true)) {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $toUs = (bool) preg_match('/(bana|hesab[ıi]ma|bize|hesab[ıi]m[ıi]za) (geldi|g[öo]nderdi|yat[ıi]rd[ıi]|att[ıi]|havale etti|eft yapt[ıi])/u', $t);
+
+        $candidates = array_filter([
+            ! empty($d['party_id']) ? \App\Models\Party::whereKey($d['party_id'])->value('name') : null,
+            $d['party_name'] ?? null,
+            $d['party_said'] ?? null,
+        ]);
+        $isSelf = false;
+        foreach ($selfNames as $self) {
+            foreach ($candidates as $c) {
+                if (PartyNameCheck::containedIn(new \App\Models\Party(['name' => $self]), (string) $c)) {
+                    $isSelf = true;
+                }
+            }
+        }
+
+        if ($isSelf) {
+            $incoming = $kind !== self::KIND_COLLECTION || $toUs;
+            return array_merge($d, [
+                'kind' => $incoming ? self::KIND_COLLECTION : self::KIND_PAYMENT,
+                'party_id' => null, 'party_name' => null, 'party_said' => null,
+                'debt_side' => null, 'payment_purpose' => null, 'advance' => false, 'debt_repayment' => false,
+                'bank_fee' => $incoming ? null : ($d['bank_fee'] ?? null),
+                'question' => $incoming ? 'Bu para kimden geldi? Gönderenin adını yazar mısın?' : 'Kime gönderdin? Adını yazar mısın?',
+            ]);
+        }
+        if ($toUs && in_array($kind, [self::KIND_PAYMENT, self::KIND_DEBT_NOTE], true)) {
+            return array_merge($d, ['kind' => self::KIND_COLLECTION, 'debt_side' => null, 'payment_purpose' => null,
+                'advance' => false, 'debt_repayment' => false, 'bank_fee' => null]);
+        }
+
+        return $d;
     }
 
     /**
@@ -815,8 +877,10 @@ class ExpenseExtractor
             'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE], true) && config('modules.cari_supplier')
                 && ! empty($input['direction_unclear']),
             'debt_repayment' => $kind === self::KIND_PAYMENT && ! empty($input['debt_repayment']),
-            'bank_fee' => in_array($kind, [self::KIND_PAYMENT, self::KIND_COLLECTION], true) && (float) ($input['bank_fee'] ?? 0) > 0
+            // Banka masrafı yalnız parayı BİZ gönderdiysek bizim gider (bize gelen dekontta masrafı gönderen öder — Fuat→Ferhat).
+            'bank_fee' => $kind === self::KIND_PAYMENT && (float) ($input['bank_fee'] ?? 0) > 0
                 ? round((float) $input['bank_fee'], 2) : null,
+            'seller_name' => is_string($input['seller_name'] ?? null) && trim($input['seller_name']) !== '' ? trim($input['seller_name']) : null,
             'party_said' => is_string($input['party_said'] ?? null) && trim($input['party_said']) !== '' ? trim($input['party_said']) : null,
             'category_id' => isset($input['category_id']) ? (int) $input['category_id'] : null,
             'category_name' => ! empty($input['category_name']) ? trim((string) $input['category_name']) : null,

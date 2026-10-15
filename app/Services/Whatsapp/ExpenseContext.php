@@ -13,6 +13,28 @@ use App\Models\Project;
  */
 class ExpenseContext
 {
+    /**
+     * "Biz" adları: firma adı + firmanın aktif numara sahipleri (+ yazan numaranın sahibi). Dekontta bu adlar
+     * cari DEĞİLDİR (Ferhat, 15 Ekim: alıcı "FERHAT YILDIZ" kendisiydi, cari sanıldı). Tek kelimelik adlar
+     * alınmaz ("Çiftlik" gibi genel adlar başka carilerle karışmasın). Yalnız okuma.
+     *
+     * @return list<string>
+     */
+    public static function selfNames(?string $phone = null): array
+    {
+        $names = [];
+        if (($firm = \App\Tenancy\Tenancy::current()) !== null) {
+            $names[] = (string) $firm->name;
+            array_push($names, ...\App\Models\HubPhone::where('hub_firm_id', $firm->id)->where('is_active', true)->pluck('name')->all());
+        }
+        if ($phone !== null && $phone !== '') {
+            $names[] = (string) \App\Models\HubPhone::where('phone', \App\Support\Phone::normalize($phone))->value('name');
+        }
+
+        return array_values(array_unique(array_filter(array_map('trim', $names),
+            fn ($n) => $n !== '' && count(PartyNameCheck::words($n)) >= 2)));
+    }
+
     /** Yalnız deneme betikleri: başka firmanın listesiyle AI'ı veritabanına yazmadan denemek için. Canlıda hep null. */
     public static ?string $override = null;
 
@@ -35,6 +57,10 @@ class ExpenseContext
         $categories = ExpenseCategory::query()->orderBy('name')->get(['id', 'name']);
 
         $lines = [];
+        if ($self = self::selfNames()) {
+            $lines[] = 'BİZ (kullanıcı / firma — ASLA cari değil): ' . implode('; ', $self);
+            $lines[] = '';
+        }
 
         if (config('modules.projects')) {
             $lines[] = 'PROJELER (id: isim [ada/parsel]):';

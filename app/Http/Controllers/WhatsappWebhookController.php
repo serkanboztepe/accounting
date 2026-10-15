@@ -20,6 +20,7 @@ use App\Services\Whatsapp\AdvanceOffset;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\DraftFollowUp;
 use App\Services\Whatsapp\DraftGaps;
+use App\Services\Whatsapp\ExpenseContext;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
@@ -65,6 +66,10 @@ class WhatsappWebhookController extends Controller
     private const WORDS_FROM = 1_000_000;
 
     /** Cari hareketi türleri — kişi eşleşmesi "aynı kişi mi?" kontrolünden geçer. */
+    private const PAID_WORDS = ['ödedim', 'odedim', 'ödendi', 'odendi', 'ödedim evet', 'nakit', 'kartla', 'kart', 'peşin', 'pesin', 'nakit ödedim', 'kartla ödedim'];
+
+    private const UNPAID_WORDS = ['ödemedim', 'odemedim', 'ödenmedi', 'odenmedi', 'veresiye', 'veresiye aldım', 'borç', 'borca', 'sonra ödeyeceğim', 'ödemedim veresiye'];
+
     private const PARTY_KINDS = [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_COLLECTION,
         ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE];
 
@@ -293,6 +298,19 @@ class WhatsappWebhookController extends Controller
             if ($kind !== null) {
                 $this->inboundKind = 'quick';
                 $data = ['kind' => $kind, 'direction_unclear' => false, 'question' => null] + $pending->extracted;
+
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
+            }
+        }
+
+        // Fiş: "ödedim" / "veresiye" (soru ya da alışkanlıkla yazılanı değiştirme) — AI'sız, kesin cevap.
+        if ($pending && $image === null && ! empty($pending->extracted['from_document'])
+            && in_array($this->kind($pending->extracted), [ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_EXPENSE], true)) {
+            $w = $this->word($body);
+            $paid = in_array($w, self::PAID_WORDS, true) ? true : (in_array($w, self::UNPAID_WORDS, true) ? false : null);
+            if ($paid !== null) {
+                $this->inboundKind = 'quick';
+                $data = ['paid' => $paid, 'paid_from_habit' => false] + $pending->extracted;
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
@@ -663,6 +681,7 @@ class WhatsappWebhookController extends Controller
     {
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
+        $data = ExpenseExtractor::guardSelfParty($data, ExpenseContext::selfNames($phone), $this->inboundBody);
         if ($pending === null && ChatAssistant::enabled()) {
             $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
         }
@@ -678,6 +697,7 @@ class WhatsappWebhookController extends Controller
             $data['bank_fee'] = $data['bank_fee'] ?? ($pending->extracted['bank_fee'] ?? null);
             $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
         }
+        $data = $this->applyReceiptPayment($pending, $data);
         $data = AdvanceOffset::apply($data, $this->inboundBody);
         $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
         $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null);
@@ -816,6 +836,7 @@ class WhatsappWebhookController extends Controller
             $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
             DraftGaps::needsSaleOrPurchase($data) => "\n\n*sattım* ya da *aldım* yaz, vazgeçmek için *iptal*.",
+            DraftGaps::needsPaidAnswer($data) => "\n\nVazgeçmek için *iptal*.",
             $this->needsDebtSide($data) => "\n\n*o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun) yaz, vazgeçmek için *iptal*.",
             ! empty($data['settles_expense_id']) => "\n\n✅ Onaylamak için *evet*. Ayrı (yeni) bir gider ise *yeni* yaz, vazgeçmek için *iptal*.",
             ChatAssistant::enabled() => "\n\nKaydedeyim mi? *evet* / *tamam* / *ok* — yanlış bir şey varsa düzeltmeyi yazman yeterli.",
@@ -835,6 +856,46 @@ class WhatsappWebhookController extends Controller
         }
 
         return $summary . $footer;
+    }
+
+    /**
+     * Fiş (belge) ödeme kuralları (Ferhat, 15 Ekim):
+     *  - gider AÇIK firmada fişe "ödemedim" → gider değil, fişteki satıcının carisine veresiye alış (gider↔cari ayrılıyor);
+     *  - gider KAPALI firmada fiş = satıcıdan alış; ödendi mi söylenmediyse o carinin son alışı gibi (veresiye/peşin),
+     *    hiç alış yoksa sorulur ("Ödedin mi?").
+     */
+    private function applyReceiptPayment(?WhatsappPendingExpense $pending, array $data): array
+    {
+        if ($pending && empty($data['seller_name']) && ! empty($pending->extracted['seller_name'])) {
+            $data['seller_name'] = $pending->extracted['seller_name'];
+        }
+        if (empty($data['from_document'])) {
+            return $data;
+        }
+        $kind = $this->kind($data);
+        if ($kind === ExpenseExtractor::KIND_EXPENSE && ($data['paid'] ?? null) === false && ! empty($data['seller_name'])
+            && config('modules.cari_supplier')) {
+            $data['kind'] = ExpenseExtractor::KIND_PURCHASE;
+            $data['party_id'] = Party::where('name', $data['seller_name'])->value('id');
+            $data['party_name'] = $data['party_id'] ? null : $data['seller_name'];
+            $data['settles_expense_id'] = null;
+
+            return $data;
+        }
+        if ($kind === ExpenseExtractor::KIND_PURCHASE && empty($data['party_id']) && ! empty($data['party_name'])
+            && ($existing = Party::where('name', $data['party_name'])->value('id'))) {
+            $data['party_id'] = $existing; // aynı adlı cari zaten var — yeni açma, geçmişi buradan
+            $data['party_name'] = null;
+        }
+        if ($kind === ExpenseExtractor::KIND_PURCHASE && ! config('modules.expenses') && ($data['paid'] ?? null) === null) {
+            $habit = DraftGaps::purchaseHabit($this->existingParty($data));
+            if ($habit !== null) {
+                $data['paid'] = $habit;
+                $data['paid_from_habit'] = true;
+            }
+        }
+
+        return $data;
     }
 
     /**
@@ -1629,6 +1690,12 @@ class WhatsappWebhookController extends Controller
             foreach ($d['items'] ?? [] as $item) {
                 $lines[] = '   • ' . ($item['description'] ?: '—') . ': ' . Money::format((float) $item['amount']) . ' ₺';
             }
+        } elseif ($kind === ExpenseExtractor::KIND_PURCHASE && DraftGaps::needsPaidAnswer($d)) {
+            return '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
+                . (! empty($d['description']) ? "\n• Açıklama: " . $d['description'] : '')
+                . "\n• Tarih: " . ($d['date'] ?? now()->format('Y-m-d'))
+                . "\n❓ *Ödedin mi?* *ödedim* (peşin) ya da *veresiye* (sonra ödeyeceğim) yaz."
+                . (! empty($d['party_check']) ? "\n❓ \"" . $d['party_said'] . '" yazdın, *' . $name . '* ile eşleştirdim. *Aynı kişi mi?* Değilse *yeni* yaz.' : '');
         } elseif ($kind === ExpenseExtractor::KIND_PURCHASE) {
             $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
                 . match (true) {
@@ -1676,6 +1743,11 @@ class WhatsappWebhookController extends Controller
         $projectText = $project?->name ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : null);
         if ($projectText) {
             $lines[] = '• Proje: ' . $projectText;
+        }
+        if (! empty($d['paid_from_habit'])) {
+            $lines[] = ! empty($d['paid'])
+                ? 'ℹ️ Önceki alışlar gibi *peşin* yazdım; ödemediysen *veresiye* yaz.'
+                : 'ℹ️ Önceki alışlar gibi *veresiye* yazdım; ödediysen *ödedim* yaz.';
         }
         if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0) {
             $lines[] = config('modules.expenses')

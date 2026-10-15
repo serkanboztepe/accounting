@@ -67,6 +67,10 @@ final class DraftGaps
             return ['code' => self::DIRECTION, 'ask' => 'Yönü yaz: *o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun).',
                 'why' => 'Kimin kime borçlu olduğunu yazmadığın için kaydedemedim.'];
         }
+        if (self::needsPaidAnswer($d)) {
+            return ['code' => self::CHOICE, 'ask' => 'Yaz: *ödedim* ya da *veresiye*.',
+                'why' => 'Ödeyip ödemediğini yazmadığın için kaydedemedim.'];
+        }
         if (self::needsPaymentChoice($d)) {
             return ['code' => self::CHOICE, 'ask' => 'Seç: *1* iş/mal aldım, *2* avans.',
                 'why' => 'Ne için verdiğini seçmediğin için kaydedemedim.'];
@@ -123,6 +127,36 @@ final class DraftGaps
         $owed = ($party = self::party($d)) ? max(0.0, -PartyStatement::build($party)['balance']) : 0.0;
 
         return round(max(0.0, (float) ($d['amount'] ?? 0) - $owed), 2);
+    }
+
+    /**
+     * Fişten alış, ödendi mi belli değil → sorulur ("Ödedin mi?"). Önceki alışlardan alışkanlık çıkmadıysa (ilk fiş).
+     */
+    public static function needsPaidAnswer(array $d): bool
+    {
+        return self::kind($d) === ExpenseExtractor::KIND_PURCHASE && ! empty($d['from_document'])
+            && ($d['paid'] ?? null) === null && ! self::missingParty($d);
+    }
+
+    /**
+     * Bu cariden son alış nasıl yapılmıştı: aynı gün aynı tutarda ödeme varsa peşin (true), yoksa veresiye (false);
+     * hiç alış yoksa null (sorulur). "Borç kaydı" (devreden borç) alış sayılmaz.
+     */
+    public static function purchaseHabit(?Party $party): ?bool
+    {
+        if (! $party) {
+            return null;
+        }
+        $last = \App\Models\PartyLedgerEntry::where('party_id', $party->id)->where('type', \App\Models\PartyLedgerEntry::TYPE_PURCHASE)
+            ->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', 'Borç kaydı%'))
+            ->orderByDesc('entry_date')->orderByDesc('id')->first();
+        if (! $last) {
+            return null;
+        }
+
+        return \App\Models\PartyLedgerEntry::where('party_id', $party->id)->where('type', \App\Models\PartyLedgerEntry::TYPE_PAYMENT)
+            ->whereDate('entry_date', $last->entry_date)->whereBetween('amount', [(float) $last->amount - 0.01, (float) $last->amount + 0.01])
+            ->exists();
     }
 
     /** Mal ona mı gitti, ondan mı geldi belli değil ("Vedat 445 sebze ekmek getirdim") — kullanıcıya sorulur. */
