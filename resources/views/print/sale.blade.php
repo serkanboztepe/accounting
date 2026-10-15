@@ -44,7 +44,7 @@
 
         <div class="meta">
             <div class="cari">{{ $sale->party?->name }}</div>
-            @if ($sale->project)<div style="color:#555;">Şantiye: {{ $sale->project->name }}</div>@endif
+            @if ($sale->project)<div style="color:#555;">{{ \App\Support\Labels::project() === 'Proje' ? 'Şantiye' : \App\Support\Labels::project() }}: {{ $sale->project->name }}</div>@endif
         </div>
 
         <table class="st">

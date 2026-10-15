@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StockMovements\Schemas;
 
+use App\Support\Labels;
 use App\Models\Party;
 use App\Models\Product;
 use App\Models\Project;
@@ -61,7 +62,7 @@ class StockMovementForm
                 ->preload(),
 
             Select::make('project_id')
-                ->label('Şantiye / Proje')
+                ->label(Labels::project() === 'Proje' ? 'Şantiye / Proje' : Labels::project())
                 ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->preload()

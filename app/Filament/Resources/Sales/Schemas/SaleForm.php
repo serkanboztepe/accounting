@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Sales\Schemas;
 
+use App\Support\Labels;
 use App\Models\Party;
 use App\Models\Product;
 use App\Models\Project;
@@ -46,7 +47,7 @@ class SaleForm
                 ->live() : null,
 
             Select::make('project_id')
-                ->label('Şantiye / Proje')
+                ->label(Labels::project() === 'Proje' ? 'Şantiye / Proje' : Labels::project())
                 // Müşteri seçiliyse ve onun projeleri varsa, listeyi onlarla sınırla.
                 ->options(function (Get $get) {
                     $partyId = $get('party_id');

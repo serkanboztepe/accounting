@@ -11,7 +11,7 @@
             Gruplama:
             <select wire:model.live="groupBy" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;">
                 <option value="party">Müşteriye göre</option>
-                <option value="project">Şantiyeye / projeye göre</option>
+                <option value="project">{{ \App\Support\Labels::project() === 'Proje' ? 'Şantiyeye / projeye göre' : \App\Support\Labels::project() . 'ye göre' }}</option>
             </select>
         </label>
         <a href="{{ route('sales-summary.print', ['group' => $groupBy]) }}" target="_blank"

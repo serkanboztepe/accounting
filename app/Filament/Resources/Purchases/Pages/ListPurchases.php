@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Purchases\Pages;
 
+use App\Support\Labels;
 use App\Filament\Resources\Purchases\PurchaseResource;
 use App\Models\Party;
 use App\Models\Purchase;
@@ -61,6 +62,7 @@ class ListPurchases extends ListRecords
             'payment_type'  => $keep['payment_type'] ?? 'cash',
             'purchase_date' => $keep['purchase_date'] ?? now()->toDateString(),
             'party_id'      => null,
+            'project_id'    => $keep['project_id'] ?? null,
             'lines'         => [],
             'manual_amount' => null,
             'notes'         => null,
@@ -82,6 +84,14 @@ class ListPurchases extends ListRecords
                     ->columnSpan(['default' => 1, 'md' => 2]),
 
                 DatePicker::make('purchase_date')->label('Tarih')->required(),
+
+                // Proje / Şube (firmada açıksa): peşin kasada birden çok şube varsa zorunlu (WhatsApp'taki kuralın aynısı).
+                Select::make('project_id')
+                    ->label(fn () => Labels::project())
+                    ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
+                    ->placeholder('Genel')
+                    ->visible(fn () => (bool) config('modules.projects'))
+                    ->required(fn (Get $get) => false && \App\Models\Project::whereNotIn('status', ['cancelled'])->count() > 1),
 
                 Select::make('party_id')
                     ->label(fn (Get $get) => $get('mode') === 'cash' ? 'Kimden (isteğe bağlı)' : 'Kimden')

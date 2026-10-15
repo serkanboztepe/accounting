@@ -25,7 +25,7 @@ class SalesDeskTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['app.env' => 'local', 'modules.stock' => true, 'modules.direct_sales' => true, 'modules.sales_desk' => true]);
+        config(['app.env' => 'local', 'modules.stock' => true, 'modules.direct_sales' => true, 'modules.sales_desk' => true, 'modules.projects' => false]); // şubesiz firma (şube kuralı ayrı testte)
     }
 
     private function bread(float $stock = 100): Product
@@ -129,5 +129,30 @@ class SalesDeskTest extends TestCase
             ->assertSee('Yeni Satış');   // eski "Yeni Satış" butonu
 
         $this->assertFalse(\App\Filament\Resources\Sales\SaleResource::shouldRegisterNavigation());
+    }
+
+    /** Şubeli firmada (Akkuş) peşin kasa şubesiz kaydedilmez; seçilen şube satışa yazılır ve sonraki girişte hatırlanır. */
+    public function test_desk_requires_branch_for_cash_sale_when_branches_exist(): void
+    {
+        config(['modules.projects' => true, 'app.profile' => 'trade']);
+        $this->actingAs(User::factory()->create());
+        \App\Models\Project::query()->update(['status' => 'cancelled']);
+        $a = \App\Models\Project::create(['name' => 'Ergenekon Masa', 'status' => 'active']);
+        \App\Models\Project::create(['name' => 'İzzetpaşa Masa', 'status' => 'active']);
+        $before = Sale::count();
+
+        Livewire::test(ListSales::class)
+            ->assertSee('Şube')
+            ->set('deskData.mode', 'cash')
+            ->set('deskData.manual_amount', '1.000,00')
+            ->call('saveDesk')
+            ->assertHasErrors(['deskData.project_id'])
+            ->set('deskData.project_id', $a->id)
+            ->call('saveDesk')
+            ->assertHasNoErrors()
+            ->assertSet('deskData.project_id', $a->id);
+
+        $this->assertSame($before + 1, Sale::count());
+        $this->assertSame($a->id, Sale::latest('id')->value('project_id'));
     }
 }

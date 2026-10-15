@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Sales\Tables;
 
+use App\Support\Labels;
 use App\Models\Sale;
 use App\Support\Money;
 use App\Support\Printing;
@@ -46,7 +47,7 @@ class SalesTable
                     ->visible(fn () => (bool) config('modules.sales_desk')),
 
                 TextColumn::make('project.name')
-                    ->label('Şantiye')
+                    ->label(Labels::project() === 'Proje' ? 'Şantiye' : Labels::project())
                     ->visible(fn () => (bool) config('modules.projects'))
                     ->toggleable(),
 
