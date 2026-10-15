@@ -43,6 +43,7 @@ use App\Tenancy\Tenancy;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
@@ -94,11 +95,29 @@ class WhatsappWebhookController extends Controller
 
         // Peş peşe gelen mesajlar ("kira 20 bin" + hemen "ödeme yapıldı") aynı anda işlenince ikincisi
         // taslağı göremiyor, ayrı ayrı cevaplanıyordu → aynı telefonun mesajları sıraya girer.
-        $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 30);
+        // Kilit süresi en uzun işlemden (AI 60 sn) uzun olmalı; yoksa süre dolunca ikinci mesaj araya girer (review C).
+        $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 120);
         try {
             $lock->block(12);
         } catch (LockTimeoutException) {
-            $lock = null; // uzun süren bir önceki mesaj (fotoğraf) — beklemeden devam
+            // Kilitsiz devam ETME: iki mesaj aynı taslağa aynı anda yazıp çift/yarım kayıt üretebilir (review C).
+            // Twilio 15 sn bekliyor; daha uzun bekleyemeyiz → kişiye tekrar göndermesini söyle (son 7 günde en uzun 12 sn).
+            Log::warning('WhatsApp kilit alınamadı — mesaj işlenmedi', ['phone' => Phone::normalize($phone)]);
+            $this->logMessage($phone, 'in', $body, $numMedia > 0);
+
+            $busy = '⏳ Bir önceki mesajını hâlâ işliyorum. Bu mesajı birkaç saniye sonra tekrar gönderir misin?';
+            $this->logMessage($phone, 'out', $busy, false);
+
+            return $this->twiml($busy);
+        }
+
+        // Aynı Twilio mesajı ikinci kez gelirse (ağ tekrarı) yeniden işlenmez — çift kayıt olmasın (review G).
+        $sid = (string) $request->input('MessageSid', '');
+        if ($sid !== '' && ! Cache::add(Tenancy::key('wa-sid:' . $sid), true, now()->addDay())) {
+            $lock->release();
+            Log::info('WhatsApp aynı mesaj tekrar geldi — atlandı', ['sid' => $sid]);
+
+            return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
         }
 
         try {
@@ -141,7 +160,7 @@ class WhatsappWebhookController extends Controller
 
             return $response;
         } finally {
-            $lock?->release();
+            $lock->release();
         }
     }
 
@@ -990,7 +1009,8 @@ class WhatsappWebhookController extends Controller
         self::listenForCreatedRecords();
         self::$recording = [];
         try {
-            $out = $this->commitDraft($pending);
+            // Tek parça (review A): alış + ödeme + banka masrafı + taslak durumu birlikte yazılır ya da hiçbiri.
+            $out = DB::transaction(fn () => $this->commitDraft($pending));
         } finally {
             $created = self::$recording;
             self::$recording = null;
@@ -1192,9 +1212,20 @@ class WhatsappWebhookController extends Controller
 
     private function commitUndo(WhatsappPendingExpense $pending): string
     {
+        try {
+            return DB::transaction(fn () => $this->commitUndoInner($pending));
+        } catch (UndoAborted $e) {
+            // Doğrusu yazılamadı (eksik bilgi) → silme de geri alındı; eski kayıt yerinde (review B).
+            return "✋ Düzeltmeyi yapamadım, eski kayıt yerinde duruyor.\n" . $e->getMessage()
+                . "\nDoğru hâlini eksiksiz yazarsan düzeltirim.";
+        }
+    }
+
+    private function commitUndoInner(WhatsappPendingExpense $pending): string
+    {
         $partyIds = [];
         $deleted = 0;
-        \Illuminate\Support\Facades\DB::transaction(function () use ($pending, &$partyIds, &$deleted) {
+        DB::transaction(function () use ($pending, &$partyIds, &$deleted) {
             foreach ((array) ($pending->extracted['targets'] ?? []) as $target) {
                 $model = $this->undoModel($target);
                 if ($model && ($target[0] ?? null) === 'settle') {
@@ -1224,7 +1255,12 @@ class WhatsappWebhookController extends Controller
                 'summary' => $this->shortLine($replacement), 'status' => 'awaiting_confirmation',
             ]);
 
-            return "✏️ Düzeltildi.\n" . $this->commit($new);
+            $out = $this->commit($new);
+            if ($new->fresh()?->status !== 'confirmed') {
+                throw new UndoAborted($out);
+            }
+
+            return "✏️ Düzeltildi.\n" . $out;
         }
         $party = Party::find(collect($partyIds)->filter()->last());
 
@@ -1236,7 +1272,8 @@ class WhatsappWebhookController extends Controller
 
     private function commitDraft(WhatsappPendingExpense $pending): string
     {
-        $d = ExpenseExtractor::fitToModules($pending->extracted);
+        // Taslak ile onay arasında silinen proje/cari/kategori (review H) — kayıt hatası yerine boşalır, eksikse sorulur.
+        $d = ExpenseExtractor::fitToModules(ExpenseExtractor::dropUnknownIds($pending->extracted));
         if ($d !== $pending->extracted) {
             // Gider kapalıyken kalmış eski gider taslağı: kaydetmeden önce alış olarak göster ya da açıkla.
             if ($this->kind($d) === ExpenseExtractor::KIND_HELP) {
@@ -2461,3 +2498,6 @@ class WhatsappWebhookController extends Controller
         );
     }
 }
+
+/** Düzeltmenin doğru hâli kaydedilemedi — silme dahil her şey geri alınır. */
+final class UndoAborted extends \RuntimeException {}

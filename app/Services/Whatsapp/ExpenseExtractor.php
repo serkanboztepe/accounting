@@ -4,6 +4,7 @@ namespace App\Services\Whatsapp;
 
 use App\Models\UsageLog;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
@@ -869,7 +870,7 @@ class ExpenseExtractor
 
     private function normalize(array $input): array
     {
-        return self::fitToModules($this->normalizeRaw($input));
+        return self::fitToModules(self::dropUnknownIds($this->normalizeRaw($input)));
     }
 
     /** Sohbet asistanı (ChatAssistant) aynı kayıt şemasını ve temizliği kullanır. */
@@ -900,9 +901,43 @@ class ExpenseExtractor
         return $guide;
     }
 
+    /** @return list<string> sınıftaki tüm KIND_ sabitleri */
+    public static function knownKinds(): array
+    {
+        static $kinds = null;
+
+        return $kinds ??= array_values(array_filter((new \ReflectionClass(self::class))->getConstants(),
+            fn ($v, $k) => str_starts_with($k, 'KIND_') && is_string($v), ARRAY_FILTER_USE_BOTH));
+    }
+
+    /**
+     * AI'ın verdiği proje / cari / kategori numarası gerçekten var mı (review H): yoksa boşaltılır — kayıtta
+     * yabancı anahtar hatası ve cevapsız kalan mesaj olmasın; boşalan alan normal akışta sorulur.
+     */
+    public static function dropUnknownIds(array $d): array
+    {
+        foreach ([['project_id', \App\Models\Project::class], ['party_id', \App\Models\Party::class],
+            ['category_id', \App\Models\ExpenseCategory::class]] as [$field, $model]) {
+            if (! empty($d[$field]) && ! $model::whereKey($d[$field])->exists()) {
+                Log::warning('AI olmayan kayıt numarası verdi', [$field => $d[$field]]);
+                $d[$field] = null;
+            }
+        }
+
+        return $d;
+    }
+
     private function normalizeRaw(array $input): array
     {
-        $kind = in_array($input['kind'] ?? null, self::allowedKinds(), true) ? $input['kind'] : self::KIND_EXPENSE;
+        // Hiç tanınmayan tür (AI uydurdu / boş) gidere DÜŞMEZ → yönlendirme (review F). Bilinen ama bu firmada kapalı
+        // tür eskisi gibi gidere iner, fitToModules uygun yola çevirir.
+        $raw = $input['kind'] ?? null;
+        if (! in_array($raw, self::knownKinds(), true)) {
+            Log::warning('AI tanınmayan tür döndürdü', ['kind' => $raw]);
+            $input = ['kind' => self::KIND_HELP, 'reply' => null, 'amount' => 0, 'description' => '', 'paid' => null, 'confidence' => 'low'];
+            $raw = self::KIND_HELP;
+        }
+        $kind = in_array($raw, self::allowedKinds(), true) ? $raw : self::KIND_EXPENSE;
 
         $items = [];
         $tradeItems = in_array($kind, [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE, self::KIND_PRODUCT_ADD], true);

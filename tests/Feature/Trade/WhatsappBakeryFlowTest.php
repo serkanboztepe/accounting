@@ -242,6 +242,8 @@ class WhatsappBakeryFlowTest extends TestCase
 
     public function test_evening_revenue_reply_includes_day_summary(): void
     {
+        // Gece 00–05 arası özet bilerek önceki iş gününü yazar ("15 Ekim:") — test gündüz saatine sabit.
+        $this->travelTo(now()->setTime(14, 0));
         $this->earlierPurchase();
         $this->flour->update(['auto_usage' => true, 'daily_usage' => 3, 'reorder_level' => 6]);
         $this->fakeAi($this->entry(['kind' => 'trade_sale', 'amount' => 25000, 'cash_amount' => 10000, 'card_amount' => 15000, 'paid' => true]));
