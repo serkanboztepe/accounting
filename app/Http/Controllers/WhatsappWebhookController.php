@@ -179,6 +179,11 @@ class WhatsappWebhookController extends Controller
         }
     }
 
+    private static function isStaff(array $d, ?Party $party): bool
+    {
+        return ! empty($d['staff_hint']) || (bool) $party?->is_employee;
+    }
+
     /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
     private const SYNC_SECONDS = 10;
 
@@ -841,6 +846,13 @@ class WhatsappWebhookController extends Controller
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
         $data = ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody);
+        if ($pending === null) {
+            $data = ExpenseExtractor::guardAssumedQuantity($data, $this->inboundBody); // yeni kayıtta; düzeltmede miktar önceki mesajda
+        }
+        // Kişi bizim çalışanımız mı — AI anlamdan karar verir (is_staff: personel, çoban, şoför, "maaşından"…). Düzeltme turunda korunur.
+        if ($this->kind($data) === ExpenseExtractor::KIND_PAYMENT && (! empty($data['is_staff']) || ! empty($pending?->extracted['staff_hint']))) {
+            $data['staff_hint'] = true;
+        }
         $data = ExpenseExtractor::guardSelfParty($data, ExpenseContext::selfNames($phone), $this->inboundBody);
         if ($pending === null && ChatAssistant::enabled()) {
             $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
@@ -1512,6 +1524,9 @@ class WhatsappWebhookController extends Controller
     private function commitLedger(WhatsappPendingExpense $pending, array $d, string $kind): string
     {
         $party = $this->resolveParty($d);
+        if (! empty($d['staff_hint']) && ! $party->is_employee) {
+            $party->update(['is_employee' => true]); // "personelim Fatih'e avans" (Serkan 16.10)
+        }
         $this->touchedPartyId = $party->id; // yeni açılan cari dahil — "5 bin daha verdi" buna bağlansın
         $this->committedPartyId = $party->id;
         $projectId = $d['project_id'] ?? null;
@@ -1914,7 +1929,9 @@ class WhatsappWebhookController extends Controller
             });
         }
 
-        $label = $party ? $name : $name . ' (yeni cari)';
+        $staff = self::isStaff($d, $party);
+        $label = $party ? $name . ($staff && ! $party->is_employee ? ' 👷 (personel olarak işaretlenecek)' : '')
+            : $name . ($staff ? ' 👷 (yeni personel)' : ' (yeni cari)');
         if (DraftGaps::needsSaleOrPurchase($d)) {
             return '📦 ' . $label . ': ' . Money::format($amount) . ' ₺' . (! empty($d['description']) ? ', ' . $d['description'] : '')
                 . " — *kim kime verdi?*\n• Sen mi ona götürdün (*sattım* → " . $name . ' sana borçlanır), yoksa ondan mı aldın (*aldım* → sen ona borçlanırsın)?';
@@ -1967,9 +1984,11 @@ class WhatsappWebhookController extends Controller
             }
             if (! empty($d['advance'])) {
                 // Niyet AI'dan okundu — kayıttan önce yorumu göster, yanlışsa kullanıcı düzeltsin.
-                $lines[] = ($d['payment_purpose'] ?? null) === 'loan'
-                    ? '• Tür: Borç verdin (geri alacaksın)'
-                    : '• Tür: Avans (iş sonra yapılacak)';
+                $lines[] = match (true) {
+                    ($d['payment_purpose'] ?? null) === 'loan' => '• Tür: Borç verdin (geri alacaksın)',
+                    $staff => '• Tür: Maaş avansı (maaşından düşülür)',
+                    default => '• Tür: Avans (iş sonra yapılacak)',
+                };
             }
         } elseif ($kind === ExpenseExtractor::KIND_SALE) {
             $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺'

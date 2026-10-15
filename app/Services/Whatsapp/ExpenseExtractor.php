@@ -77,7 +77,7 @@ class ExpenseExtractor
         self::KIND_EMPLOYEE_SETTING => '- "employee_setting": PERSONEL BİLGİSİ — çalışanın maaşı / maaş günü söyleniyor, para hareketi YOK ("Abdullah Günhan personelim, maaşı 50 bin, ayın 15\'inde", "Ali\'nin maaşı 55 bin oldu", "Mehmet işçimiz ayın 1\'i maaş alıyor"). `party_id` (listede yoksa `party_name`), `salary_amount` (aylık), `salary_day` (ayın kaçı); söylenmeyen null; amount=0.',
         self::KIND_SALARY => '- "salary": PERSONELE MAAŞ — bir çalışanın maaşı ödendi / hak edildi ("Abdullah\'ın maaşını verdim", "Ali\'ye Ekim maaşı 50 bin ödedim", "işçi maaşları: Mehmet 40 bin"). `party_id`/`party_name` = çalışan, `amount` = MAAŞIN TAMAMI (söylenmediyse 0 — karttaki maaş kullanılır), `paid` true (verildiyse) / false ("maaşı hak etti, henüz vermedim"), `month` = hangi ayın maaşı (YYYY-MM, söylendiyse). YEVMİYE / günlük / haftalık işçi ücreti de bu türdür ("İşçi Hasan\'a 2000 yevmiye verdim" → salary, amount 2000, paid true, description "yevmiye"). Avans DÜŞÜLMÜŞ tutarı yazma; sistem açık avansı kendisi düşer. AVANS maaş değildir → "payment" + payment_purpose "advance".',
         self::KIND_EXPENSE => '- "expense": CARİSİZ genel harcama — belli bir kişi/firma hesabına bağlı OLMAYAN masraf ("5 bin yakıt", "kira 20 bin ödendi", "elektrik faturası", "yemek 800", "markette 2 bin"). Ödendi de olsa ödenmedi de olsa gider budur. Bir KİŞİDEN/FİRMADAN (cari) mal ya da hizmet alındıysa ("Ahmet\'ten 100 bin malzeme aldım", "Abdullah Usta\'ya sıva yaptırdım") bu gider DEĞİL, "purchase"tır.',
-        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. YÖN: "X avans aldı", "X maaş aldı", "X\'e avans verdik" → para BİZDEN ÇIKTI → payment (X\'in "aldı" demesi tahsilat DEĞİLDİR; tahsilat yalnız X bize para VERDİYSE). Çalışana (CARİLER\'de "personel" yazan ya da mesajda işçi/personel/kalfa/çırak/usta denilen) amacı söylenmeden ödeme → `question`: "Maaş mı, avans mı?". Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş ya da sonra gelecek mal için peşin ("avans", "kapora", "iş yaptıracağım", "bağlantı" / "bağlantısı ödendi" — malı önceden parasını verip sabitlemek, "ön ödeme", "peşin verdim mal sonra gelecek") → "advance" (ör. "Sinan\'a yapılan 2026 bağlantısı 2.500.000 ödendi" → payment, advance); geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / gelmiş malın karşılığıysa ("sıva yaptırdım", "malzeme aldım ödedim") bu bir "purchase"tır (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
+        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. YÖN: "X avans aldı", "X maaş aldı", "X\'e avans verdik" → para BİZDEN ÇIKTI → payment (X\'in "aldı" demesi tahsilat DEĞİLDİR; tahsilat yalnız X bize para VERDİYSE). Kişi BİZİM ÇALIŞANIMIZSA (anlamdan çıkar — personel, eleman, işçi, çoban, şoför, kalfa, çırak, "maaşından verdim" … ya da CARİLER\'de "personel") `is_staff`=true; çalışana verilen avans maaş avansıdır (payment_purpose "advance"). Çalışana amacı söylenmeden ödeme → `question`: "Maaş mı, avans mı?". Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş ya da sonra gelecek mal için peşin ("avans", "kapora", "iş yaptıracağım", "bağlantı" / "bağlantısı ödendi" — malı önceden parasını verip sabitlemek, "ön ödeme", "peşin verdim mal sonra gelecek") → "advance" (ör. "Sinan\'a yapılan 2026 bağlantısı 2.500.000 ödendi" → payment, advance); geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / gelmiş malın karşılığıysa ("sıva yaptırdım", "malzeme aldım ödedim") bu bir "purchase"tır (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note).',
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". "X\'e veresiye" / "X\'e veresiye yazdım" ("Ayşe hanıma 1.250 lira veresiye") → "sale", `paid`=false — veresiye = malı verdik, parası sonra alınacak; gider ya da borç kaydı DEĞİLDİR. Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") ve mal VERİLDİYSE `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null. Para alındı ama mal/iş SONRA verilecekse ("parasını aldım, peyniri sonra göndereceğim", "kapora aldım", "peşin verdi, malı sonra götüreceğim") bu satış DEĞİL → "collection" + `payment_purpose`="advance".',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır. Para, mal/iş henüz VERİLMEDEN peşin alındıysa (müşteri avansı: "Zülfikar 3 bin verdi, peyniri sonra vereceğim", "kapora aldım", "parasını aldım malı sonra göndereceğim") → `payment_purpose`="advance", `description` ne verilecekse ("20 kg peynir"). Müşteri bize alacaklı olur; satış AÇMA.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
@@ -584,6 +584,7 @@ class ExpenseExtractor
                     'lead_minutes' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=reminder: how long BEFORE, only if said (minutes); else null'],
                     'is_alarm' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=reminder: true = remind exactly at that time (no separate event)'],
                     'repeat' => ['type' => ['string', 'null'], 'enum' => ['weekly', 'monthly', 'yearly', null], 'description' => 'Only for kind=reminder'],
+                    'is_staff' => ['type' => ['boolean', 'null'], 'description' => 'kind=payment / salary: true if the person is OUR worker / employee — decide from MEANING, any wording (personel, eleman, işçi, çoban, şoför, garson, kalfa, çırak, "bizim çocuk", "maaşından", "haftalığı") or "personel" note in CARİLER; false if a supplier/craftsman/customer; null if unknown'],
                     'salary_amount' => ['type' => ['number', 'null'], 'description' => 'Only for kind=employee_setting: monthly salary'],
                     'salary_day' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=employee_setting: day of month the salary is paid (1-31)'],
                     'month' => ['type' => ['string', 'null'], 'description' => 'Only for month_result / salary: YYYY-MM, null = this month'],
@@ -630,7 +631,7 @@ class ExpenseExtractor
                     'description' => ['type' => 'string'],
                     'amount' => ['type' => ['number', 'null']],
                     'product_id' => ['type' => ['integer', 'null'], 'description' => 'matched product id from ÜRÜNLER, else null'],
-                    'quantity' => ['type' => ['number', 'null']],
+                    'quantity' => ['type' => ['number', 'null'], 'description' => 'only if the user said it; null if not stated — NEVER assume 1 (system asks)'],
                     'unit_price' => ['type' => ['number', 'null'], 'description' => 'unit price if said'],
                     'unit' => ['type' => ['string', 'null'], 'description' => 'unit name (çuval, kg, paket, adet) when product_id is null'],
                 ],
@@ -710,6 +711,28 @@ class ExpenseExtractor
      * K4 (Akkuş 14.10: "Ergenekon 5000 tl kart 19483 tl 1630 tl gider var" tek gider 25.113 sanıldı): kasa (nakit + kart/pos)
      * ve "X gider" aynı mesajda → peşin satış (ciro) + ayrı gider (`extra_expense`), tek özet, tek onay.
      */
+    /**
+     * Miktar mesajda hiç geçmiyorsa ("Un satışım oldu") AI'ın yazdığı miktar tahmindir → boşalt, sistem sorsun
+     * (Serkan 16.10: 1 adet sanıldı). Rakam ya da sayı sözü varsa dokunulmaz.
+     */
+    public static function guardAssumedQuantity(array $d, string $text): array
+    {
+        if (! in_array($d['kind'] ?? null, [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE], true) || empty($d['items']) || trim($text) === '') {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        if (preg_match('/\d|\b(bir|tek|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|on|yirmi|otuz|kırk|elli|yüz|yarım|buçuk|düzine)\b/u', $t)) {
+            return $d;
+        }
+        foreach ($d['items'] as $i => $item) {
+            if (! empty($item['product_id'])) {
+                $d['items'][$i]['quantity'] = null;
+            }
+        }
+
+        return $d;
+    }
+
     /** Kasa (gün sonu ciro) mesajı mı: hem nakit hem kart/pos rakamı var ("Nakit 5900 / Pos 21540", "5000 nakit 19483 kart"). */
     public static function looksLikeTill(string $text): bool
     {
@@ -983,6 +1006,7 @@ class ExpenseExtractor
             'unit' => $stockKind && is_string($input['unit'] ?? null) && trim($input['unit']) !== '' ? mb_strtolower(trim($input['unit'])) : null,
             'cash_amount' => $kind === self::KIND_TRADE_SALE && isset($input['cash_amount']) ? (float) $input['cash_amount'] : null,
             'card_amount' => $kind === self::KIND_TRADE_SALE && isset($input['card_amount']) ? (float) $input['card_amount'] : null,
+            'is_staff' => in_array($kind, [self::KIND_PAYMENT, self::KIND_SALARY], true) && ! empty($input['is_staff']),
             'salary_amount' => $kind === self::KIND_EMPLOYEE_SETTING && (float) ($input['salary_amount'] ?? 0) > 0 ? round((float) $input['salary_amount'], 2) : null,
             'salary_day' => $kind === self::KIND_EMPLOYEE_SETTING && (int) ($input['salary_day'] ?? 0) >= 1 && (int) $input['salary_day'] <= 31 ? (int) $input['salary_day'] : null,
             'month' => in_array($kind, [self::KIND_MONTH_RESULT, self::KIND_SALARY], true) && is_string($input['month'] ?? null) && preg_match('/^\d{4}-\d{2}$/', $input['month']) ? $input['month'] : null,

@@ -2,11 +2,9 @@
 
 namespace App\Services\Whatsapp;
 
-use App\Models\Expense;
 use App\Models\UsageLog;
 use App\Models\WhatsappMessage;
 use App\Support\Phone;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -30,7 +28,10 @@ class ChatAssistant
     private const MAX_HISTORY = 16;
 
     /** Araç turu sınırı (arama → cevap); Twilio 15 sn bekler. */
-    private const MAX_STEPS = 3;
+    private const MAX_STEPS = 5;
+
+    /** Okuma aracından sonraki AI turu için gereken süre; senkron sürede bu kadar kalmadıysa tur arka plana. */
+    private const READ_TURN_SECONDS = 6;
 
     public function __construct(private ExpenseExtractor $extractor) {}
 
@@ -167,17 +168,24 @@ class ChatAssistant
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
                 case 'reply':
                     return ['type' => 'reply', 'text' => trim((string) ($input['text'] ?? '')) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
-                case 'search_expenses':
-                    // Okuma bir tur daha ister — senkron süredeysek arka plana bırak (kişiye "bakıyorum" gider).
-                    if (self::$deadline !== null) {
+                case 'query_records':
+                case 'search_conversations':
+                    // Okuma bir tur daha ister: senkron sürede yeterli zaman yoksa arka plana bırak (kişiye "bakıyorum" gider).
+                    if (self::$deadline !== null && self::$deadline - microtime(true) < self::READ_TURN_SECONDS) {
                         throw new DeferTurn('okuma aracı');
                     }
-                    // Salt okuma: sonucu modele ver, cevabı o yazsın.
+                    // Salt okuma: sonucu modele ver, cevabı o yazsın (rakamlar sonuçtan, AI toplamaz).
+                    try {
+                        $data = $call['name'] === 'query_records' ? RecordsQuery::run($input) : ConversationLookup::run($input);
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::error('Okuma aracı hatası', ['tool' => $call['name'], 'msg' => $e->getMessage()]);
+                        $data = ['hata' => 'Okuma yapılamadı; kullanıcıya şu an bakamadığını söyle.'];
+                    }
                     $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
                     $messages[] = ['role' => 'user', 'content' => [[
                         'type' => 'tool_result',
                         'tool_use_id' => $call['id'],
-                        'content' => json_encode($this->searchExpenses($input), JSON_UNESCAPED_UNICODE),
+                        'content' => json_encode($data, JSON_UNESCAPED_UNICODE),
                     ]]];
                     break;
                 default:
@@ -391,9 +399,18 @@ class ChatAssistant
           bir kayıt tarif ediliyorsa ("kategorisiz olan 25.113 yanlış", "14.10'daki gideri sil", "Ergenekon gideri yanlış") → yine
           `undo_last` + `find_amount` / `find_date` / `find_text` (sistem bulup gösterir). Kayıt bilgisi istemek için `reply` KULLANMA.
         - Kategoriyi her kayıt için KENDİ içeriğine göre seç; önceki kaydın kategorisini taşıma (tosun/hayvan alımı ≠ "Çobanlar").
-        - "Traktöre ne harcadım" gibi bir şeye/kişiye göre harcama sorusu → `search_expenses` (yazım
-          varyantlarıyla: traktör, traktor). Dönem toplamı ("bu ay ne harcadım") → propose_entry kind "expense_summary".
-        - Bakiye, toplam, ekstre, cari listesi, takvim soruları ve hatırlatmalar da `propose_entry` ile (ilgili kind).
+        - OKUMA (kayıtlara bakıp cevap): liste / ayrıntı / karşılaştırma / "en son" / "kime" / "hangi" / "neler" / "neden"
+          soruları → `query_records` ("kime ne kadar ödedim" = types odeme + group_by party; "un en son kimden kaçtan" =
+          product_id + types alis + limit 1; "bugünkü cirolar neler" = types satis + bugün + group_by project; "traktöre ne
+          gitti" = text "trakt" + types gider,alis; "bu ay neden eksi" = önce bu ayın gider+alış+maaş'ını amount_desc ile oku,
+          en büyük kalemleri ve şüpheli olanları (ör. "çek ödemesi" gider yazılmış) açıkla). Eski konuşma / "bu kayıt nereden
+          çıktı" → `search_conversations` (ref ile). Cevapta rakamları ARAÇ SONUCUNDAN aynen al, kendin toplama/hesap yapma;
+          kısa yaz (en çok ~8 satır), "toplam X kayıt" de; bulunamadıysa açıkça söyle, uydurma. Genel sorularda
+          ("ne almışım", "neler sattım", "giderlerim neler") geri soru SORMA: son 30 günün kayıtlarını oku ve listele.
+          Araç sonucu boşsa "hiç yok" deme — "bu süzgeçle bulamadım" de (başka türde/tarihte olabilir).
+          Saat 00:00–05:00 arası "bugün" = biten iş günü (önceki gün): esnaf gün sonu kasasını gece girer.
+        - Basit tek rakam soruları eskisi gibi `propose_entry` ile: bakiye, toplam alacak/borç, ekstre, cari listesi, takvim,
+          hatırlatma, "bu ay ne harcadım" (expense_summary), "ciro ne kadar / ay sonucu" (month_result).
         - Ekstre (kişinin hesap dökümü) PDF olarak gönderilir; "PDF" isteğinde hangi kişinin ekstresi olduğunu sor.
         - Yapamadığın bir şeyse ({$cannot}…) kibarca söyle ve yapabildiğin bir örnek ver.
 
@@ -475,59 +492,10 @@ class ChatAssistant
             ],
         ];
 
-        if (config('modules.expenses')) {
-            $tools[] = [
-                'name' => 'search_expenses',
-                'description' => 'Kayıtlı harcamalarda ara (açıklama, kategori, kişi). Salt okuma; sonuçla kullanıcıya cevap yaz.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'terms' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Aranacak kelimeler ve yazım varyantları (traktör, traktor)'],
-                        'date_from' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD; söylenmediyse null (tüm zamanlar)'],
-                        'date_to' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD'],
-                    ],
-                    'required' => ['terms'],
-                ],
-            ];
-        }
+        // Okuma araçları (Faz 1): her firmada — kayıt defteri + eski konuşmalar. Yalnız okuma.
+        $tools[] = RecordsQuery::tool();
+        $tools[] = ConversationLookup::tool();
 
         return $tools;
-    }
-
-    private function searchExpenses(array $input): array
-    {
-        $terms = array_values(array_filter(array_map(fn ($t) => trim((string) $t), (array) ($input['terms'] ?? []))));
-        if ($terms === []) {
-            return ['error' => 'arama kelimesi yok'];
-        }
-        $like = DB::connection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
-
-        $rows = Expense::query()
-            ->with(['category:id,name', 'party:id,name'])
-            ->where(function ($q) use ($terms, $like) {
-                foreach ($terms as $t) {
-                    $q->orWhere('description', $like, "%{$t}%")
-                        ->orWhereHas('category', fn ($c) => $c->where('name', $like, "%{$t}%"))
-                        ->orWhereHas('party', fn ($p) => $p->where('name', $like, "%{$t}%"));
-                }
-            })
-            ->when($input['date_from'] ?? null, fn ($q, $d) => $q->whereDate('expense_date', '>=', $d))
-            ->when($input['date_to'] ?? null, fn ($q, $d) => $q->whereDate('expense_date', '<=', $d))
-            ->orderBy('expense_date')
-            ->limit(50)
-            ->get();
-
-        return [
-            'count' => $rows->count(),
-            'total' => round((float) $rows->sum('amount'), 2),
-            'rows' => $rows->map(fn (Expense $e) => [
-                'date' => $e->expense_date?->format('Y-m-d'),
-                'amount' => (float) $e->amount,
-                'description' => $e->description,
-                'category' => $e->category?->name,
-                'party' => $e->party?->name,
-                'status' => $e->payment_status,
-            ])->all(),
-        ];
     }
 }

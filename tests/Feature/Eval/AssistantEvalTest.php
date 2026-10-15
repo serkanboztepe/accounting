@@ -197,11 +197,16 @@ class AssistantEvalTest extends TestCase
 
     private function seedRow(array $row): void
     {
+        // "today" = iş günü: gece 00–05 asistan "bugün"ü önceki gün sayar (kural) — deneme verisi de öyle.
+        $row = array_map(fn ($v) => $v === 'today' && now()->hour < 5 ? 'yesterday' : $v, $row);
         match ($row[0]) {
             'ledger' => PartyLedgerEntry::create(['party_id' => $this->ids['party'][$row[1]], 'type' => $row[2], 'amount' => $row[3],
                 'entry_date' => now()->modify($row[4])->toDateString(), 'description' => $row[5]]),
             'sale' => TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => (string) $row[2], 'project_id' => $this->ids['project'][$row[1]],
                 'sale_date' => now()->modify($row[3])->toDateString()]),
+            'purchase' => TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $this->ids['party'][$row[1]],
+                'purchase_date' => now()->modify($row[5])->toDateString(),
+                'lines' => [['product_id' => $this->ids['product'][$row[2]], 'quantity' => (string) $row[3], 'unit_price' => (string) $row[4]]]]),
             'expense' => Expense::create(['amount' => $row[1], 'expense_date' => now()->modify($row[2])->toDateString(),
                 'description' => $row[3], 'payment_status' => 'paid']),
         };

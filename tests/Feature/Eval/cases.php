@@ -171,6 +171,32 @@ return [
             'steps' => [['send' => "yarın 11'de bankaya gideceğim hatırlat"]],
             'expect' => ['draft' => ['kind' => 'reminder', 'event_time' => '11:00']]],
 
+        // ---------------------------------------------------------------- Serkan / Yeni Yapı (16.10 gece — yanlış cevaplar)
+        ['id' => 'yy-acik-taslakta-soru-onay-sanilmaz', 'firm' => 'stok', 'group' => 'regression', 'seed' => 'stok-gecmis',
+            'steps' => [['send' => 'Un satışım oldu 2 çuval 1700'], ['send' => 'Ne kadar un satmışım']],
+            'expect' => ['reply_not' => ['Kaydedeyim mi'], 'saved' => ['sales' => 0]]],
+        ['id' => 'yy-un-aldim-mi-alislara-bakar', 'firm' => 'stok', 'group' => 'regression', 'seed' => 'stok-gecmis',
+            'steps' => [['send' => 'Ne kadar un aldım']],
+            'expect' => ['no_new_draft' => true, 'reply_has' => ['20'], 'reply_not' => ['görünmüyor', 'hiç alım']]],
+        ['id' => 'yy-ne-almisim', 'firm' => 'stok', 'group' => 'regression', 'seed' => 'stok-gecmis',
+            'steps' => [['send' => 'Ne almışım']],
+            'expect' => ['no_new_draft' => true, 'reply_has' => ['Ak Un', '17.000'], 'reply_not' => ['boş duruyor', 'görünmüyor', 'Kimden ya da']]],
+        ['id' => 'yy-personelim-avans', 'firm' => 'stok', 'group' => 'regression',
+            'steps' => [['send' => "Personelim Fatih e 20\nBin avans verdiö"]],
+            'expect' => ['draft' => ['kind' => 'payment', 'amount' => 20000, 'payment_purpose' => 'advance'], 'reply_has' => ['personel', 'Maaş avansı']]],
+        ['id' => 'yy-coban-avans', 'firm' => 'stok', 'group' => 'regression',
+            'steps' => [['send' => 'Çobana 5 bin avans verdim adı Hasan']],
+            'expect' => ['draft' => ['kind' => 'payment', 'amount' => 5000], 'reply_has' => ['Maaş avansı']]],
+        ['id' => 'yy-sofor-haftalik', 'firm' => 'stok', 'group' => 'regression',
+            'steps' => [['send' => 'Şoför Ramazan a 3000 verdim maaşından düşecek']],
+            'expect' => ['draft' => ['kind' => 'payment', 'amount' => 3000], 'reply_has' => ['personel']]],
+        ['id' => 'yy-usta-avansi-personel-degil', 'firm' => 'stok', 'group' => 'regression',
+            'steps' => [['send' => "Boyacı ustaya 10 bin avans verdim işe başlayacak"]],
+            'expect' => ['draft' => ['kind' => 'payment', 'payment_purpose' => 'advance'], 'reply_has' => ['iş sonra yapılacak'], 'reply_not' => ['personel']]],
+        ['id' => 'yy-miktarsiz-satis-sorar', 'firm' => 'stok', 'group' => 'regression',
+            'steps' => [['send' => 'Un satışım oldu']],
+            'expect' => ['reply_has' => ['Kaç çuval'], 'reply_not' => ['1 çuval Un']]],
+
         // ---------------------------------------------------------------- YETENEK (Faz 1–5 hedefleri — bugün kalabilir)
         ['id' => 'F1-un-daha-once-aldik-mi', 'firm' => 'stok', 'group' => 'capability', 'seed' => 'stok-gecmis',
             'steps' => [['send' => 'Daha önce un aldık mı herhangi bir cariden']],
@@ -189,12 +215,12 @@ return [
             'expect' => ['no_new_draft' => true, 'reply_not' => ['anlarım', 'anlayacağım', 'hatırlarım', 'hatırlayacağım', 'not aldım']]],
         ['id' => 'F2-takma-ad-hafiza', 'firm' => 'stok', 'group' => 'capability',
             'steps' => [['send' => 'bundan sonra kalfa deyince Mehmet Kaya yı anla']],
-            'expect' => ['reply_has' => ['hatırla']]],
+            'expect' => ['reply_has' => ['hatırlayayım mı']]],
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
     'seeds' => [
-        'stok-gecmis' => [['ledger', 'Ak Un', 'alis', 16500, '-20 days', '20 çuval un']],
+        'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],
         'akkus-kasalar' => [
             ['sale', 'Ergenekon', 27440, 'today'], ['sale', 'İzzetpaşa', 21845, 'today'], ['sale', 'Araştırma', 51517, 'today'],

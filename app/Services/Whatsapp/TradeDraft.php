@@ -330,6 +330,10 @@ class TradeDraft
             if (! empty($item['product_id']) && $kind === ExpenseExtractor::KIND_TRADE_PURCHASE && empty($item['quantity'])) {
                 return 'Kaç ' . (Product::find($item['product_id'])?->unit?->name ?? 'tane') . ' aldın? (stoğa girecek)';
             }
+            // Satışta da miktar tahmin edilmez ("Un satışım oldu" → 1 adet sanılıyordu, Serkan 16.10): stoktan düşecek.
+            if (! empty($item['product_id']) && $kind === ExpenseExtractor::KIND_TRADE_SALE && empty($item['quantity'])) {
+                return 'Kaç ' . (Product::find($item['product_id'])?->unit?->name ?? 'tane') . ' sattın, kaç liraya? (stoktan düşecek)';
+            }
             if ((! empty($item['product_id']) || ! empty($item['new'])) && $item['amount'] === null) {
                 return $d['question'] ?: 'Fiyatı ne?';
             }
