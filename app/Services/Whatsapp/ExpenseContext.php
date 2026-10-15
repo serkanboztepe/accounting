@@ -39,6 +39,19 @@ class ExpenseContext
     public static ?string $override = null;
 
     /**
+     * Yalnız deneme seti (tests/Feature/Eval): listeler bu kayıtlarla sınırlanır — yerel deneme DB'sindeki eski kayıtlar
+     * AI'ın listesine karışmasın; biçim canlıdakiyle birebir aynı kalır. Canlıda hep null.
+     *
+     * @var array{parties?:list<int>,projects?:list<int>,categories?:list<int>,products?:list<int>,expenses?:list<int>}|null
+     */
+    public static ?array $only = null;
+
+    private static function scoped($query, string $key)
+    {
+        return self::$only !== null ? $query->whereIn('id', self::$only[$key] ?? []) : $query;
+    }
+
+    /**
      * Sistem prompt'una gömülecek kompakt liste bloğu.
      */
     public static function build(): string
@@ -47,14 +60,14 @@ class ExpenseContext
             return self::$override;
         }
 
-        $projects = ! config('modules.projects') ? collect() : Project::query()
+        $projects = ! config('modules.projects') ? collect() : self::scoped(Project::query(), 'projects')
             ->whereNotIn('status', ['cancelled'])
             ->orderBy('name')
             ->get(['id', 'name', 'cadastral_parcel']);
 
-        $parties = Party::query()->orderBy('name')->get(['id', 'name', 'is_employee', 'salary_amount', 'salary_day']);
+        $parties = self::scoped(Party::query(), 'parties')->orderBy('name')->get(['id', 'name', 'is_employee', 'salary_amount', 'salary_day']);
 
-        $categories = ExpenseCategory::query()->orderBy('name')->get(['id', 'name']);
+        $categories = self::scoped(ExpenseCategory::query(), 'categories')->orderBy('name')->get(['id', 'name']);
 
         $lines = [];
         if ($self = self::selfNames()) {
@@ -91,7 +104,7 @@ class ExpenseContext
 
         // Stoklu satış paketi: ürün kataloğu (satış/alış/sayım bu listeden eşleşir). Eski firmalarda gösterilmez.
         if (config('modules.sales_desk') || config('modules.purchases')) {
-            $products = \App\Models\Product::active()->with('unit')->orderBy('name')->get();
+            $products = self::scoped(\App\Models\Product::active(), 'products')->with('unit')->orderBy('name')->get();
             $lines[] = '';
             $lines[] = 'ÜRÜNLER (id: ad [birim] — satış fiyatı / alış fiyatı — stok):';
             $lines[] = $products->isEmpty()
@@ -105,7 +118,7 @@ class ExpenseContext
         // Ödenmemiş giderler: "kirayı ödedim" yeni gider açıp aynı kirayı ikinci kez saymasın — AI
         // ödemeyi buradaki açık borçla eşleştirir (settles_expense_id), kullanıcı teyit eder.
         if (config('modules.expenses')) {
-            $open = Expense::query()
+            $open = self::scoped(Expense::query(), 'expenses')
                 ->whereIn('payment_status', ['unpaid', 'partial'])
                 ->with('party:id,name')
                 ->latest('expense_date')->latest('id')

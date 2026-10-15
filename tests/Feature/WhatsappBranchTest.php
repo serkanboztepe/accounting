@@ -168,4 +168,25 @@ class WhatsappBranchTest extends TestCase
         $this->assertStringNotContainsString('Hangi proje', $reply);
         $this->assertStringNotContainsString('0) Genel', $reply);
     }
+
+    /** Açık alış taslağı "Hangi şube?" sorarken gelen kasa mesajı şube cevabı sanılmaz (deneme seti 16.10). */
+    public function test_till_message_is_not_a_correction_of_other_draft(): void
+    {
+        config(['modules.smart_assistant' => true]);
+        $party = Party::create(['name' => 'Un Toptancı Kasa Testi']);
+        $purchase = WhatsappPendingExpense::create(['phone' => self::PHONE, 'status' => 'awaiting_confirmation', 'summary' => 'alış',
+            'extracted' => ['kind' => ExpenseExtractor::KIND_PURCHASE, 'party_id' => $party->id, 'amount' => 7000, 'paid' => false,
+                'items' => [], 'description' => 'un', 'date' => now()->format('Y-m-d'), 'project_needed' => true]]);
+        $chat = Mockery::mock(\App\Services\Whatsapp\ChatAssistant::class);
+        $chat->shouldReceive('respond')->once()
+            ->with(self::PHONE, Mockery::any(), null, true) // taslaksız + geçmişsiz
+            ->andReturn(['type' => 'entry', 'text' => '', 'data' => $this->kasa(['project_id' => $this->branches['Ergenekon']->id])]);
+        $this->app->instance(\App\Services\Whatsapp\ChatAssistant::class, $chat);
+
+        $reply = $this->send("Ergenekon kasa\nNakit 5900\nPos 21540");
+
+        $this->assertStringContainsString('Ergenekon Test', $reply);
+        $this->assertSame('awaiting_confirmation', $purchase->fresh()->status, 'alış taslağı yarım kayıt olarak açık kalır');
+        $this->assertSame(ExpenseExtractor::KIND_TRADE_SALE, WhatsappPendingExpense::where('phone', self::PHONE)->latest('id')->first()->extracted['kind']);
+    }
 }

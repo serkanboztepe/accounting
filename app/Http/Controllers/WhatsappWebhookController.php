@@ -646,8 +646,17 @@ class WhatsappWebhookController extends Controller
     /** Sohbet asistanının kararını uygula: cevap / taslak öner / onayla / vazgeç. Kayıt yine commit()'te. */
     private function chatTurn(?WhatsappPendingExpense $pending, string $phone, string $body): string|array
     {
+        // Kasa mesajı ("Ergenekon kasa / Nakit 5900 / Pos 21540") başka türden açık taslağın düzeltmesi DEĞİLDİR:
+        // alış taslağı "Hangi şube?" diye sorarken kasa yazılınca şube cevabı sanılıp kasa kaydedilmiyordu
+        // (deneme seti 16.10). AI taslaksız görür → yeni kasa; eski taslak yarım kayıt olarak açık kalır.
+        if ($pending && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_TRADE_SALE
+            && in_array(ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::allowedKinds(), true)
+            && ExpenseExtractor::looksLikeTill($body)) {
+            $pending = null;
+            $fresh = true;
+        }
         try {
-            $result = app(ChatAssistant::class)->respond($phone, $body, $pending?->extracted);
+            $result = app(ChatAssistant::class)->respond($phone, $body, $pending?->extracted, $fresh ?? false);
         } catch (\Throwable $e) {
             Log::error('WhatsApp sohbet asistanı hatası', ['msg' => $e->getMessage()]);
             $this->inboundKind = 'error';

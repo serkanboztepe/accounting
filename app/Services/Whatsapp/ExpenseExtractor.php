@@ -710,6 +710,16 @@ class ExpenseExtractor
      * K4 (Akkuş 14.10: "Ergenekon 5000 tl kart 19483 tl 1630 tl gider var" tek gider 25.113 sanıldı): kasa (nakit + kart/pos)
      * ve "X gider" aynı mesajda → peşin satış (ciro) + ayrı gider (`extra_expense`), tek özet, tek onay.
      */
+    /** Kasa (gün sonu ciro) mesajı mı: hem nakit hem kart/pos rakamı var ("Nakit 5900 / Pos 21540", "5000 nakit 19483 kart"). */
+    public static function looksLikeTill(string $text): bool
+    {
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $n = '\d[\d.,]*\s*(?:tl|₺|lira)?';
+
+        return (bool) preg_match('/nakit\s*:?\s*' . $n . '|' . $n . '\s*nakit/u', $t)
+            && (bool) preg_match('/(?:kart|pos)\s*:?\s*' . $n . '|' . $n . '\s*(?:kart|pos)/u', $t);
+    }
+
     public static function guardSaleWithExpense(array $d, string $text): array
     {
         if (! in_array(self::KIND_TRADE_SALE, self::allowedKinds(), true) || ! config('modules.expenses') || trim($text) === '') {

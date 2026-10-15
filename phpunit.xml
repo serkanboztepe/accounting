@@ -12,6 +12,12 @@
             <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+    <!-- Asistan deneme seti gerçek AI kullanır (ücretli): yalnız "group eval" seçilince çalışır. -->
+    <groups>
+        <exclude>
+            <group>eval</group>
+        </exclude>
+    </groups>
     <source>
         <include>
             <directory>app</directory>

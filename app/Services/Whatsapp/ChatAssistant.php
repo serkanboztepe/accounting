@@ -45,7 +45,7 @@ class ChatAssistant
      * @return array{type:string,text?:string,data?:array,paid?:bool|null}
      *         type: reply (düz cevap) | entry (taslak öner) | confirm | cancel
      */
-    public function respond(string $phone, string $text, ?array $pending): array
+    public function respond(string $phone, string $text, ?array $pending, bool $fresh = false): array
     {
         $apiKey = config('services.anthropic.api_key');
         if (empty($apiKey)) {
@@ -53,7 +53,8 @@ class ChatAssistant
         }
 
         $model = config('services.anthropic.chat_model') ?: config('services.anthropic.model');
-        $messages = $this->history($phone, $text);
+        // $fresh: mesaj kendi başına tam bir kayıt (kasa) — geçmişteki soru ("Hangi şube?") ona cevap sanılmasın.
+        $messages = $fresh ? [['role' => 'user', 'content' => $text]] : $this->history($phone, $text);
         $system = $this->systemPrompt($pending);
 
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
@@ -308,6 +309,9 @@ class ChatAssistant
           `question` YALNIZ gerçekten eksik/şüpheli bir bilgi için (ör. yön belirsiz); "onaylıyor musun?",
           "yeni cari açayım mı?" gibi soru YAZMA — onayı sistem zaten soruyor.
           Düz mesaj (soru, bilgi, yapamadığın şey) → `reply`. Sen ASLA "kaydettim" deme.
+        - KALICI HAFIZAN YOK (henüz): "bundan sonra kalfa deyince Mehmet'i anla", "unutma …" gibi isteklere "anlarım /
+          hatırlarım / not aldım" DEME — yapamadığın sözü verme. Dürüstçe söyle: "Bunu kalıcı hatırlayamıyorum; şimdilik
+          kişinin kayıtlı adını yazarsan doğru eşleştiririm." (Yalnız bu konuşmanın son 30 dakikasını görürsün.)
         - Bir İŞLEM için eksik bilgi (tutar, kişi, yön) soracaksan `reply` KULLANMA: `propose_entry` ile bildiğin
           alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
           ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
