@@ -10,6 +10,7 @@ use App\Services\LandShare\StudyData;
 use App\Services\LandShare\StudyValidator;
 use App\Support\Fraction;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
@@ -17,9 +18,11 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Concerns\InteractsWithRecord;
 use Filament\Resources\Pages\Page;
+use Filament\Schemas\Components\Actions;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -54,6 +57,7 @@ class StudyBuilder extends Page implements HasSchemas
             'units_per_block' => $this->record->units_per_block,
             'block_units'     => $this->blockUnitsState(),
             'land_share_denominator' => $this->record->land_share_denominator,
+            'shared_split'    => $this->splitMode(),
             'notes'           => $this->record->notes,
             'shareholders'    => $this->record->shareholders()->orderBy('sort')->orderBy('id')->get()
                 ->map(fn ($s) => [
@@ -73,7 +77,7 @@ class StudyBuilder extends Page implements HasSchemas
 
     public function getTitle(): string
     {
-        return 'Hisse Dağıtımı — ' . $this->record->name;
+        return 'Hisse Dağılımı — ' . $this->record->name;
     }
 
     /** Breadcrumb'da kayıt adını tekrarlama — ortadaki kayıt breadcrumb'ı zaten gösteriyor. */
@@ -91,16 +95,6 @@ class StudyBuilder extends Page implements HasSchemas
                 ->color('primary')
                 ->url(fn () => route('land-share.print', ['study' => $this->record]))
                 ->extraAttributes(fn () => \App\Support\Printing::iframeAttributes(route('land-share.print', ['study' => $this->record]))),
-
-            Action::make('distributeExisting')
-                ->label('Mevcut Hisseye Göre Paylaştır')
-                ->icon('heroicon-o-scale')
-                ->color('info')
-                ->requiresConfirmation()
-                ->modalHeading('Mevcut Hisseye Göre Paylaştır')
-                ->modalDescription('Paylaşımlı her bağımsız bölümdeki paylar, o BB\'ye eklenen kişilerin mevcut hisse oranına göre otomatik hesaplanır ve 1/1\'e tamamlanır. Tek kişilik BB\'ler 1/1 kalır.')
-                ->modalSubmitActionLabel('Paylaştır')
-                ->action(fn () => $this->distributeByExistingShares()),
 
             Action::make('landShares')
                 ->label('Arsa Payları')
@@ -132,7 +126,9 @@ class StudyBuilder extends Page implements HasSchemas
                 ->icon('heroicon-o-user-plus')
                 ->color('gray')
                 ->requiresConfirmation()
-                ->modalDescription('Hiç dağıtılmamış BB\'ler, müteahhit hissedara 1/1 verilir.')
+                ->modalDescription(fn () => ($name = $this->record->shareholders()->where('is_contractor', true)->value('name'))
+                    ? "Hiç dağıtılmamış BB'ler {$name} adına 1/1 verilir. Dolu BB'lere dokunulmaz."
+                    : 'Müteahhit seçili değil: ① adımda müteahhit olan hissedarın "Müteahhit" anahtarını açın.')
                 ->action(fn () => $this->fillEmptyWithContractor()),
         ];
     }
@@ -152,6 +148,7 @@ class StudyBuilder extends Page implements HasSchemas
                     ->steps([
                         $this->stepOne(),
                         $this->stepTwo(),
+                        $this->stepSections(),
                         $this->stepThree(),
                     ]),
             ]);
@@ -223,20 +220,51 @@ class StudyBuilder extends Page implements HasSchemas
     {
         return Step::make('Daire Atama')
             ->icon('heroicon-o-building-office-2')
-            ->description('Her bağımsız bölümü kime vereceğinizi seçin')
-            ->afterValidation(fn () => $this->saveStep2())
+            ->description('Kişilere tıklayıp dairelerini seçin')
             ->schema([
                 Placeholder::make('assign_hint')
-                    ->label(false)
+                    ->hiddenLabel()
                     ->content(fn () => count($this->data['sections'] ?? []) === 0
                         ? new HtmlString('<span class="text-warning-600">Önce ① adımda blok/daire sayısını girip "Tamam" deyin.</span>')
-                        : new HtmlString('Boş bırakılan BB\'leri sonradan "Kaydet & Bitir" öncesi müteahhide toplu verebilirsiniz.')),
+                        : new HtmlString('Her "Daire Seç" penceresi kaydedince hemen yazılır. Boş kalan BB\'leri üstteki düğmeyle müteahhide toplu verebilirsiniz.')),
 
+                // Kişiden daireye (mimar isteği, Emlak Beyanı'ndaki mükellef "Daire Ata" gibi): kişiye tıkla,
+                // dairelerini işaretle. Aynı BB'yi birden çok kişi seçerse hisse eşit bölünür.
+                Placeholder::make('people_hint')
+                    ->label('Hissedarlar — dairelerini seçin')
+                    ->content(fn () => $this->shareholderOptions() === []
+                        ? new HtmlString('<span class="text-warning-600">Önce ① adımda hissedar ekleyin.</span>')
+                        : 'Kişinin yanındaki "Daire Seç" ile sahip olduğu bağımsız bölümleri işaretleyin.'),
+
+                ToggleButtons::make('shared_split')
+                    ->label('Ortak dairelerde hisse')
+                    ->options([self::SPLIT_EQUAL => 'Eşit', self::SPLIT_EXISTING => 'Mevcut hisseye göre'])
+                    ->inline()->grouped()->live()
+                    ->helperText('Bir BB\'yi birden çok kişi seçerse hisse buna göre bölünür. Değiştirince otomatik bölünmüş ortak BB\'ler yeniden hesaplanıp kaydedilir; elle girilmiş özel hisseye (ör. 3/4 + 1/4) dokunulmaz.')
+                    ->afterStateUpdated(fn ($state) => $this->setSplitMode((string) $state)),
+
+                Grid::make(1)->schema(fn (): array => $this->personRows()),
+
+            ]);
+    }
+
+    // ── ③ Bağımsız Bölümler (arsa payı + özel hisse + kontrol) ─────
+    private function stepSections(): Step
+    {
+        return Step::make('Bağımsız Bölümler')
+            ->icon('heroicon-o-squares-2x2')
+            ->description('Arsa payı, özel hisse ve kontrol')
+            ->afterValidation(fn () => $this->saveStep2())
+            ->schema([
                 Placeholder::make('arsa_sum')
                     ->label('Arsa payı kontrolü')
                     ->content(fn (Get $get) => $this->landShareBadge($get('sections') ?? [])),
 
-                Repeater::make('sections')->label(false)
+                Placeholder::make('sections_hint')
+                    ->label('Bağımsız bölümler')
+                    ->content('Kimin hangi BB\'de olduğu başlıklarda görünür. Arsa payı ya da özel hisse (ör. 2/3) için BB\'yi açın.'),
+
+                Repeater::make('sections')->hiddenLabel()
                     ->addable(false)->deletable(false)->reorderable(false)
                     ->collapsible()->collapsed()
                     ->itemLabel(fn (array $state): string => ($state['label'] ?? 'BB')
@@ -257,23 +285,331 @@ class StudyBuilder extends Page implements HasSchemas
                                 ->columnSpan(6),
                         ]),
 
+                        // Sahipler: tüm hissedarlar tek listede — tikle (+ istersen pay/payda). Emlak Beyanı'ndaki
+                        // "Sahibi" penceresi gibi; "Kişi ekle → seç" tek tek uğraşı yok.
+                        Placeholder::make('owners_hint')
+                            ->label('Sahipleri')
+                            ->content(fn () => $this->shareholderOptions() === []
+                                ? new HtmlString('<span class="text-warning-600">Önce ① adımda hissedar ekleyin.</span>')
+                                : 'Sahip olanları tikle. Pay/payda boş = eşit (ya da yazılanlardan kalanı eşit) bölüşür.'),
+
+                        Grid::make(1)->schema(fn (): array => $this->ownerRows()),
+
                         Placeholder::make('alloc_sum')
                             ->label('Dağılım kontrolü')
                             ->content(fn (Get $get) => $this->allocationBadge($get)),
-
-                        Repeater::make('allocations')->label('Kime')
-                            ->addActionLabel('Kişi ekle')->defaultItems(0)->columns(12)
-                            ->schema([
-                                Select::make('shareholder_id')->label('Hissedar')
-                                    ->options(fn () => $this->shareholderOptions())
-                                    ->searchable()->required()->columnSpan(6),
-                                TextInput::make('pay')->label('Pay')
-                                    ->numeric()->default(1)->required()->live(debounce: 400)->columnSpan(3),
-                                TextInput::make('payda')->label('Payda')
-                                    ->numeric()->default(1)->required()->minValue(1)->live(debounce: 400)->columnSpan(3),
-                            ]),
                     ]),
             ]);
+    }
+
+    /** Her hissedar bir satır: ✓ ad + Pay + Payda (state: owners.sh{id}.inc/pay/payda). */
+    private function ownerRows(): array
+    {
+        $rows = [];
+        foreach ($this->shareholderOptions() as $id => $name) {
+            $rows[] = Grid::make(12)->schema([
+                Toggle::make("owners.sh{$id}.inc")->label($name)
+                    ->inline()->live()->columnSpan(6),
+                TextInput::make("owners.sh{$id}.pay")->hiddenLabel()->placeholder('pay')
+                    ->numeric()->minValue(1)->live(debounce: 400)->columnSpan(3),
+                TextInput::make("owners.sh{$id}.payda")->hiddenLabel()->prefix('/')->placeholder('payda')
+                    ->numeric()->minValue(1)->live(debounce: 400)->columnSpan(3),
+            ]);
+        }
+
+        return $rows;
+    }
+
+    /** Her hissedar bir satır: ad + sahip olduğu BB'ler + "Daire Seç" penceresi. */
+    private function personRows(): array
+    {
+        $rows = [];
+        foreach ($this->shareholderOptions() as $id => $name) {
+            $rows[] = Grid::make(12)->schema([
+                Placeholder::make("person_{$id}")->hiddenLabel()
+                    ->content(fn () => new HtmlString('<strong>' . e($name) . '</strong> — ' . e($this->personSummary($id))))
+                    ->columnSpan(9),
+                Actions::make([
+                    Action::make("pickUnits{$id}")
+                        ->label('Daire Seç')
+                        ->icon('heroicon-o-home-modern')
+                        ->color('warning')
+                        ->size('sm')
+                        ->modalHeading($name . ' — Daire Seç')
+                        ->modalDescription(fn () => 'Bu kişinin sahip olduğu bağımsız bölümleri işaretleyin. Başka kişiyle ortak BB\'lerde hisse '
+                            . ($this->splitMode() === self::SPLIT_EXISTING ? 'mevcut hisse oranında' : 'eşit') . ' bölünür; işareti kaldırılan BB\'den çıkarılır.')
+                        ->modalSubmitActionLabel('Kaydet')
+                        ->fillForm(fn (): array => $this->personUnitsFill($id))
+                        ->schema(fn (): array => $this->personUnitsSchema($id))
+                        ->action(fn (array $data) => $this->assignPersonUnits($id, $data)),
+                ])->alignEnd()->columnSpan(3),
+            ]);
+        }
+
+        return $rows;
+    }
+
+    public const SPLIT_EQUAL = 'equal';
+
+    public const SPLIT_EXISTING = 'existing';
+
+    private function splitMode(): string
+    {
+        return $this->record->shared_split === self::SPLIT_EXISTING ? self::SPLIT_EXISTING : self::SPLIT_EQUAL;
+    }
+
+    /** @return array<int, Fraction> hissedar id → mevcut tapu hissesi */
+    private function existingShares(): array
+    {
+        return $this->record->shareholders()->get()
+            ->mapWithKeys(fn ($sh) => [$sh->id => Fraction::of((int) $sh->current_pay, max(1, (int) $sh->current_payda))])
+            ->all();
+    }
+
+    /**
+     * Sahip listesi → hisseler. Eşit: 1/N. Mevcut hisseye göre: kişinin tapu hissesi ÷ o BB'deki kişilerin toplamı
+     * (Excel GRUP mantığı, BB düzeyinde); içlerinden birinin mevcut hissesi yoksa eşit.
+     *
+     * @return list<array{shareholder_id:int,pay:int,payda:int}>
+     */
+    public static function splitShares(array $ids, string $mode, array $existing = []): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+        // Mevcut hissesi olmayan biri varsa (ör. müteahhit) o BB eşit bölünür — 0 pay alıp sessizce düşmesin.
+        $sum = Fraction::zero();
+        $allHave = true;
+        foreach ($ids as $id) {
+            $share = $existing[$id] ?? Fraction::zero();
+            $allHave = $allHave && ! $share->isZero() && ! $share->isNegative();
+            $sum = $sum->add($share);
+        }
+        $byExisting = $mode === self::SPLIT_EXISTING && $allHave;
+
+        return array_map(function (int $id) use ($byExisting, $existing, $sum, $ids) {
+            $share = $byExisting ? ($existing[$id] ?? Fraction::zero())->div($sum) : Fraction::of(1, count($ids));
+
+            return ['shareholder_id' => $id, 'pay' => $share->num, 'payda' => $share->den];
+        }, $ids);
+    }
+
+    /** BB'nin hissesi otomatik mi (eşit ya da mevcut-hisse bölmesine birebir uyuyor)? Uymuyorsa elle girilmiştir. */
+    public static function isAutoSplit(array $allocations, array $existing): bool
+    {
+        $key = fn (array $rows) => collect($rows)->map(fn ($a) => (int) $a['shareholder_id'] . ':'
+            . Fraction::of((int) $a['pay'], max(1, (int) $a['payda'])))->sort()->implode(' ');
+        $ids = array_map(fn ($a) => (int) $a['shareholder_id'], $allocations);
+        $current = $key($allocations);
+
+        return $current === $key(self::splitShares($ids, self::SPLIT_EQUAL))
+            || $current === $key(self::splitShares($ids, self::SPLIT_EXISTING, $existing));
+    }
+
+    /** Ayar değişti: kaydet + otomatik bölünmüş ortak BB'leri yeni kurala göre yeniden böl (elle girilene dokunma). */
+    public function setSplitMode(string $mode): void
+    {
+        $mode = $mode === self::SPLIT_EXISTING ? self::SPLIT_EXISTING : self::SPLIT_EQUAL;
+        $this->saveStep2(notify: false); // ③'te yazılmış arsa payı vb. kaybolmasın
+        $this->record->update(['shared_split' => $mode]);
+
+        $existing = $this->existingShares();
+        $sections = $this->buildAssignState();
+        $changed = 0;
+        $kept = 0;
+        foreach ($sections as $key => $item) {
+            $alloc = self::itemAllocations($item);
+            if (count($alloc) < 2) {
+                continue;
+            }
+            if (! self::isAutoSplit($alloc, $existing)) {
+                $kept++;
+                continue;
+            }
+            $new = self::splitShares(array_column($alloc, 'shareholder_id'), $mode, $existing);
+            if (self::allocationsToOwners($new) != self::allocationsToOwners($alloc)) {
+                $sections[$key]['owners'] = self::allocationsToOwners($new);
+                $changed++;
+            }
+        }
+
+        $this->data['sections'] = $sections;
+        $this->saveStep2(notify: false);
+        $this->data['sections'] = $this->buildAssignState();
+        $this->data['shared_split'] = $mode;
+        $this->form->fill($this->data);
+
+        Notification::make()
+            ->title(($mode === self::SPLIT_EXISTING ? 'Mevcut hisseye göre' : 'Eşit') . ' bölme seçildi')
+            ->body(($changed > 0 ? "{$changed} ortak BB yeniden bölündü." : 'Yeniden bölünecek ortak BB yok.')
+                . ($kept > 0 ? " Elle girilmiş {$kept} BB'ye dokunulmadı." : ''))
+            ->success()->send();
+    }
+
+    /** "3 BB: A1, A2 (ortak), A5" — formdaki (kaydedilmemiş dahil) duruma göre. */
+    private function personSummary(int $shareholderId): string
+    {
+        $owned = [];
+        foreach ($this->data['sections'] ?? [] as $item) {
+            $alloc = collect(self::itemAllocations($item));
+            if ($alloc->contains('shareholder_id', $shareholderId)) {
+                $short = preg_replace('/^Blok (\S+) · BB (\S+)$/u', '$1$2', (string) ($item['label'] ?? 'BB'));
+                $owned[] = $short . ($alloc->count() > 1 ? ' (ortak)' : '');
+            }
+        }
+
+        return $owned === [] ? 'henüz daire yok' : count($owned) . ' BB: ' . implode(', ', $owned);
+    }
+
+    /** Pencere: her blok ayrı kutucuk listesi; başkasına ait BB'nin yanında sahibi yazar. */
+    private function personUnitsSchema(int $shareholderId): array
+    {
+        $names = $this->shareholderOptions();
+        $owners = [];
+        foreach ($this->data['sections'] ?? [] as $item) {
+            $owners[(int) ($item['section_id'] ?? 0)] = collect(self::itemAllocations($item))
+                ->pluck('shareholder_id')->reject(fn ($id) => (int) $id === $shareholderId)
+                ->map(fn ($id) => $names[$id] ?? '?')->implode(', ');
+        }
+
+        return $this->record->blocks()->with(['sections' => fn ($q) => $q->orderBy('sort')->orderBy('id')])
+            ->orderBy('sort')->orderBy('id')->get()
+            ->filter(fn ($block) => $block->sections->isNotEmpty())
+            ->map(fn ($block) => CheckboxList::make('block_' . $block->id)
+                ->label('Blok ' . $block->name)
+                ->options($block->sections->mapWithKeys(fn (LandSection $s) => [
+                    $s->id => 'BB ' . $s->bb_no . (($owners[$s->id] ?? '') !== '' ? ' — ' . $owners[$s->id] : ''),
+                ])->all())
+                ->columns(3)
+                ->bulkToggleable())
+            ->values()->all();
+    }
+
+    private function personUnitsFill(int $shareholderId): array
+    {
+        $byBlock = LandSection::whereIn('block_id', $this->record->blocks()->pluck('id'))->pluck('block_id', 'id');
+        $fill = [];
+        foreach ($this->data['sections'] ?? [] as $item) {
+            $sid = (int) ($item['section_id'] ?? 0);
+            if (collect(self::itemAllocations($item))->contains('shareholder_id', $shareholderId) && isset($byBlock[$sid])) {
+                $fill['block_' . $byBlock[$sid]][] = $sid;
+            }
+        }
+
+        return $fill;
+    }
+
+    /** Pencereden kaydet: formdaki durum güncellenir + hemen kaydedilir (arsa payı gibi yazılmış alanlar da). */
+    public function assignPersonUnits(int $shareholderId, array $data): void
+    {
+        $selected = [];
+        foreach ($data as $key => $ids) {
+            if (str_starts_with((string) $key, 'block_')) {
+                $selected = array_merge($selected, array_map('intval', (array) $ids));
+            }
+        }
+
+        $this->data['sections'] = self::applyPersonUnits($this->data['sections'] ?? [], $shareholderId, $selected,
+            $this->splitMode(), $this->existingShares());
+        $this->saveStep2(notify: false);
+        $this->data['sections'] = $this->buildAssignState();
+        $this->form->fill($this->data);
+
+        $name = $this->shareholderOptions()[$shareholderId] ?? 'Kişi';
+        Notification::make()->title($name . ': ' . count($selected) . ' bağımsız bölüm kaydedildi')->success()->send();
+    }
+
+    /**
+     * Saf hesap: kişi seçilen BB'lere eklenir, seçilmeyenlerden çıkarılır. Sahip listesi DEĞİŞEN BB'lerde
+     * hisse ayara göre yeniden bölünür (eşit / mevcut hisse); değişmeyen BB'nin (özel 2/3 gibi) hissesine dokunulmaz.
+     *
+     * @param  array<int, Fraction>  $existing  hissedar id → mevcut tapu hissesi (yalnız 'existing' modda)
+     */
+    public static function applyPersonUnits(array $sections, int $shareholderId, array $selectedSectionIds,
+        string $mode = self::SPLIT_EQUAL, array $existing = []): array
+    {
+        $selected = array_flip(array_map('intval', $selectedSectionIds));
+        foreach ($sections as $key => $item) {
+            $ids = collect(self::itemAllocations($item))->pluck('shareholder_id')->map(fn ($id) => (int) $id)->values()->all();
+            $has = in_array($shareholderId, $ids, true);
+            $want = isset($selected[(int) ($item['section_id'] ?? 0)]);
+            if ($has === $want) {
+                continue;
+            }
+            $ids = $want ? [...$ids, $shareholderId] : array_values(array_diff($ids, [$shareholderId]));
+            $sections[$key]['owners'] = self::allocationsToOwners(self::splitShares($ids, $mode, $existing));
+            unset($sections[$key]['allocations']);
+        }
+
+        return $sections;
+    }
+
+    /**
+     * Tik listesi → atama satırları. Pay+payda yazılan aynen; boş bırakılan tikliler kalanı eşit bölüşür
+     * (hiç yazılmadıysa 1/N). Yazılanlar zaten 1/1'i doldurduysa boşlar 0 alamaz → atlanır, rozet uyarır.
+     *
+     * @return list<array{shareholder_id:int,pay:int,payda:int}>
+     */
+    public static function ownersToAllocations(array $owners): array
+    {
+        $custom = [];
+        $blank = [];
+        foreach ($owners as $key => $row) {
+            if (! preg_match('/^sh(\d+)$/', (string) $key, $m) || empty($row['inc'])) {
+                continue;
+            }
+            $pay = (int) ($row['pay'] ?? 0);
+            $payda = (int) ($row['payda'] ?? 0);
+            if ($pay > 0 && $payda > 0) {
+                $custom[(int) $m[1]] = Fraction::of($pay, $payda);
+            } else {
+                $blank[] = (int) $m[1];
+            }
+        }
+
+        $remaining = Fraction::of(1);
+        foreach ($custom as $f) {
+            $remaining = $remaining->sub($f);
+        }
+        $each = $blank !== [] && ! $remaining->isNegative() && ! $remaining->isZero()
+            ? $remaining->div(Fraction::of(count($blank)))
+            : null;
+
+        $out = [];
+        foreach ($owners as $key => $row) {
+            if (! preg_match('/^sh(\d+)$/', (string) $key, $m)) {
+                continue;
+            }
+            $id = (int) $m[1];
+            $share = $custom[$id] ?? (in_array($id, $blank, true) ? $each : null);
+            if ($share !== null) {
+                $out[] = ['shareholder_id' => $id, 'pay' => $share->num, 'payda' => $share->den];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Atama satırları → tik listesi (kayıtlı hisse pay/payda olarak görünür). */
+    private static function allocationsToOwners(array $allocations): array
+    {
+        $owners = [];
+        foreach ($allocations as $a) {
+            if (! empty($a['shareholder_id'])) {
+                $owners['sh' . $a['shareholder_id']] = ['inc' => true, 'pay' => $a['pay'], 'payda' => $a['payda']];
+            }
+        }
+
+        return $owners;
+    }
+
+    /** Bir BB'nin atamaları: tik listesi varsa ondan, yoksa (eski/iç çağrı) allocations'tan. */
+    private static function itemAllocations(array $item): array
+    {
+        return array_key_exists('owners', $item)
+            ? self::ownersToAllocations((array) $item['owners'])
+            : (array) ($item['allocations'] ?? []);
     }
 
     // ── ③ Hisse Cetveli ───────────────────────────────────────────
@@ -283,7 +619,7 @@ class StudyBuilder extends Page implements HasSchemas
             ->icon('heroicon-o-table-cells')
             ->description('Sonuç')
             ->schema([
-                Placeholder::make('cetvel')->label(false)
+                Placeholder::make('cetvel')->hiddenLabel()
                     ->content(fn () => $this->cetvelHtml()),
             ]);
     }
@@ -353,7 +689,7 @@ class StudyBuilder extends Page implements HasSchemas
         }
     }
 
-    public function saveStep2(): void
+    public function saveStep2(bool $notify = true): void
     {
         foreach ($this->data['sections'] ?? [] as $item) {
             $section = LandSection::find($item['section_id'] ?? null);
@@ -364,7 +700,7 @@ class StudyBuilder extends Page implements HasSchemas
             $section->update($this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null));
 
             $section->allocations()->delete();
-            foreach ($item['allocations'] ?? [] as $a) {
+            foreach (self::itemAllocations($item) as $a) {
                 if (empty($a['shareholder_id'])) {
                     continue;
                 }
@@ -376,7 +712,9 @@ class StudyBuilder extends Page implements HasSchemas
             }
         }
 
-        Notification::make()->title('Atamalar kaydedildi')->success()->send();
+        if ($notify) {
+            Notification::make()->title('Atamalar kaydedildi')->success()->send();
+        }
     }
 
     public function finish(): void
@@ -391,16 +729,17 @@ class StudyBuilder extends Page implements HasSchemas
     /** Boş kalan BB'leri müteahhide 1/1 verir (adım 2'deki toplu düğme). */
     public function fillEmptyWithContractor(): void
     {
-        $this->saveStep2();
-
-        $contractor = $this->record->shareholders()->where('is_contractor', true)->first()
-            ?? $this->record->shareholders()->first();
-
+        // Müteahhit işaretli değilse ilk kişiye VERME — "müteahhide verilir" denip boşlar Ahmet'e yazılmasın.
+        $contractor = $this->record->shareholders()->where('is_contractor', true)->first();
         if (! $contractor) {
-            Notification::make()->title('Önce hissedar/müteahhit ekleyin')->warning()->send();
+            Notification::make()->title('Müteahhit seçili değil')
+                ->body('① adımda müteahhit olan hissedarın "Müteahhit" anahtarını açın.')
+                ->warning()->send();
 
             return;
         }
+
+        $this->saveStep2(notify: false);
 
         $count = 0;
         foreach ($this->record->blocks()->with('sections.allocations')->get() as $block) {
@@ -418,60 +757,19 @@ class StudyBuilder extends Page implements HasSchemas
         Notification::make()->title($count > 0 ? "{$count} boş BB {$contractor->name} adına atandı" : 'Boş BB kalmadı')->success()->send();
     }
 
-    /**
-     * Her paylaşımlı BB'deki payları, o BB'ye eklenen kişilerin mevcut hisse
-     * oranına göre hesaplar (Excel GRUP mantığı, ama BB düzeyinde otomatik).
-     * Kişi payı = kişinin mevcut hissesi ÷ o BB'deki kişilerin mevcut toplamı.
-     */
-    public function distributeByExistingShares(): void
-    {
-        [$sections, $touched] = $this->applyExistingShareSplit($this->data['sections'] ?? []);
-        $this->data['sections'] = $sections;
-        $this->form->fill($this->data);
-
-        Notification::make()
-            ->title($touched > 0 ? "{$touched} bağımsız bölüm mevcut hisseye göre paylaştırıldı" : 'Paylaştırılacak dolu BB yok')
-            ->success()
-            ->send();
-    }
-
     /** Saf hesap: her BB'nin paylarını mevcut hisse oranına göre yeniden yazar. */
     public function applyExistingShareSplit(array $sections): array
     {
-        $existing = [];
-        foreach ($this->record->shareholders as $sh) {
-            $existing[$sh->id] = Fraction::of((int) $sh->current_pay, max(1, (int) $sh->current_payda));
-        }
-
+        $existing = $this->existingShares();
         $touched = 0;
         foreach ($sections as $si => $section) {
-            $valid = array_values(array_filter(
-                $section['allocations'] ?? [],
-                fn ($a) => ! empty($a['shareholder_id']),
-            ));
-            if ($valid === []) {
+            $ids = array_column(array_filter(self::itemAllocations($section), fn ($a) => ! empty($a['shareholder_id'])), 'shareholder_id');
+            if ($ids === []) {
                 continue;
             }
-
-            $sum = Fraction::zero();
-            foreach ($valid as $a) {
-                $sum = $sum->add($existing[$a['shareholder_id']] ?? Fraction::zero());
-            }
-
-            $new = [];
-            foreach ($valid as $a) {
-                $share = $sum->isZero()
-                    ? Fraction::of(1, count($valid))                       // hepsi 0 mevcutsa eşit böl
-                    : ($existing[$a['shareholder_id']] ?? Fraction::zero())->div($sum);
-
-                $new[] = [
-                    'shareholder_id' => $a['shareholder_id'],
-                    'pay'            => $share->num,
-                    'payda'          => $share->den,
-                ];
-            }
-
+            $new = self::splitShares($ids, self::SPLIT_EXISTING, $existing);
             $sections[$si]['allocations'] = $new;
+            $sections[$si]['owners'] = self::allocationsToOwners($new);
             $touched++;
         }
 
@@ -673,7 +971,7 @@ class StudyBuilder extends Page implements HasSchemas
         $hasAlloc = LandSection::whereIn('block_id', $this->record->blocks()->pluck('id'))
             ->whereHas('allocations')->exists();
 
-        return $hasAlloc ? 3 : 2;
+        return $hasAlloc ? 4 : 2;
     }
 
     private function buildAssignState(): array
@@ -687,11 +985,11 @@ class StudyBuilder extends Page implements HasSchemas
                     'arsa_pay'    => $section->arsa_pay,
                     // Payda boşsa çalışmanın ortak paydası önerilir.
                     'arsa_payda'  => $section->arsa_payda ?? $this->record->land_share_denominator,
-                    'allocations' => $section->allocations->map(fn ($a) => [
+                    'owners'      => self::allocationsToOwners($section->allocations->map(fn ($a) => [
                         'shareholder_id' => $a->shareholder_id,
                         'pay'            => $a->pay,
                         'payda'          => $a->payda,
-                    ])->all(),
+                    ])->all()),
                 ];
             }
         }
@@ -706,7 +1004,7 @@ class StudyBuilder extends Page implements HasSchemas
 
     private function itemAssignSummary(array $state): string
     {
-        $rows = $state['allocations'] ?? [];
+        $rows = self::itemAllocations($state);
         if ($rows === []) {
             return '⚠ boş';
         }
@@ -741,7 +1039,7 @@ class StudyBuilder extends Page implements HasSchemas
     {
         $sum = Fraction::zero();
         $count = 0;
-        foreach ($get('allocations') ?? [] as $row) {
+        foreach (self::ownersToAllocations((array) ($get('owners') ?? [])) as $row) {
             $payda = (int) ($row['payda'] ?? 0);
             if ($payda === 0) {
                 continue;

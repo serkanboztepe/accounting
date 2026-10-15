@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\PropertyTaxProjects\Tables;
 
+use App\Filament\Resources\PropertyTaxProjects\PropertyTaxProjectResource;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -43,6 +45,11 @@ class PropertyTaxProjectsTable
                     ->label('Yıl'),
             ])
             ->recordActions([
+                Action::make('wizard')
+                    ->label('Adım Adım (v2)')
+                    ->icon('heroicon-o-list-bullet')
+                    ->color('warning')
+                    ->url(fn ($record) => PropertyTaxProjectResource::getUrl('build', ['record' => $record])),
                 EditAction::make(),
             ])
             ->toolbarActions([

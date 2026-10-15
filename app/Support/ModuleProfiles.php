@@ -94,7 +94,7 @@ class ModuleProfiles
 
     /** Hub ekranındaki Türkçe adlar. */
     public const LABELS = [
-        'land_share'         => 'Kat Karşılığı / Hisse Dağıtımı',
+        'land_share'         => 'Hisse Dağılımı (Kat Karşılığı)',
         'property_tax'       => 'Emlak Vergisi Bildirimi',
         'projects'           => 'Projeler (gider/caride proje seçimi)',
         'contracts'          => 'Sözleşmeler (teslimat, ödeme, fatura)',

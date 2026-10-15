@@ -17,6 +17,7 @@ class LandShareStudy extends Model
         'block_count',
         'units_per_block',
         'land_share_denominator',
+        'shared_split',
         'method',
         'status',
         'notes',

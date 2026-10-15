@@ -18,7 +18,7 @@ class LandShareStudiesRelationManager extends RelationManager
 {
     protected static string $relationship = 'landShareStudies';
 
-    protected static ?string $title = 'Kat Karşılığı Çalışmaları';
+    protected static ?string $title = 'Hisse Dağılımı Çalışmaları';
 
     public function form(Schema $schema): Schema
     {
@@ -50,7 +50,7 @@ class LandShareStudiesRelationManager extends RelationManager
             ->headerActions([
                 CreateAction::make()
                     ->label('Yeni Çalışma')
-                    ->modalHeading('Yeni Kat Karşılığı Çalışması')
+                    ->modalHeading('Yeni Hisse Dağılımı Çalışması')
                     // Kaydettikten sonra veri girişi için sihirbaza (build) git.
                     ->after(fn (LandShareStudy $record) => redirect(
                         LandShareStudyResource::getUrl('build', ['record' => $record]),

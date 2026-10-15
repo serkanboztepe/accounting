@@ -25,13 +25,13 @@ class LandShareStudyResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'Mimar';
 
-    protected static ?string $navigationLabel = 'Kat Karşılığı';
+    protected static ?string $navigationLabel = 'Hisse Dağılımı';
 
     protected static ?int $navigationSort = 1;
 
-    protected static ?string $modelLabel = 'Hisse Dağıtım Çalışması';
+    protected static ?string $modelLabel = 'Hisse Dağılımı Çalışması';
 
-    protected static ?string $pluralModelLabel = 'Hisse Dağıtım Çalışmaları';
+    protected static ?string $pluralModelLabel = 'Hisse Dağılımı Çalışmaları';
 
     protected static ?string $recordTitleAttribute = 'name';
 

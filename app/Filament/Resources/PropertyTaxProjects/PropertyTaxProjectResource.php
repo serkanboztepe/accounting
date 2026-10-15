@@ -64,6 +64,7 @@ class PropertyTaxProjectResource extends Resource
             'index' => ListPropertyTaxProjects::route('/'),
             'create' => CreatePropertyTaxProject::route('/create'),
             'edit' => EditPropertyTaxProject::route('/{record}/edit'),
+            'build' => \App\Filament\Resources\PropertyTaxProjects\Pages\DeclarationBuilder::route('/{record}/adim-adim'),
         ];
     }
 }

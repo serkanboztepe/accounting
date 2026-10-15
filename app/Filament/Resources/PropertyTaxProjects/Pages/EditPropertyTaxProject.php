@@ -17,6 +17,12 @@ class EditPropertyTaxProject extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('wizard')
+                ->label('Adım Adım (v2 deneme)')
+                ->icon(Heroicon::OutlinedListBullet)
+                ->color('warning')
+                ->url(fn () => PropertyTaxProjectResource::getUrl('build', ['record' => $this->record])),
+
             // Proje bilgileri artık sağ üstteki ⚙ Ayarlar modalından; gövde blok/mükellef yönetimine kaldı.
             Action::make('settings')
                 ->label('Ayarlar')
