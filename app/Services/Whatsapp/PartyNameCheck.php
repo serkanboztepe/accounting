@@ -35,6 +35,23 @@ final class PartyNameCheck
         return false;
     }
 
+    /** Carinin adındaki her kelime yazılan adda var mı ("Hazal Doğan" ⊆ "Evrim Hazal Doğan") — resmî tam ad, kısa ad. */
+    public static function containedIn(Party $party, string $said): bool
+    {
+        $known = self::words($party->name);
+        $words = self::words($said);
+        if ($known === [] || $words === []) {
+            return false;
+        }
+        foreach ($known as $k) {
+            if (! self::matchesAny($k, $words)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /** @return list<string> küçük harf, Türkçe harfler sadeleşmiş, ek ("Ayten'in") ve ayırt etmeyen sözler atılmış */
     public static function words(string $text): array
     {

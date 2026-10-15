@@ -299,8 +299,9 @@ class WhatsappWebhookController extends Controller
         }
 
         // Eşleşen cari ile yazılan ad farklıydı, "aynı kişi mi?" → "yeni": yazılan adla yeni cari (AI'sız, kesin cevap).
-        if ($pending && $image === null && ! empty($pending->extracted['party_check'])
-            && in_array($this->word($body), ['yeni', 'yeni cari', 'yeni kişi', 'farklı', 'farklı kişi', 'başka', 'başka kişi', 'aynı değil', 'değil'], true)) {
+        if ($pending && $image === null && (! empty($pending->extracted['party_check']) || ! empty($pending->extracted['document_name']))
+            && in_array($this->word($body), ['yeni', 'yeni cari', 'yeni kişi', 'farklı', 'farklı kişi', 'başka', 'başka kişi', 'başka biri',
+                'aynı değil', 'değil', 'o değil', 'o degil', 'aynı kişi değil'], true)) {
             $this->inboundKind = 'quick';
             $data = $pending->extracted;
             $data['party_name'] = $data['party_said'];
@@ -475,6 +476,7 @@ class WhatsappWebhookController extends Controller
                 && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_REMINDER) {
                 try {
                     $data = $extractor->extract($body ?: null, $image, $pending->extracted);
+                    $data['from_document'] = true;
                 } catch (\Throwable $e) {
                     Log::error('WhatsApp belge düzeltme hatası', ['msg' => $e->getMessage()]);
                     $this->inboundKind = 'error';
@@ -501,6 +503,7 @@ class WhatsappWebhookController extends Controller
 
         try {
             $data = $extractor->extract($body ?: null, $image, null, ConversationContext::get($phone));
+            $data['from_document'] = $image !== null;
         } catch (\Throwable $e) {
             Log::error('WhatsApp gider çıkarma hatası', ['msg' => $e->getMessage()]);
             $this->inboundKind = 'error';
@@ -673,10 +676,16 @@ class WhatsappWebhookController extends Controller
             && $this->kind($data) === $this->kind($pending->extracted)) {
             $data['debt_repayment'] = ! empty($data['debt_repayment']) || ! empty($pending->extracted['debt_repayment']);
             $data['bank_fee'] = $data['bank_fee'] ?? ($pending->extracted['bank_fee'] ?? null);
+            $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
         }
         $data = AdvanceOffset::apply($data, $this->inboundBody);
-        $data['party_check'] = in_array($this->kind($data), self::PARTY_KINDS, true) && ($party = $this->existingParty($data))
-            && PartyNameCheck::differs($party, $data['party_said'] ?? null);
+        $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
+        $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null);
+        // Dekonttaki resmî ad carinin adını tamamen içeriyorsa ("Evrim Hazal Doğan" ⊇ "Hazal Doğan") aynı kişi: sorma,
+        // yalnız bilgi olarak göster; kullanıcı "o değil" derse yeni cari (Taner, 13 Ekim).
+        $documentSame = $differs && ! empty($data['from_document']) && PartyNameCheck::containedIn($party, (string) $data['party_said']);
+        $data['party_check'] = $differs && ! $documentSame;
+        $data['document_name'] = $documentSame ? $data['party_said'] : null;
         $this->inboundKind = $this->kind($data);
         if (! empty($data['party_id']) && Party::whereKey($data['party_id'])->exists()) {
             $this->touchedPartyId = (int) $data['party_id']; // bakiye / ekstre / taslak — sınırlı bağlam
@@ -1592,6 +1601,9 @@ class WhatsappWebhookController extends Controller
             if ($this->needsPaymentChoice($d)) {
                 $lines[] = 'Bu cariye açık borcun görünmüyor. *Ne için verdin?*';
                 $lines[] = '(ör. "sıva yaptırdım", "iş yaptıracağım, avans", "borç verdim, geri alacağım")';
+                if (! empty($d['party_check'])) { // erken dönüşte isim sorusu kaybolmasın
+                    $lines[] = '❓ "' . $d['party_said'] . '" yazdın, *' . $name . '* ile eşleştirdim. *Aynı kişi mi?* Değilse *yeni* yaz.';
+                }
 
                 return implode("\n", $lines);
             }
@@ -1671,6 +1683,9 @@ class WhatsappWebhookController extends Controller
                 : 'ℹ️ Dekontta ' . Money::format($fee) . ' ₺ banka masrafı var, gider takibi açık olmadığı için kaydetmedim.';
         }
         $lines[] = '• Bakiye: ' . $this->balancePhrase($before) . ' → ' . $this->balancePhrase($after);
+        if (! empty($d['document_name'])) {
+            $lines[] = '• Dekonttaki ad: ' . $d['document_name'] . ' (başkasıysa *o değil* yaz)';
+        }
         if (! empty($d['party_check'])) {
             $lines[] = '❓ "' . $d['party_said'] . '" yazdın, *' . $name . '* ile eşleştirdim. *Aynı kişi mi?* Değilse *yeni* yaz.';
         }

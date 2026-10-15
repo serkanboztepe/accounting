@@ -174,6 +174,36 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $this->assertSame(0.0, $this->balance('Hazal Sıra'));
     }
 
+    /** Dekontta resmî tam ad ("Evrim Hazal Doğan") carinin adını içeriyor → sorulmaz, bilgi satırı; "o değil" → yeni cari. */
+    public function test_document_full_name_containing_party_name_is_not_asked(): void
+    {
+        $party = Party::create(['name' => 'Hazal Belge']);
+        $this->fakeAi($this->entry(['amount' => 5000, 'party_id' => $party->id, 'party_said' => 'Evrim Hazal Belge', 'debt_repayment' => true]));
+
+        $reply = $this->sendPdf();
+        $this->assertStringNotContainsString('Aynı kişi mi', $reply);
+        $this->assertStringContainsString('Dekonttaki ad: Evrim Hazal Belge', $reply);
+
+        $this->assertStringContainsString('Evrim Hazal Belge (yeni cari)', $this->send('o değil'));
+    }
+
+    public function test_document_name_not_containing_party_name_still_asks(): void
+    {
+        $party = Party::create(['name' => 'Nusaybin bayisi Ayten Belge']);
+        $this->fakeAi($this->entry(['amount' => 5000, 'party_id' => $party->id, 'party_said' => 'Ayten Kaya']));
+
+        $this->assertStringContainsString('*Aynı kişi mi?*', $this->sendPdf());
+    }
+
+    /** Elle yazılan mesajda kural aynen: fazladan söz başka biri olabilir. */
+    public function test_typed_message_with_extra_words_still_asks(): void
+    {
+        $party = Party::create(['name' => 'Ali Metin']);
+        $this->fakeAi($this->entry(['amount' => 5000, 'party_id' => $party->id, 'party_said' => "Ali Metin'in oğlu"]));
+
+        $this->assertStringContainsString('*Aynı kişi mi?*', $this->send("Ali Metin'in oğluna 5000 ödedim"));
+    }
+
     public function test_other_documents_still_get_clear_answer(): void
     {
         $this->assertStringContainsString('PDF', $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://x/y', 'MediaContentType0' => 'application/vnd.ms-excel']));
