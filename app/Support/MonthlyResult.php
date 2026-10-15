@@ -22,8 +22,18 @@ class MonthlyResult
 {
     public static function forMonth(Carbon $month): array
     {
-        $from = $month->copy()->startOfMonth()->toDateString();
-        $to = $month->copy()->endOfMonth()->toDateString();
+        return ['month' => $month->copy()->startOfMonth()]
+            + self::forRange($month->copy()->startOfMonth(), $month->copy()->endOfMonth());
+    }
+
+    /**
+     * Herhangi bir aralık (gün, birkaç gün, ay) — WhatsApp "dünkü ciro", "14 Ekim", "iki günlük" (Akkuş: 17 kez ay sonucu
+     * gelmişti). Hesap ay sonucuyla aynı; başlık aralığa göre.
+     */
+    public static function forRange(Carbon $fromDate, Carbon $toDate): array
+    {
+        $from = $fromDate->toDateString();
+        $to = $toDate->toDateString();
 
         $salesDocs = (float) Sale::whereBetween('sale_date', [$from, $to])->sum('total_amount');
         $cash = (float) Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to])->sum('cash_amount');
@@ -47,8 +57,9 @@ class MonthlyResult
             : 0.0;
 
         return [
-            'month'           => $month->copy()->startOfMonth(),
-            'label'           => $month->copy()->locale('tr')->translatedFormat('F Y'),
+            'from'            => $fromDate->copy()->startOfDay(),
+            'to'              => $toDate->copy()->startOfDay(),
+            'label'           => self::rangeLabel($fromDate, $toDate),
             'revenue'         => $revenue,
             'sales_docs'      => $salesDocs,
             'sales_ledger'    => $salesLedger,
@@ -65,6 +76,23 @@ class MonthlyResult
         ];
     }
 
+    /** "Ekim 2026" / "14 Ekim" / "13–14 Ekim" / "28 Eylül – 2 Ekim". */
+    public static function rangeLabel(Carbon $from, Carbon $to): string
+    {
+        $f = $from->copy()->locale('tr');
+        $t = $to->copy()->locale('tr');
+        if ($f->isSameDay($f->copy()->startOfMonth()) && $t->isSameDay($f->copy()->endOfMonth())) {
+            return $f->translatedFormat('F Y');
+        }
+        if ($f->isSameDay($t)) {
+            return $f->translatedFormat('j F');
+        }
+
+        return $f->isSameMonth($t)
+            ? $f->format('j') . '–' . $t->translatedFormat('j F')
+            : $f->translatedFormat('j F') . ' – ' . $t->translatedFormat('j F');
+    }
+
     /** Son N ay (en yeni üstte). */
     public static function lastMonths(int $count = 12, ?Carbon $now = null): array
     {
@@ -79,7 +107,7 @@ class MonthlyResult
     public static function whatsappText(array $r): string
     {
         $lines = [
-            '📊 *' . $r['label'] . ' sonucu (yaklaşık)*',
+            '📊 *' . $r['label'] . ' sonucu' . (str_contains($r['label'], ' 20') ? ' (yaklaşık)' : '') . '*',
             'Ciro: ' . Money::format($r['revenue']) . ' ₺'
                 . ($r['cash'] + $r['bank'] > 0 ? ' (peşin nakit ' . Money::format($r['cash']) . ', kart ' . Money::format($r['bank']) . ')' : ''),
             'Alış: ' . Money::format($r['purchases']) . ' ₺',

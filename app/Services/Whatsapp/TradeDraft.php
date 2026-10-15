@@ -736,6 +736,23 @@ class TradeDraft
     public static function answer(array $d): string
     {
         if ($d['kind'] === ExpenseExtractor::KIND_MONTH_RESULT) {
+            if (! empty($d['date_from'])) {
+                $from = Carbon::parse($d['date_from']);
+                $to = ! empty($d['date_to']) ? Carbon::parse($d['date_to']) : $from->copy();
+                // Gece 00:00–05:00 "bugün" = biten iş günü (fırın gece kapanır; Akkuş 00:12'de "bugünkü cirolar").
+                $local = now(Reminder::TIMEZONE);
+                $today = $local->toDateString();
+                $note = '';
+                if ($local->hour < 5 && $from->toDateString() === $today && $to->toDateString() === $today) {
+                    $from = $to = $local->copy()->subDay()->startOfDay();
+                    $note = "\n_Gece yarısını geçtiği için dünü (" . $from->locale('tr')->translatedFormat('j F') . ') gösterdim._';
+                }
+                if ($to->lt($from)) {
+                    [$from, $to] = [$to, $from];
+                }
+
+                return MonthlyResult::whatsappText(MonthlyResult::forRange($from, $to)) . $note;
+            }
             $month = ! empty($d['month']) ? Carbon::parse($d['month'] . '-01') : now();
 
             return MonthlyResult::whatsappText(MonthlyResult::forMonth($month));

@@ -90,7 +90,7 @@ class ExpenseExtractor
         self::KIND_STOCK_QUERY => '- "stock_query": STOK SORUSU ("un ne kadar kaldı?", "stokta ne var?", "hangi mallar bitiyor?"). Belirli ürün varsa `product_id`, yoksa null (tüm liste). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_STOCK_SETTING => '- "stock_setting": GÜNLÜK KULLANIM / UYARI / ALIŞ FİYATI AYARI ("unu günde 3 çuval kullanıyorum, 6 kala haber ver", "maya 2 paket kalınca haber ver", "unu çuvalı 850\'den alıyorum"). `product_id` (listede yoksa null + `product_name` ve `unit`), `daily_usage` (her gün aynı miktar kullanılıyorsa), `reorder_level` (kaç kalınca haber verilsin), `purchase_price` (birim alış fiyatı). Söylenmeyeni null bırak; amount=0. O an bir mal GELDİYSE/ALINDIYSA bu değil → "trade_purchase".',
         self::KIND_PRODUCT_ADD => '- "product_add": STOKTA TUTULACAK ÜRÜN(LER) TANITILIYOR, alış/satış yok ("un, maya, tuz, şeker kullanıyorum", "ürün ekle: un çuval", "simit de satıyorum"). `items`: her ürün {description=ad, unit=birim ("çuval","kg","paket","adet"; söylenmediyse null), unit_price=alış fiyatı söylendiyse}. ÜRÜNLER listesinde olanları yazma. amount=0.',
-        self::KIND_MONTH_RESULT => '- "month_result": KAZANÇ / AY SONUCU sorusu ("bu ay ne kazandım?", "Eylül ne kaldı?", "ciro ne kadar?", "bu ayki durum"). `month` (YYYY-MM; söylenmediyse null = bu ay). Hiçbir şey kaydedilmez; amount=0.',
+        self::KIND_MONTH_RESULT => '- "month_result": CİRO / KAZANÇ / KALAN sorusu ("bu ay ne kazandım?", "Eylül ne kaldı?", "ciro ne kadar?", "bugünkü ciro", "dünkü cirolar", "14.10 toplam ciro", "iki günlük ciro ve gider", "bu hafta ne kaldı", "toplam kalan para"). GÜN ya da ARALIK söylendiyse `date_from` / `date_to` (YYYY-MM-DD; "bugün" → bugün/bugün, "dün" → dün/dün, "14.10" → o gün, "iki günlük" → dün/bugün, "bu hafta" → pazartesi/bugün); yalnız AY söylendiyse `month` (YYYY-MM); hiçbiri yoksa ikisi de null (= bu ay). Hiçbir şey kaydedilmez; amount=0. Kasa/şube adı geçse de ("Araştırma kasa ne kadar", "dünkü Ergenekon ciro") bu bir CİRO sorusudur, cari bakiyesi DEĞİL.',
         self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Yazım hataları ve eş anlamlılar da ekstredir — SORMA, gönder: "ekstra", "extra", "extre", "ektre", "ekstire", "ekistre", "eksre", "döküm", "hesap dökümü", "hareketleri", "kişi adı + pdf" ("Hazal doğan ekstra", "Ferhat extre gönder", "Serkan pdf", "Ali döküm" → statement). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`. Kullanıcı ekstrenin ya da bir mesajın CARİYE (üçüncü kişiye) gönderilmesini istiyorsa ("Ferdi\'ye at", "Ferdi Cengiz\'e mesaj at", "ekstresini ona gönder", "müşteriye yolla") → yine "statement" ve `forward_to_party`=true (biz cariye mesaj atamayız, kullanıcıya iletmesi söylenir).',
     ];
 
@@ -548,8 +548,8 @@ class ExpenseExtractor
                     'kind' => ['type' => 'string', 'enum' => self::aiKinds(), 'description' => 'Entry kind; see system prompt'],
                     'items' => self::itemsSchema(),
                     'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
-                    'date_from' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary: period start (YYYY-MM-DD) if a period was named, else null'],
-                    'date_to' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary: period end (YYYY-MM-DD) if a period was named, else null'],
+                    'date_from' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary / month_result / agenda: period start (YYYY-MM-DD) if a day or period was named, else null'],
+                    'date_to' => ['type' => ['string', 'null'], 'description' => 'Only for kind=statement / expense_summary / month_result / agenda: period end (YYYY-MM-DD) if a day or period was named, else null'],
                     'payment_type' => ['type' => ['string', 'null'], 'enum' => ['cash', 'bank_transfer', 'eft', 'other', null], 'description' => 'payment/collection method if stated, else null'],
                     'amount' => ['type' => 'number', 'description' => 'Amount (TRY, numeric); total for sale items; 0 for balance_query'],
                     'date' => ['type' => ['string', 'null'], 'description' => 'Date the expense occurred (YYYY-MM-DD); today if absent. NOT the payment due date.'],
@@ -932,8 +932,8 @@ class ExpenseExtractor
             'totals_side' => $kind === self::KIND_TOTALS_QUERY
                 ? (in_array($input['totals_side'] ?? null, ['receivable', 'payable'], true) ? $input['totals_side'] : 'both')
                 : null,
-            'date_from' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY, self::KIND_AGENDA], true) ? self::validDate($input['date_from'] ?? null) : null,
-            'date_to' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY, self::KIND_AGENDA], true) ? self::validDate($input['date_to'] ?? null) : null,
+            'date_from' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY, self::KIND_AGENDA, self::KIND_MONTH_RESULT], true) ? self::validDate($input['date_from'] ?? null) : null,
+            'date_to' => in_array($kind, [self::KIND_STATEMENT, self::KIND_EXPENSE_SUMMARY, self::KIND_AGENDA, self::KIND_MONTH_RESULT], true) ? self::validDate($input['date_to'] ?? null) : null,
             'payment_type' => in_array($paymentType, ['cash', 'bank_transfer', 'eft', 'other'], true) ? $paymentType : null,
             'amount' => isset($input['amount']) ? (float) $input['amount'] : 0.0,
             'date' => $input['date'] ?? now()->format('Y-m-d'),
