@@ -76,7 +76,7 @@ class ExpenseExtractor
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". "X\'e veresiye" / "X\'e veresiye yazdım" ("Ayşe hanıma 1.250 lira veresiye") → "sale", `paid`=false — veresiye = malı verdik, parası sonra alınacak; gider ya da borç kaydı DEĞİLDİR. Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") ve mal VERİLDİYSE `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null. Para alındı ama mal/iş SONRA verilecekse ("parasını aldım, peyniri sonra göndereceğim", "kapora aldım", "peşin verdi, malı sonra götüreceğim") bu satış DEĞİL → "collection" + `payment_purpose`="advance".',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır. Para, mal/iş henüz VERİLMEDEN peşin alındıysa (müşteri avansı: "Zülfikar 3 bin verdi, peyniri sonra vereceğim", "kapora aldım", "parasını aldım malı sonra göndereceğim") → `payment_purpose`="advance", `description` ne verilecekse ("20 kg peynir"). Müşteri bize alacaklı olur; satış AÇMA.',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0.',
-        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır.',
+        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır. BORCU ÖDEDİYSEK bu borç kaydı DEĞİL, ÖDEMEDİR: "Hazal\'a borcum ödendi", "Ali\'ye borcumu ödedim", "borcumu kapattım", "borcumu iade ettim" → "payment" + `debt_repayment`=true (sistem kayıtlı borcu kapatır; kayıtlı borç yoksa eski borç + ödeme yazar, "ne için verdin?" sorulmaz).',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_PURCHASE => '- "purchase": bir CARİDEN mal/hizmet ALDIK ("Ahmet\'ten 10 bin mal aldım", "Kuşak\'tan 20 bin malzeme aldım, 15 Kasım\'da ödeyeceğim", "Mehmet\'ten 5 bin yem aldım nakit ödedim"). Cari zorunlu. `paid`: "ödedim / nakit / peşin / havale" → true; "sonra ödeyeceğim / veresiye / borç" ya da hiç söylenmediyse false. Ödeme tarihi söylendiyse `due_date`. Bu bir ÖDEME DEĞİLDİR ("Ahmet\'e 10 bin ödedim" → payment).',
         self::KIND_AGENDA => '- "agenda": TAKVİM / PROGRAM sorusu — bir günde ya da aralıkta ne var ("Yarın ne var?", "Bu hafta neler var?", "20 Ekim boş mu?", "Pazartesi programım ne?", "Bu ay ödemelerim ne zaman?"). Hiçbir şey kaydedilmez; amount=0. `date_from`/`date_to` (YYYY-MM-DD): tek gün sorulduysa ikisi de o gün; "bu hafta" / "önümüzdeki günler" → bugün / bugün+6 (hafta sonu sorulsa da 7 gün); "gelecek hafta" → gelecek Pazartesi / Pazar; "bu ay" → bugün / ay sonu; söylenmediyse ikisi de null (önümüzdeki 7 gün). Harcama sorusu ("bu hafta ne harcadım") DEĞİLDİR → "expense_summary"; yeni bir olay/hatırlatma bildirimi ("20 Ekim\'de düğünüm var") DEĞİLDİR → "reminder".',
@@ -91,7 +91,7 @@ class ExpenseExtractor
         self::KIND_STOCK_SETTING => '- "stock_setting": GÜNLÜK KULLANIM / UYARI / ALIŞ FİYATI AYARI ("unu günde 3 çuval kullanıyorum, 6 kala haber ver", "maya 2 paket kalınca haber ver", "unu çuvalı 850\'den alıyorum"). `product_id` (listede yoksa null + `product_name` ve `unit`), `daily_usage` (her gün aynı miktar kullanılıyorsa), `reorder_level` (kaç kalınca haber verilsin), `purchase_price` (birim alış fiyatı). Söylenmeyeni null bırak; amount=0. O an bir mal GELDİYSE/ALINDIYSA bu değil → "trade_purchase".',
         self::KIND_PRODUCT_ADD => '- "product_add": STOKTA TUTULACAK ÜRÜN(LER) TANITILIYOR, alış/satış yok ("un, maya, tuz, şeker kullanıyorum", "ürün ekle: un çuval", "simit de satıyorum"). `items`: her ürün {description=ad, unit=birim ("çuval","kg","paket","adet"; söylenmediyse null), unit_price=alış fiyatı söylendiyse}. ÜRÜNLER listesinde olanları yazma. amount=0.',
         self::KIND_MONTH_RESULT => '- "month_result": KAZANÇ / AY SONUCU sorusu ("bu ay ne kazandım?", "Eylül ne kaldı?", "ciro ne kadar?", "bu ayki durum"). `month` (YYYY-MM; söylenmediyse null = bu ay). Hiçbir şey kaydedilmez; amount=0.',
-        self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`. Kullanıcı ekstrenin ya da bir mesajın CARİYE (üçüncü kişiye) gönderilmesini istiyorsa ("Ferdi\'ye at", "Ferdi Cengiz\'e mesaj at", "ekstresini ona gönder", "müşteriye yolla") → yine "statement" ve `forward_to_party`=true (biz cariye mesaj atamayız, kullanıcıya iletmesi söylenir).',
+        self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Yazım hataları ve eş anlamlılar da ekstredir — SORMA, gönder: "ekstra", "extra", "extre", "ektre", "ekstire", "ekistre", "eksre", "döküm", "hesap dökümü", "hareketleri", "kişi adı + pdf" ("Hazal doğan ekstra", "Ferhat extre gönder", "Serkan pdf", "Ali döküm" → statement). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`. Kullanıcı ekstrenin ya da bir mesajın CARİYE (üçüncü kişiye) gönderilmesini istiyorsa ("Ferdi\'ye at", "Ferdi Cengiz\'e mesaj at", "ekstresini ona gönder", "müşteriye yolla") → yine "statement" ve `forward_to_party`=true (biz cariye mesaj atamayız, kullanıcıya iletmesi söylenir).',
     ];
 
     /**
@@ -222,7 +222,8 @@ class ExpenseExtractor
         $content = [];
         if ($image !== null) {
             $content[] = [
-                'type' => 'image',
+                // PDF (dekont) belge olarak, diğerleri resim olarak.
+                'type' => $image['media_type'] === 'application/pdf' ? 'document' : 'image',
                 'source' => [
                     'type' => 'base64',
                     'media_type' => $image['media_type'],
@@ -303,10 +304,16 @@ class ExpenseExtractor
                 . (in_array(self::KIND_PURCHASE, self::aiKinds(), true) ? '"purchase" (cariye yaptırdığımız iş = alış)' : '"expense" (yaptırdığımız iş = maliyet)')
                 . '. "sale" SADECE açık fiille: "yaptım", "sattım", "fatura kestim", "iş yaptım" — cari daha önce müşteri olarak görünse bile fiil yoksa satış SEÇME.'
             : '- Fiil YOKSA ("Ali Bey 80 bin proje") → "sale" (yaptığımız iş).';
+        // Banka dekontu (FAST/EFT/havale, PDF ya da fotoğraf): kişiye/kişiden para → ödeme/tahsilat; banka ücreti ayrı (Taner, 13 Ekim).
+        $receiptRule = '- BANKA DEKONTU (FAST/EFT/havale; PDF ya da fotoğraf): GÖNDEREN biz (kullanıcı/firma) ve ALICI bir kişi/firma ise → "payment", '
+            . 'ALICI biz ve GÖNDEREN başkası ise → "collection". Cari = karşı taraf (ALICI ya da GÖNDEREN adı; listede benzeri varsa onunla eşleştir). '
+            . '`amount` = İŞLEM TUTARI (FAST/EFT ücreti, BSMV, masraf HARİÇ — "TOPLAM" satırı DEĞİL). Ücret + BSMV toplamı varsa `bank_fee`. '
+            . '`date` = işlem tarihi, `payment_type` = "eft", `description` = dekonttaki AÇIKLAMA (yoksa "Havale/EFT"). '
+            . 'Açıklama ya da kullanıcı "borç iade / borcum ödendi" diyorsa `debt_repayment`=true. Kullanıcının mesajı varsa önce o (bekleyen taslağa ek bilgi olabilir).';
         $photoRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)
-            ? '- Fotoğraf (fiş/fatura/dekont/çek) → her zaman "expense". Fişteki/faturadaki SATICI (market, akaryakıt, mağaza, restoran) cari DEĞİLDİR: '
+            ? $receiptRule . "\n" . '- Fotoğraf (fiş/fatura/çek) → her zaman "expense". Fişteki/faturadaki SATICI (market, akaryakıt, mağaza, restoran) cari DEĞİLDİR: '
                 . 'kullanıcı mesajda o kişiyi/firmayı adıyla yazmadıysa ve satıcı aşağıdaki mevcut cari listesinde yoksa `party_id`/`party_name` null.'
-            : '- Fotoğraf (dekont/çek) → belgeden yönü çıkar: bize gelen para → "collection".';
+            : $receiptRule . "\n" . '- Fotoğraf (çek) → belgeden yönü çıkar: bize gelen para → "collection".';
         // Harcama takibi kapalı: kişisiz harcama / "ne harcadım" sorusu zorla başka kalıba girmesin.
         $noExpenseRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true) ? '' : '- HARCAMA (GİDER) TAKİBİ KAPALI: kişisiz bir harcama ("5 bin mazot aldım", "kira ödedim" — kime belli değil) ya da harcama sorusu ("bu ay ne harcadım") → "help", `reply`: "Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor.'
             . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? ' Bir kişiden aldıysan adıyla yaz, örneğin: \"Ahmet\'ten 10 bin mal aldım\".' : '')
@@ -541,6 +548,8 @@ class ExpenseExtractor
                     'party_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing party id or null'],
                     'party_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW party name if the user named one that is not in the list; null if matched or none named'],
                     'direction_unclear' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=sale/purchase: true if it is unclear whether the goods went TO the party (sale) or came FROM the party (purchase); the user is asked'],
+                    'debt_repayment' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=payment: true if this payment repays OUR existing debt ("borcum ödendi", "borç iade")'],
+                    'bank_fee' => ['type' => ['number', 'null'], 'description' => 'Only from a bank receipt (dekont): transfer fee + BSMV total, NOT included in amount; else null'],
                     'party_said' => ['type' => ['string', 'null'], 'description' => "How the user referred to the person/company in THIS message, nominative form, all descriptive words kept (\"Hüseyin BİM'in bacısı Ayten\", \"Ali usta\", \"Demirci Recep\"); null if not named (\"ona\", \"aynı kişi\")"],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
@@ -646,6 +655,31 @@ class ExpenseExtractor
         }
 
         return array_merge($d, ['kind' => self::KIND_COLLECTION, 'payment_purpose' => 'advance', 'paid' => null, 'items' => []]);
+    }
+
+    /**
+     * Emniyet (AI'dan bağımsız): "Hazal'a borcum ödendi / borcumu ödedim / kapattım / iade ettim" BORÇ KAYDI değil ödemedir
+     * (Taner, 13 Ekim: "borcum ödendi" → "sen ona 100.000 borçlusun" yazıldı). Yalnız "borç" + geçmiş zaman ödeme fiili
+     * birlikteyse; "borcum var", "ödeyeceğim", "borcunu ödedi" (o bize ödedi) dokunulmaz. Yönü belirsiz borç notu
+     * da yalnız bu ikiliyle çevrilir.
+     */
+    public static function guardDebtRepayment(array $d, string $text): array
+    {
+        $kind = $d['kind'] ?? null;
+        if (! in_array($kind, [self::KIND_DEBT_NOTE, self::KIND_PAYMENT], true) || trim($text) === ''
+            || ! in_array(self::KIND_PAYMENT, self::allowedKinds(), true)
+            || ($kind === self::KIND_DEBT_NOTE && ($d['debt_side'] ?? null) === 'receivable')) {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $ourDebt = '/bor[cç]um(u|uz|uzu)?\b|bor[cç]u(mu)? (kapatt[ıi]m|[oö]dedim|iade ettim)/u';
+        $paid = '/([oö]dendi|[oö]dedim|kapatt[ıi]m|kapand[ıi]|iade ettim|iade edildi)/u';
+        if (! preg_match($ourDebt, $t) || ! preg_match($paid, $t) || preg_match('/[oö]deyece[gğk]|[oö]derim/u', $t)) {
+            return $d;
+        }
+
+        return array_merge($d, ['kind' => self::KIND_PAYMENT, 'debt_repayment' => true, 'debt_side' => null,
+            'payment_purpose' => null, 'advance' => false]);
     }
 
     /**
@@ -780,6 +814,9 @@ class ExpenseExtractor
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
             'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE], true) && config('modules.cari_supplier')
                 && ! empty($input['direction_unclear']),
+            'debt_repayment' => $kind === self::KIND_PAYMENT && ! empty($input['debt_repayment']),
+            'bank_fee' => in_array($kind, [self::KIND_PAYMENT, self::KIND_COLLECTION], true) && (float) ($input['bank_fee'] ?? 0) > 0
+                ? round((float) $input['bank_fee'], 2) : null,
             'party_said' => is_string($input['party_said'] ?? null) && trim($input['party_said']) !== '' ? trim($input['party_said']) : null,
             'category_id' => isset($input['category_id']) ? (int) $input['category_id'] : null,
             'category_name' => ! empty($input['category_name']) ? trim((string) $input['category_name']) : null,

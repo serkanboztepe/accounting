@@ -13,11 +13,18 @@ use App\Models\Project;
  */
 class ExpenseContext
 {
+    /** Yalnız deneme betikleri: başka firmanın listesiyle AI'ı veritabanına yazmadan denemek için. Canlıda hep null. */
+    public static ?string $override = null;
+
     /**
      * Sistem prompt'una gömülecek kompakt liste bloğu.
      */
     public static function build(): string
     {
+        if (self::$override !== null) {
+            return self::$override;
+        }
+
         $projects = ! config('modules.projects') ? collect() : Project::query()
             ->whereNotIn('status', ['cancelled'])
             ->orderBy('name')

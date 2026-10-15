@@ -238,10 +238,10 @@ class WhatsappWebhookController extends Controller
         // Ses / video / belge: şimdilik okuyamıyoruz — sessizce yardım metni yerine açıkça söyle.
         // (Sesi yazıya çevirme planlı; bkz. hafıza: ses kaydı desteği.)
         $mediaType = (string) $request->input('MediaContentType0', '');
-        if ($numMedia > 0 && $mediaType !== '' && ! Str::startsWith($mediaType, 'image/')) {
+        if ($numMedia > 0 && $mediaType !== '' && ! Str::startsWith($mediaType, 'image/') && $mediaType !== 'application/pdf') {
             return $this->twiml(Str::startsWith($mediaType, 'audio/')
                 ? "🎤 Sesli mesajları henüz dinleyemiyorum. Yazıyla gönderir misin? 🙏\nÖrnek: \"Ali'ye 15 bin verdim\""
-                : "Şu an yazı ve fotoğraf okuyabiliyorum. Fişin/faturanın fotoğrafını çekip gönderir misin? 📷");
+                : "Şu an yazı, fotoğraf ve PDF (dekont, fatura) okuyabiliyorum. Fotoğrafını çekip gönderir misin? 📷");
         }
 
         // Hızlı cevaplar (evet/iptal/numara) dışında AI çağrılacak → "yazıyor…" göster.
@@ -470,6 +470,25 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
+            // Tutarı beklenen taslağa belge geldi (Taner: "borcum ödendi" → tutar soruldu → dekont PDF'i): belge o kaydın tamamlayıcısı.
+            if ($image !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0
+                && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_REMINDER) {
+                try {
+                    $data = $extractor->extract($body ?: null, $image, $pending->extracted);
+                } catch (\Throwable $e) {
+                    Log::error('WhatsApp belge düzeltme hatası', ['msg' => $e->getMessage()]);
+                    $this->inboundKind = 'error';
+
+                    return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
+                }
+                // Kod emniyetleri (borç ödendi vb.) kaydı başlatan cümleyi de görsün — belgenin kendisinde yazı yok.
+                $this->inboundBody = trim((string) WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'in')
+                    ->whereNotNull('body')->where('body', '!=', '')->where('created_at', '>=', $pending->created_at->copy()->subMinute())
+                    ->orderBy('id')->value('body') . ' ' . $this->inboundBody);
+
+                return $this->twiml($this->saveDraft($pending, $phone, $data));
+            }
+
             // Yeni fotoğraf → yeni gider (düzeltme değil): aşağıda taze başla, eski taslak yarım kayıt olarak kalır.
         }
 
@@ -640,6 +659,7 @@ class WhatsappWebhookController extends Controller
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
+        $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
         if ($pending === null && ChatAssistant::enabled()) {
             $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
         }
@@ -647,6 +667,12 @@ class WhatsappWebhookController extends Controller
         if ($pending && empty($data['party_said']) && ! empty($pending->extracted['party_said'])
             && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
             $data['party_said'] = $pending->extracted['party_said'];
+        }
+        // Düzeltme turunda AI borç ödemesi / dekont ücretini tekrarlamayabilir — aynı kişi ve tür ise korunur.
+        if ($pending && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)
+            && $this->kind($data) === $this->kind($pending->extracted)) {
+            $data['debt_repayment'] = ! empty($data['debt_repayment']) || ! empty($pending->extracted['debt_repayment']);
+            $data['bank_fee'] = $data['bank_fee'] ?? ($pending->extracted['bank_fee'] ?? null);
         }
         $data = AdvanceOffset::apply($data, $this->inboundBody);
         $data['party_check'] = in_array($this->kind($data), self::PARTY_KINDS, true) && ($party = $this->existingParty($data))
@@ -1146,6 +1172,18 @@ class WhatsappWebhookController extends Controller
                 : $label . ($description ? ' — ' . $description : '');
         }
 
+        // Kayıtlı olmayan eski borcun ödemesi (Taner/Hazal): önce eski borç, sonra ödeme — bakiye 0, ekstrede geçmiş görünür.
+        if (($missing = DraftGaps::unrecordedDebt($d)) > 0) {
+            PartyLedgerEntry::create([
+                'party_id' => $party->id,
+                'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
+                'type' => PartyLedgerEntry::TYPE_PURCHASE,
+                'description' => 'Borç kaydı — ödemeden önce kayıtlı değildi',
+                'amount' => Money::store($missing),
+                'notes' => 'WhatsApp üzerinden girildi.',
+            ]);
+        }
+
         // Satışta birden fazla iş sayıldıysa her biri ayrı satır; yoksa tek satır.
         $rows = ($kind === ExpenseExtractor::KIND_SALE && ! empty($d['items']))
             ? $d['items']
@@ -1193,6 +1231,18 @@ class WhatsappWebhookController extends Controller
                 'description' => 'Satış tahsilatı' . ($description ? ' — ' . $description : ''),
                 'amount' => Money::store($cashAmount),
                 'notes' => 'WhatsApp üzerinden girildi.',
+            ]);
+        }
+
+        // Dekonttaki banka masrafı (FAST + BSMV): gider açıksa ayrı gider; kapalıysa özette söylendi, yazılmaz.
+        if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0 && config('modules.expenses')) {
+            Expense::create([
+                'expense_category_id' => ExpenseCategory::firstOrCreate(['name' => 'Banka masrafı'])->id,
+                'expense_date' => $d['date'] ?? now()->format('Y-m-d'),
+                'amount' => Money::store($fee),
+                'payment_status' => 'paid',
+                'description' => 'Banka masrafı (FAST + BSMV) — ' . $party->name,
+                'notes' => 'WhatsApp üzerinden girildi (dekont).',
             ]);
         }
 
@@ -1506,7 +1556,7 @@ class WhatsappWebhookController extends Controller
         $used = AdvanceOffset::used($d);
         // Ekstre konvansiyonu: bakiye > 0 → cari bize borçlu, < 0 → biz cariye borçluyuz.
         $after = match ($kind) {
-            ExpenseExtractor::KIND_PAYMENT => $before + $amount,
+            ExpenseExtractor::KIND_PAYMENT => $before + $amount - DraftGaps::unrecordedDebt($d),
             ExpenseExtractor::KIND_SALE => ! empty($d['paid']) ? $before + $used : $before + $amount,
             ExpenseExtractor::KIND_COLLECTION => $before - $amount,
             ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? $before - $amount : $before + $amount,
@@ -1515,7 +1565,12 @@ class WhatsappWebhookController extends Controller
 
         $lines = [];
         if ($kind === ExpenseExtractor::KIND_PAYMENT) {
-            $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ ödedin';
+            $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ '
+                . (! empty($d['debt_repayment']) ? '*borcunu ödedin*' : 'ödedin');
+            if (($missing = DraftGaps::unrecordedDebt($d)) > 0) {
+                $lines[] = 'ℹ️ Bu borç kayıtlı değildi' . ($missing < $amount ? ' (' . Money::format($amount - $missing) . ' ₺ kayıtlıydı)' : '')
+                    . ' — ekstreye eski borç ' . Money::format($missing) . ' ₺ + ödeme olarak yazarım.';
+            }
             if ($this->needsContractChoice($d)) {
                 $lines[] = $name . ' ile birden fazla sözleşmen var. Hangisine ödedin?';
                 foreach ($this->activeContracts($party) as $i => $c) {
@@ -1609,6 +1664,11 @@ class WhatsappWebhookController extends Controller
         $projectText = $project?->name ?? (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : null);
         if ($projectText) {
             $lines[] = '• Proje: ' . $projectText;
+        }
+        if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0) {
+            $lines[] = config('modules.expenses')
+                ? '🏦 Banka masrafı ' . Money::format($fee) . ' ₺ → gider olarak yazarım (Banka masrafı)'
+                : 'ℹ️ Dekontta ' . Money::format($fee) . ' ₺ banka masrafı var, gider takibi açık olmadığı için kaydetmedim.';
         }
         $lines[] = '• Bakiye: ' . $this->balancePhrase($before) . ' → ' . $this->balancePhrase($after);
         if (! empty($d['party_check'])) {
@@ -2047,7 +2107,7 @@ class WhatsappWebhookController extends Controller
     {
         $url = (string) $request->input('MediaUrl0', '');
         $type = (string) $request->input('MediaContentType0', 'image/jpeg');
-        if ($url === '' || ! Str::startsWith($type, 'image/')) {
+        if ($url === '' || (! Str::startsWith($type, 'image/') && $type !== 'application/pdf')) {
             return null;
         }
 

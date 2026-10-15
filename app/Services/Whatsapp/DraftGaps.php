@@ -114,6 +114,17 @@ final class DraftGaps
             && empty($d['party_name']);
     }
 
+    /** Borç ödemesi ("borcum ödendi"): kayıtlı borcun yetmeyen kısmı — eski borç olarak ödemeyle birlikte yazılır, bakiye 0'ın altına inmez. */
+    public static function unrecordedDebt(array $d): float
+    {
+        if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || empty($d['debt_repayment'])) {
+            return 0.0;
+        }
+        $owed = ($party = self::party($d)) ? max(0.0, -PartyStatement::build($party)['balance']) : 0.0;
+
+        return round(max(0.0, (float) ($d['amount'] ?? 0) - $owed), 2);
+    }
+
     /** Mal ona mı gitti, ondan mı geldi belli değil ("Vedat 445 sebze ekmek getirdim") — kullanıcıya sorulur. */
     public static function needsSaleOrPurchase(array $d): bool
     {
@@ -157,7 +168,7 @@ final class DraftGaps
      */
     public static function needsPaymentChoice(array $d): bool
     {
-        if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || self::missingParty($d)
+        if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || ! empty($d['debt_repayment']) || self::missingParty($d)
             || self::activeContracts(self::party($d))->isNotEmpty()) {
             return false; // sözleşmeli cari: ödeme sözleşmeye gider
         }

@@ -510,11 +510,11 @@ class WhatsappLedgerFlowTest extends TestCase
         ])->assertOk()->getContent();
         $pdf = $this->post('/whatsapp/webhook', [
             'From' => self::PHONE, 'Body' => '', 'NumMedia' => 1,
-            'MediaContentType0' => 'application/pdf', 'MediaUrl0' => 'https://api.twilio.com/y',
-        ])->assertOk()->getContent();
+            'MediaContentType0' => 'application/vnd.ms-excel', 'MediaUrl0' => 'https://api.twilio.com/y',
+        ])->assertOk()->getContent(); // PDF artık okunuyor (dekont, 14 Ekim) — okunamayan belge örneği Excel
 
         $this->assertStringContainsString('Sesli mesajları henüz dinleyemiyorum', $voice);
-        $this->assertStringContainsString('yazı ve fotoğraf okuyabiliyorum', $pdf);
+        $this->assertStringContainsString('yazı, fotoğraf ve PDF', $pdf);
     }
 
     public function test_balance_of_contracted_party_shows_remaining_delivery_and_prepaid(): void
