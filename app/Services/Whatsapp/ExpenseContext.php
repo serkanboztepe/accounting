@@ -48,7 +48,14 @@ class ExpenseContext
 
     private static function scoped($query, string $key)
     {
-        return self::$only !== null ? $query->whereIn('id', self::$only[$key] ?? []) : $query;
+        if (self::$only === null) {
+            return $query;
+        }
+        // Denemede konuşma sırasında açılan kayıtlar da (yeni cari / proje) listede görünsün — canlıdaki gibi.
+        $after = self::$only['_after'][$key] ?? null;
+
+        return $query->where(fn ($q) => $q->whereIn('id', self::$only[$key] ?? [])
+            ->when($after !== null, fn ($w) => $w->orWhere('id', '>', $after)));
     }
 
     /**
@@ -143,7 +150,13 @@ class ExpenseContext
             return '';
         }
 
-        return ' (personel' . ($party->salary_amount ? ', maaş ' . \App\Support\Money::format((float) $party->salary_amount) : '')
-            . ($party->salary_day ? ', ayın ' . $party->salary_day . "'i" : '') . ')';
+        // Açık avans ve maaştan kalan KOD hesaplar ("maaşından ne kadar kaldı" sorusu bu satırdan cevaplanır).
+        $advance = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
+        $salary = (float) $party->salary_amount;
+
+        return ' (personel' . ($salary ? ', maaş ' . \App\Support\Money::format($salary) : ', maaşı bilinmiyor')
+            . ($party->salary_day ? ', ayın ' . $party->salary_day . "'i" : '')
+            . ($advance > 0 ? ', açık avans ' . \App\Support\Money::format($advance) : '')
+            . ($salary && $advance > 0 ? ', maaştan kalan ' . \App\Support\Money::format(max(0, $salary - $advance)) : '') . ')';
     }
 }

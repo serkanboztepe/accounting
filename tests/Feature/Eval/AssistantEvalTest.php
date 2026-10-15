@@ -91,7 +91,8 @@ class AssistantEvalTest extends TestCase
         $digits = sprintf('%07d', crc32($case['id']) % 10000000);
         $this->phone = 'whatsapp:+90555' . $digits;
         config([
-            'modules' => ModuleProfiles::resolve($firm['profile'], ($firm['modules'] ?? []) + ['smart_assistant' => true]),
+            'modules' => ModuleProfiles::resolve($firm['profile'], ($firm['modules'] ?? []) + ['smart_assistant' => true]
+                + (getenv('EVAL_VOICE') ? ['natural_voice' => true] : [])),
             'app.profile' => $firm['profile'], 'app.project_label' => null,
             'services.twilio.verify_signature' => false,
             'services.twilio.allowed_phones' => ['0555 ' . substr($digits, 0, 3) . ' ' . substr($digits, 3, 2) . ' ' . substr($digits, 5, 2)],
@@ -115,6 +116,9 @@ class AssistantEvalTest extends TestCase
             }
             $res = $this->post('/whatsapp/webhook', ['From' => $this->phone, 'Body' => $step['send'], 'NumMedia' => 0, 'MessageSid' => 'SM' . uniqid()]);
             $replies[] = trim(strip_tags(html_entity_decode((string) $res->getContent(), ENT_QUOTES | ENT_XML1)));
+            if (getenv('EVAL_SHOW')) {
+                fwrite(STDERR, "\n> " . $step['send'] . "\n< " . end($replies) . "\n");
+            }
         }
         $seconds = round(microtime(true) - $t0, 1);
         $reply = (string) end($replies);
@@ -192,7 +196,9 @@ class AssistantEvalTest extends TestCase
             $this->ids['category'][$name] = ExpenseCategory::firstOrCreate(['name' => $name])->id;
         }
         ExpenseContext::$only = ['parties' => array_values($this->ids['party']), 'projects' => array_values($this->ids['project']),
-            'products' => array_values($this->ids['product']), 'categories' => array_values($this->ids['category']), 'expenses' => []];
+            'products' => array_values($this->ids['product']), 'categories' => array_values($this->ids['category']), 'expenses' => [],
+            '_after' => ['parties' => (int) Party::max('id'), 'projects' => (int) Project::max('id'), 'products' => (int) Product::max('id'),
+                'categories' => (int) ExpenseCategory::max('id'), 'expenses' => (int) Expense::max('id')]];
     }
 
     private function seedRow(array $row): void

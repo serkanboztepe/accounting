@@ -27,6 +27,7 @@ use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
 use App\Services\Whatsapp\DeferTurn;
 use App\Services\Whatsapp\EmployeeDraft;
+use App\Services\Whatsapp\NaturalVoice;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Services\Whatsapp\ProjectChoice;
 use App\Support\Agenda;
@@ -798,7 +799,8 @@ class WhatsappWebhookController extends Controller
                     $data['next_items'] = $pending->extracted['next_items'];
                 }
                 $out = $this->saveDraft($pending, $phone, $data);
-                $said = trim((string) ($result['text'] ?? ''));
+                // Doğal konuşmada AI'ın ayrı ön metni tekrar olur — özet zaten konuşur gibi.
+                $said = NaturalVoice::enabled() ? '' : trim((string) ($result['text'] ?? ''));
 
                 return $said !== '' && is_string($out) ? $said . "\n\n" . $out : $out;
             default:
@@ -827,6 +829,12 @@ class WhatsappWebhookController extends Controller
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $out = $this->saveDraftInner($pending, $phone, $data, $mediaUrl);
+        // Doğal konuşma (modül): taslak özetini AI insan gibi yazar; rakam güvenliği tutmazsa kalıp aynen gider.
+        if (is_string($out) && NaturalVoice::enabled() && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
+            && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
+            && trim((string) $open->summary) !== '' && str_contains($out, trim((string) $open->summary))) {
+            $out = NaturalVoice::render($out, $this->inboundBody, (float) ($open->extracted['amount'] ?? 0) ?: null);
+        }
         $draft = $this->openDraft?->fresh();
         if (! in_array($this->inboundKind, self::ANSWER_KINDS, true) || ! $draft || $draft->status !== 'awaiting_confirmation') {
             return $out;
@@ -1627,7 +1635,20 @@ class WhatsappWebhookController extends Controller
 
         $pending->update(['status' => 'confirmed']);
 
-        return '✅ Kaydedildi. ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+        // Personel ama maaşı bilinmiyor → hemen sor (Serkan 16.10): cevabı ("45 bin, ayın 5'i") karta yazılır, maaş günü
+        // hatırlatması kurulur; sonra "maaşından ne kadar kaldı" hesaplanabilir.
+        $ask = $party->is_employee && ! $party->salary_amount
+            ? "\n\n👷 " . $party->name . " personel olarak kayıtlı. Aylık maaşı ne kadar, ayın kaçında ödüyorsun? (ör. *45 bin, ayın 5'i*) — avansları maaşından düşer, maaş gününde hatırlatırım."
+            : '';
+
+        $balance = PartyStatement::build($party)['balance'];
+        // Personelde "sana borcu" değil, avans dili: kaç avans aldı, maaşından ne kaldı.
+        $line = $party->is_employee && $balance > 0.009
+            ? $party->name . ' toplam ' . Money::format($balance) . ' ₺ avans aldı — maaşından düşülecek'
+                . ($party->salary_amount ? ' (maaşından kalan ' . Money::format(max(0, (float) $party->salary_amount - $balance)) . ' ₺).' : '.')
+            : $this->balanceLine($party->name, $balance);
+
+        return '✅ Kaydedildi. ' . $line . $ask;
     }
 
     /** Personel ayarı / maaş taslağı: özet + teyit (eksikse soru). */
