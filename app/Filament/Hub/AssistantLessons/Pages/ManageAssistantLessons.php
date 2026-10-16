@@ -11,7 +11,8 @@ class ManageAssistantLessons extends ManageRecords
 
     public function getSubheading(): ?string
     {
-        return 'Her sabah 08:30 analizi asistanın dünkü hatalarından kural önerir. Onayladığın kural asistanın talimatına girer '
-            . '(firma dersi yalnız o firmaya). Onaylamadan hiçbir şey değişmez. Deneme satırı: bu hata bir daha olursa yakalayacak örnek.';
+        return 'Her sabah 08:30 analizi asistanın dünkü hatalarından kural önerir. "Kural doğru, uygula": asistan bundan sonra buna uyar. '
+            . '"Kuralı ben yazayım": ne yapması gerektiğini kendi sözlerinle yazarsın. "Gerek yok": asistan haklıydı ya da kural zararlı — '
+            . 'hiçbir şey değişmez. Emin değilsen "Müşteriye sor". Onaylamadan hiçbir şey değişmez.';
     }
 }

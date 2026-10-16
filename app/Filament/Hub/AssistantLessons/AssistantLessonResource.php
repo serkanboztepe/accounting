@@ -70,11 +70,11 @@ class AssistantLessonResource extends Resource
                 SelectFilter::make('status')->label('Durum')->options(AssistantLesson::STATUSES)->default('pending'),
             ])
             ->recordActions([
-                Action::make('approve')->label('Onayla')->icon(Heroicon::OutlinedCheck)->color('success')
+                Action::make('approve')->label('Kural doğru, uygula')->icon(Heroicon::OutlinedCheck)->color('success')
                     ->visible(fn (AssistantLesson $r) => $r->status === 'pending')
                     ->requiresConfirmation()->modalDescription(fn (AssistantLesson $r) => 'Asistan bundan sonra şuna uyacak: ' . $r->rule)
                     ->action(fn (AssistantLesson $r) => self::decide($r, 'approved')),
-                Action::make('edit_approve')->label('Düzelt ve onayla')->icon(Heroicon::OutlinedPencilSquare)
+                Action::make('edit_approve')->label('Kuralı ben yazayım')->icon(Heroicon::OutlinedPencilSquare)
                     ->visible(fn (AssistantLesson $r) => in_array($r->status, ['pending', 'approved'], true))
                     ->fillForm(fn (AssistantLesson $r) => ['rule' => $r->rule, 'hub_firm_id' => $r->hub_firm_id])
                     ->schema([
@@ -99,10 +99,10 @@ class AssistantLessonResource extends Resource
                         $msg = \App\Support\LessonQuestion::send($r, $firm, $data['phone'], $data['question']);
                         Notification::make()->title($msg)->success()->send();
                     }),
-                Action::make('reject')->label('Reddet')->icon(Heroicon::OutlinedXMark)->color('gray')
+                Action::make('reject')->label('Gerek yok')->icon(Heroicon::OutlinedXMark)->color('gray')
                     ->visible(fn (AssistantLesson $r) => $r->status === 'pending')
                     ->action(fn (AssistantLesson $r) => self::decide($r, 'rejected')),
-                Action::make('retire')->label('Kaldır')->icon(Heroicon::OutlinedArchiveBox)->color('danger')
+                Action::make('retire')->label('Kuralı kaldır')->icon(Heroicon::OutlinedArchiveBox)->color('danger')
                     ->visible(fn (AssistantLesson $r) => $r->status === 'approved')
                     ->requiresConfirmation()->modalDescription('Asistan artık bu kurala uymayacak.')
                     ->action(fn (AssistantLesson $r) => self::decide($r, 'retired')),
