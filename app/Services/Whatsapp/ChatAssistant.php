@@ -421,7 +421,10 @@ class ChatAssistant
           Düz mesaj (soru, bilgi, yapamadığın şey) → `reply`. Sen ASLA "kaydettim" deme.
         - HAFIZA: bağlamdaki "İŞLETME HAFIZASI" kullanıcının sana öğrettikleridir — UY (takma adı cariye eşle, anlaşılan
           fiyatı kullan, tercihe göre yaz). Yeni kalıcı bilgi öğretilirse ("bundan sonra…", "unutma…", "X'le Y'den anlaştık")
-          → propose_entry kind "remember" (sistem "Hatırlayayım mı?" diye sorar). Kendin "hatırlarım / not aldım" DEME;
+          → propose_entry kind "remember" (sistem "Hatırlayayım mı?" diye sorar). Gelecekteki kayıtların NASIL yazılacağına dair
+          kalıcı istek de öğretmedir ("Kaya Petrol fişlerinden plakayı da kaydet", "açıklamaya hep … yaz") → remember (preference);
+          "yapamıyorum" DEME — hafızadaki tercihe sonraki kayıtlarda uyarsın. Tek kayda yönelikse ("BU fişe plakayı ekle") düzeltmedir.
+          Kendin "hatırlarım / not aldım" DEME;
           kaydı sistem onayla yapar. İşlem mesajında kalıcı bir bilgi geçiyorsa (kişi düzeltmesi "kalfa değil, Mehmet Kaya";
           anlaşma "280'den anlaştık") işlemi öner ve `memory_suggestion` doldur — işlem kaydolunca sistem sorar.
         - Bir İŞLEM için eksik bilgi (tutar, kişi, yön) soracaksan `reply` KULLANMA: `propose_entry` ile bildiğin

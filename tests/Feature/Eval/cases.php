@@ -29,7 +29,7 @@ return [
         'ferhat' => [
             'profile' => 'mimar', 'modules' => ['projects' => true],
             'projects' => ['EROL ALTINER'],
-            'parties' => ['BAHADIR PİR' => [], 'FUAT ALKAN' => [], 'RAMADA OTEL' => [], 'YAKUP TAŞ' => []],
+            'parties' => ['BAHADIR PİR' => [], 'FUAT ALKAN' => [], 'RAMADA OTEL' => [], 'YAKUP TAŞ' => [], 'KAYA PETROL' => []],
         ],
         'muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true],
@@ -235,6 +235,22 @@ return [
         ['id' => 'mem-liste-ve-unut', 'firm' => 'erkan', 'group' => 'regression', 'seed' => 'erkan-hafiza',
             'steps' => [['send' => 'neleri hatırlıyorsun'], ['send' => 'Recep fiyatını unut'], ['send' => 'evet'], ['send' => 'neleri hatırlıyorsun']],
             'expect' => ['reply_has' => ['Henüz bana öğrettiğin'], 'reply_not' => ['Recep Demirci ile']]],
+        // Ferhat 16.10 10:32: kayıtların NASIL yazılacağına dair kalıcı istek = tercih (remember) — "yapamıyorum" denmişti.
+        ['id' => 'mem-kayit-tercihi-plaka', 'firm' => 'ferhat', 'group' => 'regression',
+            'steps' => [['send' => 'Kaya petrolde attığım fişlerden plakayı da kaydet']],
+            'expect' => ['draft' => ['kind' => 'remember'], 'reply_has' => ['Hatırlayayım mı'], 'reply_not' => ['yapamıyorum', 'özelliğim yok']]],
+        ['id' => 'mem-kayit-tercihi-aciklama', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Yakıt fişlerinde açıklamaya hep plakayı yaz']],
+            'expect' => ['draft' => ['kind' => 'remember'], 'reply_has' => ['Hatırlayayım mı'], 'reply_not' => ['yapamıyorum']]],
+        ['id' => 'mem-kayit-tercihi-kategori', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Ali Usta ya yaptığım ödemeleri açıklamaya hep işçilik diye yaz']],
+            'expect' => ['draft' => ['kind' => 'remember'], 'reply_has' => ['Hatırlayayım mı']]],
+        // Tek seferlik düzeltme ("BU fişe") hafızaya GİRMEZ — açık taslak düzeltilir.
+        ['id' => 'mem-tek-seferlik-degil', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['pending' => ['kind' => 'expense', 'amount' => 4760.38, 'date' => '2026-10-16', 'description' => 'Kurşunsuz 95 yakıt',
+                'category_name' => 'Yakıt', 'party_id' => null, 'confidence' => 'high', 'is_new_entry' => true]],
+                ['send' => 'bu fişe plakayı da ekle 24FC004']],
+            'expect' => ['draft' => ['kind' => 'expense', 'amount' => 4760.38], 'reply_not' => ['Hatırlayayım mı']]],
         // ---------------------------------------------------------------- Faz 5: zor soru (büyük model)
         ['id' => 'F5-sube-karsilastir', 'firm' => 'akkus', 'group' => 'capability', 'seed' => 'akkus-iki-hafta',
             'steps' => [['send' => 'Son iki haftada hangi şube daha çok kazandırdı']],
