@@ -281,7 +281,7 @@ return [
             'expect' => ['asks' => true, 'saved' => ['ledger' => 0]]],
         ['id' => 'U-abdurrahman-is-bitti', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Abdurrahman ustaya 115.000 tl borcum var'],
-                ['send' => 'işi bitirdi parasını vermedim', 'expect' => ['ready' => true, 'meaning_any' => ['bitirdi', 'bitti', 'yaptı']]],
+                ['send' => 'işi bitirdi parasını vermedim', 'expect' => ['ready' => true, 'meaning_any' => ['bitir', 'bitti', 'yaptı', 'tamamla']]],
                 ['send' => 'evet']],
             'expect' => ['balance' => ['@party:Abdurrahman Usta' => -115000]]],
         ['id' => 'U-abdurrahman-anlasma-borc-degil', 'firm' => 'taner', 'group' => 'understand',

@@ -23,6 +23,7 @@ use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseContext;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
+use App\Services\Whatsapp\Understanding;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
 use App\Services\Whatsapp\DeferTurn;
@@ -666,6 +667,10 @@ class WhatsappWebhookController extends Controller
      */
     private function commitThenNext(WhatsappPendingExpense $pending, string $phone): string|array
     {
+        // Önce anla: cevaplanmamış soru varken "evet" kaydetmez — soru tekrar (tahmin yok).
+        if (($ask = Understanding::gap($pending->extracted)) !== null) {
+            return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
+        }
         // K8: hatırlatılmış ve AI'ın şüphe sorusu cevaplanmamış taslak tek "evet"le kaydolmaz — önce soru.
         if ($pending->follow_ups > 0 && ($gap = DraftFollowUp::gap($pending))['code'] === DraftGaps::DETAIL
             && trim((string) ($pending->extracted['question'] ?? '')) !== '') {
@@ -821,6 +826,10 @@ class WhatsappWebhookController extends Controller
                 if ($pending && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
                     $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true, 'advance_declined' => true]);
                 }
+                // Önce anla: belgeden okunan çekler soru-cevap turunda kaybolmasın.
+                if ($pending && empty($data['checks']) && ! empty($pending->extracted['checks'])) {
+                    $data['checks'] = $pending->extracted['checks'];
+                }
                 // Düzeltmede sıradaki kalem unutulmasın (Recep takası: peynir satışı düzeltme turunda kayboldu).
                 if ($pending && empty($data['next_items']) && ! empty($pending->extracted['next_items'])) {
                     $data['next_items'] = $pending->extracted['next_items'];
@@ -914,6 +923,11 @@ class WhatsappWebhookController extends Controller
         }
         $data = $this->applyReceiptPayment($pending, $data);
         $data = $this->askCheckParty($data);
+        // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
+        $data = Understanding::apply($data);
+        if (($checks = Understanding::checksNote($data)) && ! str_contains((string) ($data['description'] ?? ''), $checks)) {
+            $data['description'] = trim(($data['description'] ?? '') . ' — ' . $checks, ' —');
+        }
         if ($pending && ! empty($pending->extracted['project_choice_done']) && $this->kind($data) === $this->kind($pending->extracted)
             && empty($data['project_id']) && empty($data['project_name'])) {
             $data['project_choice_done'] = true; // "0 = genel" seçimi düzeltme turunda kaybolmasın
@@ -952,6 +966,20 @@ class WhatsappWebhookController extends Controller
         // "Ali'ye 15 bin avans / borç verdim" ya da "Ne için verdin?" cevabı → masraf/avans sorusu yok.
         if ($this->kind($data) === ExpenseExtractor::KIND_PAYMENT && in_array($data['payment_purpose'] ?? null, ['advance', 'loan'], true)) {
             $data['advance'] = true;
+        }
+
+        // Önce anla (16.10): kaydı değiştirecek bir şey tahminse taslak onaya HAZIRLANMAZ — soru gider, cevap bu taslağa işlenir.
+        if (($ask = Understanding::gap($data)) !== null) {
+            $data['question'] = $ask;
+            $text = implode("\n", ['❓ ' . $ask, ...Understanding::checkWarnings($data)]);
+            if ($pending) {
+                $pending->update(['extracted' => $data, 'summary' => $text]);
+            } else {
+                WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $text,
+                    'media_url' => $mediaUrl, 'status' => 'awaiting_confirmation']);
+            }
+
+            return $text . "\nVazgeçmek için *iptal*.";
         }
 
         if ($this->kind($data) === ExpenseExtractor::KIND_HELP) {
@@ -1054,6 +1082,13 @@ class WhatsappWebhookController extends Controller
         }
 
         $summary = $this->buildSummary($data);
+        // Anlam cümlesi (16.10): kesin anlaşılsa bile olay düz cümleyle en üstte — kullanıcı yanlışı burada yakalar.
+        if (! empty($data['meaning'])) {
+            $summary = '🗣 ' . $data['meaning'] . "\n" . $summary;
+        }
+        if ($warnings = Understanding::checkWarnings($data)) {
+            $summary .= "\n" . implode("\n", $warnings);
+        }
         if ($projectLines = ProjectChoice::lines($data)) {
             $summary .= "\n" . implode("\n", $projectLines);
         }

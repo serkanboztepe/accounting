@@ -403,6 +403,7 @@ class ExpenseExtractor
         }
 
         $lastPartyBlock = $lastParty !== null ? $this->lastPartyContext($lastParty) : '';
+        $understand = Understanding::RULES;
 
         return <<<PROMPT
         {$intro} Kullanıcı sana
@@ -412,6 +413,8 @@ class ExpenseExtractor
 
         Bugünün tarihi: {$today}. Tarih belirtilmemişse `date` alanına bugünü koy.
         {$refine}{$lastPartyBlock}
+        {$understand}
+
         İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
         {$kinds}
         {$photoRule}
@@ -562,7 +565,7 @@ class ExpenseExtractor
             'description' => 'Çıkarılan işlem bilgisini yapılandırılmış olarak döndürür.',
             'input_schema' => [
                 'type' => 'object',
-                'properties' => self::tradeProperties() + [
+                'properties' => self::tradeProperties() + Understanding::schema() + [
                     'kind' => ['type' => 'string', 'enum' => self::aiKinds(), 'description' => 'Entry kind; see system prompt'],
                     'items' => self::itemsSchema(),
                     'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
@@ -606,7 +609,8 @@ class ExpenseExtractor
                     'reply' => ['type' => ['string', 'null'], 'description' => 'Only for kind=help: short Turkish guidance reply (max 3 sentences)'],
                     'is_new_entry' => ['type' => 'boolean', 'description' => 'Only meaningful when a previous draft is provided: true if the new message is a brand-new separate entry or a balance question (extract from scratch, ignore previous), false if it refines the previous draft. Default false.'],
                 ],
-                'required' => ['kind', 'amount', 'description', 'paid', 'confidence'],
+                // work_status_known zorunlu: kişiyle para/borç kaydında AI "biliyor muyum" demek ZORUNDA (önce anla).
+                'required' => ['kind', 'amount', 'description', 'paid', 'confidence', 'work_status_known'],
             ],
         ];
     }
@@ -1007,7 +1011,7 @@ class ExpenseExtractor
 
         $paymentType = $input['payment_type'] ?? null;
 
-        return [
+        return Understanding::normalize($input) + [
             'kind' => $kind,
             'items' => $kind === self::KIND_SALE || $tradeItems ? $items : [],
             'product_id' => $stockKind && ! empty($input['product_id']) ? (int) $input['product_id'] : null,

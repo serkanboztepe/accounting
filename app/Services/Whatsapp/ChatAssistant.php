@@ -383,6 +383,8 @@ class ChatAssistant
                 // Stoklu satış taslağı düzeltilirken bunlar kaybolmasın (nakit/kart, sayım, ürün ayarı).
                 'product_id', 'cash_amount', 'card_amount', 'counted_quantity', 'daily_usage', 'reorder_level', 'month',
                 'purchase_price', 'product_name', 'unit', 'next_items',
+                // Önce anla: sorulan soru ve anlaşılanlar (cevap gelince aynı kayıt tamamlanır).
+                'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];
@@ -403,6 +405,7 @@ class ChatAssistant
         }
         $modules[] = '- Listede olmayan kişi için yeni cari SEN açabilirsin: `party_name` yaz, onayla birlikte açılır. "Cariye ekle" bunu ister — "panelden ekle" deme.';
         $cannot = $stock ? 'hayvan sayımı, hayvan listesi' : 'hayvan sayımı, stok listesi';
+        $understand = Understanding::RULES;
         $modules = "BU HESAPTA:\n" . implode("\n", $modules) . "\n";
 
         $rules = <<<PROMPT
@@ -474,6 +477,11 @@ class ChatAssistant
           hatırlatma, "bu ay ne harcadım" (expense_summary), "ciro ne kadar / ay sonucu" (month_result).
         - Ekstre (kişinin hesap dökümü) PDF olarak gönderilir; "PDF" isteğinde hangi kişinin ekstresi olduğunu sor.
         - Yapamadığın bir şeyse ({$cannot}…) kibarca söyle ve yapabildiğin bir örnek ver.
+
+        {$understand}
+        - Soru sorduğun taslağa kullanıcının cevabı gelince ("daha takılmadı", "işi bitirdi", "anlaştık") aynı kaydı cevaba göre
+          `work_status` + `work_status_known`=true ile yeniden öner (is_new_entry=false). Cevap da belirsizse ("asansör bedeli")
+          known=false bırak ve soruyu başka sözlerle tekrar sor.
 
         İŞLEM TÜRLERİ (`kind`):
         {$kinds}
