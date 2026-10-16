@@ -57,7 +57,7 @@ class ConversationAnalyzer
     /**
      * Claude'dan rapor. İlk satır "ÖZET: …" (WhatsApp özeti), kalanı markdown rapor.
      *
-     * @return array{summary:string,body:string,model:string,cost_usd:float}
+     * @return array{summary:string,body:string,model:string,cost_usd:float,lessons:list<array>}
      */
     public function analyze(string $transcript, CarbonInterface $day): array
     {
@@ -87,6 +87,14 @@ class ConversationAnalyzer
         $usage = (array) $response->json('usage', []);
         $cost = (($usage['input_tokens'] ?? 0) * $in + ($usage['output_tokens'] ?? 0) * $out) / 1_000_000;
 
+        // Dersler bloğu (Faz 3): raporun sonundaki ```dersler JSON — rapordan ayrılır, hub'da onaya gelir.
+        $lessons = [];
+        if (preg_match('/```dersler\s*(\[.*?\])\s*```/su', $text, $lm)) {
+            $decoded = json_decode($lm[1], true);
+            $lessons = is_array($decoded) ? array_values(array_filter($decoded, fn ($l) => is_array($l) && ! empty($l['rule']) && ! empty($l['problem']))) : [];
+            $text = trim(str_replace($lm[0], '', $text));
+        }
+
         $summary = '';
         if (preg_match('/^\s*ÖZET:\s*(.+)$/mu', $text, $m)) {
             $summary = trim($m[1]);
@@ -98,6 +106,7 @@ class ConversationAnalyzer
             'body' => self::maskAmounts($text),
             'model' => $model,
             'cost_usd' => round($cost, 6),
+            'lessons' => array_map(fn ($l) => array_map(fn ($v) => is_string($v) ? self::maskAmounts(trim($v)) : $v, $l), array_slice($lessons, 0, 5)),
         ];
     }
 
@@ -227,6 +236,20 @@ class ConversationAnalyzer
         - Tutar yazma (rakamları raporda tekrar etme); "yüksek tutarlı", "kira tutarı" gibi söyle.
         - Uydurma: konuşmada olmayan bir şeyi olmuş gibi yazma. Emin değilsen "olabilir" de.
         - Asistanın doğru yaptığı şeyleri öneri diye yazma; sadece gerçekten iyileşecek yerler.
+
+        DERSLER (raporun EN SONUNA, makine için): asistanın bir mesajı YANLIŞ anladığı / yanlış cevap verdiği her
+        GERÇEK hata için asistana yazılacak bir kural öner. Tam olarak şu biçimde, ```dersler ile başlayan bir kod
+        bloğunda JSON dizi (hata yoksa []):
+        ```dersler
+        [{"firm": "Firma adı (raporda yazdığın gibi)", "scope": "firm" ya da "general",
+          "problem": "ne oldu — kullanıcının mesajından kısa alıntı + asistanın yanlış cevabı",
+          "cause": "asistan neden yanlış anladı (tek cümle)",
+          "rule": "asistana TEK CÜMLE kural, genel ifadeyle (kişi adı/tutar yok): ör. 'Şube adı + kasa + nakit/pos rakamları yazan mesaj o şubenin günlük cirosudur, başka taslağın cevabı değildir.'",
+          "example_message": "bu hatayı yakalayacak örnek kullanıcı mesajı (gerçek mesaja benzer, adlar Cari-N)",
+          "expected": "asistanın yapması gereken (ör. 'peşin satış, şube X' / 'maaş mı avans mı diye sorar')"}]
+        ```
+        scope: yalnız bu firmanın işine/diline özgüyse "firm", her esnafta olabilecekse "general". En çok 5 ders;
+        aynı hatanın tekrarını tek derste topla. Asistanın kod hatası (ör. kayıt yazılamadı) ders değildir, raporda öner.
         PROMPT;
     }
 }

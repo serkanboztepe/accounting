@@ -78,6 +78,14 @@ class ExpenseContext
 
         $lines = [];
         // İşletme hafızası (Faz 2): kullanıcının öğrettikleri — en üstte, AI buna uyar.
+        // Öğrenilen dersler (Faz 3): gece analizinin önerip yöneticinin onayladığı kurallar — genel + bu firmanın.
+        if ($rules = \App\Models\AssistantLesson::rulesForCurrentFirm()) {
+            $lines[] = 'ÖĞRENİLEN DERSLER (geçmiş hatalardan; yönetici onaylı — UY):';
+            foreach ($rules as $rule) {
+                $lines[] = '  - ' . $rule;
+            }
+            $lines[] = '';
+        }
         if ($memory = MemoryDraft::contextLines($phone)) {
             $lines[] = 'İŞLETME HAFIZASI (kullanıcının öğrettikleri — uy; çelişirse yeni mesaj geçerli):';
             array_push($lines, ...$memory);

@@ -57,12 +57,44 @@ class AnalyzeConversations extends Command
         ])->save();
 
         $this->info("Rapor #{$report->id} yazıldı (\${$result['cost_usd']}): {$result['summary']}");
+        $lessons = $this->storeLessons($report, $result['lessons'] ?? []);
+        if ($lessons > 0) {
+            $this->info("{$lessons} ders önerisi onaya düştü (hub → Dersler).");
+        }
 
         if (! $this->option('no-send')) {
             $this->sendSummary($report, $sender);
         }
 
         return self::SUCCESS;
+    }
+
+    /** Gece analizinin ders önerileri → onay bekleyen (hub → Dersler). Aynı kural zaten varsa tekrar eklenmez. */
+    private function storeLessons(ConversationReport $report, array $lessons): int
+    {
+        $firms = \App\Models\HubFirm::pluck('id', 'name');
+        $n = 0;
+        foreach ($lessons as $l) {
+            $rule = trim((string) ($l['rule'] ?? ''));
+            if ($rule === '' || \App\Models\AssistantLesson::where('rule', $rule)->exists()) {
+                continue;
+            }
+            $general = ($l['scope'] ?? '') === 'general';
+            \App\Models\AssistantLesson::create([
+                'conversation_report_id' => $report->id,
+                'hub_firm_id' => $general ? null : ($firms[$l['firm'] ?? ''] ?? null),
+                'firm_name' => $l['firm'] ?? null,
+                'problem' => mb_substr((string) $l['problem'], 0, 2000),
+                'cause' => isset($l['cause']) ? mb_substr((string) $l['cause'], 0, 1000) : null,
+                'rule' => mb_substr($rule, 0, 1000),
+                'example_message' => isset($l['example_message']) ? mb_substr((string) $l['example_message'], 0, 1000) : null,
+                'expected' => isset($l['expected']) ? mb_substr((string) $l['expected'], 0, 1000) : null,
+                'status' => 'pending',
+            ]);
+            $n++;
+        }
+
+        return $n;
     }
 
     private function sendSummary(ConversationReport $report, WhatsappSender $sender): void
@@ -77,7 +109,9 @@ class AnalyzeConversations extends Command
         $text = "📊 *Rapor #{$report->id}* (" . $report->report_date->locale('tr')->translatedFormat('j F') . ")\n"
             . $report->summary . "\n\n"
             . 'Ayrıntı: ' . rtrim((string) config('app.url'), '/') . "/hub → Günlük Analiz\n"
-            . "Yorumların için Claude'a \"Rapor {$report->id}: …\" yaz.";
+            . "Yorumların için Claude'a \"Rapor {$report->id}: …\" yaz."
+            . (($pending = \App\Models\AssistantLesson::where('status', 'pending')->count()) > 0
+                ? "\n🎓 {$pending} ders önerisi onayını bekliyor: /hub → Dersler" : '');
 
         $sent = false;
         foreach ($phones as $phone) {
