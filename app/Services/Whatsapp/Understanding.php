@@ -54,6 +54,8 @@ final class Understanding
       peşin mi ödüyorsunuz?"). Malın cinsi, ödeme şekli, toplam bedel gibi kaydı değiştirmeyenleri SORMA. Açık mesajda soru YOK.
     - Kişi: yazılan ad listedeki biriyle aynı değilse ve aynı kişi olduğu kesin değilse (ör. "Sinan usta" ↔ CARİLER'de "Sinan Sele")
       `party_certain`=false ve sor ("Sinan Sele mi, başka bir Sinan mı?"). Aynı ad ya da hafızadaki takma ad → true.
+      Listede benzeri olmayan YENİ kişi işiyle anılıyorsa ("boyacı usta", "kaynakçı") o adla yeni kişi aç (`party_name`), adını SORMA —
+      kaydı değiştirmez; party_certain=true.
     - Bir kişiye (usta, firma, tedarikçi) yapılan ödeme/iş o kişinin hesabına yazılır (`party_name`); gider yalnız kişisiz harcamadır
       (yakıt fişi, kira, market).
     - BELGE mesajdan üstündür: çek görüntüsünde her çeki `checks`'e yaz (no, vade YAZILDIĞI GİBİ, tutar) — ödeme çekle yapılmıştır;
