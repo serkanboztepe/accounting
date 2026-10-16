@@ -31,6 +31,11 @@ return [
             'projects' => ['EROL ALTINER'],
             'parties' => ['BAHADIR PİR' => [], 'FUAT ALKAN' => [], 'RAMADA OTEL' => [], 'YAKUP TAŞ' => [], 'KAYA PETROL' => []],
         ],
+        // Kent İnşaat (firma 11): müteahhit ama paket alacak-verecek (sözleşme/proje yok) — canlıdaki gibi.
+        'taner' => [
+            'profile' => 'alacak_verecek', 'modules' => ['natural_voice' => true],
+            'parties' => ['Ferhat Yıldız' => [], 'Abdurrahman Usta' => [], 'Sinan Sele' => [], 'Hazal Doğan' => [], 'Asansör Osman' => []],
+        ],
         'muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true],
             'projects' => ['Cumhuriyet', 'Bahçelievler'],
@@ -251,6 +256,87 @@ return [
                 'category_name' => 'Yakıt', 'party_id' => null, 'confidence' => 'high', 'is_new_entry' => true]],
                 ['send' => 'bu fişe plakayı da ekle 24FC004']],
             'expect' => ['draft' => ['kind' => 'expense', 'amount' => 4760.38], 'reply_not' => ['Hatırlayayım mı']]],
+        // ================================================================ ÖNCE ANLA, SONRA KAYDET (Taner, 13–16 Ekim)
+        // Gerçek konuşmalar + hedef davranış (kullanıcıyla 16.10). asks = kaydı değiştiren belirsizlik → soru (onaya hazır DEĞİL);
+        // ready = açık → sorusuz onay; meaning_any = anlam cümlesi; balance = konuşma sonunda cari bakiyesi (>0 o bize borçlu).
+        // T1 Ferhat 5.000 "proje bedeli": proje teslim mi edildi, peşin mi? (sistem avans tahmin etti)
+        ['id' => 'U-ferhat-proje-bedeli-belirsiz', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Ferhat yıldız 5000 tl ödendi'], ['send' => 'Proje bedeli']],
+            'expect' => ['asks' => true, 'saved' => ['ledger' => 0]]],
+        ['id' => 'U-ferhat-proje-teslim-edildi', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Ferhat Yıldız projeyi teslim etti, 5000 proje bedelini ödedim',
+                'expect' => ['ready' => true, 'meaning_any' => ['teslim']]], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Ferhat Yıldız' => 0]]],
+        ['id' => 'U-ferhat-proje-pesin', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Ferhat Yıldıza çizeceği proje için 5000 peşin verdim',
+                'expect' => ['ready' => true, 'meaning_any' => ['çizecek', 'teslim', 'henüz', 'peşin']]], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Ferhat Yıldız' => 5000]]],
+        // T2 "Kime ne kadar ödendi" — soru, kayıt değil
+        ['id' => 'U-kime-ne-kadar-odendi', 'firm' => 'taner', 'group' => 'understand', 'seed' => 'taner-odemeler',
+            'steps' => [['send' => 'Kime nekadar ödendi']],
+            'expect' => ['no_new_draft' => true, 'reply_has' => ['Ferhat', 'Sinan']]],
+        // T3 Abdurrahman "115.000 borcum var": iş bitti mi / yapacağı işe anlaşma mı / borç para mı? (sistem veresiye alış tahmin etti)
+        ['id' => 'U-abdurrahman-borcum-var-belirsiz', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Abdurrahman ustaya 115.000 tl borcum var']],
+            'expect' => ['asks' => true, 'saved' => ['ledger' => 0]]],
+        ['id' => 'U-abdurrahman-is-bitti', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Abdurrahman ustaya 115.000 tl borcum var'],
+                ['send' => 'işi bitirdi parasını vermedim', 'expect' => ['ready' => true, 'meaning_any' => ['bitirdi', 'bitti', 'yaptı']]],
+                ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Abdurrahman Usta' => -115000]]],
+        ['id' => 'U-abdurrahman-anlasma-borc-degil', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Abdurrahman ustaya 115.000 tl borcum var'], ['send' => 'daha başlamadı 115 bine anlaştık'], ['send' => 'evet']],
+            'expect' => ['saved' => ['ledger' => 0], 'balance' => ['@party:Abdurrahman Usta' => 0]]],
+        ['id' => 'U-abdurrahman-acik-sorusuz', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Abdurrahman usta sıvayı bitirdi, 115 bin parasını daha vermedim', 'expect' => ['ready' => true]], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Abdurrahman Usta' => -115000]]],
+        // T5 Sinan "2026 bağlantısı ödendi": inşaatta bağlantı = peşin → SORU YOK, anlam cümlesi (sistem gider yazdı)
+        ['id' => 'U-sinan-baglanti-pesin', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Sinan sele yapılan 2026 bağlantısı 2.500.000 tl ödendi',
+                'expect' => ['ready' => true, 'meaning_any' => ['peşin', 'avans', 'geldikçe']]], ['send' => 'Ok']],
+            'expect' => ['balance' => ['@party:Sinan Sele' => 2500000], 'saved' => ['expenses' => 0]]],
+        // T6 Sinan ekstresi: avans görünür, "hesap kapalı" değil
+        ['id' => 'U-sinan-ekstre-avans-gorunur', 'firm' => 'taner', 'group' => 'understand', 'seed' => 'taner-sinan-avans',
+            'steps' => [['send' => 'Sinan sel ekstra']],
+            'expect' => ['reply_has' => ['2.500.000'], 'reply_not' => ['hesap kapalı']]],
+        // T7 Hazal "hatır çekinden borcum ödendi" + dekont (borç iade): borç KAPANDI → bakiye 0 (sistem "Hazal'a 100.000 borçlusun" yazdı)
+        ['id' => 'U-hazal-borc-iade-dekont', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Hazal doğan verilen hatır çekinden borcum ödendi'], ['media' => 'dekont-hazal.pdf'], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Hazal Doğan' => 0], 'reply_not' => ['borcun 100.000']]],
+        ['id' => 'U-hazal-borc-iade-tutar', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Hazal doğan verilen hatır çekinden borcum ödendi'],
+                ['send' => '100.000 tl', 'expect' => ['meaning_any' => ['ödedin', 'ödediniz', 'kapandı', 'kalmadı', 'geri']]], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Hazal Doğan' => 0]]],
+        // T8 "Hazal doğan ekstra" — ekstre gönderilir (sistem "Ekstre mi demek istedin?" dedi)
+        ['id' => 'U-hazal-ekstra', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Hazal doğan ekstra']],
+            'expect' => ['reply_any' => ['Cari Ekstresi', 'ekstresi'], 'reply_not' => ['demek istedin']]],
+        // T9 Asansör Osman: 3 çek fotoğrafı + "ödenen 1.005.000": takıldı mı / peşin mi? + geçersiz vade uyarısı (sistem alış+ödeme tahmin etti)
+        ['id' => 'U-asansor-cek-soru', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok']],
+            'expect' => ['asks' => true, 'reply_any' => ['31 Şubat', '31.02', '31-02', 'böyle bir gün', 'geçersiz'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'U-asansor-takilmadi-avans', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
+                ['send' => 'daha takılmadı', 'expect' => ['ready' => true, 'meaning_any' => ['takılmadı', 'teslim almadınız', 'takılınca', 'henüz']]],
+                ['send' => 'Ok']],
+            'expect' => ['balance' => ['@party:Asansör Osman' => 1005000]]],
+        ['id' => 'U-asansor-takildi', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
+                ['send' => 'takıldı', 'expect' => ['ready' => true]], ['send' => 'Ok']],
+            'expect' => ['balance' => ['@party:Asansör Osman' => 0]]],
+        // Belirsiz cevap ("asansör bedeli") → soru TEKRAR, tahmin yok
+        ['id' => 'U-asansor-belirsiz-cevap-tekrar-sor', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
+                ['send' => 'Asansör bedeli birmilyon beş bin']],
+            'expect' => ['asks' => true, 'saved' => ['ledger' => 0]]],
+        // Açık mesaj → soru YOK (aşırı soru da hata)
+        ['id' => 'U-acik-is-bitti-odendi', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Mehmet usta sıvayı bitirdi 80 bin verdim', 'expect' => ['ready' => true]], ['send' => 'evet']],
+            'expect' => ['saved' => ['ledger' => 2], 'balance' => ['Mehmet Usta' => 0]]],
+        // Kişi belirsiz: "Sinan usta" (sıvacı) ≠ kayıtlı "Sinan Sele" (bağlantı yapılan tedarikçi) olabilir → sor (sistem sessizce Sinan Sele'ye yazdı)
+        ['id' => 'U-kisi-belirsiz-sinan-usta', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Sinan usta sıvayı bitirdi 80 bin verdim']],
+            'expect' => ['asks' => true, 'reply_has' => ['Sinan Sele'], 'saved' => ['ledger' => 0]]],
         // ---------------------------------------------------------------- Faz 5: zor soru (büyük model)
         ['id' => 'F5-sube-karsilastir', 'firm' => 'akkus', 'group' => 'capability', 'seed' => 'akkus-iki-hafta',
             'steps' => [['send' => 'Son iki haftada hangi şube daha çok kazandırdı']],
@@ -264,6 +350,8 @@ return [
     'seeds' => [
         'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
         'akkus-iki-hafta' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-1 days'], ['sale', 'İzzetpaşa', 21000, '-1 days'], ['sale', 'Araştırma', 50000, '-2 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-2 days'], ['sale', 'Araştırma', 50000, '-3 days'], ['sale', 'Ergenekon', 25000, '-3 days'], ['sale', 'İzzetpaşa', 21000, '-3 days'], ['sale', 'Araştırma', 50000, '-4 days'], ['sale', 'Ergenekon', 25000, '-4 days'], ['sale', 'İzzetpaşa', 21000, '-4 days'], ['sale', 'Araştırma', 50000, '-5 days'], ['sale', 'Ergenekon', 25000, '-5 days'], ['sale', 'İzzetpaşa', 21000, '-5 days'], ['sale', 'Araştırma', 50000, '-6 days'], ['sale', 'Ergenekon', 25000, '-6 days'], ['sale', 'İzzetpaşa', 21000, '-6 days'], ['sale', 'Araştırma', 50000, '-7 days'], ['sale', 'Ergenekon', 25000, '-7 days'], ['sale', 'İzzetpaşa', 21000, '-7 days'], ['sale', 'Araştırma', 40000, '-8 days'], ['sale', 'Ergenekon', 27000, '-8 days'], ['sale', 'İzzetpaşa', 21000, '-8 days'], ['sale', 'Araştırma', 40000, '-9 days'], ['sale', 'Ergenekon', 27000, '-9 days'], ['sale', 'İzzetpaşa', 21000, '-9 days'], ['sale', 'Araştırma', 40000, '-10 days'], ['sale', 'Ergenekon', 27000, '-10 days'], ['sale', 'İzzetpaşa', 21000, '-10 days'], ['sale', 'Araştırma', 40000, '-11 days'], ['sale', 'Ergenekon', 27000, '-11 days'], ['sale', 'İzzetpaşa', 21000, '-11 days'], ['sale', 'Araştırma', 40000, '-12 days'], ['sale', 'Ergenekon', 27000, '-12 days'], ['sale', 'İzzetpaşa', 21000, '-12 days'], ['sale', 'Araştırma', 40000, '-13 days'], ['sale', 'Ergenekon', 27000, '-13 days'], ['sale', 'İzzetpaşa', 21000, '-13 days'], ['sale', 'Araştırma', 40000, '-14 days'], ['sale', 'Ergenekon', 27000, '-14 days'], ['sale', 'İzzetpaşa', 21000, '-14 days']],
+        'taner-odemeler' => [['ledger', 'Ferhat Yıldız', 'odeme', 5000, '-1 days', 'Proje bedeli'], ['ledger', 'Sinan Sele', 'odeme', 2500000, '-1 days', '2026 bağlantısı']],
+        'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],
         'akkus-kasalar' => [

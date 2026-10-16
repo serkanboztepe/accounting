@@ -68,6 +68,20 @@ class AssistantEvalTest extends TestCase
         return self::provide('capability');
     }
 
+    /** "Önce anla, sonra kaydet" (plan once-anla-sonra-kaydet.md) — Taner vakaları; bugün kalması beklenir, bozulma setine girmez. */
+    public static function understand(): array
+    {
+        return self::provide('understand');
+    }
+
+    #[DataProvider('understand')]
+    #[Group('eval-capability')]
+    #[Group('eval-understand')]
+    public function test_understand(array $case): void
+    {
+        $this->runCase($case);
+    }
+
     #[DataProvider('regression')]
     public function test_regression(array $case): void
     {
@@ -97,7 +111,11 @@ class AssistantEvalTest extends TestCase
             'services.twilio.verify_signature' => false,
             'services.twilio.allowed_phones' => ['0555 ' . substr($digits, 0, 3) . ' ' . substr($digits, 3, 2) . ' ' . substr($digits, 5, 2)],
         ]);
-        Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SMtest'], 201)]); // AI çağrıları gerçek
+        Http::fake([
+            // Fotoğraf/belge adımı: webhook medyayı Twilio'dan indirir → deneme dosyası döner.
+            'api.twilio.com/eval-media/*' => fn ($r) => Http::response((string) file_get_contents(__DIR__ . '/fixtures/' . basename($r->url())), 200),
+            'api.twilio.com/*' => Http::response(['sid' => 'SMtest'], 201),
+        ]); // AI çağrıları gerçek
         $this->fixtures($firm);
         foreach ($data['seeds'][$case['seed'] ?? ''] ?? [] as $row) {
             $this->seedRow($row);
@@ -106,6 +124,7 @@ class AssistantEvalTest extends TestCase
         $start = ['ledger' => (int) PartyLedgerEntry::max('id'), 'sales' => (int) Sale::max('id'), 'expenses' => (int) Expense::max('id'),
             'pending' => (int) WhatsappPendingExpense::max('id')];
         $replies = [];
+        $stepFails = [];
         $t0 = microtime(true);
         foreach ($case['steps'] as $step) {
             if (isset($step['pending'])) {
@@ -114,7 +133,12 @@ class AssistantEvalTest extends TestCase
 
                 continue;
             }
-            $res = $this->post('/whatsapp/webhook', ['From' => $this->phone, 'Body' => $step['send'], 'NumMedia' => 0, 'MessageSid' => 'SM' . uniqid()]);
+            $form = ['From' => $this->phone, 'Body' => $step['send'] ?? '', 'NumMedia' => 0, 'MessageSid' => 'SM' . uniqid()];
+            if (isset($step['media'])) {
+                $form = ['NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/eval-media/' . $step['media'],
+                    'MediaContentType0' => str_ends_with($step['media'], '.pdf') ? 'application/pdf' : 'image/jpeg'] + $form;
+            }
+            $res = $this->post('/whatsapp/webhook', $form);
             $replies[] = trim(strip_tags(html_entity_decode((string) $res->getContent(), ENT_QUOTES | ENT_XML1)));
             // "🔎 Bakıyorum" → asıl cevap istek sonrası ayrı mesajla gitti (konuşma kaydında son giden mesaj).
             if (str_contains(end($replies), 'Bakıyorum')) {
@@ -125,14 +149,21 @@ class AssistantEvalTest extends TestCase
                 }
             }
             if (getenv('EVAL_SHOW')) {
-                fwrite(STDERR, "\n> " . $step['send'] . "\n< " . end($replies) . "\n");
+                fwrite(STDERR, "\n> " . (isset($step['media']) ? '[📎 ' . $step['media'] . '] ' : '') . ($step['send'] ?? '') . "\n< " . end($replies) . "\n");
+            }
+            // Adım beklentisi (ara cevap: "burada soru sormalıydı" gibi) — son cevap gibi puanlanır, hatalar birikir.
+            if (isset($step['expect'])) {
+                $stepDraft = WhatsappPendingExpense::where('phone', $this->phone)->where('id', '>', $start['pending'])->latest('id')->first();
+                foreach ($this->grade($step['expect'], (string) end($replies), $stepDraft, $start) as $f) {
+                    $stepFails[] = 'adım ' . count($replies) . ': ' . $f;
+                }
             }
         }
         $seconds = round(microtime(true) - $t0, 1);
         $reply = (string) end($replies);
         $draft = WhatsappPendingExpense::where('phone', $this->phone)->where('id', '>', $start['pending'])->latest('id')->first();
 
-        $fails = $this->grade($case['expect'], $reply, $draft, $start);
+        $fails = array_merge($stepFails, $this->grade($case['expect'] ?? [], $reply, $draft, $start));
         self::$results[$case['id']] = ['group' => $case['group'], 'ok' => $fails === [], 'fails' => $fails, 'seconds' => $seconds,
             'reply' => mb_substr($reply, 0, 400), 'draft' => $draft?->extracted ? array_intersect_key($draft->extracted,
                 array_flip(['kind', 'amount', 'party_id', 'party_name', 'project_id', 'payment_purpose', 'question', 'cash_amount', 'card_amount'])) : null];
@@ -174,6 +205,28 @@ class AssistantEvalTest extends TestCase
                         $fails[] = "taslak.{$field}: beklenen " . json_encode($want, JSON_UNESCAPED_UNICODE) . ', gelen ' . json_encode($got, JSON_UNESCAPED_UNICODE);
                     }
                 }
+            }
+        }
+        // Soru sordu mu / onaya hazır mı: onay cümlesi ("Kaydedeyim mi?", "Onaylamak için") kayıt hazır demektir.
+        $ready = collect(['kaydedeyim mi', 'onaylamak için'])->contains(fn ($m) => str_contains($low, $m));
+        $otherQuestions = substr_count(str_replace(['kaydedeyim mi?', 'kaydedeyim mi ?'], '', $low), '?');
+        if (! empty($expect['asks']) && ($ready || $otherQuestions === 0)) {
+            $fails[] = $ready ? 'soru sormadan kaydı onaya hazırladı (tahmin)' : 'soru sormadı';
+        }
+        if (! empty($expect['ready']) && (! $ready || $otherQuestions > 0)) {
+            $fails[] = ! $ready ? 'kayıt onaya hazır değil' : 'açık mesajda gereksiz soru sordu';
+        }
+        // Anlam cümlesi: olayın düz anlatımı (ör. "henüz takılmadı", "teslim etti") — biri yeter.
+        if (isset($expect['meaning_any']) && ! collect($expect['meaning_any'])->contains(fn ($n) => str_contains($low, mb_strtolower($n)))) {
+            $fails[] = 'anlam cümlesi yok (beklenen biri: ' . implode(' / ', $expect['meaning_any']) . ')';
+        }
+        // Son bakiye: >0 cari bize borçlu, <0 biz ona borçluyuz (PartyStatement konvansiyonu).
+        foreach ($expect['balance'] ?? [] as $ref => $want) {
+            $name = preg_replace('/^@party:/u', '', $ref);
+            $party = Party::find($this->ids['party'][$name] ?? 0) ?? Party::where('name', $name)->latest('id')->first();
+            $got = $party ? (float) \App\Support\PartyStatement::build($party)['balance'] : null;
+            if ($got === null || abs($got - (float) $want) > 0.01) {
+                $fails[] = "bakiye {$name}: beklenen " . $want . ', gelen ' . json_encode($got);
             }
         }
         $now = ['ledger' => PartyLedgerEntry::where('id', '>', $start['ledger'])->count(), 'sales' => Sale::where('id', '>', $start['sales'])->count(),
