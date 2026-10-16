@@ -70,4 +70,51 @@ class AssistantLessonsTest extends TestCase
 
         $this->assertSame('approved', $l->fresh()->status);
     }
+
+    private function firmWithPhone(string $phone): \App\Models\HubFirm
+    {
+        $firm = \App\Models\HubFirm::forceCreate(['name' => 'Ders Firması ' . uniqid(), 'url' => 'http://x', 'secret' => 's', 'is_active' => true]);
+        \App\Models\HubPhone::forceCreate(['hub_firm_id' => $firm->id, 'phone' => $phone, 'name' => 'Ders Kişi', 'is_active' => true]);
+
+        return $firm;
+    }
+
+    public function test_ask_customer_now_when_recent_and_capture_answer(): void
+    {
+        config(['services.twilio.sid' => 'AC', 'services.twilio.token' => 't', 'services.whatsapp.from' => '+14786665916']);
+        Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SM'], 201)]);
+        $phone = '905550001234';
+        $firm = $this->firmWithPhone($phone);
+        \App\Models\WhatsappMessage::create(['phone' => $phone, 'direction' => 'in', 'body' => 'kasa nakit 5000 pos 19483 1630 gider']);
+        $l = AssistantLesson::create(['problem' => 'p', 'rule' => 'r', 'status' => 'pending', 'source_firm_id' => $firm->id]);
+
+        $msg = \App\Support\LessonQuestion::send($l, $firm, $phone, 'Dün akşamki kasa mesajında son rakam gider miydi?');
+
+        $this->assertStringContainsString('gönderildi', $msg);
+        Http::assertSent(fn ($r) => str_contains((string) ($r['Body'] ?? ''), 'son rakam gider miydi'));
+        $this->assertSame('lesson_question', \App\Models\WhatsappMessage::where('phone', $phone)->latest('id')->value('kind'));
+
+        AssistantLesson::captureAnswer($phone, 'evet son rakam giderdi, gerisi ciro');
+        $this->assertSame('evet son rakam giderdi, gerisi ciro', $l->fresh()->customer_answer);
+    }
+
+    public function test_ask_customer_waits_for_next_message_outside_window(): void
+    {
+        Http::fake();
+        $phone = '905550001235';
+        $firm = $this->firmWithPhone($phone);
+        $l = AssistantLesson::create(['problem' => 'p', 'rule' => 'r', 'status' => 'pending', 'source_firm_id' => $firm->id]);
+
+        $msg = \App\Support\LessonQuestion::send($l, $firm, $phone, 'Soru?');
+
+        $this->assertStringContainsString('sonraki mesajından sonra', $msg);
+        Http::assertNothingSent();
+        // Soru henüz iletilmedi: o sırada gelen mesaj cevap sayılmaz.
+        AssistantLesson::captureAnswer($phone, 'yeni kayıt mesajı');
+        $this->assertNull($l->fresh()->customer_answer);
+        // İletildikten sonra gelen mesaj cevaptır.
+        \App\Models\HubAnnouncement::find($l->fresh()->asked_announcement_id)->update(['status' => 'sent', 'sent_at' => now()->subMinute()]);
+        AssistantLesson::captureAnswer($phone, 'cevabım bu');
+        $this->assertSame('cevabım bu', $l->fresh()->customer_answer);
+    }
 }

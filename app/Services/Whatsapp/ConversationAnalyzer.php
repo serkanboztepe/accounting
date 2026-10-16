@@ -246,7 +246,8 @@ class ConversationAnalyzer
           "cause": "asistan neden yanlış anladı (tek cümle)",
           "rule": "asistana TEK CÜMLE kural, genel ifadeyle (kişi adı/tutar yok): ör. 'Şube adı + kasa + nakit/pos rakamları yazan mesaj o şubenin günlük cirosudur, başka taslağın cevabı değildir.'",
           "example_message": "bu hatayı yakalayacak örnek kullanıcı mesajı (gerçek mesaja benzer, adlar Cari-N)",
-          "expected": "asistanın yapması gereken (ör. 'peşin satış, şube X' / 'maaş mı avans mı diye sorar')"}]
+          "expected": "asistanın yapması gereken (ör. 'peşin satış, şube X' / 'maaş mı avans mı diye sorar')",
+          "customer_question": "emin değilsen kullanıcıya sorulacak KISA, nazik WhatsApp sorusu — KİŞİ ADI ve TUTAR YAZMA, olayı zamanla tarif et (ör. 'Dün akşam 22:05'teki kasa mesajında son rakam gider miydi, yoksa hepsi ciro mu?'); gerek yoksa null"}]
         ```
         scope: yalnız bu firmanın işine/diline özgüyse "firm", her esnafta olabilecekse "general". En çok 5 ders;
         aynı hatanın tekrarını tek derste topla. Asistanın kod hatası (ör. kayıt yazılamadı) ders değildir, raporda öner.

@@ -15,14 +15,48 @@ class AssistantLesson extends Model
 
     public const STATUSES = ['pending' => 'Onay bekliyor', 'approved' => 'Uygulanıyor', 'rejected' => 'Reddedildi', 'retired' => 'Kaldırıldı'];
 
-    protected $fillable = ['conversation_report_id', 'hub_firm_id', 'firm_name', 'problem', 'cause', 'rule', 'example_message',
-        'expected', 'status', 'decided_at'];
+    protected $fillable = ['conversation_report_id', 'hub_firm_id', 'source_firm_id', 'firm_name', 'problem', 'cause', 'rule',
+        'example_message', 'expected', 'customer_question', 'asked_phone', 'asked_at', 'asked_announcement_id', 'customer_answer',
+        'answered_at', 'status', 'decided_at'];
 
-    protected $casts = ['decided_at' => 'datetime'];
+    protected $casts = ['decided_at' => 'datetime', 'asked_at' => 'datetime', 'answered_at' => 'datetime'];
 
     public function firm()
     {
         return $this->belongsTo(HubFirm::class, 'hub_firm_id');
+    }
+
+    /** Dersin çıktığı firma (genel derste de bilinir — "Müşteriye sor" buna gider). */
+    public function sourceFirm()
+    {
+        return $this->belongsTo(HubFirm::class, 'source_firm_id');
+    }
+
+    /**
+     * Müşteri bu numaradan yazdı: ona sorulmuş ve henüz cevaplanmamış soru varsa bu mesaj cevaptır.
+     * 24 saat dışında sorulup sonraki mesajda iletilen soruda, iletildiği mesaj cevap sayılmaz.
+     */
+    public static function captureAnswer(string $phone, string $body): void
+    {
+        if (trim($body) === '') {
+            return;
+        }
+        try {
+            $lesson = self::where('asked_phone', \App\Support\Phone::normalize($phone))->whereNull('answered_at')
+                ->where('asked_at', '>=', now()->subDays(7))->latest('asked_at')->first();
+            if (! $lesson) {
+                return;
+            }
+            if ($lesson->asked_announcement_id) {
+                $a = HubAnnouncement::find($lesson->asked_announcement_id);
+                if (! $a || $a->status !== 'sent' || ! $a->sent_at || $a->sent_at->gt(now()->subSecond())) {
+                    return; // soru henüz iletilmedi (bu mesajın cevabına eklenecek)
+                }
+            }
+            $lesson->update(['customer_answer' => mb_substr($body, 0, 2000), 'answered_at' => now()]);
+        } catch (\Throwable) {
+            // ders tablosu yoksa mesaj akışı bozulmasın
+        }
     }
 
     /** Asistan talimatına girecek onaylı kurallar: genel + bu firmanınki (10 dk önbellek). @return list<string> */

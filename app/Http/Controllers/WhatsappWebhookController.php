@@ -131,6 +131,8 @@ class WhatsappWebhookController extends Controller
         try {
             $firstContact = $this->firstContact = $this->isFirstContact($phone);
             $incoming = $this->logMessage($phone, 'in', $body, $numMedia > 0);
+            // "Müşteriye sor" (Faz 3): ona sorulmuş soru varsa bu mesaj cevabıdır → derse yazılır (akış aynen sürer).
+            \App\Models\AssistantLesson::captureAnswer($phone, $body);
 
             $response = $this->respond($request, $extractor, $phone, $body, $numMedia);
 

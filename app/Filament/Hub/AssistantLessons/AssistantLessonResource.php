@@ -58,6 +58,12 @@ class AssistantLessonResource extends Resource
                 TextColumn::make('rule')->label('Önerilen kural')->wrap()->weight('medium')
                     ->description(fn (AssistantLesson $r) => $r->example_message
                         ? 'Deneme: "' . $r->example_message . '" → ' . ($r->expected ?? '') : null),
+                TextColumn::make('customer_answer')->label('Müşteri')->wrap()->placeholder('—')
+                    ->formatStateUsing(fn ($state) => '💬 ' . $state)
+                    ->description(fn (AssistantLesson $r) => $r->asked_at && ! $r->answered_at
+                        ? 'Soruldu ' . $r->asked_at->timezone('Europe/Istanbul')->format('d.m H:i') . ' — cevap bekleniyor'
+                            . ($r->asked_announcement_id ? ' (sonraki mesajında iletilecek)' : '')
+                        : ($r->customer_question && ! $r->asked_at ? 'Önerilen soru: ' . $r->customer_question : null)),
                 TextColumn::make('created_at')->label('Tarih')->date('d.m.Y'),
             ])
             ->filters([
@@ -80,6 +86,19 @@ class AssistantLessonResource extends Resource
                         $r->update(['rule' => trim($data['rule']), 'hub_firm_id' => $data['hub_firm_id'] ?: null]);
                         self::decide($r, 'approved');
                     }),
+                Action::make('ask')->label('Müşteriye sor')->icon(Heroicon::OutlinedChatBubbleLeftEllipsis)->color('info')
+                    ->visible(fn (AssistantLesson $r) => in_array($r->status, ['pending', 'approved'], true) && ($r->source_firm_id || $r->hub_firm_id))
+                    ->modalDescription('Soru müşteriye WhatsApp\'tan gider. Kişi adı ve tutar yazma; olayı zamanla tarif et.')
+                    ->fillForm(fn (AssistantLesson $r) => ['phone' => self::phones($r)->keys()->first(), 'question' => $r->customer_question])
+                    ->schema([
+                        Select::make('phone')->label('Kime')->options(fn (AssistantLesson $r) => self::phones($r))->required(),
+                        Textarea::make('question')->label('Soru')->required()->rows(3),
+                    ])
+                    ->action(function (AssistantLesson $r, array $data) {
+                        $firm = HubFirm::find($r->source_firm_id ?? $r->hub_firm_id);
+                        $msg = \App\Support\LessonQuestion::send($r, $firm, $data['phone'], $data['question']);
+                        Notification::make()->title($msg)->success()->send();
+                    }),
                 Action::make('reject')->label('Reddet')->icon(Heroicon::OutlinedXMark)->color('gray')
                     ->visible(fn (AssistantLesson $r) => $r->status === 'pending')
                     ->action(fn (AssistantLesson $r) => self::decide($r, 'rejected')),
@@ -88,6 +107,13 @@ class AssistantLessonResource extends Resource
                     ->requiresConfirmation()->modalDescription('Asistan artık bu kurala uymayacak.')
                     ->action(fn (AssistantLesson $r) => self::decide($r, 'retired')),
             ]);
+    }
+
+    /** Dersin firmasındaki aktif numaralar (ad + numara). */
+    private static function phones(AssistantLesson $r): \Illuminate\Support\Collection
+    {
+        return \App\Models\HubPhone::where('hub_firm_id', $r->source_firm_id ?? $r->hub_firm_id)->where('is_active', true)
+            ->get()->mapWithKeys(fn ($p) => [$p->phone => trim(($p->name ?: 'İsimsiz') . ' · ' . $p->phone)]);
     }
 
     public static function decide(AssistantLesson $lesson, string $status): void

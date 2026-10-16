@@ -83,6 +83,8 @@ class AnalyzeConversations extends Command
             \App\Models\AssistantLesson::create([
                 'conversation_report_id' => $report->id,
                 'hub_firm_id' => $general ? null : ($firms[$l['firm'] ?? ''] ?? null),
+                'source_firm_id' => $firms[$l['firm'] ?? ''] ?? null,
+                'customer_question' => isset($l['customer_question']) && is_string($l['customer_question']) ? mb_substr($l['customer_question'], 0, 1000) : null,
                 'firm_name' => $l['firm'] ?? null,
                 'problem' => mb_substr((string) $l['problem'], 0, 2000),
                 'cause' => isset($l['cause']) ? mb_substr((string) $l['cause'], 0, 1000) : null,
