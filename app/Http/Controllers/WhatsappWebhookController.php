@@ -26,6 +26,7 @@ use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
 use App\Services\Whatsapp\DeferTurn;
+use App\Services\Whatsapp\DraftWarnings;
 use App\Services\Whatsapp\EmployeeDraft;
 use App\Services\Whatsapp\MemoryDraft;
 use App\Services\Whatsapp\NaturalVoice;
@@ -186,6 +187,16 @@ class WhatsappWebhookController extends Controller
     private static function isStaff(array $d, ?Party $party): bool
     {
         return ! empty($d['staff_hint']) || (bool) $party?->is_employee;
+    }
+
+    /** Özetin alt satırından ("Kaydedeyim mi?…", "Cevabını yaz…") hemen önce ekle; alt satır yoksa sona. */
+    private static function insertBeforeFooter(string $out, string $lines): string
+    {
+        if (preg_match('/\n\n(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|✅ Onaylamak|\*evet\* \/)/u', $out, $m, PREG_OFFSET_CAPTURE)) {
+            return substr($out, 0, $m[0][1]) . "\n" . $lines . substr($out, $m[0][1]);
+        }
+
+        return $out . "\n" . $lines;
     }
 
     /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
@@ -846,6 +857,13 @@ class WhatsappWebhookController extends Controller
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $out = $this->saveDraftInner($pending, $phone, $data, $mediaUrl);
+        // Faz 4: çift kayıt / olağandışı tutar uyarısı — özete ⚠️ satırı (kayıt yine onayla; engellemez).
+        if (is_string($out) && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
+            && ($draftNow = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
+            && trim((string) $draftNow->summary) !== '' && str_contains($out, trim((string) $draftNow->summary))
+            && ($warnings = DraftWarnings::for($draftNow->extracted))) {
+            $out = self::insertBeforeFooter($out, implode("\n", $warnings));
+        }
         // Doğal konuşma (modül): taslak özetini AI insan gibi yazar; rakam güvenliği tutmazsa kalıp aynen gider.
         if (is_string($out) && NaturalVoice::enabled() && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
             && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())

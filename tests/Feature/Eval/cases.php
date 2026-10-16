@@ -201,6 +201,11 @@ return [
             'steps' => [['send' => 'Un satışım oldu']],
             'expect' => ['reply_has' => ['Kaç çuval'], 'reply_not' => ['1 çuval Un']]],
 
+        // ---------------------------------------------------------------- Faz 4: kayıt sırasında uyarı
+        ['id' => 'uyari-cift-odeme', 'firm' => 'erkan', 'group' => 'regression', 'seed' => 'erkan-gecmis',
+            'steps' => [['send' => "Recep Demirci'ye 8000 ödedim"]],
+            'expect' => ['draft' => ['kind' => 'payment', 'amount' => 8000], 'reply_has' => ['Aynı tutarda', 'iki kez olmasın']]],
+
         // ---------------------------------------------------------------- YETENEK (Faz 1–5 hedefleri — bugün kalabilir)
         ['id' => 'F1-un-daha-once-aldik-mi', 'firm' => 'stok', 'group' => 'capability', 'seed' => 'stok-gecmis',
             'steps' => [['send' => 'Daha önce un aldık mı herhangi bir cariden']],
