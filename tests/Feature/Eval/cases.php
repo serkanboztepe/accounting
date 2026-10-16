@@ -320,7 +320,11 @@ return [
             'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
                 ['send' => 'daha takılmadı', 'expect' => ['ready' => true, 'meaning_any' => ['takılmadı', 'teslim almadınız', 'takılınca', 'henüz']]],
                 ['send' => 'Ok']],
-            'expect' => ['balance' => ['@party:Asansör Osman' => 1005000]]],
+            'expect' => ['balance' => ['@party:Asansör Osman' => 1005000], 'reply_has' => ['3 çek kaydedildi']]],
+        // Çek yazıyla anlatılırsa da çek kaydı (vade hatırlatması için)
+        ['id' => 'U-cek-yaziyla', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => 'Sinan Seleye bağlantı için 3 çek verdim 100er bin vadeler 31.03.2027 30.04.2027 31.05.2027'], ['send' => 'evet']],
+            'expect' => ['reply_has' => ['3 çek kaydedildi'], 'balance' => ['@party:Sinan Sele' => 300000]]],
         ['id' => 'U-asansor-takildi', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
                 ['send' => 'takıldı', 'expect' => ['ready' => true]], ['send' => 'Ok']],

@@ -23,6 +23,7 @@ use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseContext;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
+use App\Services\Whatsapp\IssuedChecks;
 use App\Services\Whatsapp\Understanding;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
@@ -928,6 +929,14 @@ class WhatsappWebhookController extends Controller
         }
         $data = $this->applyReceiptPayment($pending, $data);
         $data = $this->askCheckParty($data);
+        // Önce anla: iş durumu sorulmuştu, AI cevabı "biliyorum"a çevirdi → cevap soruyu gerçekten cevaplıyor mu (ikinci göz)?
+        // "asansör bedeli" cevap değildir — soru tekrar (tahmin yok). Yalnız kişiyle para/borç kaydında, soru-cevap anında.
+        if ($pending && ($pending->extracted['work_status_known'] ?? null) === false && ! empty($pending->extracted['question'])
+            && ! empty($data['work_status_known']) && Understanding::applies($data) && empty($pending->extracted['party_asked'])
+            && ! Understanding::answerSettles((string) $pending->extracted['question'], $this->inboundBody)) {
+            $data['work_status_known'] = false;
+            $data['question'] = $pending->extracted['question'];
+        }
         // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
         $data = Understanding::apply($data);
         if (($checks = Understanding::checksNote($data)) && ! str_contains((string) ($data['description'] ?? ''), $checks)) {
@@ -1724,6 +1733,10 @@ class WhatsappWebhookController extends Controller
             ]);
         }
 
+        // Çekle ödeme (Faz F): her çek ödeme satırına bağlı "verildi" — cari Çekler bölümünde, vadeden önce hatırlatılır.
+        $checksSaved = in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE], true)
+            ? IssuedChecks::store($d, $party, $projectId) : 0;
+
         // Dekonttaki banka masrafı (FAST + BSMV): gider açıksa ayrı gider; kapalıysa özette söylendi, yazılmaz.
         if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0 && config('modules.expenses')) {
             Expense::create([
@@ -1751,7 +1764,9 @@ class WhatsappWebhookController extends Controller
                 . ($party->salary_amount ? ' (maaşından kalan ' . Money::format(max(0, (float) $party->salary_amount - $balance)) . ' ₺).' : '.')
             : $this->balanceLine($party->name, $balance);
 
-        return '✅ Kaydedildi. ' . $line . $ask;
+        $checksLine = $checksSaved > 0 ? "\n🧾 {$checksSaved} çek kaydedildi — vadesinden önce hatırlatırım." : '';
+
+        return '✅ Kaydedildi. ' . $line . $checksLine . $ask;
     }
 
     /** Basit onaylı taslak (hafıza): özet + teyit; eksik bilgi varsa yalnız soru. */

@@ -23,7 +23,8 @@ class SendCheckReminders extends Command
 
     public function handle(WhatsappSender $sender): int
     {
-        if (! config('modules.checks')) {
+        // Çek modülü kapalı firmada da WhatsApp'tan verilen çek olabilir (Taner, Faz F) — bekleyen çek yoksa çık.
+        if (! config('modules.checks') && ! CheckReminders::pending()->exists()) {
             $this->info('Çek modülü kapalı.');
 
             return self::SUCCESS;

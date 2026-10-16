@@ -66,6 +66,39 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertSame($before, PartyLedgerEntry::count());
     }
 
+    public function test_vague_answer_to_work_question_asks_again(): void
+    {
+        $osman = Party::create(['name' => 'Anlama Testi Osman']);
+        $q = 'Asansör takıldı mı, yoksa peşin mi ödüyorsunuz?';
+        $ask = $this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 1005000, 'party_id' => $osman->id,
+            'work_status' => 'done', 'work_status_known' => false, 'question' => $q]);
+        // AI belirsiz cevabı "biliyorum"a çevirir (tahmin) — ikinci göz "cevap değil" der.
+        $guess = ['is_new_entry' => false, 'work_status' => 'not_yet', 'work_status_known' => true, 'question' => null] + $ask;
+        $this->ai($ask, $guess);
+        config(['services.anthropic.api_key' => 'sk-test']);
+        Http::swap(new \Illuminate\Http\Client\Factory); // setUp'taki genel sahte cevap ikinci gözü ezmesin
+        Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use', 'name' => 'judge', 'input' => ['answers' => false]]], 'usage' => []])]);
+
+        $this->send('Osman asansöre 1.005.000 ödendi');
+        $reply = $this->send('Asansör bedeli birmilyon beş bin');
+        $this->assertStringContainsString('Asansör takıldı mı', $reply);
+        $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
+    }
+
+    public function test_clear_answer_to_work_question_proceeds(): void
+    {
+        $osman = Party::create(['name' => 'Anlama Testi Osman']);
+        $ask = $this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 1005000, 'party_id' => $osman->id,
+            'work_status' => 'done', 'work_status_known' => false, 'question' => 'Asansör takıldı mı, yoksa peşin mi ödüyorsunuz?']);
+        $this->ai($ask, ['is_new_entry' => false, 'work_status' => 'not_yet', 'work_status_known' => true, 'question' => null] + $ask);
+        config(['services.anthropic.api_key' => 'sk-test']);
+        Http::swap(new \Illuminate\Http\Client\Factory); // setUp'taki genel sahte cevap ikinci gözü ezmesin
+        Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use', 'name' => 'judge', 'input' => ['answers' => true]]], 'usage' => []])]);
+
+        $this->send('Osman asansöre 1.005.000 ödendi');
+        $this->assertStringContainsString('Onaylamak için', $this->send('daha takılmadı'), 'net cevap → onaya hazır');
+    }
+
     public function test_known_not_yet_payment_becomes_advance_with_meaning_line(): void
     {
         $osman = Party::create(['name' => 'Anlama Testi Osman']);
@@ -164,6 +197,37 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertStringContainsString('8037566: vade 31-02-2027', $reply);
         $this->assertStringNotContainsString('8037567: vade', $reply, 'geçerli tarih uyarılmaz');
         $this->assertStringContainsString('2 çek', WhatsappPendingExpense::where('phone', self::PHONE)->latest('id')->first()->extracted['description']);
+    }
+
+    public function test_cheque_payment_stores_issued_cheques_and_reminds(): void
+    {
+        $osman = Party::create(['name' => 'Anlama Testi Osman']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 670000, 'party_id' => $osman->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Asansör',
+            'checks' => [['number' => '8037566', 'due_date_text' => '31-02-2027', 'amount' => 335000],
+                ['number' => '8037567', 'due_date_text' => '31-03-2027', 'amount' => 335000]]]));
+        $this->send('çekleri verdim');
+
+        $this->assertStringContainsString('2 çek kaydedildi', $this->send('evet'));
+        $checks = \App\Models\Check::where('party_id', $osman->id)->orderBy('check_number')->get();
+        $this->assertSame(['issued', 'issued'], $checks->pluck('status')->all());
+        $this->assertSame('2027-02-28', $checks[0]->due_date->toDateString(), '31 Şubat → ayın son günü');
+        $this->assertStringContainsString('31-02-2027 takvimde yok', $checks[0]->notes);
+        $this->assertSame('2027-03-31', $checks[1]->due_date->toDateString());
+        $payment = PartyLedgerEntry::find($checks[0]->party_ledger_entry_id);
+        $this->assertSame(PartyLedgerEntry::TYPE_PAYMENT, $payment->type);
+        $this->assertSame('check', $payment->payment_type);
+        $this->assertEqualsWithDelta(670000, PartyStatement::build($osman)['balance'], 0.01, 'avans; çek ödeme anında düşer');
+
+        $pending = \App\Support\CheckReminders::pending()->pluck('id');
+        $this->assertTrue($pending->contains($checks[0]->id), 'verdiğimiz, ödemeye bağlı çek hatırlatılır');
+
+        // Müşteriden alınan çek (tahsilata bağlı) hatırlatılmaz.
+        $collection = PartyLedgerEntry::create(['party_id' => $osman->id, 'type' => PartyLedgerEntry::TYPE_COLLECTION, 'amount' => 1000,
+            'entry_date' => now()->toDateString()]);
+        $received = \App\Models\Check::create(['party_id' => $osman->id, 'party_ledger_entry_id' => $collection->id, 'amount' => 1000,
+            'due_date' => '2027-01-10', 'status' => 'issued']);
+        $this->assertFalse(\App\Support\CheckReminders::pending()->pluck('id')->contains($received->id));
     }
 
     public function test_sector_and_business_note_reach_assistant_context(): void

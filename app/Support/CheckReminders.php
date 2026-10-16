@@ -24,7 +24,10 @@ class CheckReminders
     {
         return Check::query()
             ->where('status', 'issued')
-            ->whereNull('party_ledger_entry_id')
+            // Verdiğimiz çek: sözleşme/Çekler ekranından (bağsız) ya da WhatsApp'ta ödemeye bağlı (Faz F). Alınan müşteri
+            // çeki tahsilata bağlıdır ve hatırlatılmaz.
+            ->where(fn ($q) => $q->whereNull('party_ledger_entry_id')
+                ->orWhereHas('ledgerEntry', fn ($l) => $l->where('type', \App\Models\PartyLedgerEntry::TYPE_PAYMENT)))
             ->whereNotNull('due_date');
     }
 
