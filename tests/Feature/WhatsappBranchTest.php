@@ -190,4 +190,37 @@ class WhatsappBranchTest extends TestCase
         $this->assertSame('awaiting_confirmation', $purchase->fresh()->status, 'alış taslağı yarım kayıt olarak açık kalır');
         $this->assertSame(ExpenseExtractor::KIND_TRADE_SALE, WhatsappPendingExpense::where('phone', self::PHONE)->latest('id')->first()->extracted['kind']);
     }
+
+    private function flourPurchase(array $o = []): array
+    {
+        $unit = \App\Models\Unit::firstOrCreate(['code' => 'cuval-sube'], ['name' => 'çuval']);
+        $flour = \App\Models\Product::create(['name' => 'Şube Testi Un', 'type' => \App\Models\Product::TYPE_PRODUCT, 'unit_id' => $unit->id]);
+        $party = Party::create(['name' => 'Şube Testi Toptancı']);
+
+        return array_merge(['kind' => ExpenseExtractor::KIND_TRADE_PURCHASE, 'amount' => 2000, 'paid' => false, 'date' => now()->format('Y-m-d'),
+            'description' => '20 çuval un', 'party_id' => $party->id, 'party_name' => null, 'project_id' => null, 'project_name' => null,
+            'items' => [['description' => 'Şube Testi Un', 'product_id' => $flour->id, 'quantity' => 20, 'unit_price' => 100, 'amount' => 2000]],
+            'confidence' => 'high', 'question' => null, 'is_new_entry' => true], $o);
+    }
+
+    /** Stoklu alış şube sormaz — stok işletme geneli; "şube stoğu var" sanılmasın (Serkan 16.10). */
+    public function test_stock_purchase_does_not_ask_branch(): void
+    {
+        $this->ai($this->flourPurchase());
+
+        $reply = $this->send('Şube testi toptancıdan 20 çuval un aldım');
+
+        $this->assertStringNotContainsString('Hangi şube', $reply);
+        $this->assertStringNotContainsString('0) Genel', $reply);
+        $this->assertStringContainsString('işletme stoğu 0 → 20', $reply);
+    }
+
+    public function test_stock_purchase_with_branch_named_shows_note(): void
+    {
+        $this->ai($this->flourPurchase(['project_id' => $this->branches['Ergenekon']->id]));
+
+        $reply = $this->send('Ergenekon için 20 çuval un aldım');
+
+        $this->assertStringContainsString('maliyet bu şubeye; stok işletme geneli', $reply);
+    }
 }

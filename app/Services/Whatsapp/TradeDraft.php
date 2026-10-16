@@ -423,9 +423,10 @@ class TradeDraft
             if ($product?->isProduct() && $item['quantity'] !== null) {
                 $now = $product->currentStock();
                 $after = $direction === 'in' ? $now + (float) $item['quantity'] : $now - (float) $item['quantity'];
-                $line .= ' (stok ' . StockUsage::quantity($now) . ' → ' . StockUsage::quantity($after) . ')';
+                // Şubeli firmada "işletme stoğu": şube stoğu yok (karar A) — şube adı görünce şube stoğu sanılmasın.
+                $line .= ' (' . (config('modules.projects') ? 'işletme stoğu ' : 'stok ') . StockUsage::quantity($now) . ' → ' . StockUsage::quantity($after) . ')';
             } elseif (! empty($item['new'])) {
-                $line .= ' (🆕 yeni ürün' . (! empty($item['unit']) ? ', birim ' . $item['unit'] : '') . ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ')';
+                $line .= ' (🆕 yeni ürün' . (! empty($item['unit']) ? ', birim ' . $item['unit'] : '') . ' · ' . (config('modules.projects') ? 'işletme stoğu' : 'stok') . ' 0 → ' . StockUsage::quantity((float) $item['quantity']) . ')';
             } elseif (! $product) {
                 $line .= ' _(kartta yok — stok değişmez)_';
             }

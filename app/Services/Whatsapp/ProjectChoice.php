@@ -31,7 +31,36 @@ final class ProjectChoice
             return false;
         }
 
+        // Stoklu alış (stoğa giren mal) şube SORMAZ — stok işletme geneli, hammadde tüm şubeler için alınır; şube
+        // sorusu "şube stoğu var" sanısı yaratıyordu (Serkan 16.10). Mesajda şube adı geçtiyse yine yazılır (notla).
+        if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && self::hasStockItem($d)) {
+            return false;
+        }
+
         return (bool) config('modules.projects') && in_array($kind, self::KINDS, true);
+    }
+
+    private static function hasStockItem(array $d): bool
+    {
+        foreach ($d['items'] ?? [] as $item) {
+            if (! empty($item['product_id']) || ! empty($item['new'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Stoklu alışta mesajdan gelen şube: maliyet o şubeye, ama stok işletme geneli (notla göster). */
+    public static function stockPurchaseNote(array $d): ?string
+    {
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_TRADE_PURCHASE || ! self::hasStockItem($d) || empty($d['project_id'])
+            || ! config('modules.projects') || ! ($p = Project::find($d['project_id']))) {
+            return null;
+        }
+
+        return '🏪 ' . Labels::project() . ': ' . $p->name . ' — maliyet bu ' . mb_strtolower(Labels::project()) . 'ye; stok işletme geneli ('
+            . mb_strtolower(Labels::project()) . ' stoğu yok)';
     }
 
     /** @return Collection<int, Project> sabit sıra — menü numaraları bununla */
