@@ -227,4 +227,33 @@ class WhatsappBranchTest extends TestCase
         $this->assertNull(\App\Models\Purchase::latest('id')->value('project_id'));
         $this->assertNull(\App\Models\StockMovement::latest('id')->value('project_id'));
     }
+
+    /** Genel maliyet (şubesiz alış/gider) şubelere ciro payıyla dağılır; şube sonuçları toplamı = işletme sonucu. */
+    public function test_general_cost_is_allocated_by_revenue_share(): void
+    {
+        $this->travelTo(now()->setTime(14, 0));
+        $day = now()->addYears(6);
+        $a = $this->branches['Ergenekon'];
+        $b = $this->branches['İzzetpaşa'];
+        \App\Support\TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '30000', 'project_id' => $a->id, 'sale_date' => $day->toDateString()]);
+        \App\Support\TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '10000', 'project_id' => $b->id, 'sale_date' => $day->toDateString()]);
+        $sup = Party::create(['name' => 'Dağıtım Testi Toptancı']);
+        PartyLedgerEntry::create(['party_id' => $sup->id, 'type' => 'alis', 'amount' => 8000, 'entry_date' => $day->toDateString(), 'description' => 'Un (genel)']);
+        PartyLedgerEntry::create(['party_id' => $sup->id, 'type' => 'alis', 'amount' => 1000, 'entry_date' => $day->toDateString(),
+            'description' => 'Ergenekon tamir', 'project_id' => $a->id]);
+        config(['modules.expenses' => true]);
+        \App\Models\Expense::create(['amount' => 4000, 'expense_date' => $day->toDateString(), 'description' => 'Ortak muhasebeci (genel)', 'payment_status' => 'paid']);
+
+        $ra = \App\Support\MonthlyResult::forRange($day->copy(), $day->copy(), $a->id);
+        $rb = \App\Support\MonthlyResult::forRange($day->copy(), $day->copy(), $b->id);
+        $all = \App\Support\MonthlyResult::forRange($day->copy(), $day->copy());
+
+        $this->assertEqualsWithDelta(9000, $ra['allocated'], 0.01);           // (8000 alış + 4000 gider) × %75
+        $this->assertEqualsWithDelta(30000 - 1000 - 9000, $ra['result'], 0.01);
+        $this->assertEqualsWithDelta(3000, $rb['allocated'], 0.01);           // 12000 × %25
+        $this->assertEqualsWithDelta($all['result'], $ra['result'] + $rb['result'], 0.01, 'şubeler toplamı = işletme');
+        $text = \App\Support\MonthlyResult::whatsappText($ra);
+        $this->assertStringContainsString('Genel maliyet payı (%75, tahmini): 9.000,00', $text);
+        $this->assertStringContainsString('Alış (şubenin): 1.000,00', $text);
+    }
 }

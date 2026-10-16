@@ -32,10 +32,39 @@ class MonthlyResult
      */
     public static function forRange(Carbon $fromDate, Carbon $toDate, ?int $projectId = null): array
     {
+        if (! $projectId) {
+            return self::compute($fromDate, $toDate, null);
+        }
+        // Şube sonucu (kullanıcı kararı 16.10): şubenin kendi ciro/alış/gideri + GENEL maliyetin (şubesiz alış, gider,
+        // personel — un/maya, ortak kira) ciro payı kadarı (tahmini). Yoksa genel maliyet hiçbir şubeye düşmez, şube
+        // sonuçları olduğundan kârlı görünür. İşletme toplamı değişmez (paylar toplamı = genel maliyet).
+        $branch = self::compute($fromDate, $toDate, $projectId);
+        $all = self::compute($fromDate, $toDate, null);
+        $general = self::compute($fromDate, $toDate, 'none');
+        $generalCost = $general['purchases'] + $general['personnel'] + $general['expenses'];
+        $share = $all['revenue'] > 0 ? max(0.0, $branch['revenue'] / $all['revenue']) : 0.0;
+        $allocated = round($generalCost * $share, 2);
+
+        return array_merge($branch, [
+            'general_cost' => $generalCost,
+            'share'        => $share,
+            'allocated'    => $allocated,
+            'result'       => $branch['result'] - $allocated,
+        ]);
+    }
+
+    /** @param  int|'none'|null  $scope  null = hepsi, int = o şube, 'none' = şubesiz (genel) kayıtlar */
+    private static function compute(Carbon $fromDate, Carbon $toDate, int|string|null $scope): array
+    {
         $from = $fromDate->toDateString();
         $to = $toDate->toDateString();
+        $projectId = is_int($scope) ? $scope : null;
         // Şube / proje süzgeci (Akkuş "dünkü Ergenekon ciro"): her kaynakta project_id.
-        $p = fn ($q) => $projectId ? $q->where('project_id', $projectId) : $q;
+        $p = fn ($q) => match (true) {
+            is_int($scope) => $q->where('project_id', $scope),
+            $scope === 'none' => $q->whereNull('project_id'),
+            default => $q,
+        };
 
         $salesDocs = (float) $p(Sale::whereBetween('sale_date', [$from, $to]))->sum('total_amount');
         $cash = (float) $p(Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to]))->sum('cash_amount');
@@ -114,19 +143,26 @@ class MonthlyResult
     /** WhatsApp "bu ay ne kazandım" cevabı. */
     public static function whatsappText(array $r): string
     {
+        $own = isset($r['allocated']) ? ' (' . mb_strtolower(Labels::project()) . 'nin)' : ''; // şube sonucunda: yalnız şubeye yazılanlar
         $lines = [
             '📊 *' . $r['label'] . ' sonucu' . (str_contains($r['label'], ' 20') ? ' (yaklaşık)' : '') . '*',
             'Ciro: ' . Money::format($r['revenue']) . ' ₺'
                 . ($r['cash'] + $r['bank'] > 0 ? ' (peşin nakit ' . Money::format($r['cash']) . ', kart ' . Money::format($r['bank']) . ')' : ''),
-            'Alış: ' . Money::format($r['purchases']) . ' ₺',
+            'Alış' . $own . ': ' . Money::format($r['purchases']) . ' ₺',
         ];
         if (($r['personnel'] ?? 0) > 0) {
-            $lines[] = 'Personel: ' . Money::format($r['personnel']) . ' ₺';
+            $lines[] = 'Personel' . $own . ': ' . Money::format($r['personnel']) . ' ₺';
         }
         if (config('modules.expenses')) {
-            $lines[] = 'Gider: ' . Money::format($r['expenses']) . ' ₺';
+            $lines[] = 'Gider' . $own . ': ' . Money::format($r['expenses']) . ' ₺';
+        }
+        if (isset($r['allocated']) && $r['general_cost'] > 0) {
+            $lines[] = 'Genel maliyet payı (%' . Money::format($r['share'] * 100, 0) . ', tahmini): ' . Money::format($r['allocated']) . ' ₺';
         }
         $lines[] = ($r['result'] >= 0 ? '✅ Kalan: ' : '🔻 Eksi: ') . Money::format(abs($r['result'])) . ' ₺';
+        if (isset($r['allocated']) && $r['general_cost'] > 0) {
+            $lines[] = '_Şubesiz alış/gider (' . Money::format($r['general_cost']) . ' ₺) ciro payına göre dağıtıldı._';
+        }
         $lines[] = '_Ödeme ve tahsilatlar sayılmaz; stokta kalan mal düşülmez._';
 
         return implode("\n", $lines);
