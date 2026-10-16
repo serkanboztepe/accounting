@@ -58,7 +58,10 @@ class ExpenseExtractor
     public const KIND_AGENDA = 'agenda';
     public const KIND_PURCHASE = 'purchase';
     public const KIND_EMPLOYEE_SETTING = 'employee_setting'; // "Abdullah personelim, maaşı 50 bin, ayın 15'i" (EmployeeDraft)
-    public const KIND_SALARY = 'salary';                     // "Abdullah'ın maaşını verdim" → Maaş satırı + ödeme (avans düşülür)
+    public const KIND_SALARY = 'salary';
+    public const KIND_REMEMBER = 'remember';       // "bundan sonra kalfa deyince Mehmet'i anla" (MemoryDraft, onaylı)
+    public const KIND_FORGET = 'forget';           // "kalfayı unut"
+    public const KIND_MEMORY_LIST = 'memory_list'; // "neleri hatırlıyorsun" — kayıt yok                     // "Abdullah'ın maaşını verdim" → Maaş satırı + ödeme (avans düşülür)
 
     // Stoklu satış paketi (Satışlar/Alışlar tezgahı açık firmada; diğer firmalarda bu türler YOK):
     public const KIND_TRADE_SALE = 'trade_sale';         // satış belgesi (peşin carisiz / cariye), ürünlü ya da ürünsüz, toplu ciro
@@ -74,6 +77,9 @@ class ExpenseExtractor
         self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING, self::KIND_MONTH_RESULT, self::KIND_PRODUCT_ADD];
 
     private const KIND_HINTS = [
+        self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi) · note. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
+        self::KIND_FORGET => '- "forget": öğretilen bir bilgiyi unut ("kalfayı unut", "Recep fiyatını sil"). `memory_subject` = aranacak kelime ("kalfa"). amount=0.',
+        self::KIND_MEMORY_LIST => '- "memory_list": "neleri hatırlıyorsun", "bana ne öğrettim" — kayıt yok. amount=0.',
         self::KIND_EMPLOYEE_SETTING => '- "employee_setting": PERSONEL BİLGİSİ — çalışanın maaşı / maaş günü söyleniyor, para hareketi YOK ("Abdullah Günhan personelim, maaşı 50 bin, ayın 15\'inde", "Ali\'nin maaşı 55 bin oldu", "Mehmet işçimiz ayın 1\'i maaş alıyor"). `party_id` (listede yoksa `party_name`), `salary_amount` (aylık), `salary_day` (ayın kaçı); söylenmeyen null; amount=0. Asistan az önce "maaşı ne kadar, ayın kaçında?" diye sorduysa cevap ("45 bin, ayın 5\'i", "45 bin") o kişi için employee_setting\'tir. "Maaşından ne kadar kaldı / ne kadar vereceğim" SORUSU kayıt değildir: CARİLER\'deki o kişinin notundaki "maaştan kalan" / "açık avans" rakamıyla cevap ver (hesap yapma).',
         self::KIND_SALARY => '- "salary": PERSONELE MAAŞ — bir çalışanın maaşı ödendi / hak edildi ("Abdullah\'ın maaşını verdim", "Ali\'ye Ekim maaşı 50 bin ödedim", "işçi maaşları: Mehmet 40 bin"). `party_id`/`party_name` = çalışan, `amount` = MAAŞIN TAMAMI (söylenmediyse 0 — karttaki maaş kullanılır), `paid` true (verildiyse) / false ("maaşı hak etti, henüz vermedim"), `month` = hangi ayın maaşı (YYYY-MM, söylendiyse). YEVMİYE / günlük / haftalık işçi ücreti de bu türdür ("İşçi Hasan\'a 2000 yevmiye verdim" → salary, amount 2000, paid true, description "yevmiye"). Avans DÜŞÜLMÜŞ tutarı yazma; sistem açık avansı kendisi düşer. AVANS maaş değildir → "payment" + payment_purpose "advance".',
         self::KIND_EXPENSE => '- "expense": CARİSİZ genel harcama — belli bir kişi/firma hesabına bağlı OLMAYAN masraf ("5 bin yakıt", "kira 20 bin ödendi", "elektrik faturası", "yemek 800", "markette 2 bin"). Ödendi de olsa ödenmedi de olsa gider budur. Bir KİŞİDEN/FİRMADAN (cari) mal ya da hizmet alındıysa ("Ahmet\'ten 100 bin malzeme aldım", "Abdullah Usta\'ya sıva yaptırdım") bu gider DEĞİL, "purchase"tır.',
@@ -123,6 +129,9 @@ class ExpenseExtractor
             self::KIND_HELP,
             self::KIND_REMINDER,
             self::KIND_AGENDA,
+            self::KIND_REMEMBER,
+            self::KIND_FORGET,
+            self::KIND_MEMORY_LIST,
             // Personel: maaş/avans ödemesi var → ödeme açık firmalarda (mimar paketi değişmez — Ferhat kararı).
             config('modules.cari_supplier') ? self::KIND_EMPLOYEE_SETTING : null,
             config('modules.cari_supplier') ? self::KIND_SALARY : null,
@@ -584,6 +593,9 @@ class ExpenseExtractor
                     'lead_minutes' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=reminder: how long BEFORE, only if said (minutes); else null'],
                     'is_alarm' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=reminder: true = remind exactly at that time (no separate event)'],
                     'repeat' => ['type' => ['string', 'null'], 'enum' => ['weekly', 'monthly', 'yearly', null], 'description' => 'Only for kind=reminder'],
+                    'memory_kind' => ['type' => ['string', 'null'], 'enum' => ['alias', 'agreement', 'price', 'preference', 'note', null], 'description' => 'Only for kind=remember'],
+                    'memory_subject' => ['type' => ['string', 'null'], 'description' => 'Only for kind=remember / forget: short subject ("kalfa")'],
+                    'memory_fact' => ['type' => ['string', 'null'], 'description' => 'Only for kind=remember: one-sentence fact ("Kalfa = Mehmet Kaya")'],
                     'is_staff' => ['type' => ['boolean', 'null'], 'description' => 'kind=payment / salary: true if the person is OUR worker / employee — decide from MEANING, any wording (personel, eleman, işçi, çoban, şoför, garson, kalfa, çırak, "bizim çocuk", "maaşından", "haftalığı") or "personel" note in CARİLER; false if a supplier/craftsman/customer; null if unknown'],
                     'salary_amount' => ['type' => ['number', 'null'], 'description' => 'Only for kind=employee_setting: monthly salary'],
                     'salary_day' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=employee_setting: day of month the salary is paid (1-31)'],
@@ -1007,6 +1019,10 @@ class ExpenseExtractor
             'cash_amount' => $kind === self::KIND_TRADE_SALE && isset($input['cash_amount']) ? (float) $input['cash_amount'] : null,
             'card_amount' => $kind === self::KIND_TRADE_SALE && isset($input['card_amount']) ? (float) $input['card_amount'] : null,
             'is_staff' => in_array($kind, [self::KIND_PAYMENT, self::KIND_SALARY], true) && ! empty($input['is_staff']),
+            'memory_kind' => $kind === self::KIND_REMEMBER && is_string($input['memory_kind'] ?? null) ? $input['memory_kind'] : null,
+            'memory_subject' => in_array($kind, [self::KIND_REMEMBER, self::KIND_FORGET], true) && is_string($input['memory_subject'] ?? null)
+                ? mb_substr(trim($input['memory_subject']), 0, 120) : null,
+            'memory_fact' => $kind === self::KIND_REMEMBER && is_string($input['memory_fact'] ?? null) ? mb_substr(trim($input['memory_fact']), 0, 500) : null,
             'salary_amount' => $kind === self::KIND_EMPLOYEE_SETTING && (float) ($input['salary_amount'] ?? 0) > 0 ? round((float) $input['salary_amount'], 2) : null,
             'salary_day' => $kind === self::KIND_EMPLOYEE_SETTING && (int) ($input['salary_day'] ?? 0) >= 1 && (int) $input['salary_day'] <= 31 ? (int) $input['salary_day'] : null,
             'month' => in_array($kind, [self::KIND_MONTH_RESULT, self::KIND_SALARY], true) && is_string($input['month'] ?? null) && preg_match('/^\d{4}-\d{2}$/', $input['month']) ? $input['month'] : null,

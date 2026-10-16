@@ -180,6 +180,7 @@ class AssistantEvalTest extends TestCase
     {
         // Yerel deneme DB'sindeki eski projeler/ürünler menüye ve eşleşmeye karışmasın (işlem sonunda geri alınır).
         Project::query()->update(['status' => 'cancelled']);
+        \App\Models\AssistantMemory::query()->update(['status' => 'deleted']);
         Product::query()->update(['is_active' => false]);
         $this->ids = ['party' => [], 'project' => [], 'product' => [], 'category' => []];
         foreach ($firm['projects'] ?? [] as $name) {
@@ -213,6 +214,8 @@ class AssistantEvalTest extends TestCase
             'purchase' => TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $this->ids['party'][$row[1]],
                 'purchase_date' => now()->modify($row[5])->toDateString(),
                 'lines' => [['product_id' => $this->ids['product'][$row[2]], 'quantity' => (string) $row[3], 'unit_price' => (string) $row[4]]]]),
+            'memory' => \App\Models\AssistantMemory::create(['kind' => $row[1], 'subject' => $row[2], 'fact' => $row[3],
+                'party_id' => isset($row[4]) ? $this->ids['party'][$row[4]] : null]),
             'expense' => Expense::create(['amount' => $row[1], 'expense_date' => now()->modify($row[2])->toDateString(),
                 'description' => $row[3], 'payment_status' => 'paid']),
         };

@@ -62,7 +62,7 @@ class ChatAssistant
         $model = config('services.anthropic.chat_model') ?: config('services.anthropic.model');
         // $fresh: mesaj kendi başına tam bir kayıt (kasa) — geçmişteki soru ("Hangi şube?") ona cevap sanılmasın.
         $messages = $fresh ? [['role' => 'user', 'content' => $text]] : $this->history($phone, $text);
-        $system = $this->systemPrompt($pending);
+        $system = $this->systemPrompt($pending, $phone);
 
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
             $timeout = 60;
@@ -111,6 +111,12 @@ class ChatAssistant
                     $data['confidence'] = 'high'; // yazılı tutar belirsiz değildir (eski çıkarıcıdaki gibi)
                     // Aynı mesajdaki kalan kalem(ler): onaydan sonra sıradaki taslak olarak önerilir.
                     $data['next_items'] = trim((string) ($input['next_items'] ?? '')) ?: null;
+                    // Kayıttan sonra "Hatırlayayım mı?" diye sorulacak kalıcı bilgi (Faz 2).
+                    $ms = is_array($input['memory_suggestion'] ?? null) ? $input['memory_suggestion'] : [];
+                    $data['memory_suggestion'] = ! empty($ms['fact']) && $data['kind'] !== ExpenseExtractor::KIND_REMEMBER
+                        ? ['kind' => (string) ($ms['kind'] ?? 'note'), 'subject' => mb_substr((string) ($ms['subject'] ?? ''), 0, 120),
+                            'fact' => mb_substr((string) $ms['fact'], 0, 500)]
+                        : null;
 
                     return ['type' => 'entry', 'data' => $data, 'text' => $said];
                 case 'confirm_pending':
@@ -317,12 +323,12 @@ class ChatAssistant
     }
 
     /** @return list<array{type:string,text:string,cache_control?:array}> sistem blokları (önbellek katmanları) */
-    private function systemPrompt(?array $pending): array
+    private function systemPrompt(?array $pending, ?string $phone = null): array
     {
         $now = now(self::TIMEZONE)->locale('tr');
         $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ')';
         $kinds = ExpenseExtractor::kindGuide();
-        $context = ExpenseContext::build();
+        $context = ExpenseContext::build($phone);
         $draft = $pending !== null
             ? json_encode(array_intersect_key($pending, array_flip([
                 'kind', 'amount', 'description', 'date', 'due_date', 'party_id', 'party_name', 'project_id', 'project_name',
@@ -366,9 +372,11 @@ class ChatAssistant
           `question` YALNIZ gerçekten eksik/şüpheli bir bilgi için (ör. yön belirsiz); "onaylıyor musun?",
           "yeni cari açayım mı?" gibi soru YAZMA — onayı sistem zaten soruyor.
           Düz mesaj (soru, bilgi, yapamadığın şey) → `reply`. Sen ASLA "kaydettim" deme.
-        - KALICI HAFIZAN YOK (henüz): "bundan sonra kalfa deyince Mehmet'i anla", "unutma …" gibi isteklere "anlarım /
-          hatırlarım / not aldım" DEME — yapamadığın sözü verme. Dürüstçe söyle: "Bunu kalıcı hatırlayamıyorum; şimdilik
-          kişinin kayıtlı adını yazarsan doğru eşleştiririm." (Yalnız bu konuşmanın son 30 dakikasını görürsün.)
+        - HAFIZA: bağlamdaki "İŞLETME HAFIZASI" kullanıcının sana öğrettikleridir — UY (takma adı cariye eşle, anlaşılan
+          fiyatı kullan, tercihe göre yaz). Yeni kalıcı bilgi öğretilirse ("bundan sonra…", "unutma…", "X'le Y'den anlaştık")
+          → propose_entry kind "remember" (sistem "Hatırlayayım mı?" diye sorar). Kendin "hatırlarım / not aldım" DEME;
+          kaydı sistem onayla yapar. İşlem mesajında kalıcı bir bilgi geçiyorsa (kişi düzeltmesi "kalfa değil, Mehmet Kaya";
+          anlaşma "280'den anlaştık") işlemi öner ve `memory_suggestion` doldur — işlem kaydolunca sistem sorar.
         - Bir İŞLEM için eksik bilgi (tutar, kişi, yön) soracaksan `reply` KULLANMA: `propose_entry` ile bildiğin
           alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
           ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
@@ -438,6 +446,15 @@ class ChatAssistant
         $entry['properties']['next_items'] = [
             'type' => ['string', 'null'],
             'description' => 'Kullanıcının aynı mesajında bu kayıttan SONRA kaydedilecek başka kalem(ler) varsa onların kullanıcı sözleriyle kısa tarifi ("10.000 TL traktör ustalık parası ödedim"); yoksa null.',
+        ];
+        $entry['properties']['memory_suggestion'] = [
+            'type' => ['object', 'null'],
+            'description' => 'İşlem mesajında KALICI bir bilgi geçiyorsa (kişi düzeltmesi "kalfa değil Mehmet Kaya", anlaşma "280\'den anlaştık", "bundan sonra"): kind alias|agreement|price|preference|note, subject, fact. Yoksa null.',
+            'properties' => [
+                'kind' => ['type' => 'string', 'enum' => ['alias', 'agreement', 'price', 'preference', 'note']],
+                'subject' => ['type' => 'string'],
+                'fact' => ['type' => 'string'],
+            ],
         ];
         $entry['properties']['is_new_entry'] = [
             'type' => 'boolean',

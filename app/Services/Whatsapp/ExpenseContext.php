@@ -61,7 +61,7 @@ class ExpenseContext
     /**
      * Sistem prompt'una gömülecek kompakt liste bloğu.
      */
-    public static function build(): string
+    public static function build(?string $phone = null): string
     {
         if (self::$override !== null) {
             return self::$override;
@@ -77,6 +77,12 @@ class ExpenseContext
         $categories = self::scoped(ExpenseCategory::query(), 'categories')->orderBy('name')->get(['id', 'name']);
 
         $lines = [];
+        // İşletme hafızası (Faz 2): kullanıcının öğrettikleri — en üstte, AI buna uyar.
+        if ($memory = MemoryDraft::contextLines($phone)) {
+            $lines[] = 'İŞLETME HAFIZASI (kullanıcının öğrettikleri — uy; çelişirse yeni mesaj geçerli):';
+            array_push($lines, ...$memory);
+            $lines[] = '';
+        }
         if ($self = self::selfNames()) {
             $lines[] = 'BİZ (kullanıcı / firma — ASLA cari değil): ' . implode('; ', $self);
             $lines[] = '';

@@ -39,6 +39,9 @@ final class DraftGaps
     {
         $kind = self::kind($d);
 
+        if (MemoryDraft::handles($d)) {
+            return self::confirm();
+        }
         if (EmployeeDraft::handles($d)) {
             return ($question = EmployeeDraft::blocker($d))
                 ? ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question]
@@ -97,6 +100,8 @@ final class DraftGaps
             ExpenseExtractor::KIND_DEBT_NOTE => 'Borç/alacak kaydı',
             ExpenseExtractor::KIND_REMINDER => 'Hatırlatma',
             ExpenseExtractor::KIND_SALARY => 'Maaş',
+            ExpenseExtractor::KIND_REMEMBER => 'Hatırlanacak bilgi',
+            ExpenseExtractor::KIND_FORGET => 'Unutulacak bilgi',
             ExpenseExtractor::KIND_EMPLOYEE_SETTING => 'Personel bilgisi',
             default => 'Kayıt',
         };

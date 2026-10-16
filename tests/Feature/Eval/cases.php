@@ -214,17 +214,28 @@ return [
         ['id' => 'F1-ay-neden-eksi', 'firm' => 'akkus', 'group' => 'capability', 'seed' => 'akkus-kasalar',
             'steps' => [['send' => 'Bu ay neden eksi']],
             'expect' => ['no_new_draft' => true, 'reply_has' => ['çek ödemesi']]],
-        ['id' => 'durust-hafiza-sozu-vermez', 'firm' => 'stok', 'group' => 'regression',
+        // ---------------------------------------------------------------- Faz 2: işletme hafızası
+        ['id' => 'mem-takma-ad-ogret-kullan', 'firm' => 'stok', 'group' => 'regression',
+            'steps' => [['send' => 'bundan sonra kalfa deyince Mehmet Kaya yı anla'], ['send' => 'evet'], ['send' => 'kalfaya 2 bin avans verdim']],
+            'expect' => ['draft' => ['kind' => 'payment', 'party_id' => '@party:Mehmet Kaya', 'amount' => 2000], 'reply_not' => ['Aynı kişi mi']]],
+        ['id' => 'mem-onaysiz-kaydetmez', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => 'bundan sonra kalfa deyince Mehmet Kaya yı anla']],
-            'expect' => ['no_new_draft' => true, 'reply_not' => ['anlarım', 'anlayacağım', 'hatırlarım', 'hatırlayacağım', 'not aldım']]],
-        ['id' => 'F2-takma-ad-hafiza', 'firm' => 'stok', 'group' => 'capability',
-            'steps' => [['send' => 'bundan sonra kalfa deyince Mehmet Kaya yı anla']],
-            'expect' => ['reply_has' => ['hatırlayayım mı']]],
+            'expect' => ['draft' => ['kind' => 'remember'], 'reply_has' => ['Hatırlayayım mı'], 'reply_not' => ['hatırlayacağım', 'not aldım']]],
+        ['id' => 'mem-anlasma-onerisi', 'firm' => 'erkan', 'group' => 'regression',
+            'steps' => [['send' => "Recep Demirci'ye 10 kg peynir verdim kilosunu 280'den anlaştık"], ['send' => 'evet']],
+            'expect' => ['reply_has' => ['hatırlayayım mı', '280'], 'saved' => ['ledger' => 1]]],
+        ['id' => 'mem-fiyati-kullanir', 'firm' => 'erkan', 'group' => 'regression', 'seed' => 'erkan-hafiza',
+            'steps' => [['send' => "Recep Demirci'ye 5 kilo peynir verdim"]],
+            'expect' => ['draft' => ['party_id' => '@party:Recep Demirci', 'amount' => 1400]]],
+        ['id' => 'mem-liste-ve-unut', 'firm' => 'erkan', 'group' => 'regression', 'seed' => 'erkan-hafiza',
+            'steps' => [['send' => 'neleri hatırlıyorsun'], ['send' => 'Recep fiyatını unut'], ['send' => 'evet'], ['send' => 'neleri hatırlıyorsun']],
+            'expect' => ['reply_has' => ['Henüz bana öğrettiğin'], 'reply_not' => ['Recep Demirci ile']]],
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
     'seeds' => [
         'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
+        'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],
         'akkus-kasalar' => [
             ['sale', 'Ergenekon', 27440, 'today'], ['sale', 'İzzetpaşa', 21845, 'today'], ['sale', 'Araştırma', 51517, 'today'],

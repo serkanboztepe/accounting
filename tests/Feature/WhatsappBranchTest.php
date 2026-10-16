@@ -135,6 +135,7 @@ class WhatsappBranchTest extends TestCase
 
     public function test_branch_revenue_question(): void
     {
+        $this->travelTo(now()->setTime(14, 0)); // gece 00–05 "bugün" = dün kuralı testi bozmasın
         \App\Support\TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '27440', 'project_id' => $this->branches['Ergenekon']->id]);
         \App\Support\TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '21845', 'project_id' => $this->branches['İzzetpaşa']->id]);
         $today = now()->toDateString();

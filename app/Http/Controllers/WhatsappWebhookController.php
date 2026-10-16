@@ -27,6 +27,7 @@ use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
 use App\Services\Whatsapp\DeferTurn;
 use App\Services\Whatsapp\EmployeeDraft;
+use App\Services\Whatsapp\MemoryDraft;
 use App\Services\Whatsapp\NaturalVoice;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Services\Whatsapp\ProjectChoice;
@@ -662,6 +663,19 @@ class WhatsappWebhookController extends Controller
         if ($pending->fresh()?->status !== 'confirmed') {
             return $done;
         }
+        // Kayıttan sonra kalıcı bilgi önerisi (Faz 2): "🧠 Bir de şunu hatırlayayım mı?" — sıradaki kalem yoksa.
+        $suggest = $pending->extracted['memory_suggestion'] ?? null;
+        if (! $next && is_array($suggest) && ! empty($suggest['fact'])) {
+            $memory = ['kind' => ExpenseExtractor::KIND_REMEMBER, 'memory_kind' => $suggest['kind'] ?? 'note',
+                'memory_subject' => $suggest['subject'] ?? null, 'memory_fact' => $suggest['fact'],
+                'party_id' => $pending->extracted['party_id'] ?? null, 'memory_source' => $this->inboundBody, 'amount' => 0];
+            if (MemoryDraft::blocker($memory, $phone) === null) {
+                $summary = MemoryDraft::summary($memory, $phone);
+                WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $memory, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+
+                return $done . "\n\n" . str_replace('🧠 *Hatırlayayım mı?*', '🧠 *Bir de şunu hatırlayayım mı?*', $summary) . "\n*evet* / *iptal*";
+            }
+        }
         if (! ChatAssistant::enabled() || ! $next) {
             return $this->withLeftover($done, $phone, $pending->id);
         }
@@ -820,7 +834,8 @@ class WhatsappWebhookController extends Controller
     /** Kayıt açmayan soru türleri: cevap verilir, bekleyen taslak varsa altına "onay bekliyor" eklenir. */
     private const ANSWER_KINDS = [ExpenseExtractor::KIND_BALANCE_QUERY, ExpenseExtractor::KIND_TOTALS_QUERY,
         ExpenseExtractor::KIND_STATEMENT, ExpenseExtractor::KIND_EXPENSE_SUMMARY, ExpenseExtractor::KIND_AGENDA,
-        ExpenseExtractor::KIND_PARTY_LIST, ExpenseExtractor::KIND_MONTH_RESULT, ExpenseExtractor::KIND_STOCK_QUERY];
+        ExpenseExtractor::KIND_PARTY_LIST, ExpenseExtractor::KIND_MONTH_RESULT, ExpenseExtractor::KIND_STOCK_QUERY,
+        ExpenseExtractor::KIND_MEMORY_LIST];
 
     /**
      * Akkuş 15.10 22:13: kasa onay beklerken "toplam ciro?" soruldu, cevap bekleyen 51.517'yi anmadı (dahil sandı).
@@ -887,7 +902,8 @@ class WhatsappWebhookController extends Controller
         $data = ProjectChoice::prepare($data, $phone);
         $data = AdvanceOffset::apply($data, $this->inboundBody);
         $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
-        $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null);
+        $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null)
+            && ! MemoryDraft::isKnownAlias($party->id, $data['party_said'] ?? null); // öğretilmiş takma ad: sorma
         // Dekonttaki resmî ad carinin adını tamamen içeriyorsa ("Evrim Hazal Doğan" ⊇ "Hazal Doğan") aynı kişi: sorma,
         // yalnız bilgi olarak göster; kullanıcı "o değil" derse yeni cari (Taner, 13 Ekim).
         $documentSame = $differs && ! empty($data['from_document']) && PartyNameCheck::containedIn($party, (string) $data['party_said']);
@@ -925,6 +941,15 @@ class WhatsappWebhookController extends Controller
         // Personel bilgisi / maaş (her firmada).
         if (EmployeeDraft::handles($data)) {
             return $this->saveEmployeeDraft($pending, $phone, $data);
+        }
+        // İşletme hafızası (Faz 2): hatırla / unut onaylı; "neleri hatırlıyorsun" hemen cevap.
+        if (MemoryDraft::handles($data)) {
+            if (MemoryDraft::isAnswer($data)) {
+                return MemoryDraft::listText($phone);
+            }
+            $data['memory_source'] = $data['memory_source'] ?? $this->inboundBody;
+
+            return $this->saveConfirmDraft($pending, $phone, $data, MemoryDraft::summary($data, $phone), MemoryDraft::blocker($data, $phone));
         }
         // Stoklu satış paketi (satış/alış belgesi, sayım, stok sorusu, ay sonucu) — yalnız o firmalarda.
         if (TradeDraft::handles($data)) {
@@ -1407,6 +1432,16 @@ class WhatsappWebhookController extends Controller
             return $this->commitReminder($pending, $d);
         }
 
+        if (MemoryDraft::handles($d) && ! MemoryDraft::isAnswer($d)) {
+            if ($question = MemoryDraft::blocker($d, $pending->phone)) {
+                return '❓ ' . $question;
+            }
+            [$text] = MemoryDraft::commit($d, $pending->phone);
+            $pending->update(['status' => 'confirmed']);
+
+            return $text;
+        }
+
         if (EmployeeDraft::handles($d)) {
             if ($question = EmployeeDraft::blocker($d)) {
                 return '❓ ' . $question;
@@ -1649,6 +1684,22 @@ class WhatsappWebhookController extends Controller
             : $this->balanceLine($party->name, $balance);
 
         return '✅ Kaydedildi. ' . $line . $ask;
+    }
+
+    /** Basit onaylı taslak (hafıza): özet + teyit; eksik bilgi varsa yalnız soru. */
+    private function saveConfirmDraft(?WhatsappPendingExpense $pending, string $phone, array $data, string $summary, ?string $question): string
+    {
+        $text = $question !== null ? '❓ ' . $question : $summary;
+        $footer = $question !== null ? "\n\nCevabını yaz, vazgeçmek için *iptal*." : "\n\n*evet* / *iptal*";
+        if ($question === null) {
+            if ($pending) {
+                $pending->update(['extracted' => $data, 'summary' => $summary]);
+            } else {
+                WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+            }
+        }
+
+        return $text . $footer;
     }
 
     /** Personel ayarı / maaş taslağı: özet + teyit (eksikse soru). */
