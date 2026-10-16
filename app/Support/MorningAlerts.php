@@ -37,7 +37,8 @@ final class MorningAlerts
                 $out[$p][] = $line;
             }
         }
-        if ($today->isMonday() && ($weekly = self::weekly($today))) {
+        // Haftalık özet "ciro − alış − gider" hesabını kullanır: yalnız Ay Sonucu'nu kullanan firmada (müteahhitte yanıltır).
+        if ($today->isMonday() && config('modules.report_monthly') && ($weekly = self::weekly($today))) {
             foreach ($phones as $p) {
                 $out[$p][] = $weekly;
             }
