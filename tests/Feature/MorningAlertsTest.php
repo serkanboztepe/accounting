@@ -54,6 +54,28 @@ class MorningAlertsTest extends TestCase
         $this->assertStringNotContainsString('Sabah Yeni', $lines);
     }
 
+    public function test_open_advance_asked_on_day_14_and_30_until_work_arrives(): void
+    {
+        $osman = \App\Models\Party::create(['name' => 'Sabah Avans Osman']);
+        $usta = \App\Models\Party::create(['name' => 'Sabah Avans Personel', 'is_employee' => true]);
+        foreach ([$osman, $usta] as $p) {
+            \App\Models\PartyLedgerEntry::create(['party_id' => $p->id, 'type' => \App\Models\PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 1005000,
+                'entry_date' => $this->today->copy()->subDays(14)->toDateString(), 'description' => 'Avans — asansör']);
+        }
+
+        $day14 = implode("\n", MorningAlerts::openAdvances($this->today));
+        $this->assertStringContainsString('Sabah Avans Osman', $day14);
+        $this->assertStringContainsString('1.005.000,00 ₺ avansın işi/malı geldi mi', $day14);
+        $this->assertStringNotContainsString('Personel', $day14, 'personel avansı maaştan düşer, sorulmaz');
+        $this->assertStringNotContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->subDay())), '13. gün sessiz');
+        $this->assertStringContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->addDays(16))), '30. gün');
+
+        // Asansör takıldı (alış avanstan düştü) → bir daha sorulmaz.
+        \App\Models\PartyLedgerEntry::create(['party_id' => $osman->id, 'type' => \App\Models\PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 1005000,
+            'entry_date' => $this->today->copy()->subDays(2)->toDateString(), 'description' => 'Asansör']);
+        $this->assertStringNotContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->addDays(16))));
+    }
+
     public function test_monday_weekly_summary_with_branches(): void
     {
         $a = Project::create(['name' => 'Hafta A', 'status' => 'active']);

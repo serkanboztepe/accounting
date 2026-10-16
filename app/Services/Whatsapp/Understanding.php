@@ -58,6 +58,9 @@ final class Understanding
       kaydı değiştirmez; party_certain=true.
     - Bir kişiye (usta, firma, tedarikçi) yapılan ödeme/iş o kişinin hesabına yazılır (`party_name`); gider yalnız kişisiz harcamadır
       (yakıt fişi, kira, market).
+    - CARİLER'de "açık avans: biz verdik" yazan kişi için "işi bitirdi / mal geldi / taktı" denirse avansın karşılığıdır:
+      tutar söylenmediyse açık avans tutarıyla `purchase` (work_status done, known) — avanstan düşülür, yeni para çıkmaz.
+      "peşin aldık" yazan kişiye "teslim ettim / götürdüm" denirse aynı şekilde `sale` (tutar = peşin alınan).
     - BELGE mesajdan üstündür: çek görüntüsünde her çeki `checks`'e yaz (no, vade YAZILDIĞI GİBİ, tutar) — ödeme çekle yapılmıştır;
       çek yazıyla anlatılırsa da ("3 çek verdim 335'er bin, vadeler 31.03, 30.04, 31.05") her çeki `checks`'e yaz (no yoksa boş);
       dekontta gönderen/alıcı/açıklama esastır. Mesajla belge çelişirse sor.

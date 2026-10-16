@@ -334,6 +334,10 @@ return [
             'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
                 ['send' => 'Asansör bedeli birmilyon beş bin']],
             'expect' => ['asks' => true, 'saved' => ['ledger' => 0]]],
+        // Açık avansın karşılığı: tutar söylenmeden "taktı" → avanstan düşen alış, bakiye 0 (Faz G)
+        ['id' => 'U-acik-avans-is-geldi', 'firm' => 'taner', 'group' => 'understand', 'seed' => 'taner-osman-avans',
+            'steps' => [['send' => 'Osman asansörü taktı', 'expect' => ['ready' => true]], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Asansör Osman' => 0]]],
         // Açık mesaj → soru YOK (aşırı soru da hata)
         ['id' => 'U-acik-is-bitti-odendi', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Mehmet usta sıvayı bitirdi 80 bin verdim', 'expect' => ['ready' => true]], ['send' => 'evet']],
@@ -356,6 +360,7 @@ return [
         'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
         'akkus-iki-hafta' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-1 days'], ['sale', 'İzzetpaşa', 21000, '-1 days'], ['sale', 'Araştırma', 50000, '-2 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-2 days'], ['sale', 'Araştırma', 50000, '-3 days'], ['sale', 'Ergenekon', 25000, '-3 days'], ['sale', 'İzzetpaşa', 21000, '-3 days'], ['sale', 'Araştırma', 50000, '-4 days'], ['sale', 'Ergenekon', 25000, '-4 days'], ['sale', 'İzzetpaşa', 21000, '-4 days'], ['sale', 'Araştırma', 50000, '-5 days'], ['sale', 'Ergenekon', 25000, '-5 days'], ['sale', 'İzzetpaşa', 21000, '-5 days'], ['sale', 'Araştırma', 50000, '-6 days'], ['sale', 'Ergenekon', 25000, '-6 days'], ['sale', 'İzzetpaşa', 21000, '-6 days'], ['sale', 'Araştırma', 50000, '-7 days'], ['sale', 'Ergenekon', 25000, '-7 days'], ['sale', 'İzzetpaşa', 21000, '-7 days'], ['sale', 'Araştırma', 40000, '-8 days'], ['sale', 'Ergenekon', 27000, '-8 days'], ['sale', 'İzzetpaşa', 21000, '-8 days'], ['sale', 'Araştırma', 40000, '-9 days'], ['sale', 'Ergenekon', 27000, '-9 days'], ['sale', 'İzzetpaşa', 21000, '-9 days'], ['sale', 'Araştırma', 40000, '-10 days'], ['sale', 'Ergenekon', 27000, '-10 days'], ['sale', 'İzzetpaşa', 21000, '-10 days'], ['sale', 'Araştırma', 40000, '-11 days'], ['sale', 'Ergenekon', 27000, '-11 days'], ['sale', 'İzzetpaşa', 21000, '-11 days'], ['sale', 'Araştırma', 40000, '-12 days'], ['sale', 'Ergenekon', 27000, '-12 days'], ['sale', 'İzzetpaşa', 21000, '-12 days'], ['sale', 'Araştırma', 40000, '-13 days'], ['sale', 'Ergenekon', 27000, '-13 days'], ['sale', 'İzzetpaşa', 21000, '-13 days'], ['sale', 'Araştırma', 40000, '-14 days'], ['sale', 'Ergenekon', 27000, '-14 days'], ['sale', 'İzzetpaşa', 21000, '-14 days']],
         'taner-odemeler' => [['ledger', 'Ferhat Yıldız', 'odeme', 5000, '-1 days', 'Proje bedeli'], ['ledger', 'Sinan Sele', 'odeme', 2500000, '-1 days', '2026 bağlantısı']],
+        'taner-osman-avans' => [['ledger', 'Asansör Osman', 'odeme', 1005000, '-14 days', 'Avans — Atatürk mahallesi asansörü']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],

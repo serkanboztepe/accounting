@@ -17,6 +17,8 @@ use Illuminate\Support\Carbon;
  *  - GİRİLMEYEN KASA: son 7 günün en az 4'ünde kasası (ürünsüz günlük ciro) girilen şube (ya da tek kasa) dün girilmediyse
  *    ("Dün Ergenekon kasası girilmedi"); o şubeyi kim giriyorsa ona.
  *  - PAZARTESİ HAFTALIK ÖZET: geçen haftanın ciro / alış / gider / kalan, şube şube ciro, bu hafta vadesi gelenler.
+ *  - AÇIK AVANS (Faz G, 16.10): verilen/alınan avansın karşılığı (iş, mal) kaydedilmediyse 14. ve 30. gün, sonra ayda bir sorulur —
+ *    yoksa bakiye sonsuza kadar "o size borçlu" görünür (Taner/asansör, Erkan/peynir). Personel avansı hariç (maaştan düşer).
  */
 final class MorningAlerts
 {
@@ -34,6 +36,11 @@ final class MorningAlerts
         }
         foreach (self::missingTills($today->copy()->subDay()) as [$line, $owner]) {
             foreach ($owner && in_array($owner, $phones, true) ? [$owner] : $phones as $p) {
+                $out[$p][] = $line;
+            }
+        }
+        foreach (self::openAdvances($today) as $line) {
+            foreach ($phones as $p) {
                 $out[$p][] = $line;
             }
         }
@@ -101,6 +108,43 @@ final class MorningAlerts
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Karşılığı kaydedilmemiş avanslar: son avans 14 ya da 30 gün önceyse, sonra her 30 günde bir (durumsuz, tekrar etmez). En çok 3.
+     *
+     * @return list<string>
+     */
+    public static function openAdvances(Carbon $today): array
+    {
+        $lines = [];
+        $rows = PartyLedgerEntry::with('party')->whereIn('type', [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION])
+            ->where('description', 'like', 'Avans%')->orderByDesc('entry_date')->get()->groupBy(fn ($e) => $e->party_id . ':' . $e->type);
+        foreach ($rows as $entries) {
+            $last = $entries->first();
+            $party = $last->party;
+            if (! $party || $party->is_employee) {
+                continue;
+            }
+            $days = (int) Carbon::parse($last->entry_date)->startOfDay()->diffInDays($today->copy()->startOfDay());
+            if (! in_array($days, [14, 30], true) && ! ($days > 30 && $days % 30 === 0)) {
+                continue;
+            }
+            $ours = $last->type === PartyLedgerEntry::TYPE_PAYMENT; // biz verdik: iş/mal onda
+            $open = \App\Services\Whatsapp\AdvanceOffset::open($party, $ours ? \App\Services\Whatsapp\ExpenseExtractor::KIND_PURCHASE : \App\Services\Whatsapp\ExpenseExtractor::KIND_SALE);
+            if ($open <= 0.01) {
+                continue; // karşılığı gelmiş (alış/satış avanstan düşmüş)
+            }
+            $date = Carbon::parse($last->entry_date)->locale('tr')->translatedFormat('j F');
+            $lines[] = $ours
+                ? '⏳ ' . $party->name . ': ' . $date . "'de verdiğiniz " . Money::format($open) . ' ₺ avansın işi/malı geldi mi? Geldiyse yazmanız yeterli (ör. "' . $party->name . ' işi bitirdi").'
+                : '⏳ ' . $party->name . ': ' . $date . "'de aldığınız " . Money::format($open) . ' ₺ peşin paranın malı/işi teslim edildi mi? Edildiyse yazmanız yeterli (ör. "' . $party->name . "'e teslim ettim\").";
+            if (count($lines) >= 3) {
+                break;
+            }
+        }
+
+        return $lines;
     }
 
     /** @return list<string> */

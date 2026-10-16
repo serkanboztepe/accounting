@@ -5,6 +5,7 @@ namespace App\Services\Whatsapp;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Party;
+use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 
 /**
@@ -122,9 +123,13 @@ class ExpenseContext
 
         $lines[] = '';
         $lines[] = 'CARİLER (id: isim):';
+        // Açık avansı olan cariler (Faz G): "Osman işi bitirdi" tutarsız gelince avansın karşılığı olarak tanınsın. Tek sorgu + yalnız onlar.
+        $withAdvance = PartyLedgerEntry::where('description', 'like', 'Avans%')
+            ->whereIn('type', [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION])->distinct()->pluck('party_id')->flip();
         $lines[] = $parties->isEmpty()
             ? '  (kayıtlı cari yok)'
-            : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name) . self::employeeNote($c))->implode("\n");
+            : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name) . self::employeeNote($c)
+                . (! $c->is_employee && $withAdvance->has($c->id) ? self::advanceNote($c) : ''))->implode("\n");
 
         $lines[] = '';
         $lines[] = 'GİDER KATEGORİLERİ (id: isim):';
@@ -164,6 +169,18 @@ class ExpenseContext
         }
 
         return implode("\n", $lines);
+    }
+
+    /** Açık avans: " (açık avans: biz verdik 1.005.000 — iş/mal bekleniyor)" / " (peşin aldık 15.000 — mal/iş teslim edilecek)". */
+    private static function advanceNote($party): string
+    {
+        $ours = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
+        if ($ours > 0) {
+            return ' (açık avans: biz verdik ' . \App\Support\Money::format($ours) . ' — iş/mal bekleniyor)';
+        }
+        $theirs = AdvanceOffset::open($party, ExpenseExtractor::KIND_SALE);
+
+        return $theirs > 0 ? ' (peşin aldık ' . \App\Support\Money::format($theirs) . ' — mal/iş teslim edilecek)' : '';
     }
 
     /** Personel işaretli cari: " (personel, maaş 50.000, ayın 15'i)" — maaş/avans sorularında AI bilsin. */
