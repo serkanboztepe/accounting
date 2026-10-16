@@ -1756,7 +1756,6 @@ class WhatsappWebhookController extends Controller
         $summary = $question !== null && in_array($this->kind($data), [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING], true)
             ? '❓ ' . $question
             : TradeDraft::summary($data) . (($pl = ProjectChoice::lines($data)) ? "\n" . implode("\n", $pl) : '')
-                . (($sn = ProjectChoice::stockPurchaseNote($data)) ? "\n" . $sn : '')
                 . ($question !== null && ProjectChoice::blocker($data) === null ? "\n❓ " . $question : '');
         if ($question === null && (float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';

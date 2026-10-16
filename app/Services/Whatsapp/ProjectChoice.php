@@ -32,7 +32,7 @@ final class ProjectChoice
         }
 
         // Stoklu alış (stoğa giren mal) şube SORMAZ — stok işletme geneli, hammadde tüm şubeler için alınır; şube
-        // sorusu "şube stoğu var" sanısı yaratıyordu (Serkan 16.10). Mesajda şube adı geçtiyse yine yazılır (notla).
+        // sorusu "şube stoğu var" sanısı yaratıyordu (Serkan 16.10). Mesajda şube adı geçse de yazılmaz (prepare temizler).
         if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && self::hasStockItem($d)) {
             return false;
         }
@@ -51,18 +51,6 @@ final class ProjectChoice
         return false;
     }
 
-    /** Stoklu alışta mesajdan gelen şube: maliyet o şubeye, ama stok işletme geneli (notla göster). */
-    public static function stockPurchaseNote(array $d): ?string
-    {
-        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_TRADE_PURCHASE || ! self::hasStockItem($d) || empty($d['project_id'])
-            || ! config('modules.projects') || ! ($p = Project::find($d['project_id']))) {
-            return null;
-        }
-
-        return '🏪 ' . Labels::project() . ': ' . $p->name . ' — maliyet bu ' . mb_strtolower(Labels::project()) . 'ye; stok işletme geneli ('
-            . mb_strtolower(Labels::project()) . ' stoğu yok)';
-    }
-
     /** @return Collection<int, Project> sabit sıra — menü numaraları bununla */
     public static function projects(): Collection
     {
@@ -74,6 +62,12 @@ final class ProjectChoice
     public static function prepare(array $d, string $phone): array
     {
         unset($d['project_suggested'], $d['project_needed']);
+        // Ürünlü (stoğa giren) alış hiç şubeye yazılmaz — mesajda şube adı geçse de (stok işletme geneli).
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE && self::hasStockItem($d)) {
+            $d['project_id'] = $d['project_name'] = null;
+
+            return $d;
+        }
         if (! self::applies($d) || ! empty($d['project_id']) || ! empty($d['project_name']) || ! empty($d['project_choice_done'])) {
             return $d;
         }

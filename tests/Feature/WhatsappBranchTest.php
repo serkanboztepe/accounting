@@ -212,15 +212,19 @@ class WhatsappBranchTest extends TestCase
 
         $this->assertStringNotContainsString('Hangi şube', $reply);
         $this->assertStringNotContainsString('0) Genel', $reply);
-        $this->assertStringContainsString('işletme stoğu 0 → 20', $reply);
+        $this->assertStringContainsString('stok 0 → 20', $reply);
     }
 
-    public function test_stock_purchase_with_branch_named_shows_note(): void
+    /** Mesajda şube adı geçse de ürünlü alış şubesiz kaydedilir. */
+    public function test_stock_purchase_with_branch_named_is_saved_without_branch(): void
     {
         $this->ai($this->flourPurchase(['project_id' => $this->branches['Ergenekon']->id]));
 
         $reply = $this->send('Ergenekon için 20 çuval un aldım');
+        $this->assertStringNotContainsString('Ergenekon Test', $reply);
+        $this->send('evet');
 
-        $this->assertStringContainsString('maliyet bu şubeye; stok işletme geneli', $reply);
+        $this->assertNull(\App\Models\Purchase::latest('id')->value('project_id'));
+        $this->assertNull(\App\Models\StockMovement::latest('id')->value('project_id'));
     }
 }

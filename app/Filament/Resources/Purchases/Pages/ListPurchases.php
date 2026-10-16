@@ -90,7 +90,7 @@ class ListPurchases extends ListRecords
                     ->label(fn () => Labels::project())
                     ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
-                    ->helperText(fn () => 'Maliyet bu ' . mb_strtolower(Labels::project()) . 'ye yazılır; stok işletme geneli.')
+                    ->helperText(fn () => 'Yalnız ürünsüz alışta kullanılır; ürünlü (stoğa giren) alış işletme geneline yazılır.')
                     ->visible(fn () => (bool) config('modules.projects'))
                     ->required(fn (Get $get) => false && \App\Models\Project::whereNotIn('status', ['cancelled'])->count() > 1),
 

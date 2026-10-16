@@ -70,7 +70,8 @@ class TradeDesk
         return DB::transaction(function () use ($data, $partyId, $manual, $isCash) {
             $purchase = Purchase::create([
                 'party_id'      => $partyId,
-                'project_id'    => $data['project_id'] ?? null,
+                // Ürünlü (stoğa giren) alış şubesiz: stok işletme geneli, maliyet şubeye bölünmez (Serkan 16.10).
+                'project_id'    => Forms\TradeLines::hasLines($data['lines'] ?? []) ? null : ($data['project_id'] ?? null),
                 'purchase_date' => $data['purchase_date'] ?? now()->toDateString(),
                 'manual_amount' => $manual > 0 ? $manual : null,
                 'paid'          => $isCash,
