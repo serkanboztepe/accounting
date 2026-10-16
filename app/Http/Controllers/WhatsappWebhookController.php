@@ -583,7 +583,7 @@ class WhatsappWebhookController extends Controller
             // proje/cari/kategorisi SIZMASIN diye taze taslak açılır.
             if ($image === null && $body !== '') {
                 try {
-                    $data = $extractor->extract($body, null, $pending->extracted);
+                    $data = $extractor->extract($body, null, $pending->extracted, null, $phone);
                 } catch (\Throwable $e) {
                     Log::error('WhatsApp gider düzeltme hatası', ['msg' => $e->getMessage()]);
 
@@ -596,7 +596,7 @@ class WhatsappWebhookController extends Controller
                     // Yeni gider → SIFIRDAN çıkar: previous verilince model önceki proje/cari'yi sızdırabiliyor;
                     // temiz çıkarım için previous=null ile yeniden. Eski taslak açık kalır (yarım kayıt takibi).
                     try {
-                        $data = $extractor->extract($body, null, null, ConversationContext::get($phone));
+                        $data = $extractor->extract($body, null, null, ConversationContext::get($phone), $phone);
                     } catch (\Throwable $e) {
                         Log::error('WhatsApp yeni gider çıkarma hatası', ['msg' => $e->getMessage()]);
 
@@ -621,7 +621,7 @@ class WhatsappWebhookController extends Controller
             if ($image !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0
                 && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_REMINDER) {
                 try {
-                    $data = $extractor->extract($body ?: null, $image, $pending->extracted);
+                    $data = $extractor->extract($body ?: null, $image, $pending->extracted, null, $phone);
                     $data['from_document'] = true;
                 } catch (\Throwable $e) {
                     Log::error('WhatsApp belge düzeltme hatası', ['msg' => $e->getMessage()]);
@@ -648,7 +648,7 @@ class WhatsappWebhookController extends Controller
         }
 
         try {
-            $data = $extractor->extract($body ?: null, $image, null, ConversationContext::get($phone));
+            $data = $extractor->extract($body ?: null, $image, null, ConversationContext::get($phone), $phone);
             $data['from_document'] = $image !== null;
         } catch (\Throwable $e) {
             Log::error('WhatsApp gider çıkarma hatası', ['msg' => $e->getMessage()]);

@@ -228,8 +228,9 @@ class ExpenseExtractor
      * @param  array|null  $previous  önceki taslak — verilirse yeni mesaj DÜZELTME sayılır
      * @param  array{party_id:int,party_name:string,balance:float,balance_note:string}|null  $lastParty
      *         son 30 dk'da konuşulan cari (ConversationContext) — "ondan / ona / daha / hepsini" ona bağlanır
+     * @param  string|null  $phone  yazan numara — numaraya özel hafıza (tercih: "fişte plakayı yaz") fişte de uygulansın
      */
-    public function extract(?string $text, ?array $image = null, ?array $previous = null, ?array $lastParty = null): array
+    public function extract(?string $text, ?array $image = null, ?array $previous = null, ?array $lastParty = null, ?string $phone = null): array
     {
         $apiKey = config('services.anthropic.api_key');
         if (empty($apiKey)) {
@@ -279,7 +280,7 @@ class ExpenseExtractor
             ->timeout(90)->post(self::ENDPOINT, [
             'model' => $model,
             'max_tokens' => 1024,
-            'system' => $this->systemPrompt($previous, $lastParty),
+            'system' => $this->systemPrompt($previous, $lastParty, $phone),
             'tools' => [$this->tool()],
             'tool_choice' => ['type' => 'tool', 'name' => 'save_entry'],
             'messages' => [
@@ -309,11 +310,11 @@ class ExpenseExtractor
         throw new RuntimeException('AI yapılandırılmış çıktı döndürmedi.');
     }
 
-    private function systemPrompt(?array $previous = null, ?array $lastParty = null): string
+    private function systemPrompt(?array $previous = null, ?array $lastParty = null, ?string $phone = null): string
     {
         $now = now(self::TIMEZONE)->locale('tr');
         $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ', İstanbul)';
-        $context = ExpenseContext::build();
+        $context = ExpenseContext::build($phone);
         // Fiilsiz/yönü belirsiz mesaj ("Abdullah Uçar 2 milyon kaba inşaat"): müteahhitte bu bir
         // maliyettir; satış yalnız açık fiille. Gider kapalıysa (mimar) varsayılan satış.
         $ambiguousRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true)

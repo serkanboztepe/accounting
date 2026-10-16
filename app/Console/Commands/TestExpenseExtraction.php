@@ -14,7 +14,7 @@ use Illuminate\Console\Command;
  */
 class TestExpenseExtraction extends Command
 {
-    protected $signature = 'whatsapp:test-extract {--text= : Serbest metin} {--image= : Görsel dosya yolu}';
+    protected $signature = 'whatsapp:test-extract {--text= : Serbest metin} {--image= : Görsel dosya yolu} {--phone= : Yazan numara (numaraya özel hafıza)}';
 
     protected $description = 'Metin/fotoğraftan gider çıkarmayı WhatsApp olmadan test eder';
 
@@ -44,7 +44,7 @@ class TestExpenseExtraction extends Command
         $this->info('AI çağrılıyor (' . config('services.anthropic.' . $modelKey) . ')...');
 
         try {
-            $data = $extractor->extract($text, $image);
+            $data = $extractor->extract($text, $image, null, null, $this->option('phone'));
         } catch (\Throwable $e) {
             $this->error($e->getMessage());
 

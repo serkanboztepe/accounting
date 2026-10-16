@@ -80,6 +80,22 @@ class WhatsappMemoryTest extends TestCase
         $this->assertStringNotContainsString('Kısa yaz', ExpenseContext::build('905559999999'));
     }
 
+    public function test_preference_reaches_receipt_reading(): void
+    {
+        // Ferhat: "yakıt fişlerinde açıklamaya plakayı yaz" — fiş fotoğrafı ExpenseExtractor'dan geçer, tercih orada da görünmeli.
+        config(['services.anthropic.api_key' => 'sk-test']);
+        AssistantMemory::create(['kind' => 'preference', 'subject' => 'yakıt fişi', 'fact' => 'Yakıt fişinde açıklamaya plakayı yaz',
+            'phone' => \App\Support\Phone::normalize(self::PHONE), 'status' => 'active']);
+
+        try {
+            (new ExpenseExtractor)->extract(null, ['media_type' => 'image/jpeg', 'data' => 'eA=='], null, null, self::PHONE);
+        } catch (\RuntimeException) {
+            // Boş sahte cevap → "çıktı döndürmedi"; burada yalnız gönderilen prompt önemli.
+        }
+
+        Http::assertSent(fn ($r) => str_contains(json_encode($r['system'], JSON_UNESCAPED_UNICODE), 'açıklamaya plakayı yaz'));
+    }
+
     public function test_new_fact_replaces_old_keeping_history(): void
     {
         $this->ai($this->remember('agreement', 'Recep peynir fiyatı', 'Recep ile peynir kilosu 260'),
