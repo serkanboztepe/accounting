@@ -108,6 +108,7 @@ class AssistantEvalTest extends TestCase
             'modules' => ModuleProfiles::resolve($firm['profile'], ($firm['modules'] ?? []) + ['smart_assistant' => true]
                 + (getenv('EVAL_VOICE') ? ['natural_voice' => true] : [])),
             'app.profile' => $firm['profile'], 'app.project_label' => null,
+            'app.sector' => $firm['sector'] ?? null, 'app.business_note' => $firm['business_note'] ?? null,
             'services.twilio.verify_signature' => false,
             'services.twilio.allowed_phones' => ['0555 ' . substr($digits, 0, 3) . ' ' . substr($digits, 3, 2) . ' ' . substr($digits, 5, 2)],
         ]);

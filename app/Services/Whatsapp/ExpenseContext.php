@@ -77,6 +77,15 @@ class ExpenseContext
         $categories = self::scoped(ExpenseCategory::query(), 'categories')->orderBy('name')->get(['id', 'name']);
 
         $lines = [];
+        // İşletme türü + notu (Faz D): asistan karşısındakinin işini bilsin — kayıt türünü doğru anlamak için.
+        $sector = config('sectors.' . config('app.sector'));
+        if ($sector || config('app.business_note')) {
+            $lines[] = 'İŞLETME: ' . trim(($sector['label'] ?? '') . (config('app.business_note') ? ' — ' . config('app.business_note') : ''), ' —');
+            if (! empty($sector['knowledge'])) {
+                $lines[] = '  İş bilgisi: ' . $sector['knowledge'];
+            }
+            $lines[] = '';
+        }
         // İşletme hafızası (Faz 2): kullanıcının öğrettikleri — en üstte, AI buna uyar.
         // Öğrenilen dersler (Faz 3): gece analizinin önerip yöneticinin onayladığı kurallar — genel + bu firmanın.
         if ($rules = \App\Models\AssistantLesson::rulesForCurrentFirm()) {

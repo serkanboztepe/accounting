@@ -79,6 +79,8 @@ class Tenancy
             'app.cari_lock'               => $settings['cari_lock'],
             'app.cari_lock_minutes'       => $settings['cari_lock_minutes'],
             'app.project_label'           => $settings['project_label'],
+            'app.sector'                  => $settings['sector'],
+            'app.business_note'           => $settings['business_note'],
             'services.whatsapp.reminder_phones'     => $firm->reminderPhones(),
             'services.whatsapp.check_reminder_days' => $settings['check_reminder_days'],
             'filesystems.disks.public'    => array_merge($public, [

@@ -177,9 +177,14 @@ final class Understanding
             return null;
         }
         $name = self::partyName($d);
-        // Kişi eşleşmesi belirsiz: "Sinan usta" → "Sinan Sele" sessizce olmasın.
-        if (($d['party_certain'] ?? null) === false && ! empty($d['party_id'])) {
+        // Kişi eşleşmesi belirsiz: "Sinan usta" → "Sinan Sele" sessizce olmasın (AI söyler ya da unvan+yalnız ad kuralı).
+        if (self::partyUnclear($d)) {
             return self::question($d) ?? ('"' . ($d['party_said'] ?? $name) . '" dediğiniz ' . $name . ' mi, yoksa başka biri mi?');
+        }
+        // Borç kaydında yalnız iş bitti / anlaşma / borç para anlamlı; "eski borç ödemesi" vb. → bilinmiyor say, sor.
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_DEBT_NOTE && ! empty($d['work_status'])
+            && ! in_array($d['work_status'], [self::DONE, self::AGREEMENT, self::NO_WORK], true)) {
+            return self::question($d) ?? ($name . ' işi bitirdi de parası mı verilmedi, yoksa yapacağı iş için mi anlaştınız?');
         }
         // Yalnız AI açıkça "bilmiyorum" dediyse (false). Alan yoksa (eski taslak / eski yol) eski davranış sürer;
         // gerçek AI'da alan şemada zorunlu — her kayıtta doldurur.
@@ -196,6 +201,24 @@ final class Understanding
             ExpenseExtractor::KIND_DEBT_NOTE => $name . ' işi bitirdi de parası mı verilmedi, yoksa yapacağı iş için mi anlaştınız?',
             default => $name . ' işi bitirdi / mal geldi mi, yoksa önceden mi ödediniz?',
         };
+    }
+
+    /**
+     * Kişi eşleşmesi belirsiz mi: AI "emin değilim" dedi ya da "Sinan usta" ↔ soyadlı "Sinan Sele" (unvan + yalnız ad).
+     * party_confirmed: bir kez sorulup cevaplandı (kontrolcü işaretler) — tekrar sorulmaz.
+     */
+    public static function partyUnclear(array $d): bool
+    {
+        if (! self::applies($d) || empty($d['party_id']) || ! empty($d['party_confirmed'])) {
+            return false;
+        }
+        if (($d['party_certain'] ?? null) === false) {
+            return true;
+        }
+        $party = self::party($d);
+
+        return $party && ! $party->is_employee && PartyNameCheck::titledFirstNameOnly($party, $d['party_said'] ?? null)
+            && ! MemoryDraft::isKnownAlias($party->id, $d['party_said'] ?? null);
     }
 
     /** Çek vadeleri: takvimde olmayan gün (31 Şubat) ya da okunamayan tarih → ⚠️ satırları. */

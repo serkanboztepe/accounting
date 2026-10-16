@@ -336,6 +336,7 @@ class TenancyTest extends TestCase
         $this->b->saveSettingsForm([
             'profile' => 'trade', 'mod_quotes' => '0', 'mod_stock' => '',
             'cari_lock' => true, 'cari_lock_minutes' => 10, 'check_reminder_days' => '5, 1,0',
+            'sector' => 'bakery', 'business_note' => '3 şubeli fırın',
         ]);
 
         $s = $this->b->fresh()->settingsWithDefaults();
@@ -349,6 +350,8 @@ class TenancyTest extends TestCase
             $this->assertFalse(config('modules.projects'), 'stoklu satış varsayılanı');
             $this->assertTrue(config('app.cari_lock'));
             $this->assertSame(10, config('app.cari_lock_minutes'));
+            $this->assertSame('bakery', config('app.sector'), 'işletme türü firmaya geçer');
+            $this->assertSame('3 şubeli fırın', config('app.business_note'));
         });
     }
 

@@ -667,6 +667,11 @@ class WhatsappWebhookController extends Controller
      */
     private function commitThenNext(WhatsappPendingExpense $pending, string $phone): string|array
     {
+        // Önce anla: "Sinan Sele mi?" sorusuna "evet" = kişi teyidi (kayıt onayı değil) → kişi netleşir, tam özet onaya gelir.
+        if (! empty($pending->extracted['party_asked']) && empty($pending->extracted['party_confirmed'])
+            && (int) $pending->extracted['party_asked'] === (int) ($pending->extracted['party_id'] ?? 0)) {
+            return $this->saveDraft($pending, $phone, ['party_confirmed' => true, 'question' => null] + $pending->extracted);
+        }
         // Önce anla: cevaplanmamış soru varken "evet" kaydetmez — soru tekrar (tahmin yok).
         if (($ask = Understanding::gap($pending->extracted)) !== null) {
             return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
@@ -969,8 +974,16 @@ class WhatsappWebhookController extends Controller
         }
 
         // Önce anla (16.10): kaydı değiştirecek bir şey tahminse taslak onaya HAZIRLANMAZ — soru gider, cevap bu taslağa işlenir.
+        // Kişi sorulmuştu ve cevapta aynı cari kaldıysa ("evet Sinan Sele") kişi netleşti — tekrar sorulmaz.
+        if ($pending && ! empty($data['party_id']) && (int) ($pending->extracted['party_asked'] ?? 0) === (int) $data['party_id']
+            && ($data['party_certain'] ?? null) !== false) {
+            $data['party_confirmed'] = true;
+        }
+        $data['party_confirmed'] = ! empty($data['party_confirmed']) || (! empty($pending?->extracted['party_confirmed'])
+            && ($pending->extracted['party_id'] ?? null) === ($data['party_id'] ?? null));
         if (($ask = Understanding::gap($data)) !== null) {
             $data['question'] = $ask;
+            $data['party_asked'] = Understanding::partyUnclear($data) ? ($data['party_id'] ?? null) : null;
             $text = implode("\n", ['❓ ' . $ask, ...Understanding::checkWarnings($data)]);
             if ($pending) {
                 $pending->update(['extracted' => $data, 'summary' => $text]);

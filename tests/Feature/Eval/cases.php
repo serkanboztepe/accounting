@@ -17,27 +17,28 @@
 return [
     'firms' => [
         'akkus' => [
-            'profile' => 'trade', 'modules' => ['projects' => true, 'report_monthly' => true],
+            'profile' => 'trade', 'modules' => ['projects' => true, 'report_monthly' => true], 'sector' => 'bakery',
             'projects' => ['İzzetpaşa', 'Araştırma', 'Ergenekon'],
             'parties' => ['Abdullah Günhan' => ['is_employee' => true, 'salary_amount' => 50000, 'salary_day' => 15], 'Boztepe Ticaret' => []],
             'products' => [['Un', 'çuval']], 'categories' => ['Yakıt', 'Kira'],
         ],
         'erkan' => [
-            'profile' => 'alacak_verecek', 'modules' => [],
+            'profile' => 'alacak_verecek', 'modules' => [], 'sector' => 'farm',
             'parties' => ['Zülfikar' => [], 'Recep Demirci' => [], 'Hüseyin' => []], 'categories' => ['Yakıt'],
         ],
         'ferhat' => [
-            'profile' => 'mimar', 'modules' => ['projects' => true],
+            'profile' => 'mimar', 'modules' => ['projects' => true], 'sector' => 'architecture',
             'projects' => ['EROL ALTINER'],
             'parties' => ['BAHADIR PİR' => [], 'FUAT ALKAN' => [], 'RAMADA OTEL' => [], 'YAKUP TAŞ' => [], 'KAYA PETROL' => []],
         ],
         // Kent İnşaat (firma 11): müteahhit ama paket alacak-verecek (sözleşme/proje yok) — canlıdaki gibi.
         'taner' => [
-            'profile' => 'alacak_verecek', 'modules' => ['natural_voice' => true],
+            'profile' => 'alacak_verecek', 'modules' => ['natural_voice' => true], 'sector' => 'construction',
+            'business_note' => 'Konut inşaatı yapar; ustalar ve tedarikçilerle çalışır, çoğunlukla vadeli çekle öder.',
             'parties' => ['Ferhat Yıldız' => [], 'Abdurrahman Usta' => [], 'Sinan Sele' => [], 'Hazal Doğan' => [], 'Asansör Osman' => []],
         ],
         'muteahhit' => [
-            'profile' => 'muteahhit', 'modules' => ['projects' => true],
+            'profile' => 'muteahhit', 'modules' => ['projects' => true], 'sector' => 'construction',
             'projects' => ['Cumhuriyet', 'Bahçelievler'],
             'parties' => ['Abdullah Uçar' => [], 'Sinan' => [], 'Ali Usta' => [], 'Kuşak Beton' => [], 'Serkan' => []],
             'categories' => ['Yakıt', 'Kira'],
@@ -305,7 +306,7 @@ return [
             'expect' => ['balance' => ['@party:Hazal Doğan' => 0], 'reply_not' => ['borcun 100.000']]],
         ['id' => 'U-hazal-borc-iade-tutar', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Hazal doğan verilen hatır çekinden borcum ödendi'],
-                ['send' => '100.000 tl', 'expect' => ['meaning_any' => ['ödedin', 'ödediniz', 'kapandı', 'kalmadı', 'geri']]], ['send' => 'evet']],
+                ['send' => '100.000 tl', 'expect' => ['meaning_any' => ['ödedin', 'ödediniz', 'kapan', 'kapat', 'kalmadı', 'geri']]], ['send' => 'evet']],
             'expect' => ['balance' => ['@party:Hazal Doğan' => 0]]],
         // T8 "Hazal doğan ekstra" — ekstre gönderilir (sistem "Ekstre mi demek istedin?" dedi)
         ['id' => 'U-hazal-ekstra', 'firm' => 'taner', 'group' => 'understand',

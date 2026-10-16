@@ -118,6 +118,40 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
     }
 
+    public function test_titled_first_name_asks_once_then_confirmed(): void
+    {
+        $sinan = Party::create(['name' => 'Anlamatesti Sele']);
+        $guess = $this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 80000, 'party_id' => $sinan->id, 'party_said' => 'Anlamatesti usta',
+            'work_status' => 'done', 'work_status_known' => true, 'party_certain' => true]);
+        $this->ai($guess, ['is_new_entry' => false] + $guess); // cevap aynı taslağın düzeltmesi
+
+        $first = $this->send('Anlamatesti usta sıvayı bitirdi 80 bin verdim');
+        $this->assertStringContainsString('Anlamatesti Sele', $first, 'AI "eminim" dese de unvan + yalnız ad → sor');
+        $this->assertStringNotContainsString('Kaydedeyim mi', $first);
+
+        $this->assertStringNotContainsString('başka biri mi', $this->send('evet o'), 'cevaplandı — tekrar sorulmaz');
+    }
+
+    public function test_first_name_without_title_does_not_ask(): void
+    {
+        $recep = Party::create(['name' => 'Anlamatesti Demirci']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 3000, 'party_id' => $recep->id, 'party_said' => 'Anlamatesti',
+            'work_status' => 'done', 'work_status_known' => true, 'party_certain' => true]));
+
+        $this->assertStringNotContainsString('başka biri mi', $this->send('Anlamatestiye 3000 verdim'));
+    }
+
+    public function test_debt_note_with_meaningless_status_asks(): void
+    {
+        $usta = Party::create(['name' => 'Anlama Testi Usta']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'payable', 'amount' => 115000, 'party_id' => $usta->id,
+            'work_status' => 'old_debt', 'work_status_known' => true]));
+
+        $reply = $this->send('ustaya 115.000 borcum var');
+        $this->assertStringContainsString('anlaştınız', $reply);
+        $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
+    }
+
     public function test_impossible_cheque_due_date_is_warned(): void
     {
         $osman = Party::create(['name' => 'Anlama Testi Osman']);
@@ -130,6 +164,27 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertStringContainsString('8037566: vade 31-02-2027', $reply);
         $this->assertStringNotContainsString('8037567: vade', $reply, 'geçerli tarih uyarılmaz');
         $this->assertStringContainsString('2 çek', WhatsappPendingExpense::where('phone', self::PHONE)->latest('id')->first()->extracted['description']);
+    }
+
+    public function test_sector_and_business_note_reach_assistant_context(): void
+    {
+        config(['app.sector' => 'construction', 'app.business_note' => 'Çoğunlukla vadeli çekle öder.']);
+        $context = \App\Services\Whatsapp\ExpenseContext::build(self::PHONE);
+        $this->assertStringContainsString('İŞLETME: İnşaat / müteahhit — Çoğunlukla vadeli çekle öder.', $context);
+        $this->assertStringContainsString('"Bağlantı" = fiyatı sabitlenmiş', $context);
+
+        config(['app.sector' => null, 'app.business_note' => null]);
+        $this->assertStringNotContainsString('İŞLETME:', \App\Services\Whatsapp\ExpenseContext::build(self::PHONE), 'seçilmezse eskisi gibi');
+    }
+
+    public function test_hub_settings_keep_only_known_sector(): void
+    {
+        $firm = new \App\Models\HubFirm(['name' => 'x']);
+        $firm->settings = ['sector' => 'bakery', 'business_note' => '  3 şube  '];
+        $this->assertSame('bakery', $firm->settingsWithDefaults()['sector']);
+        $this->assertSame('3 şube', $firm->settingsWithDefaults()['business_note']);
+        $firm->settings = ['sector' => 'uydurma'];
+        $this->assertNull($firm->settingsWithDefaults()['sector']);
     }
 
     public function test_missing_understanding_fields_keep_old_behaviour(): void

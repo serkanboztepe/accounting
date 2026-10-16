@@ -35,6 +35,26 @@ final class PartyNameCheck
         return false;
     }
 
+    /** Usta unvanları: "Sinan usta" — kişi işiyle anılıyor; soyadlı cariyle yalnız adı tutuyorsa aynı kişi olmayabilir. */
+    private const TRADE_TITLES = ['usta', 'ustasi', 'ustaya', 'ustadan', 'ustanin', 'kalfa', 'kalfaya'];
+
+    /**
+     * "Sinan usta" ↔ cari "Sinan Sele": yazılan yalnız ad + usta unvanı, cari soyadlı ve yalnız ilk ad tutuyor → aynı kişi
+     * olmayabilir (Taner 16.10: sıvacı Sinan, bağlantı yapılan Sinan Sele'ye sessizce yazıldı). Bir kez sorulur, sonra takma ad.
+     */
+    public static function titledFirstNameOnly(Party $party, ?string $said): bool
+    {
+        $raw = preg_split('/[^a-z0-9]+/', strtr(mb_strtolower(str_replace(['I', 'İ'], ['ı', 'i'], (string) $said)),
+            ['ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ş' => 's', 'ü' => 'u']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if (! array_intersect($raw, self::TRADE_TITLES)) {
+            return false;
+        }
+        $words = self::words((string) $said);
+        $known = self::words($party->name);
+
+        return count($words) === 1 && count($known) >= 2 && self::matchesAny($words[0], [$known[0]]);
+    }
+
     /** Carinin adındaki her kelime yazılan adda var mı ("Hazal Doğan" ⊆ "Evrim Hazal Doğan") — resmî tam ad, kısa ad. */
     public static function containedIn(Party $party, string $said): bool
     {

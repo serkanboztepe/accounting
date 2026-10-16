@@ -42,6 +42,8 @@ class HubFirm extends Model
         'cari_lock_minutes'   => 5,
         'check_reminder_days' => [3, 0],
         'project_label'       => null,  // "Proje" / "Şube" / serbest; boş = sektöre göre (Labels::project)
+        'sector'              => null,  // işletme türü (config/sectors.php) — asistan karşısındakinin işini bilsin; paketten ayrı
+        'business_note'       => null,  // tek satır işletme notu ("çoğunlukla vadeli çekle öder")
     ];
 
     protected static function booted(): void
@@ -87,6 +89,8 @@ class HubFirm extends Model
             'cari_lock_minutes'   => max(1, (int) $s['cari_lock_minutes']),
             'check_reminder_days' => array_values(array_map('intval', (array) $s['check_reminder_days'])),
             'project_label'       => is_string($s['project_label'] ?? null) && trim($s['project_label']) !== '' ? trim($s['project_label']) : null,
+            'sector'              => array_key_exists((string) ($s['sector'] ?? ''), (array) config('sectors')) ? $s['sector'] : null,
+            'business_note'       => is_string($s['business_note'] ?? null) && trim($s['business_note']) !== '' ? mb_substr(trim($s['business_note']), 0, 300) : null,
         ];
     }
 
@@ -113,6 +117,8 @@ class HubFirm extends Model
             'cari_lock_minutes'   => (int) (($data['cari_lock_minutes'] ?? null) ?: 5),
             'check_reminder_days' => array_values(array_unique(array_map('intval', $days))),
             'project_label'       => trim((string) ($data['project_label'] ?? '')) ?: null,
+            'sector'              => array_key_exists((string) ($data['sector'] ?? ''), (array) config('sectors')) ? $data['sector'] : null,
+            'business_note'       => mb_substr(trim((string) ($data['business_note'] ?? '')), 0, 300) ?: null,
         ]]);
     }
 

@@ -145,6 +145,8 @@ class EditHubFirm extends EditRecord
                     'cari_lock_minutes'   => $s['cari_lock_minutes'],
                     'check_reminder_days' => implode(',', $s['check_reminder_days']),
                     'project_label'       => $s['project_label'],
+                    'sector'              => $s['sector'],
+                    'business_note'       => $s['business_note'],
                 ];
                 foreach (ModuleProfiles::KEYS as $key) {
                     $data["mod_{$key}"] = array_key_exists($key, $s['modules']) ? ($s['modules'][$key] ? '1' : '0') : '';
@@ -153,7 +155,15 @@ class EditHubFirm extends EditRecord
                 return $data;
             })
             ->schema(fn () => [
-                Select::make('profile')->label('Sektör')->options(HubFirmResource::PROFILE_OPTIONS)
+                // İşletme türü: asistan karşısındakinin işini bilsin ("bağlantı", "kasa", "takas"…). Paketten ayrı.
+                Select::make('sector')->label('İşletme türü')
+                    ->options(collect(config('sectors'))->map(fn (array $s) => $s['label'])->all())
+                    ->placeholder('Seçilmedi')
+                    ->helperText('Asistan karşısındakinin işini bilir (ör. inşaatta "bağlantı" = peşin mal alımı). Hangi modüllerin açık olduğunu değiştirmez.'),
+                TextInput::make('business_note')->label('İşletme notu (isteğe bağlı)')
+                    ->placeholder('Ör. Konut inşaatı yapar, çoğunlukla vadeli çekle öder.')
+                    ->maxLength(300),
+                Select::make('profile')->label('Paket (modüller)')->options(HubFirmResource::PROFILE_OPTIONS)
                     ->placeholder('Hepsi açık')->live(),
                 Section::make('Modüller')
                     ->description('"Sektöre göre" seçili olan, yukarıdaki sektörün varsayılanını kullanır.')
