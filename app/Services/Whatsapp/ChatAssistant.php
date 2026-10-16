@@ -33,6 +33,22 @@ class ChatAssistant
     /** Okuma aracından sonraki AI turu için gereken süre; senkron sürede bu kadar kalmadıysa tur arka plana. */
     private const READ_TURN_SECONDS = 6;
 
+    /** Faz 5: zor soru (karşılaştırma / neden / öneri) — firma başına günde en çok bu kadar büyük model turu. */
+    private const DEEP_PER_DAY = 40;
+
+    /** Bu soru büyük modele geçsin mi (günlük sınır içinde). */
+    private static function allowDeep(): bool
+    {
+        $model = (string) config('services.anthropic.analysis_model');
+        if ($model === '') {
+            return false;
+        }
+        $key = \App\Tenancy\Tenancy::key('deep-turns:' . now()->toDateString());
+        \Illuminate\Support\Facades\Cache::add($key, 0, now()->addDays(2));
+
+        return \Illuminate\Support\Facades\Cache::increment($key) <= self::DEEP_PER_DAY;
+    }
+
     public function __construct(private ExpenseExtractor $extractor) {}
 
     /**
@@ -64,6 +80,8 @@ class ChatAssistant
         $messages = $fresh ? [['role' => 'user', 'content' => $text]] : $this->history($phone, $text);
         $system = $this->systemPrompt($pending, $phone);
 
+        $maxTokens = 1024;
+        $deep = false;
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
             $timeout = 60;
             if (self::$deadline !== null) {
@@ -75,7 +93,7 @@ class ChatAssistant
             try {
                 $response = $this->call($apiKey, $timeout, [
                     'model' => $model,
-                    'max_tokens' => 1024,
+                    'max_tokens' => $maxTokens,
                     'system' => $system,
                     'tools' => $this->tools(),
                     // Her zaman bir araç: düz metinle kendi "özetini" yazıp taslaksız onay istiyordu (Nevzat, bal).
@@ -100,7 +118,7 @@ class ChatAssistant
             $call = collect($content)->first(fn ($b) => ($b['type'] ?? null) === 'tool_use');
 
             if (! $call) {
-                return ['type' => 'reply', 'text' => $said !== '' ? $said : 'Tam anlayamadım, biraz daha açık yazar mısın?'];
+                return ['type' => 'reply', 'text' => $said !== '' ? self::whatsappFormat($said) : 'Tam anlayamadım, biraz daha açık yazar mısın?'];
             }
 
             $input = (array) ($call['input'] ?? []);
@@ -134,12 +152,8 @@ class ChatAssistant
                         return ['type' => 'cancel'];
                     }
                     $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
-                    $messages[] = ['role' => 'user', 'content' => [[
-                        'type' => 'tool_result',
-                        'tool_use_id' => $call['id'],
-                        'content' => 'İPTAL EDİLMEDİ: kullanıcı iptal/vazgeç demedi. Bekleyen taslağa dokunma. Bu mesaj yeni bir işlemse '
-                            . 'propose_entry (is_new_entry=true) ile öner; düzeltmeyse düzeltilmiş taslağı öner; değilse reply.',
-                    ]]];
+                    $messages[] = ['role' => 'user', 'content' => self::toolResults($content, [$call['id'] => 'İPTAL EDİLMEDİ: kullanıcı iptal/vazgeç demedi. Bekleyen taslağa dokunma. Bu mesaj yeni bir işlemse '
+                            . 'propose_entry (is_new_entry=true) ile öner; düzeltmeyse düzeltilmiş taslağı öner; değilse reply.'])];
                     break;
                 case 'undo_last':
                     // Düzeltme: kaydın doğru hâli verildiyse tek onayla sil + yeniden yaz.
@@ -161,38 +175,44 @@ class ChatAssistant
                             return ['type' => 'entry', 'data' => ['is_new_entry' => false] + $replacement, 'text' => $said];
                         }
                         $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
-                        $messages[] = ['role' => 'user', 'content' => [[
-                            'type' => 'tool_result',
-                            'tool_use_id' => $call['id'],
-                            'content' => 'Onay bekleyen TASLAK var (henüz kaydedilmedi). Kullanıcı taslağı düzeltiyorsa düzeltilmiş TAM kaydı '
+                        $messages[] = ['role' => 'user', 'content' => self::toolResults($content, [$call['id'] => 'Onay bekleyen TASLAK var (henüz kaydedilmedi). Kullanıcı taslağı düzeltiyorsa düzeltilmiş TAM kaydı '
                                 . 'propose_entry (is_new_entry=false) ile öner; taslaktan vazgeçiyorsa cancel_pending. Gerçekten daha önce '
-                                . 'KAYDEDİLMİŞ başka bir kaydı silmek istiyorsa undo_last\'u find_amount / find_date / find_text ile tekrar çağır.',
-                        ]]];
+                                . 'KAYDEDİLMİŞ başka bir kaydı silmek istiyorsa undo_last\'u find_amount / find_date / find_text ile tekrar çağır.'])];
                         break;
                     }
 
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
                 case 'reply':
-                    return ['type' => 'reply', 'text' => trim((string) ($input['text'] ?? '')) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
+                    return ['type' => 'reply', 'text' => self::whatsappFormat(trim((string) ($input['text'] ?? ''))) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'query_records':
                 case 'search_conversations':
-                    // Okuma bir tur daha ister: senkron sürede yeterli zaman yoksa arka plana bırak (kişiye "bakıyorum" gider).
-                    if (self::$deadline !== null && self::$deadline - microtime(true) < self::READ_TURN_SECONDS) {
-                        throw new DeferTurn('okuma aracı');
+                    // Faz 5: karşılaştırma / neden / öneri → cevabı büyük model yazar (günlük sınır içinde).
+                    if (! $deep && ! empty($input['deep']) && self::allowDeep()) {
+                        $deep = true;
+                        $model = (string) config('services.anthropic.analysis_model');
+                        $maxTokens = 1500;
                     }
-                    // Salt okuma: sonucu modele ver, cevabı o yazsın (rakamlar sonuçtan, AI toplamaz).
-                    try {
-                        $data = $call['name'] === 'query_records' ? RecordsQuery::run($input) : ConversationLookup::run($input);
-                    } catch (\Throwable $e) {
-                        \Illuminate\Support\Facades\Log::error('Okuma aracı hatası', ['tool' => $call['name'], 'msg' => $e->getMessage()]);
-                        $data = ['hata' => 'Okuma yapılamadı; kullanıcıya şu an bakamadığını söyle.'];
+                    // Okuma bir tur daha ister: senkron sürede yeterli zaman yoksa arka plana bırak (kişiye "bakıyorum" gider).
+                    // Büyük model daha yavaş: daha çok süre ister.
+                    if (self::$deadline !== null && self::$deadline - microtime(true) < ($deep ? self::READ_TURN_SECONDS + 3 : self::READ_TURN_SECONDS)) {
+                        throw new DeferTurn('okuma aracı' . ($deep ? ' (büyük model)' : ''));
+                    }
+                    // Salt okuma: sonucu modele ver, cevabı o yazsın (rakamlar sonuçtan, AI toplamaz). Aynı turda birden çok okuma
+                    // (iki dönemi karşılaştırma) hepsi çalışır ve sonuçlar birlikte döner — her tool_use'a cevap şart (review D).
+                    $results = [];
+                    foreach ($content as $block) {
+                        if (($block['type'] ?? null) === 'tool_use' && in_array($block['name'] ?? '', ['query_records', 'search_conversations'], true)) {
+                            try {
+                                $data = $block['name'] === 'query_records' ? RecordsQuery::run((array) ($block['input'] ?? [])) : ConversationLookup::run((array) ($block['input'] ?? []));
+                            } catch (\Throwable $e) {
+                                \Illuminate\Support\Facades\Log::error('Okuma aracı hatası', ['tool' => $block['name'], 'msg' => $e->getMessage()]);
+                                $data = ['hata' => 'Okuma yapılamadı; kullanıcıya şu an bakamadığını söyle.'];
+                            }
+                            $results[$block['id']] = json_encode($data, JSON_UNESCAPED_UNICODE);
+                        }
                     }
                     $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
-                    $messages[] = ['role' => 'user', 'content' => [[
-                        'type' => 'tool_result',
-                        'tool_use_id' => $call['id'],
-                        'content' => json_encode($data, JSON_UNESCAPED_UNICODE),
-                    ]]];
+                    $messages[] = ['role' => 'user', 'content' => self::toolResults($content, $results)];
                     break;
                 default:
                     return ['type' => 'reply', 'text' => $said ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
@@ -200,6 +220,33 @@ class ChatAssistant
         }
 
         return ['type' => 'reply', 'text' => 'Şu an toparlayamadım, birazdan tekrar dener misin? 🙏'];
+    }
+
+    /** WhatsApp biçimi: kalın tek yıldız (*x*) — model **x** / ## başlık yazarsa müşteri yıldızları görür. */
+    public static function whatsappFormat(string $text): string
+    {
+        $text = preg_replace('/\*\*(.+?)\*\*/su', '*$1*', $text) ?? $text;
+
+        return preg_replace('/^#{1,6}\s*(.+)$/mu', '*$1*', $text) ?? $text;
+    }
+
+    /**
+     * Asistan mesajındaki HER tool_use için tool_result (API şartı — paralel çağrıda biri eksikse 400, review D).
+     * Cevabı verilmeyen çağrıya "çalıştırılmadı" yazılır.
+     *
+     * @param  array<string,string>  $answers  tool_use id → sonuç metni
+     */
+    private static function toolResults(array $content, array $answers): array
+    {
+        $out = [];
+        foreach ($content as $block) {
+            if (($block['type'] ?? null) === 'tool_use') {
+                $out[] = ['type' => 'tool_result', 'tool_use_id' => $block['id'],
+                    'content' => $answers[$block['id']] ?? 'Bu çağrı bu turda çalıştırılmadı (aynı anda yalnız okuma araçları birlikte çalışır); gerekiyorsa tek başına tekrar çağır.'];
+            }
+        }
+
+        return $out;
     }
 
     private function call(string $apiKey, int $timeout, array $payload): \Illuminate\Http\Client\Response
@@ -417,6 +464,9 @@ class ChatAssistant
           ("ne almışım", "neler sattım", "giderlerim neler") geri soru SORMA: son 30 günün kayıtlarını oku ve listele.
           Araç sonucu boşsa "hiç yok" deme — "bu süzgeçle bulamadım" de (başka türde/tarihte olabilir).
           Saat 00:00–05:00 arası "bugün" = biten iş günü (önceki gün): esnaf gün sonu kasasını gece girer.
+          ZOR SORU (karşılaştırma "geçen haftayla", "hangi şube daha çok", eğilim, "neden", "ne yapmalıyım") → `deep`=true;
+          gerekirse iki dönemi ayrı ayrı oku. Cevap: önce net sonuç (1 cümle), sonra 2-4 madde gerekçe rakamlarla,
+          sonda varsa 1 kısa öneri. Rakamları araçtan al; yüzde hesaplayacaksan iki rakamı da yaz.
         - Basit tek rakam soruları eskisi gibi `propose_entry` ile: bakiye, toplam alacak/borç, ekstre, cari listesi, takvim,
           hatırlatma, "bu ay ne harcadım" (expense_summary), "ciro ne kadar / ay sonucu" (month_result).
         - Ekstre (kişinin hesap dökümü) PDF olarak gönderilir; "PDF" isteğinde hangi kişinin ekstresi olduğunu sor.

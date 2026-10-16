@@ -9,7 +9,7 @@
  * steps:  ['send' => 'mesaj'] | ['pending' => [taslak alanları]] (onay/iptal/düzeltme vakaları için hazır taslak)
  * expect: draft    => son bekleyen taslağın alanları ('@party:Ad', '@project:Ad', '@product:Ad' gerçek id'ye çevrilir;
  *                     liste verilirse değerlerden biri yeter)
- *         reply_has / reply_not => cevapta geçmeli / geçmemeli (büyük-küçük harf duyarsız)
+ *         reply_has / reply_not => cevapta geçmeli / geçmemeli (büyük-küçük harf duyarsız); reply_any => biri yeter
  *         no_new_draft => bu vakada yeni taslak açılmamalı
  *         saved    => ['ledger' => n, 'sales' => n, 'expenses' => n] onaydan sonra bu vakada oluşan kayıt sayısı
  */
@@ -235,11 +235,19 @@ return [
         ['id' => 'mem-liste-ve-unut', 'firm' => 'erkan', 'group' => 'regression', 'seed' => 'erkan-hafiza',
             'steps' => [['send' => 'neleri hatırlıyorsun'], ['send' => 'Recep fiyatını unut'], ['send' => 'evet'], ['send' => 'neleri hatırlıyorsun']],
             'expect' => ['reply_has' => ['Henüz bana öğrettiğin'], 'reply_not' => ['Recep Demirci ile']]],
+        // ---------------------------------------------------------------- Faz 5: zor soru (büyük model)
+        ['id' => 'F5-sube-karsilastir', 'firm' => 'akkus', 'group' => 'capability', 'seed' => 'akkus-iki-hafta',
+            'steps' => [['send' => 'Son iki haftada hangi şube daha çok kazandırdı']],
+            'expect' => ['no_new_draft' => true, 'reply_has' => ['Araştırma', '630.000']]],
+        ['id' => 'F5-donem-karsilastir', 'firm' => 'akkus', 'group' => 'capability', 'seed' => 'akkus-iki-hafta',
+            'steps' => [['send' => 'Son 7 günün cirosunu ondan önceki 7 günle karşılaştır']],
+            'expect' => ['no_new_draft' => true, 'reply_any' => ['672.000', '96.000'], 'reply_not' => ['**']]],
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
     'seeds' => [
         'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
+        'akkus-iki-hafta' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-1 days'], ['sale', 'İzzetpaşa', 21000, '-1 days'], ['sale', 'Araştırma', 50000, '-2 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-2 days'], ['sale', 'Araştırma', 50000, '-3 days'], ['sale', 'Ergenekon', 25000, '-3 days'], ['sale', 'İzzetpaşa', 21000, '-3 days'], ['sale', 'Araştırma', 50000, '-4 days'], ['sale', 'Ergenekon', 25000, '-4 days'], ['sale', 'İzzetpaşa', 21000, '-4 days'], ['sale', 'Araştırma', 50000, '-5 days'], ['sale', 'Ergenekon', 25000, '-5 days'], ['sale', 'İzzetpaşa', 21000, '-5 days'], ['sale', 'Araştırma', 50000, '-6 days'], ['sale', 'Ergenekon', 25000, '-6 days'], ['sale', 'İzzetpaşa', 21000, '-6 days'], ['sale', 'Araştırma', 50000, '-7 days'], ['sale', 'Ergenekon', 25000, '-7 days'], ['sale', 'İzzetpaşa', 21000, '-7 days'], ['sale', 'Araştırma', 40000, '-8 days'], ['sale', 'Ergenekon', 27000, '-8 days'], ['sale', 'İzzetpaşa', 21000, '-8 days'], ['sale', 'Araştırma', 40000, '-9 days'], ['sale', 'Ergenekon', 27000, '-9 days'], ['sale', 'İzzetpaşa', 21000, '-9 days'], ['sale', 'Araştırma', 40000, '-10 days'], ['sale', 'Ergenekon', 27000, '-10 days'], ['sale', 'İzzetpaşa', 21000, '-10 days'], ['sale', 'Araştırma', 40000, '-11 days'], ['sale', 'Ergenekon', 27000, '-11 days'], ['sale', 'İzzetpaşa', 21000, '-11 days'], ['sale', 'Araştırma', 40000, '-12 days'], ['sale', 'Ergenekon', 27000, '-12 days'], ['sale', 'İzzetpaşa', 21000, '-12 days'], ['sale', 'Araştırma', 40000, '-13 days'], ['sale', 'Ergenekon', 27000, '-13 days'], ['sale', 'İzzetpaşa', 21000, '-13 days'], ['sale', 'Araştırma', 40000, '-14 days'], ['sale', 'Ergenekon', 27000, '-14 days'], ['sale', 'İzzetpaşa', 21000, '-14 days']],
         'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],
         'akkus-kasalar' => [

@@ -54,6 +54,7 @@ final class RecordsQuery
                         'description' => 'Özet gruplama ("kime ne kadar" = party, "şube şube" = project, "gün gün" = day)'],
                     'sort' => ['type' => ['string', 'null'], 'enum' => ['date_desc', 'date_asc', 'amount_desc', null], 'description' => 'Varsayılan date_desc (en yeni)'],
                     'limit' => ['type' => ['integer', 'null'], 'description' => 'Satır sayısı (varsayılan 10, en çok 30)'],
+                    'deep' => ['type' => ['boolean', 'null'], 'description' => 'true: soru KARŞILAŞTIRMA (dönem/şube), NEDEN, EĞİLİM ya da ÖNERİ istiyor — cevabı daha güçlü model yazar. Basit liste/toplam için false'],
                 ],
             ],
         ];

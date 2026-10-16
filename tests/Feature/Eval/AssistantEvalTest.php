@@ -116,6 +116,14 @@ class AssistantEvalTest extends TestCase
             }
             $res = $this->post('/whatsapp/webhook', ['From' => $this->phone, 'Body' => $step['send'], 'NumMedia' => 0, 'MessageSid' => 'SM' . uniqid()]);
             $replies[] = trim(strip_tags(html_entity_decode((string) $res->getContent(), ENT_QUOTES | ENT_XML1)));
+            // "🔎 Bakıyorum" → asıl cevap istek sonrası ayrı mesajla gitti (konuşma kaydında son giden mesaj).
+            if (str_contains(end($replies), 'Bakıyorum')) {
+                $later = \App\Models\WhatsappMessage::where('phone', \App\Support\Phone::normalize($this->phone))->where('direction', 'out')
+                    ->latest('id')->value('body');
+                if ($later && ! str_contains($later, 'Bakıyorum')) {
+                    $replies[count($replies) - 1] = '🔎 Bakıyorum… ⏩ ' . $later;
+                }
+            }
             if (getenv('EVAL_SHOW')) {
                 fwrite(STDERR, "\n> " . $step['send'] . "\n< " . end($replies) . "\n");
             }
@@ -141,6 +149,9 @@ class AssistantEvalTest extends TestCase
             if (! str_contains($low, mb_strtolower($needle))) {
                 $fails[] = "cevapta yok: \"{$needle}\"";
             }
+        }
+        if (isset($expect['reply_any']) && ! collect($expect['reply_any'])->contains(fn ($n) => str_contains($low, mb_strtolower($n)))) {
+            $fails[] = 'cevapta hiçbiri yok: ' . implode(' / ', $expect['reply_any']);
         }
         foreach ($expect['reply_not'] ?? [] as $needle) {
             if (str_contains($low, mb_strtolower($needle))) {
