@@ -779,10 +779,20 @@ class TradeDraft
                 return MonthlyResult::whatsappText(MonthlyResult::forRange($from, $to, $branch)) . $note;
             }
             $month = ! empty($d['month']) ? Carbon::parse($d['month'] . '-01') : now();
-
-            return MonthlyResult::whatsappText($branch
+            $text = MonthlyResult::whatsappText($branch
                 ? MonthlyResult::forRange($month->copy()->startOfMonth(), $month->copy()->endOfMonth(), $branch)
                 : MonthlyResult::forMonth($month));
+            // Dönem söylenmedi ("Ergenekon ciro ne kadar", Akkuş 16.10 21:57 — kasayı yeni girmişti): önce bugünün cirosu, sonra ay.
+            // Bugün = iş günü (gece 00–05 dün).
+            if (empty($d['month'])) {
+                $local = now(Reminder::TIMEZONE);
+                $day = ($local->hour < 5 ? $local->copy()->subDay() : $local->copy())->startOfDay();
+                $revenue = MonthlyResult::forRange($day, $day, $branch)['revenue'];
+                $text = '📅 *Bugün (' . $day->locale('tr')->translatedFormat('j F') . ')*: ciro '
+                    . ($revenue > 0 ? Money::format($revenue) . ' ₺' : 'henüz girilmedi') . "\n\n" . $text;
+            }
+
+            return $text;
         }
 
         return self::stockAnswer($d['product_id'] ?? null);

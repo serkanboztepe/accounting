@@ -146,6 +146,21 @@ class WhatsappBranchTest extends TestCase
         $this->assertStringContainsString('Ciro: 27.440,00', $text);
     }
 
+    public function test_revenue_question_without_period_shows_today_then_month(): void
+    {
+        // Akkuş 16.10 21:57: kasayı girip "Ergenekon ciro ne kadar" → yalnız Ekim toplamı geliyordu; bugün önce.
+        $this->travelTo(now()->setTime(14, 0));
+        \App\Support\TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '22264', 'project_id' => $this->branches['Ergenekon']->id]);
+
+        $text = TradeDraft::answer(['kind' => ExpenseExtractor::KIND_MONTH_RESULT, 'project_id' => $this->branches['Ergenekon']->id]);
+        $this->assertStringStartsWith('📅 *Bugün (', $text);
+        $this->assertStringContainsString('ciro 22.264,00 ₺', $text);
+        $this->assertStringContainsString('Ergenekon Test', $text, 'ay sonucu da altta');
+
+        $past = TradeDraft::answer(['kind' => ExpenseExtractor::KIND_MONTH_RESULT, 'month' => now()->subMonth()->format('Y-m')]);
+        $this->assertStringNotContainsString('Bugün', $past, 'ay söylendiyse yalnız o ay');
+    }
+
     public function test_single_branch_is_automatic(): void
     {
         Project::whereKey([$this->branches['Araştırma']->id, $this->branches['Ergenekon']->id])->update(['status' => 'cancelled']);
