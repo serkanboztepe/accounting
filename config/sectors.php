@@ -34,9 +34,19 @@ return [
         'knowledge' => 'Lastik satar, montaj-balans hizmeti verir; veresiye müşterisi olur; toptancıdan lastik alır.',
     ],
     'farm' => [
-        'label' => 'Çiftçi / hayvancı',
-        'knowledge' => 'Hayvan, yem, saman, süt ve peynirle uğraşır; ürünle takas yaygındır ("peynir verdim, hesaptan düşülecek"); '
-            . 'tüccara ürün satar; çoban/işçiye yevmiye ya da maaş öder.',
+        'label' => 'Çiftçi / tarım / hayvancılık',
+        'knowledge' => 'Tarla (ekim, gübre, ilaç, mazot, hasat) ya da hayvan (yem, saman, süt, peynir) işiyle uğraşır; ürünle takas yaygındır '
+            . '("peynir verdim, hesaptan düşülecek"); tüccara/kooperatife ürün satar, parası sonra gelebilir; çoban/işçiye yevmiye ya da maaş öder.',
+    ],
+    'village_produce' => [
+        'label' => 'Köy ürünleri satışı',
+        'knowledge' => 'Bal, ceviz, peynir, tereyağı gibi köy ürünlerini toplayıp satar; üreticiden alır (çoğu zaman sonra öder), müşteriye '
+            . 'kargo ya da elden satar, bir kısmı veresiye; ürün henüz teslim edilmediyse alınan para kaporadır.',
+    ],
+    'photography' => [
+        'label' => 'Fotoğrafçı / medya',
+        'knowledge' => 'Düğün, nişan, etkinlik çekimi ve video işi yapar; çekimden önce kapora alır, kalanını teslimde; çekim tarihleri '
+            . 'önemlidir (hatırlatma); ekipman, baskı/albüm ve yardımcı ödemeleri gideridir.',
     ],
     'other' => [
         'label' => 'Diğer',
