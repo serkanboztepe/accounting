@@ -82,7 +82,7 @@ class ModuleProfiles
         'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
         'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
         'report_project', 'report_stock', 'report_sales', 'smart_assistant', 'daily_nudge',
-        'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice',
+        'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice', 'proactive_alerts',
     ];
 
     /**
@@ -90,7 +90,7 @@ class ModuleProfiles
      * Satışlar/Alışlar tezgahı, Ay Sonucu ve akşam ciro sorusu: canlı firmalarda kendiliğinden AÇILMAZ
      * (yalnız "Stoklu satış" paketinde açık) — mevcut akışlar değişmesin.
      */
-    public const DEFAULT_OFF = ['smart_assistant', 'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice'];
+    public const DEFAULT_OFF = ['smart_assistant', 'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice', 'proactive_alerts'];
 
     /** Hub ekranındaki Türkçe adlar. */
     public const LABELS = [
@@ -117,6 +117,7 @@ class ModuleProfiles
         'report_monthly'     => 'Ay Sonucu raporu (ciro − alış − gider)',
         'revenue_prompt'     => 'Akşam ciro sorusu (21:00 "Bugünkü ciro ne?")',
         'natural_voice'      => 'Doğal konuşma (asistan özeti insan gibi yazar — deneme)',
+        'proactive_alerts'   => 'Sabah haberi (09:00 girilmeyen kasa + Pazartesi haftalık özet)',
     ];
 
     /** Sektör bir şey demiyorsa: açık — DEFAULT_OFF hariç. */
