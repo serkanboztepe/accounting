@@ -84,4 +84,18 @@ class MorningAlertsTest extends TestCase
             ->expectsOutputToContain('Komut Şube kasası girilmedi');
         Http::assertNothingSent();
     }
+
+    /** Ürünlü peşin satış (çiftlikte saman) kasa alışkanlığı sayılmaz — "kasa girilmedi" denmez. */
+    public function test_product_sales_are_not_till_habit(): void
+    {
+        $unit = \App\Models\Unit::firstOrCreate(['code' => 'kg-sabah'], ['name' => 'kg']);
+        $hay = \App\Models\Product::create(['name' => 'Sabah Saman', 'type' => \App\Models\Product::TYPE_PRODUCT, 'unit_id' => $unit->id]);
+        config(['modules.projects' => false]);
+        foreach ([2, 3, 4, 5, 6] as $d) {
+            TradeDesk::saveSale(['mode' => 'cash', 'sale_date' => $this->today->copy()->subDays($d)->toDateString(),
+                'lines' => [['product_id' => $hay->id, 'quantity' => '100', 'unit_price' => '5']]]);
+        }
+
+        $this->assertSame([], MorningAlerts::missingTills($this->today->copy()->subDay()));
+    }
 }

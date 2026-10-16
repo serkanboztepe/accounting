@@ -32,6 +32,9 @@ class HubFirm extends Model
     ];
 
     /** Firma ayarları varsayılanları (hub ekranında boş bırakılanlar). */
+    /** Hub'dan açılan YENİ firmada baştan açık gelen modüller (akıllı asistan, doğal konuşma, sabah haberi). */
+    public const NEW_FIRM_MODULES = ['smart_assistant' => true, 'natural_voice' => true, 'proactive_alerts' => true];
+
     public const DEFAULT_SETTINGS = [
         'profile'             => null,  // mimar | muteahhit | trade | alacak_verecek (ModuleProfiles)
         'modules'             => [],    // anahtar => bool; olmayan = profile bırak

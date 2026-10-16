@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
 /**
  * Faz 4 (B) — sabah 09:00 kendiliğinden haber (modül `proactive_alerts`, firma firma açılır). Kişi başına günde EN ÇOK 1
  * mesaj; "hatırlatma alsın" kapalı numaraya gitmez. Yalnız okuma — kayıt açmaz.
- *  - GİRİLMEYEN KASA: son 7 günün en az 4'ünde kasası girilen şube (ya da tek kasa) dün girilmediyse
+ *  - GİRİLMEYEN KASA: son 7 günün en az 4'ünde kasası (ürünsüz günlük ciro) girilen şube (ya da tek kasa) dün girilmediyse
  *    ("Dün Ergenekon kasası girilmedi"); o şubeyi kim giriyorsa ona.
  *  - PAZARTESİ HAFTALIK ÖZET: geçen haftanın ciro / alış / gider / kalan, şube şube ciro, bu hafta vadesi gelenler.
  */
@@ -58,7 +58,9 @@ final class MorningAlerts
         $branches = config('modules.projects') ? Project::whereNotIn('status', ['cancelled'])->get(['id', 'name']) : collect([null]);
         $lines = [];
         foreach ($branches as $branch) {
-            $q = fn () => Sale::whereNull('party_id')->when($branch, fn ($w) => $w->where('project_id', $branch->id));
+            // "Kasa" = ürünsüz günlük ciro (peşin, kalemsiz: "Ergenekon kasa nakit … pos …"). Ürünlü peşin satış (saman, yem,
+            // un) kasa alışkanlığı DEĞİL — çiftliğe/toptancıya "kasa girilmedi" denmesin.
+            $q = fn () => Sale::whereNull('party_id')->whereDoesntHave('lines')->when($branch, fn ($w) => $w->where('project_id', $branch->id));
             $habit = $q()->whereBetween('sale_date', [$from, $to])->distinct()->count('sale_date');
             if ($habit < self::HABIT_MIN || $q()->whereDate('sale_date', $day->toDateString())->exists()) {
                 continue;

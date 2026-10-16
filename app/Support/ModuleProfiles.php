@@ -110,7 +110,7 @@ class ModuleProfiles
         'report_project'     => 'Proje raporları',
         'report_stock'       => 'Stok raporu',
         'report_sales'       => 'Satış özeti',
-        'smart_assistant'    => 'Akıllı WhatsApp asistanı (deneme)',
+        'smart_assistant'    => 'Akıllı WhatsApp asistanı (temel — KAPATMAYIN; yalnız acil durumda eski sisteme dönmek için)',
         'daily_nudge'        => 'Akşam mesajı (19:00 "Bugün aklında bir şey var mı?")',
         'sales_desk'         => 'Satışlar ekranı (peşin + cariye satış, ürünsüz tutar / toplu ciro)',
         'purchases'          => 'Alışlar ekranı (stoklu alış, peşin alış = alış + ödeme)',
