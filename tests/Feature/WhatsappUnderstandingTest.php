@@ -99,6 +99,40 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertStringContainsString('Onaylamak için', $this->send('daha takılmadı'), 'net cevap → onaya hazır');
     }
 
+    public function test_cross_check_stops_record_that_contradicts_user(): void
+    {
+        // Hazal (13.10): "borcum ödendi" yazdı, kayıt "borçlusunuz (yeni borç)" oldu. Çapraz kontrol durdurur, sorar; "evet" geçemez.
+        $hazal = Party::create(['name' => 'Anlama Testi Hazal']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'payable', 'amount' => 100000, 'party_id' => $hazal->id,
+            'work_status' => 'no_work', 'work_status_known' => true, 'meaning' => 'Hazal\'ın hatır çekinden olan borcunu ödedin, borç kapandı.']));
+        config(['services.anthropic.api_key' => 'sk-test']);
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use',
+            'name' => 'check', 'input' => ['same' => false, 'question' => 'Hazal\'a borcunuz kapandı mı, yoksa yeni mi borçlandınız?']]], 'usage' => []])]);
+        $before = PartyLedgerEntry::count();
+
+        $reply = $this->send('Hazal doğan verilen hatır çekinden borcum ödendi 100.000');
+        $this->assertStringContainsString('borcunuz kapandı mı', $reply);
+        $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
+        $this->assertStringContainsString('borcunuz kapandı mı', $this->send('evet'), '"evet" çelişkili kaydı geçiremez');
+        $this->assertSame($before, PartyLedgerEntry::count());
+    }
+
+    public function test_cross_check_agreeing_record_passes(): void
+    {
+        $osman = Party::create(['name' => 'Anlama Testi Osman']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 80000, 'party_id' => $osman->id,
+            'work_status' => 'done', 'work_status_known' => true, 'meaning' => 'Osman sıvayı bitirdi, 80.000 ₺ ödedin.']));
+        config(['services.anthropic.api_key' => 'sk-test']);
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use',
+            'name' => 'check', 'input' => ['same' => true]]], 'usage' => []])]);
+
+        $reply = $this->send('Osman sıvayı bitirdi 80 bin verdim');
+        $this->assertStringContainsString('🛒 *Alış*', $reply, 'tutarlı kayıt onaya hazır');
+        $this->assertStringNotContainsString('❓', $reply);
+    }
+
     public function test_known_not_yet_payment_becomes_advance_with_meaning_line(): void
     {
         $osman = Party::create(['name' => 'Anlama Testi Osman']);

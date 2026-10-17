@@ -428,6 +428,14 @@ class WhatsappWebhookController extends Controller
             }
         }
 
+        // Eşleşen çek o değilse ("başka") → eski soru: kime yazılmıştı (AI'sız).
+        if ($pending && $image === null && $this->kind($pending->extracted) === self::KIND_CHECK_CLEARED
+            && in_array($this->word($body), ['başka', 'baska', 'değil', 'degil', 'o değil', 'başka çek', 'baska cek'], true)) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, ['skip_check_match' => true] + (array) ($pending->extracted['check_original'] ?? [])));
+        }
+
         // K2: çek kime sorusuna "gider/masraf" → gider olarak kalsın (AI'sız).
         if ($pending && $image === null && ! empty($pending->extracted['check_payment'])
             && in_array($this->word($body), ['gider', 'masraf', 'gider yaz', 'masraf yaz'], true)) {
@@ -673,8 +681,8 @@ class WhatsappWebhookController extends Controller
             && (int) $pending->extracted['party_asked'] === (int) ($pending->extracted['party_id'] ?? 0)) {
             return $this->saveDraft($pending, $phone, ['party_confirmed' => true, 'question' => null] + $pending->extracted);
         }
-        // Önce anla: cevaplanmamış soru varken "evet" kaydetmez — soru tekrar (tahmin yok).
-        if (($ask = Understanding::gap($pending->extracted)) !== null) {
+        // Önce anla: cevaplanmamış soru varken "evet" kaydetmez — soru tekrar (tahmin yok). Çapraz kontrol sorusu da.
+        if (($ask = Understanding::gap($pending->extracted) ?? ($pending->extracted['cross_question'] ?? null)) !== null) {
             return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
         }
         // K8: hatırlatılmış ve AI'ın şüphe sorusu cevaplanmamış taslak tek "evet"le kaydolmaz — önce soru.
@@ -856,6 +864,9 @@ class WhatsappWebhookController extends Controller
      * Taslağı kaydet/güncelle ve müteahhide gidecek metni döndür.
      * Bakiye sorusu taslak açmaz — direkt cevaplanır.
      */
+    /** Kişisiz "çek ödendi" → bekleyen verilmiş çekle eşleşti (kodda kalan taslak türü; AI üretmez). */
+    private const KIND_CHECK_CLEARED = 'check_cleared';
+
     /** Bu mesaj geldiğinde açık (onay bekleyen) taslak — soru cevabının altında hatırlatılır (K7). */
     private ?WhatsappPendingExpense $openDraft = null;
 
@@ -929,6 +940,9 @@ class WhatsappWebhookController extends Controller
         }
         $data = $this->applyReceiptPayment($pending, $data);
         $data = $this->askCheckParty($data);
+        if ($this->kind($data) === self::KIND_CHECK_CLEARED) {
+            return $this->saveCheckClearedDraft($pending, $phone, $data);
+        }
         // Önce anla: iş durumu sorulmuştu, AI cevabı "biliyorum"a çevirdi → cevap soruyu gerçekten cevaplıyor mu (ikinci göz)?
         // "asansör bedeli" cevap değildir — soru tekrar (tahmin yok). Yalnız kişiyle para/borç kaydında, soru-cevap anında.
         if ($pending && ($pending->extracted['work_status_known'] ?? null) === false && ! empty($pending->extracted['question'])
@@ -990,7 +1004,16 @@ class WhatsappWebhookController extends Controller
         }
         $data['party_confirmed'] = ! empty($data['party_confirmed']) || (! empty($pending?->extracted['party_confirmed'])
             && ($pending->extracted['party_id'] ?? null) === ($data['party_id'] ?? null));
-        if (($ask = Understanding::gap($data)) !== null) {
+        // Çapraz kontrol (17.10): kaydın anlamı kullanıcının anlattığıyla çelişiyorsa ("borcum ödendi" ↔ "borçlusunuz") dur, sor.
+        // Taslak başına bir kez; cevap gelince yeniden önerilen kayıt yine kontrol edilmez (döngü yok).
+        $data['cross_asked'] = ! empty($data['cross_asked']) || ! empty($pending?->extracted['cross_asked']);
+        $ask = Understanding::gap($data);
+        if ($ask === null && ! $data['cross_asked'] && ($cross = Understanding::crossCheck($data, $this->inboundBody)) !== null) {
+            $ask = $cross;
+            $data['cross_asked'] = true;
+            $data['cross_question'] = $cross;
+        }
+        if ($ask !== null) {
             $data['question'] = $ask;
             $data['party_asked'] = Understanding::partyUnclear($data) ? ($data['party_id'] ?? null) : null;
             $text = implode("\n", ['❓ ' . $ask, ...Understanding::checkWarnings($data)]);
@@ -1160,8 +1183,10 @@ class WhatsappWebhookController extends Controller
      */
     private function askCheckParty(array $data): array
     {
+        // Modül açık/kapalı fark etmez (17.10): kişisiz "çek ödendi" önce bekleyen VERİLMİŞ çekle eşleşir (vadesi gelen çek
+        // bankadan ödendi — para çek verildiği gün düşülmüştü, gider/yeni ödeme YAZILMAZ); eşleşme yoksa "kime yazılmıştı?".
         if ($this->kind($data) !== ExpenseExtractor::KIND_EXPENSE || ! empty($data['check_answered'])
-            || ! empty($data['party_id']) || ! empty($data['party_name']) || config('modules.checks')
+            || ! empty($data['party_id']) || ! empty($data['party_name'])
             || ! in_array(ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::allowedKinds(), true)
             || (float) ($data['amount'] ?? 0) <= 0) {
             return $data;
@@ -1169,6 +1194,10 @@ class WhatsappWebhookController extends Controller
         $t = mb_strtolower(strtr($this->inboundBody . ' ' . ($data['description'] ?? ''), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
         if (! preg_match('/(^|[^\p{L}])[çc]ek(i|in|ini)?([^\p{L}]|$)/u', $t)) {
             return $data;
+        }
+        if (empty($data['skip_check_match']) && ($check = \App\Support\CheckReminders::matchDue((float) $data['amount'])) !== null) {
+            return ['kind' => self::KIND_CHECK_CLEARED, 'check_id' => $check->id, 'amount' => (float) $check->amount,
+                'description' => 'Çek ödendi', 'check_original' => $data, 'question' => null, 'confidence' => 'high'];
         }
 
         return array_merge($data, ['kind' => ExpenseExtractor::KIND_PAYMENT, 'check_payment' => true, 'category_id' => null,
@@ -1492,6 +1521,9 @@ class WhatsappWebhookController extends Controller
 
     private function commitDraft(WhatsappPendingExpense $pending): string
     {
+        if (($pending->extracted['kind'] ?? null) === self::KIND_CHECK_CLEARED) {
+            return $this->commitCheckCleared($pending);
+        }
         // Taslak ile onay arasında silinen proje/cari/kategori (review H) — kayıt hatası yerine boşalır, eksikse sorulur.
         $d = ExpenseExtractor::fitToModules(ExpenseExtractor::dropUnknownIds($pending->extracted));
         if ($d !== $pending->extracted) {
@@ -1767,6 +1799,43 @@ class WhatsappWebhookController extends Controller
         $checksLine = $checksSaved > 0 ? "\n🧾 {$checksSaved} çek kaydedildi — vadesinden önce hatırlatırım." : '';
 
         return '✅ Kaydedildi. ' . $line . $checksLine . $ask;
+    }
+
+    /** Kişisiz "çek ödendi" bekleyen verilmiş çekle eşleşti: işaretleme teyidi (gider/ödeme yazılmaz). */
+    private function saveCheckClearedDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
+    {
+        $check = \App\Models\Check::with('party')->find($data['check_id']);
+        $summary = '🧾 ' . ($check?->party?->name ?? 'Çek') . ' — ' . Money::format((float) $data['amount']) . ' ₺ çek'
+            . ($check?->due_date ? ' (vade ' . $check->due_date->format('d.m.Y') . ')' : '') . ($check?->check_number ? ' · no ' . $check->check_number : '')
+            . "\nBu çek *ödendi* olarak işaretlensin mi? Çek verildiği gün ödeme olarak yazılmıştı; gider ya da yeni ödeme yazılmaz.";
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $summary]);
+        } else {
+            WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+        }
+        $this->inboundKind = 'check_cleared';
+
+        return $summary . "\n\n*evet* / başka bir çekse *başka* yaz.";
+    }
+
+    /** Çek ödendi: sözleşmeye bağlıysa sözleşme ödemesi "ödendi" (çek oradan senkron), değilse çekin kendisi. */
+    private function commitCheckCleared(WhatsappPendingExpense $pending): string
+    {
+        $check = \App\Models\Check::with(['party', 'contractPayment'])->find($pending->extracted['check_id'] ?? 0);
+        if (! $check || ! in_array($check->status, ['issued', 'portfolio'], true)) {
+            $pending->update(['status' => 'cancelled']);
+
+            return 'Bu çek artık bekleyenler arasında değil (zaten işaretlenmiş olabilir).';
+        }
+        if ($check->contractPayment) {
+            $check->contractPayment->update(['status' => 'paid']);
+        }
+        if ($check->fresh()->status !== 'paid') {
+            $check->update(['status' => 'paid']);
+        }
+        $pending->update(['status' => 'confirmed']);
+
+        return '✅ ' . ($check->party?->name ?? 'Çek') . ' — ' . Money::format((float) $check->amount) . ' ₺ çek *ödendi* olarak işaretlendi.';
     }
 
     /** Basit onaylı taslak (hafıza): özet + teyit; eksik bilgi varsa yalnız soru. */
