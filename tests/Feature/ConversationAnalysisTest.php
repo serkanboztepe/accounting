@@ -111,4 +111,21 @@ class ConversationAnalysisTest extends TestCase
             ConversationAnalyzer::maskAmounts('20.000 tl, 20000, 1.250,50 ₺, 47 tl, 2026 yılı, 21:36, 2026-10-10, 10.10'),
         );
     }
+
+    public function test_lessons_are_read_even_when_report_was_cut_off(): void
+    {
+        $one = '{"firm": "A", "problem": "p1", "cause": "c", "rule": "Kural bir {parantezli}", "customer_question": null}';
+        $two = '{"firm": "B", "problem": "p2 \\"tırnaklı\\"", "cause": "c", "rule": "Kural iki", "customer_question": null}';
+
+        [$full, $text] = ConversationAnalyzer::extractLessons("Rapor\n```dersler\n[{$one},\n{$two}]\n```\nson");
+        $this->assertCount(2, $full);
+        $this->assertSame("Rapor\n\nson", $text);
+
+        // Rapor #7 (16.10): yazma sınırı → blok kapanmadı, üçüncü ders yarım. Tamamlanan ikisi kurtarılır.
+        [$cut, $rest] = ConversationAnalyzer::extractLessons("Rapor\n```dersler\n[{$one},\n{$two},\n {\"firm\": \"C\", \"problem\": \"Firmada stok");
+        $this->assertSame(['Kural bir {parantezli}', 'Kural iki'], array_column($cut, 'rule'));
+        $this->assertSame('Rapor', $rest);
+
+        $this->assertSame([[], 'Ders yok'], ConversationAnalyzer::extractLessons('Ders yok'));
+    }
 }

@@ -55,6 +55,61 @@ class ConversationAnalyzer
     }
 
     /**
+     * ```dersler JSON bloğunu rapordan ayırır. Blok kapanmamışsa (yazma sınırı) tamamlanmış ders nesneleri kurtarılır,
+     * yarım kalan sonuncusu atılır.
+     *
+     * @return array{0:list<array>,1:string} [dersler, dersler çıkarılmış metin]
+     */
+    public static function extractLessons(string $text): array
+    {
+        $start = mb_strpos($text, '```dersler');
+        if ($start === false) {
+            return [[], $text];
+        }
+        $block = mb_substr($text, $start);
+        $end = mb_strpos($block, '```', 3);
+        $json = trim(mb_substr($block, 10, $end === false ? null : $end - 10));
+        $decoded = json_decode($json, true);
+        if (! is_array($decoded)) {
+            // Kurtarma: her tam {...} nesnesi (tırnak içindeki parantezler sayılmaz).
+            $decoded = [];
+            $chars = preg_split('//u', $json, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $depth = 0;
+            $inString = false;
+            $escaped = false;
+            $from = null;
+            foreach ($chars as $i => $ch) {
+                if ($inString) {
+                    if ($escaped) {
+                        $escaped = false;
+                    } elseif ($ch === '\\') {
+                        $escaped = true;
+                    } elseif ($ch === '"') {
+                        $inString = false;
+                    }
+
+                    continue;
+                }
+                if ($ch === '"') {
+                    $inString = true;
+                } elseif ($ch === '{') {
+                    $from = $depth === 0 ? $i : $from;
+                    $depth++;
+                } elseif ($ch === '}' && $depth > 0 && --$depth === 0 && $from !== null) {
+                    $one = json_decode(implode('', array_slice($chars, $from, $i - $from + 1)), true);
+                    if (is_array($one)) {
+                        $decoded[] = $one;
+                    }
+                    $from = null;
+                }
+            }
+        }
+        $lessons = array_values(array_filter($decoded, fn ($l) => is_array($l) && ! empty($l['rule']) && ! empty($l['problem'])));
+
+        return [$lessons, trim(mb_substr($text, 0, $start) . ($end === false ? '' : mb_substr($block, $end + 3)))];
+    }
+
+    /**
      * Claude'dan rapor. İlk satır "ÖZET: …" (WhatsApp özeti), kalanı markdown rapor.
      *
      * @return array{summary:string,body:string,model:string,cost_usd:float,lessons:list<array>}
@@ -73,7 +128,8 @@ class ConversationAnalyzer
             'content-type' => 'application/json',
         ])->timeout(300)->post(self::ENDPOINT, [
             'model' => $model,
-            'max_tokens' => 6000,
+            // 6000'de rapor + dersler yarıda kesiliyordu (Rapor #7, 16.10: dersler JSON'u kapanmadı → 0 ders kaydedildi).
+            'max_tokens' => 16000,
             'system' => $this->systemPrompt(),
             'messages' => [['role' => 'user', 'content' => 'Tarih: ' . $day->format('d.m.Y') . "\n\n" . $transcript]],
         ]);
@@ -87,13 +143,13 @@ class ConversationAnalyzer
         $usage = (array) $response->json('usage', []);
         $cost = (($usage['input_tokens'] ?? 0) * $in + ($usage['output_tokens'] ?? 0) * $out) / 1_000_000;
 
-        // Dersler bloğu (Faz 3): raporun sonundaki ```dersler JSON — rapordan ayrılır, hub'da onaya gelir.
-        $lessons = [];
-        if (preg_match('/```dersler\s*(\[.*?\])\s*```/su', $text, $lm)) {
-            $decoded = json_decode($lm[1], true);
-            $lessons = is_array($decoded) ? array_values(array_filter($decoded, fn ($l) => is_array($l) && ! empty($l['rule']) && ! empty($l['problem']))) : [];
-            $text = trim(str_replace($lm[0], '', $text));
+        if ($response->json('stop_reason') === 'max_tokens') {
+            \Illuminate\Support\Facades\Log::warning('Konuşma analizi yazma sınırına takıldı, rapor yarıda kesildi', ['day' => $day->toDateString()]);
+            $text .= "\n\n_⚠️ Rapor yarıda kesildi (yazma sınırı)._";
         }
+
+        // Dersler bloğu (Faz 3): raporun sonundaki ```dersler JSON — rapordan ayrılır, hub'da onaya gelir.
+        [$lessons, $text] = self::extractLessons($text);
 
         $summary = '';
         if (preg_match('/^\s*ÖZET:\s*(.+)$/mu', $text, $m)) {
