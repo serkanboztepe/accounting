@@ -17,7 +17,7 @@ class Product extends Model
 
     public const TYPE_LABELS = [
         self::TYPE_PRODUCT => 'Ürün',
-        self::TYPE_SERVICE => 'Hizmet',
+        self::TYPE_SERVICE => 'Hizmet / stoksuz',
     ];
 
     protected $fillable = [

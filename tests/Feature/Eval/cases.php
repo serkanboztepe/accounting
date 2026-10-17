@@ -387,6 +387,11 @@ return [
         ['id' => 'F4-kartsiz-urun-adet-fiyat', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => 'Damızlık birliğine 10 tavuk verdim tanesi 400 liradan']],
             'expect' => ['draft' => ['amount' => 4000]]],
+        // 17.10 kullanıcı: kartsız satış → stoksuz kart (satış fiyatıyla); ikinci satışta fiyat sorulmaz
+        ['id' => 'F4-stoksuz-kart-fiyati-hatirlar', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => 'Damızlık birliğine 50 litre süt gitti litresi 30'], ['send' => 'evet', 'expect' => ['reply_has' => ['ürün kartı açıldı']]],
+                ['send' => 'Damızlık birliğine 40 litre süt daha gitti']],
+            'expect' => ['draft' => ['amount' => 1200]]],
         // 1.4 Emre: "Erkan maaşı 65 tl" → sessizce 65.000 yazıldı
         ['id' => 'F1-yazilandan-farkli-tutar-sorar', 'firm' => 'akkus', 'group' => 'understand',
             'steps' => [['send' => 'Erkan maaşı 65 tl her ayın 30 unda']],

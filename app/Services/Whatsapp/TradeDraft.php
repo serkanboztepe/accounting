@@ -241,8 +241,10 @@ class TradeDraft
             $price = isset($item['unit_price']) && $item['unit_price'] !== null ? (float) $item['unit_price'] : null;
             $amount = ! empty($item['amount']) ? (float) $item['amount'] : null;
             $prev = null;
-            // Alışta kartta olmayan, adetle sayılan mal: onaylanınca ürün kartı açılır.
-            $new = ! $product && $isPurchase && $qty > 0 && trim((string) ($item['description'] ?? '')) !== '';
+            // Kartta olmayan, miktarı belli mal: onaylanınca kart açılır — alışta stoklu, satışta STOKSUZ (yalnız satış fiyatı;
+            // 17.10 kullanıcı: Oktay süt satışında her seferinde fiyat sorulmasın, stok da eksiye düşmesin).
+            $new = ! $product && $qty > 0 && trim((string) ($item['description'] ?? '')) !== ''
+                && ($isPurchase || ($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_SALE);
 
             if ($product || $new) {
                 // Satışta adet söylenmediyse 1; alışta stoğa ne gireceği belli olmalı → boş kalır, sorulur.
@@ -287,6 +289,7 @@ class TradeDraft
                 'amount' => $amount,
                 'unit' => $item['unit'] ?? null,
                 'new' => $new,
+                'stockless' => $new && ! $isPurchase,
                 'similar' => $new ? self::similarProduct((string) $item['description'])?->name : null,
                 'prev_price' => $prev !== null && $price !== null && abs($prev - $price) >= 0.005 ? $prev : null,
             ];
@@ -403,7 +406,9 @@ class TradeDraft
             }
             // Satışta da miktar tahmin edilmez ("Un satışım oldu" → 1 adet sanılıyordu, Serkan 16.10): stoktan düşecek.
             if (! empty($item['product_id']) && $kind === ExpenseExtractor::KIND_TRADE_SALE && empty($item['quantity'])) {
-                return 'Kaç ' . (Product::find($item['product_id'])?->unit?->name ?? 'tane') . ' sattın, kaç liraya? (stoktan düşecek)';
+                $p = Product::find($item['product_id']);
+
+                return 'Kaç ' . ($p?->unit?->name ?? 'tane') . ' sattın, kaç liraya?' . ($p?->isProduct() ? ' (stoktan düşecek)' : '');
             }
             if ((! empty($item['product_id']) || ! empty($item['new'])) && $item['amount'] === null) {
                 return $d['question'] ?: 'Fiyatı ne?';
@@ -496,6 +501,9 @@ class TradeDraft
                 $after = $direction === 'in' ? $now + (float) $item['quantity'] : $now - (float) $item['quantity'];
                 // Şubeli firmada "işletme stoğu": şube stoğu yok (karar A) — şube adı görünce şube stoğu sanılmasın.
                 $line .= ' (stok ' . StockUsage::quantity($now) . ' → ' . StockUsage::quantity($after) . ')';
+            } elseif (! empty($item['new']) && ! empty($item['stockless'])) {
+                $line .= ' (🆕 ürün kartı açılacak' . ($item['unit_price'] !== null ? ' · ' . ($item['unit'] ? self::perUnit((string) $item['unit']) : 'tanesi') . ' ' . Money::format((float) $item['unit_price']) . ' ₺' : '') . ' · stok tutulmaz)'
+                    . (! empty($item['similar']) ? "\n     ❓ *" . $item['similar'] . '* ürün kartı da var — aynı ürünse "' . $item['similar'] . '" yazın' : '');
             } elseif (! empty($item['new'])) {
                 $line .= ' (🆕 yeni ürün' . (! empty($item['unit']) ? ', birim ' . $item['unit'] : '') . ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ')'
                     . (! empty($item['similar']) ? "\n     ❓ Stokta *" . $item['similar'] . '* de var — aynı ürünse "' . $item['similar'] . '" yazın' : '');
@@ -617,6 +625,18 @@ class TradeDraft
     private static function commitSale(array $d): array
     {
         $party = empty($d['paid']) ? self::resolveParty($d) : null;
+        $created = [];
+        foreach ($d['items'] ?? [] as $i => $item) {
+            if (! empty($item['new']) && ! empty($item['stockless']) && empty($item['product_id'])) {
+                $product = self::createStocklessProduct($item['description'], $item['unit'] ?? null, $item['unit_price'] ?? null);
+                $d['items'][$i]['product_id'] = $product->id;
+                if ($product->wasRecentlyCreated) {
+                    $created[] = $product;
+                }
+            } elseif (! empty($item['product_id']) && ($item['unit_price'] ?? null) !== null) {
+                self::rememberSalePrice((int) $item['product_id'], (float) $item['unit_price']);
+            }
+        }
         [$lines, $manual] = self::splitLines($d);
         $cash = (float) ($d['cash_amount'] ?? 0);
         $card = (float) ($d['card_amount'] ?? 0);
@@ -653,6 +673,11 @@ class TradeDraft
         $text = '✅ Satış kaydedildi: ' . Money::format((float) $sale->total_amount) . ' ₺ · '
             . ($party ? $party->name : 'Peşin (' . $sale->paymentLabel() . ')') . $extraText;
         $text .= self::stockAfterLines($lines);
+        foreach ($created as $product) {
+            $text .= "\n🆕 " . $product->name . ' ürün kartı açıldı'
+                . ($product->default_price !== null ? ': ' . ($product->unit?->name ? self::perUnit($product->unit->name) : 'tanesi') . ' ' . Money::format((float) $product->default_price) . ' ₺' : '')
+                . ' (stok tutulmuyor)';
+        }
         if ($party) {
             $text .= "\n" . PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
         }
@@ -808,6 +833,54 @@ class TradeDraft
         }
 
         return ['✅ Üretim stoğa girdi: ' . implode(' · ', $lines), null];
+    }
+
+    /** WhatsApp satışından açılan stoksuz kartın işareti (notes) — fiyatı son satışla güncellenir; elle açılan kartlara dokunulmaz. */
+    public const STOCKLESS_NOTE = 'WhatsApp satışından açıldı (stoksuz)';
+
+    /** Satışta kartsız mal → stoksuz kart (yalnız satış fiyatı). Aynı adlı kart varsa onu kullanır. */
+    private static function createStocklessProduct(string $name, ?string $unit, ?float $salePrice): Product
+    {
+        if ($existing = self::matchProduct($name)) {
+            return $existing;
+        }
+
+        return Product::create([
+            'name' => self::title($name),
+            'type' => Product::TYPE_SERVICE,
+            'unit_id' => self::unitId($unit),
+            'default_price' => $salePrice > 0 ? $salePrice : null,
+            'is_active' => true,
+            'notes' => self::STOCKLESS_NOTE,
+        ]);
+    }
+
+    /** "Bu sefer litresi 32" → WhatsApp'tan açılmış stoksuz kartın fiyatı güncellenir (stoklu/elle açılmış kartlara dokunulmaz). */
+    private static function rememberSalePrice(int $productId, float $price): void
+    {
+        $product = Product::find($productId);
+        if ($product && $price > 0 && $product->notes === self::STOCKLESS_NOTE
+            && abs((float) $product->default_price - $price) >= 0.005) {
+            $product->update(['default_price' => $price]);
+        }
+    }
+
+    /** "litre" → "litresi", "kg" → "kilosu", "ton" → "tonu"; bilinmeyen → "birimi". */
+    private static function perUnit(string $unit): string
+    {
+        return match (mb_strtolower(trim($unit))) {
+            'litre', 'lt', 'l' => 'litresi',
+            'kg', 'kilo', 'kilogram' => 'kilosu',
+            'ton' => 'tonu',
+            'adet', 'tane' => 'tanesi',
+            'çuval', 'cuval' => 'çuvalı',
+            'koli' => 'kolisi',
+            'paket' => 'paketi',
+            'kasa' => 'kasası',
+            'balya' => 'balyası',
+            'metre', 'm' => 'metresi',
+            default => 'birimi',
+        };
     }
 
     /** Ürün kartı (stoklu). Aynı adlı ürün o arada açıldıysa onu kullanır — çift kart olmasın. */
