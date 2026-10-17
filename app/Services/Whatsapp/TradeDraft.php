@@ -266,6 +266,17 @@ class TradeDraft
                 if ($amount === null && $qty !== null) {
                     $missing[] = $product?->name ?? self::title((string) $item['description']);
                 }
+            } elseif ($qty > 0) {
+                // Kartsız kalem (17.10 Oktay: "50 litre süt" + "litresi 30 TL" → toplam 0 kalıyordu): miktar × birim fiyat
+                // (lt / kg / birim yoksa adet); yalnız toplam söylendiyse birim fiyat çıkarılır; ikisi de yoksa fiyat sorulur.
+                if ($amount === null && $price !== null) {
+                    $amount = round($qty * $price, 2);
+                } elseif ($amount !== null && $price === null) {
+                    $price = round($amount / $qty, 2);
+                }
+                if ($amount === null && trim((string) ($item['description'] ?? '')) !== '') {
+                    $missing[] = self::title((string) $item['description']);
+                }
             }
 
             $items[] = [

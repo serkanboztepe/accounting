@@ -380,6 +380,13 @@ return [
         ['id' => 'F1-elimde-var-yeni-urun', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => '33 adet buzağı yemi var elimde günde 16 adet gidiyor stoklara ekle'], ['send' => 'Evet']],
             'expect' => ['stock' => ['Buzağı yemi' => 33]]],
+        // 17.10 Oktay: kartsız ürüne birim fiyat ("litresi 30") → toplam 0 kalıyordu
+        ['id' => 'F4-kartsiz-urun-birim-fiyat', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => 'Damızlık birliğine 50 litre süt gitti'], ['send' => 'Litresi 30 Tl']],
+            'expect' => ['draft' => ['amount' => 1500]]],
+        ['id' => 'F4-kartsiz-urun-adet-fiyat', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => 'Damızlık birliğine 10 tavuk verdim tanesi 400 liradan']],
+            'expect' => ['draft' => ['amount' => 4000]]],
         // 1.4 Emre: "Erkan maaşı 65 tl" → sessizce 65.000 yazıldı
         ['id' => 'F1-yazilandan-farkli-tutar-sorar', 'firm' => 'akkus', 'group' => 'understand',
             'steps' => [['send' => 'Erkan maaşı 65 tl her ayın 30 unda']],

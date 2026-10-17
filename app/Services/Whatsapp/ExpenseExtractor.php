@@ -677,7 +677,7 @@ class ExpenseExtractor
                     'amount' => ['type' => ['number', 'null']],
                     'product_id' => ['type' => ['integer', 'null'], 'description' => 'matched product id from ÜRÜNLER, else null'],
                     'quantity' => ['type' => ['number', 'null'], 'description' => 'only if the user said it; null if not stated — NEVER assume 1 (system asks)'],
-                    'unit_price' => ['type' => ['number', 'null'], 'description' => 'unit price if said'],
+                    'unit_price' => ['type' => ['number', 'null'], 'description' => 'price PER ONE unit if said ("litresi 30", "kilosu 40", "tanesi 40 liradan", "10 verdim 40 liradan" → 40). Without a unit word the unit is piece (adet). Earlier turns count too: keep the price said before in this draft'],
                     'unit' => ['type' => ['string', 'null'], 'description' => 'unit name (çuval, kg, paket, adet) when product_id is null'],
                 ],
                 'required' => ['description'],
