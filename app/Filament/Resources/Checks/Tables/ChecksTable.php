@@ -2,52 +2,103 @@
 
 namespace App\Filament\Resources\Checks\Tables;
 
+use App\Filament\Resources\Checks\Schemas\CheckForm;
+use App\Models\Check;
+use Filament\Actions\Action;
 use Filament\Actions\EditAction;
+use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
 
+/**
+ * Çekler listesi (Faz 2.2): yön (verdiğim/aldığım), ne için, vadeye kaç gün kaldı; "yaklaşan / geçmiş" süzgeçleri;
+ * satırda tek tık "Ödendi" / "Tahsil edildi" (sözleşmeye bağlı çekte sözleşme ödemesi de — ikisi senkron kalır).
+ */
 class ChecksTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->defaultSort('due_date')
             ->columns([
-                TextColumn::make('party.name')
-                    ->label('Cari')
-                    ->searchable()
-                    ->sortable(),
-                TextColumn::make('project.name')
-                    ->label('Proje')
-                    ->toggleable(),
-                TextColumn::make('check_number')
-                    ->label('Çek No')
-                    ->searchable(),
-                TextColumn::make('bank_name')
-                    ->label('Banka')
-                    ->toggleable(),
-                TextColumn::make('amount')
-                    ->label('Tutar')
-                    ->money('TRY')
-                    ->sortable(),
-                TextColumn::make('due_date')
-                    ->label('Vade')
-                    ->date('d.m.Y')
-                    ->sortable(),
-                TextColumn::make('status')
-                    ->label('Durum')
-                    ->badge()
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'portfolio'  => 'Portföyde',
-                        'issued'     => 'Verildi',
-                        'collected'  => 'Tahsil Edildi',
-                        'paid'       => 'Ödendi',
-                        'cancelled'  => 'İptal',
-                        'bounced'    => 'Karşılıksız',
-                        default      => $state,
+                TextColumn::make('direction')->label('Yön')->badge()
+                    ->state(fn (Check $r) => CheckForm::directionOf($r->status) === 'received' ? 'Aldığım' : 'Verdiğim')
+                    ->color(fn (string $state) => $state === 'Aldığım' ? 'success' : 'warning'),
+                TextColumn::make('party.name')->label('Cari')->searchable()->sortable(),
+                TextColumn::make('purpose')->label('Ne için')->wrap()->placeholder('—')
+                    ->state(fn (Check $r) => $r->description
+                        ?: ($r->contractPayment ? $r->contractPayment->contract()->withoutGlobalScopes()->value('title') : null)
+                        ?: $r->ledgerEntry?->description),
+                TextColumn::make('amount')->label('Tutar')->money('TRY')->sortable(),
+                TextColumn::make('due_date')->label('Vade')->date('d.m.Y')->sortable()
+                    ->description(fn (Check $r) => self::daysLeft($r)),
+                TextColumn::make('status')->label('Durum')->badge()
+                    ->formatStateUsing(fn (string $state, Check $r) => CheckForm::STATES[CheckForm::directionOf($state)][$state] ?? $state)
+                    ->color(fn (string $state) => match ($state) {
+                        'paid', 'collected' => 'success', 'bounced' => 'danger', 'cancelled' => 'gray', default => 'warning'}),
+                TextColumn::make('check_number')->label('Çek No')->searchable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('bank_name')->label('Banka')->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->filters([
+                SelectFilter::make('dir')->label('Yön')
+                    ->options(['given' => 'Verdiğim', 'received' => 'Aldığım'])
+                    ->query(fn (Builder $q, array $data) => match ($data['value'] ?? null) {
+                        'received' => $q->whereIn('status', ['portfolio', 'collected']),
+                        'given' => $q->whereNotIn('status', ['portfolio', 'collected']),
+                        default => $q,
                     }),
+                Filter::make('upcoming')->label('Vadesi 7 gün içinde')
+                    ->query(fn (Builder $q) => $q->whereIn('status', ['issued', 'portfolio'])
+                        ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])),
+                Filter::make('overdue')->label('Vadesi geçmiş, bekleyen')
+                    ->query(fn (Builder $q) => $q->whereIn('status', ['issued', 'portfolio'])->whereDate('due_date', '<', Carbon::today())),
+                Filter::make('open')->label('Yalnız bekleyenler')->default()
+                    ->query(fn (Builder $q) => $q->whereIn('status', ['issued', 'portfolio'])),
             ])
             ->recordActions([
+                Action::make('settle')
+                    ->label(fn (Check $r) => $r->status === 'portfolio' ? 'Tahsil edildi' : 'Ödendi')
+                    ->icon(Heroicon::OutlinedCheck)->color('success')
+                    ->visible(fn (Check $r) => in_array($r->status, ['issued', 'portfolio'], true))
+                    ->requiresConfirmation()
+                    ->modalDescription(fn (Check $r) => ($r->party?->name ?? 'Çek') . ' · ' . \App\Support\Money::format((float) $r->amount) . ' ₺'
+                        . ' — para çek verildiği/alındığı gün hesaba yazılmıştı; burada yalnız çekin durumu değişir.')
+                    ->action(function (Check $r) {
+                        self::settle($r);
+                        Notification::make()->success()->title('Çek işaretlendi')->send();
+                    }),
                 EditAction::make(),
             ]);
+    }
+
+    /** Ödendi / tahsil edildi. Sözleşmeye bağlı çekte durum sözleşme ödemesinden gelir → önce o, çek senkron olur. */
+    public static function settle(Check $check): void
+    {
+        $target = $check->status === 'portfolio' ? 'collected' : 'paid';
+        if ($target === 'paid' && $check->contractPayment) {
+            $check->contractPayment->update(['status' => 'paid']);
+        }
+        if ($check->fresh()->status !== $target) {
+            $check->update(['status' => $target]);
+        }
+    }
+
+    private static function daysLeft(Check $r): ?string
+    {
+        if (! $r->due_date || ! in_array($r->status, ['issued', 'portfolio'], true)) {
+            return null;
+        }
+        $days = (int) Carbon::today()->diffInDays($r->due_date->copy()->startOfDay(), false);
+
+        return match (true) {
+            $days > 0 => $days . ' gün kaldı',
+            $days === 0 => 'bugün',
+            default => abs($days) . ' gün geçti',
+        };
     }
 }

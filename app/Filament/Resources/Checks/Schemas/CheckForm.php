@@ -2,52 +2,66 @@
 
 namespace App\Filament\Resources\Checks\Schemas;
 
-use App\Support\Money;
+use App\Models\Check;
+use App\Models\ContractPayment;
 use App\Support\Forms\MoneyInput;
+use App\Support\Labels;
+use App\Support\Money;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
+/**
+ * Çek formu (Faz 2.2, 17.10 sadeleştirme): "Durum" yön + durum olarak ikiye ayrıldı — eskiden 6 durum karışıktı ("Portföyde"
+ * aslında aldığım çek, "Verildi" verdiğim çek). Veritabanındaki status değerleri AYNEN (issued/paid/portfolio/collected/
+ * bounced/cancelled); yalnız ekran değişti. Sözleşme alanı yalnız sözleşme modülünde, proje alanı yalnız proje modülünde.
+ */
 class CheckForm
 {
+    /** Yön → durum seçenekleri (veritabanı değeri → ekranda görünen). */
+    public const STATES = [
+        'given' => ['issued' => 'Bekliyor (vadesi gelmedi)', 'paid' => 'Ödendi', 'bounced' => 'Karşılıksız', 'cancelled' => 'İptal'],
+        'received' => ['portfolio' => 'Bekliyor (elimde)', 'collected' => 'Tahsil edildi', 'bounced' => 'Karşılıksız', 'cancelled' => 'İptal'],
+    ];
+
+    public static function directionOf(?string $status): string
+    {
+        return in_array($status, ['portfolio', 'collected'], true) ? 'received' : 'given';
+    }
+
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
-            Section::make('Çek Bilgileri')
+            Section::make('Çek')
                 ->schema([
-                    Select::make('contract_payment_id')
-                        ->label('Sözleşme Ödemesi')
-                        ->relationship('contractPayment', 'id')
-                        ->searchable()
-                        ->preload()
+                    Select::make('direction')
+                        ->label('Yön')
+                        ->options(['given' => 'Verdiğim çek (benim borcum)', 'received' => 'Aldığım çek (müşteriden)'])
+                        ->default('given')
                         ->live()
-                        ->afterStateUpdated(function ($state, callable $set) {
-                            if (! $state) {
-                                return;
-                            }
-
-                            $payment = \App\Models\ContractPayment::find($state);
-                            if ($payment) {
-                                $set('project_id', $payment->project_id);
-                                $set('party_id', $payment->party_id);
-                                $set('amount', Money::format((float) $payment->amount));
-                                $set('due_date', $payment->due_date);
-                            }
-                        }),
-                    Select::make('project_id')
-                        ->label('Proje')
-                        ->relationship('project', 'name')
-                        ->searchable()
-                        ->preload(),
+                        ->dehydrated(false)
+                        ->afterStateHydrated(fn (Select $component, ?Check $record) => $component->state(self::directionOf($record?->status)))
+                        ->afterStateUpdated(fn (Set $set, ?string $state) => $set('status', $state === 'received' ? 'portfolio' : 'issued')),
+                    Select::make('status')
+                        ->label('Durum')
+                        ->options(fn (Get $get) => self::STATES[$get('direction') ?: 'given'])
+                        ->default('issued')
+                        ->required(),
                     Select::make('party_id')
                         ->label('Cari')
                         ->relationship('party', 'name')
                         ->searchable()
                         ->preload()
                         ->required(),
+                    DatePicker::make('due_date')
+                        ->label('Vade')
+                        ->required(),
+                    MoneyInput::make('amount'),
                     TextInput::make('check_number')
                         ->label('Çek No')
                         ->maxLength(255),
@@ -56,24 +70,32 @@ class CheckForm
                         ->maxLength(255),
                     DatePicker::make('issue_date')
                         ->label('Düzenleme Tarihi'),
-                    DatePicker::make('due_date')
-                        ->label('Vade Tarihi')
-                        ->required(),
-                    MoneyInput::make('amount'),
-                    Select::make('status')
-                        ->label('Durum')
-                        ->options([
-                            'portfolio' => 'Portföyde',
-                            'issued' => 'Verildi',
-                            'collected' => 'Tahsil Edildi',
-                            'paid' => 'Ödendi',
-                            'cancelled' => 'İptal',
-                            'bounced' => 'Karşılıksız',
-                        ])
-                        ->default('portfolio')
-                        ->required(),
+                    Select::make('project_id')
+                        ->label(fn () => Labels::project())
+                        ->relationship('project', 'name')
+                        ->searchable()
+                        ->preload()
+                        ->visible(fn () => (bool) config('modules.projects')),
+                    // Sözleşme ödemesi: yalnız sözleşme modülünde; okunur ad ("Beton · Kuşak · 20.11.2026 · 1.050.000 ₺").
+                    Select::make('contract_payment_id')
+                        ->label('Sözleşme ödemesi')
+                        ->relationship('contractPayment', 'id')
+                        ->getOptionLabelFromRecordUsing(fn (ContractPayment $p) => self::paymentLabel($p))
+                        ->searchable()
+                        ->preload()
+                        ->live()
+                        ->visible(fn () => (bool) config('modules.contracts'))
+                        ->afterStateUpdated(function ($state, Set $set) {
+                            if (! $state || ! ($payment = ContractPayment::with('contract')->find($state))) {
+                                return;
+                            }
+                            $set('project_id', $payment->contract?->project_id);
+                            $set('party_id', $payment->contract?->party_id);
+                            $set('amount', Money::format((float) $payment->amount));
+                            $set('due_date', $payment->due_date ?? $payment->payment_date);
+                        }),
                     TextInput::make('description')
-                        ->label('Açıklama')
+                        ->label('Ne için')
                         ->maxLength(255),
                     Textarea::make('notes')
                         ->label('Notlar')
@@ -81,5 +103,13 @@ class CheckForm
                 ])
                 ->columns(2),
         ]);
+    }
+
+    public static function paymentLabel(ContractPayment $p): string
+    {
+        $contract = $p->contract()->withoutGlobalScopes()->with('party')->first();
+
+        return implode(' · ', array_filter([$contract?->title, $contract?->party?->name,
+            ($p->due_date ?? $p->payment_date)?->format('d.m.Y'), Money::format((float) $p->amount) . ' ₺']));
     }
 }
