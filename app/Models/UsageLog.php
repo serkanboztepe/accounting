@@ -53,7 +53,8 @@ class UsageLog extends Model
     {
         $url = (string) config('services.dev_usage.url');
         $secret = (string) config('services.dev_usage.secret');
-        if ($url === '' || $secret === '' || app()->runningUnitTests()) {
+        // Testler AI'ı mock'lar → gönderilmez; gerçek AI ile deneme seti (eval) harcaması gönderilir (16.10: kayıtsız ~12 $ krediyi bitirdi).
+        if ($url === '' || $secret === '' || (app()->runningUnitTests() && ! config('services.dev_usage.report_in_tests'))) {
             return;
         }
         try {

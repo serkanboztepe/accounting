@@ -1011,7 +1011,7 @@ class WhatsappWebhookController extends Controller
         // Taslak başına bir kez; cevap gelince yeniden önerilen kayıt yine kontrol edilmez (döngü yok).
         $data['cross_asked'] = ! empty($data['cross_asked']) || ! empty($pending?->extracted['cross_asked']);
         $ask = $data['scale_question'] ?? Understanding::gap($data);
-        if ($ask === null && ! $data['cross_asked'] && ($cross = Understanding::crossCheck($data, $this->inboundBody)) !== null) {
+        if ($ask === null && ! $data['cross_asked'] && ($cross = Understanding::crossCheck($data, $this->inboundBody, $phone)) !== null) {
             $ask = $cross;
             $data['cross_asked'] = true;
             $data['cross_question'] = $cross;

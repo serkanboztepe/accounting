@@ -110,6 +110,7 @@ class AssistantEvalTest extends TestCase
             'app.profile' => $firm['profile'], 'app.project_label' => null,
             'app.sector' => $firm['sector'] ?? null, 'app.business_note' => $firm['business_note'] ?? null,
             'services.twilio.verify_signature' => false,
+            'services.dev_usage.report_in_tests' => true, // gerçek AI harcaması hub'daki tahmini bakiyeye düşsün
             'services.twilio.allowed_phones' => ['0555 ' . substr($digits, 0, 3) . ' ' . substr($digits, 3, 2) . ' ' . substr($digits, 5, 2)],
         ]);
         Http::fake([

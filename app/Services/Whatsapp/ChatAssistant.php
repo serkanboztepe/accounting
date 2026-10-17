@@ -110,7 +110,8 @@ class ChatAssistant
             }
 
             if ($response->failed()) {
-                throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
+                \App\Support\CreditAlert::fromApiError($response->body()); // kredi bittiyse yöneticiye hemen haber
+            throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
             }
             UsageLog::recordAi((string) $model, (array) $response->json('usage', []));
 

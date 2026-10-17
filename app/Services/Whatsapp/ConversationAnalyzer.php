@@ -135,6 +135,7 @@ class ConversationAnalyzer
         ]);
 
         if ($response->failed()) {
+            \App\Support\CreditAlert::fromApiError($response->body()); // kredi bittiyse yöneticiye hemen haber
             throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
         }
 
