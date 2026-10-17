@@ -63,7 +63,8 @@ final class Understanding
       "peşin aldık" yazan kişiye "teslim ettim / götürdüm" denirse aynı şekilde `sale` (tutar = peşin alınan).
     - Stoklu alışta "alacaklıyız / ödemesi yapılmıştı / parası verildi / X'te stoğumuz var" geçiyorsa mal ELDE mi yoksa TEDARİKÇİDE mi
       duruyor belli değildir → work_status_known=false, soru: "Mal elinizde mi, yoksa X'te mi duruyor?" (Emre/Tokgöz). Tedarikçideyse
-      parası ödenmiş mal = avans (not_yet): stoğa girmez, "geldi" denince girer.
+      parası ödenmiş mal = avans (not_yet): stoğa girmez, "geldi" denince girer. Elindeyse/geldiyse: önceden ödenmiş ve şimdi gelen mal =
+      stoğa giren alış + ödendi (paid=true, work_status done) — AVANS DEĞİL.
     - BELGE mesajdan üstündür: çek görüntüsünde her çeki `checks`'e yaz (no, vade YAZILDIĞI GİBİ, tutar) — ödeme çekle yapılmıştır;
       çek yazıyla anlatılırsa da ("3 çek verdim 335'er bin, vadeler 31.03, 30.04, 31.05") her çeki `checks`'e yaz (no yoksa boş);
       dekontta gönderen/alıcı/açıklama esastır. Mesajla belge çelişirse sor.
@@ -337,9 +338,10 @@ final class Understanding
         $staff = ! empty($d['is_staff']) || ! empty($d['staff_hint']) || (bool) self::party($d)?->is_employee;
 
         return match ($kind) {
+            // Ödeme durumu söylenmediyse (paid null) cümle bunu iddia etmez — süzgeç varsayılanı "çelişki" sanmasın.
             ExpenseExtractor::KIND_EXPENSE => $hasParty
-                ? ($paid ? "{$name}'den {$amount} iş/mal alındı ve parası ödendi." : "{$name}'den {$amount} iş/mal alındı, parası ödenmedi; ona borçlusunuz.")
-                : "{$amount} harcama (gider) yazılıyor" . ($paid ? ', ödendi.' : ', henüz ödenmedi.'),
+                ? ($paid ? "{$name}'den {$amount} iş/mal alındı ve parası ödendi." : "{$name}'den {$amount} iş/mal alındı" . (($d['paid'] ?? null) === false ? ', parası ödenmedi; ona borçlusunuz.' : '.'))
+                : "{$amount} harcama (gider) yazılıyor" . (($d['paid'] ?? null) === false ? ', henüz ödenmedi.' : '.'),
             ExpenseExtractor::KIND_PURCHASE => $paid
                 ? "{$name}'den {$amount} iş/mal alındı (geldi/yapıldı) ve parası ödendi; borç kalmadı."
                 : "{$name}'den {$amount} iş/mal alındı (geldi/yapıldı), parası ödenmedi; ona {$amount} borçlusunuz.",
@@ -382,6 +384,10 @@ final class Understanding
      */
     public static function crossCheck(array $d, string $userText, ?string $phone = null): ?string
     {
+        // Tutarı henüz belli olmayan kayıt (fiyat/tutar sorulacak) süzülmez — "0 ₺" cümlesi yersiz çelişki doğuruyordu.
+        if ((float) ($d['amount'] ?? 0) <= 0) {
+            return null;
+        }
         $record = self::recordSentence($d);
         $meaning = trim((string) ($d['meaning'] ?? ''));
         $apiKey = (string) config('services.anthropic.api_key');

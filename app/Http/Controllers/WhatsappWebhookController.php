@@ -1009,11 +1009,16 @@ class WhatsappWebhookController extends Controller
         $data['scale_question'] = Understanding::amountScaleQuestion($data, $this->inboundBody);
         // Çapraz kontrol (17.10): kaydın anlamı kullanıcının anlattığıyla çelişiyorsa ("borcum ödendi" ↔ "borçlusunuz") dur, sor.
         // Taslak başına bir kez; cevap gelince yeniden önerilen kayıt yine kontrol edilmez (döngü yok).
-        $data['cross_asked'] = ! empty($data['cross_asked']) || ! empty($pending?->extracted['cross_asked']);
+        // Kayıt DEĞİŞTİYSE (cevaptan sonra başka tür/tutar) yeniden süzülür; aynı kayıt bir daha sorulmaz; taslak başına en çok 2 soru.
+        $crossSig = implode('|', [$data['kind'] ?? '', round((float) ($data['amount'] ?? 0)), $data['party_id'] ?? $data['party_name'] ?? '',
+            $data['payment_purpose'] ?? '', var_export($data['paid'] ?? null, true)]);
+        $crossDone = array_values(array_filter((array) ($pending?->extracted['cross_asked'] ?? []), 'is_string'));
+        $data['cross_asked'] = $crossDone;
         $ask = $data['scale_question'] ?? Understanding::gap($data);
-        if ($ask === null && ! $data['cross_asked'] && ($cross = Understanding::crossCheck($data, $this->inboundBody, $phone)) !== null) {
+        if ($ask === null && ! in_array($crossSig, $crossDone, true) && count($crossDone) < 2
+            && ($cross = Understanding::crossCheck($data, $this->inboundBody, $phone)) !== null) {
             $ask = $cross;
-            $data['cross_asked'] = true;
+            $data['cross_asked'] = [...$crossDone, $crossSig];
             $data['cross_question'] = $cross;
         }
         if ($ask !== null) {

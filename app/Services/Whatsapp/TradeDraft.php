@@ -96,14 +96,13 @@ class TradeDraft
         }
         if (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_STOCK_QUERY], true)) {
             $named = trim((string) ($d['product_name'] ?? ''));
-            // Ad yoksa açıklamadan ("Buzağı yemi sayımı" → "Buzağı yemi"): AI'ın seçtiği kart bununla da tutmalı.
-            if ($named === '' && ($descWords = self::words((string) ($d['description'] ?? ''))) !== []) {
-                $named = self::title(implode(' ', $descWords));
-            }
             $product = self::validProduct($d['product_id'] ?? null);
             if ($product && $named !== '' && ! self::fits($product->name, $named)) {
                 $product = null; // "buzağı yemi var" → AI "Yem"i seçmiş; adı tutmuyor
-                $d['product_name'] = $named;
+            } elseif ($product && $named === '' && ($qualified = self::qualifiedName($product->name, (string) ($d['description'] ?? ''))) !== null) {
+                // Ad yok, açıklamada kartın adının ÖNÜNDE niteleyen kelime var ("Buzağı yemi sayımı" ↔ "Yem") → başka ürün.
+                $product = null;
+                $d['product_name'] = $qualified;
             }
             $product ??= self::productFromItems($d['items'] ?? [])
                 ?? ($named !== '' ? self::matchProduct($named) : self::mentionedProduct((string) ($d['description'] ?? '')));
@@ -936,6 +935,26 @@ class TradeDraft
         }
 
         return true;
+    }
+
+    /**
+     * Açıklamada kartın adı geçiyor ama önünde niteleyen bir kelime varsa ("Buzağı yemi sayımı" ↔ "Yem") o nitelikli adı döner
+     * (başka ürün); kartın adı başta ya da dolgu kelimesinden sonra geliyorsa ("Un günlük kullanım…") null (aynı ürün).
+     */
+    private static function qualifiedName(string $productName, string $text): ?string
+    {
+        $first = self::words($productName)[0] ?? null;
+        $tokens = self::words($text);
+        if ($first === null) {
+            return null;
+        }
+        foreach ($tokens as $i => $t) {
+            if (self::same($t, $first)) {
+                return $i > 0 ? self::title($tokens[$i - 1] . ' ' . $t) : null;
+            }
+        }
+
+        return null;
     }
 
     /** Kalemin ürünü: AI'ın verdiği id kalem adına uymuyorsa yok sayılır (AI "besi yemi"ni "Yem"e bağlamasın). */
