@@ -26,6 +26,7 @@ use App\Models\Party;
 use App\Support\PartyDeletion;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -143,6 +144,29 @@ class EditParty extends EditRecord
         ]));
     }
 
+    /** Ödeme Yaptım: ödeme yöntemi; "Çek" seçilince birden çok çek (no, banka, vade, tutar) — Faz 2.3. */
+    private function paymentMethodSchema(): array
+    {
+        return [
+            Select::make('payment_type')->label('Ödeme yöntemi')
+                ->options(['cash' => 'Nakit', 'eft' => 'EFT', 'bank_transfer' => 'Havale', 'check' => 'Çek', 'other' => 'Diğer'])
+                ->default('cash')->live(),
+            Repeater::make('cheques')->label('Çekler')
+                ->schema([
+                    TextInput::make('check_number')->label('Çek no'),
+                    TextInput::make('bank_name')->label('Banka'),
+                    DatePicker::make('due_date')->label('Vade')->required(),
+                    MoneyInput::make('amount', 'Tutar'),
+                ])
+                ->columns(4)
+                ->addActionLabel('Çek ekle')
+                ->defaultItems(1)
+                ->helperText('Çeklerin toplamı ödeme tutarına eşit olmalı. Her çek vadesinden önce WhatsApp\'tan hatırlatılır.')
+                ->visible(fn (Get $get) => $get('payment_type') === 'check')
+                ->columnSpanFull(),
+        ];
+    }
+
     /** Üstteki Satış/Tahsilat/Alış/Ödeme butonları bu aksiyonu tip argümanıyla mount eder. */
     public function newLedgerEntryAction(): Action
     {
@@ -156,12 +180,37 @@ class EditParty extends EditRecord
                 default    => 'Yeni Hareket',
             })
             ->modalSubmitActionLabel('Kaydet')
-            ->schema(fn (array $arguments): array => $this->ledgerFormSchema($arguments['type'] ?? null))
-            ->action(function (array $data, array $arguments): void {
-                $this->record->ledgerEntries()->create([
+            ->schema(fn (array $arguments): array => [
+                ...$this->ledgerFormSchema($arguments['type'] ?? null),
+                ...(($arguments['type'] ?? null) === PartyLedgerEntry::TYPE_PAYMENT ? $this->paymentMethodSchema() : []),
+            ])
+            ->action(function (array $data, array $arguments, Action $action): void {
+                $cheques = array_values(array_filter((array) ($data['cheques'] ?? []), fn ($c) => ! empty($c['due_date'])));
+                unset($data['cheques']);
+                // Çekle ödeme (Faz 2.3): çeklerin toplamı ödeme tutarını tutmalı — tutmazsa kaydetmeden uyar.
+                if (($data['payment_type'] ?? null) === 'check' && $cheques !== []
+                    && abs(array_sum(array_map(fn ($c) => Money::parse($c['amount'] ?? 0), $cheques)) - (float) $data['amount']) > 0.01) {
+                    Notification::make()->danger()->title('Çeklerin toplamı ödeme tutarını tutmuyor')->send();
+                    $action->halt();
+                }
+                $entry = $this->record->ledgerEntries()->create([
                     ...$data,
                     'type' => $arguments['type'] ?? null,
                 ]);
+                foreach ($cheques as $c) {
+                    Check::create([
+                        'party_id' => $this->record->id,
+                        'project_id' => $data['project_id'] ?? null,
+                        'party_ledger_entry_id' => $entry->id,
+                        'check_number' => $c['check_number'] ?? null,
+                        'bank_name' => $c['bank_name'] ?? null,
+                        'issue_date' => $data['entry_date'],
+                        'due_date' => $c['due_date'],
+                        'amount' => Money::store($c['amount'] ?? 0),
+                        'status' => 'issued',   // verdiğim çek — vade hatırlatmasına girer
+                        'description' => $data['description'] ?? null,
+                    ]);
+                }
             });
     }
 

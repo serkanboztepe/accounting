@@ -88,4 +88,10 @@ class PartyLedgerEntry extends Model
     {
         return $this->hasOne(Check::class, 'party_ledger_entry_id');
     }
+
+    /** Bu ödemeye/tahsilata bağlı tüm çekler (bir ödeme birden çok çekle yapılabilir — Faz F). */
+    public function checks(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Check::class, 'party_ledger_entry_id');
+    }
 }

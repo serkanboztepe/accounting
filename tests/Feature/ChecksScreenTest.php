@@ -65,4 +65,41 @@ class ChecksScreenTest extends TestCase
         $this->assertSame('paid', $payment->fresh()->status);
         $this->assertSame('paid', $check->fresh()->status);
     }
+
+    /** Faz 2.3: cari sayfasında "Ödeme Yaptım" + çek(ler) → ödemeye bağlı "verildi" çekler; ekstrede vade. */
+    public function test_payment_with_cheques_from_party_page(): void
+    {
+        $party = Party::create(['name' => 'Çek Ekranı Osman']);
+
+        Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $party->getKey()])
+            ->mountAction('newLedgerEntry', ['type' => 'odeme'])
+            ->setActionData(['entry_date' => '2026-10-17', 'amount' => '670.000', 'payment_type' => 'check',
+                'cheques' => [['check_number' => '8037567', 'bank_name' => 'Halkbank', 'due_date' => '2027-03-31', 'amount' => '335.000'],
+                    ['check_number' => '8037568', 'bank_name' => 'Halkbank', 'due_date' => '2027-04-30', 'amount' => '335.000']]])
+            ->callMountedAction()
+            ->assertHasNoActionErrors();
+
+        $entry = \App\Models\PartyLedgerEntry::where('party_id', $party->id)->sole();
+        $this->assertSame('check', $entry->payment_type);
+        $this->assertEqualsWithDelta(670000, (float) $entry->amount, 0.01);
+        $this->assertSame(['8037567', '8037568'], $entry->checks()->orderBy('check_number')->pluck('check_number')->all());
+        $this->assertSame(['issued', 'issued'], $entry->checks()->pluck('status')->all());
+        $this->assertEqualsWithDelta(335000, (float) $entry->checks()->first()->amount, 0.01);
+
+        $desc = collect(\App\Support\PartyStatement::build($party)['rows'])->pluck('desc')->implode(' ');
+        $this->assertStringContainsString('vade 31.03.2027', $desc, 'ekstrede çek vadesi');
+    }
+
+    public function test_cheque_total_mismatch_is_not_saved(): void
+    {
+        $party = Party::create(['name' => 'Çek Ekranı Uyuşmaz']);
+
+        Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $party->getKey()])
+            ->mountAction('newLedgerEntry', ['type' => 'odeme'])
+            ->setActionData(['entry_date' => '2026-10-17', 'amount' => '670.000', 'payment_type' => 'check',
+                'cheques' => [['due_date' => '2027-03-31', 'amount' => '300.000']]])
+            ->callMountedAction();
+
+        $this->assertSame(0, \App\Models\PartyLedgerEntry::where('party_id', $party->id)->count());
+    }
 }

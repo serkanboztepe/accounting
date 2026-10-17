@@ -96,7 +96,7 @@ class PartyStatement
         }
 
         // --- Çift yönlü cari hareketleri (elle) ---
-        $ledgerEntries = $party->ledgerEntries()->with('project')->get();
+        $ledgerEntries = $party->ledgerEntries()->with(['project', 'checks'])->get();
         // İadesi olan satışlar (iade satırları sale_id taşır) → o satış artık düzenlenemez.
         $returnedSaleIds = $ledgerEntries
             ->where('type', PartyLedgerEntry::TYPE_SALE_RETURN)
@@ -107,10 +107,15 @@ class PartyStatement
             $isDebit = $entry->direction === PartyLedgerEntry::DIRECTION_DEBIT;
             $isSaleRow = $entry->type === PartyLedgerEntry::TYPE_SALE;
 
+            // Çekli ödeme/tahsilat: çeklerin no ve vadesi açıklamanın yanında (Faz 2.3).
+            $checkNote = $entry->checks->isNotEmpty()
+                ? 'çek: ' . $entry->checks->map(fn ($c) => trim(($c->check_number ? 'no ' . $c->check_number . ' ' : '') . 'vade ' . $c->due_date?->format('d.m.Y')))->implode(', ')
+                : null;
+
             $rows[] = self::row(
                 $entry->entry_date,
                 $entry->typeLabel(),
-                $entry->description,
+                trim(implode(' — ', array_filter([$entry->description, $checkNote]))) ?: null,
                 $isDebit ? $amount : 0.0,
                 $isDebit ? 0.0 : $amount,
                 $entry->project_id,
