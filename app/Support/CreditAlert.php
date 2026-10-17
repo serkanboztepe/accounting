@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Services\Whatsapp\WhatsappSender;
+use App\Support\Money;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -35,7 +36,7 @@ final class CreditAlert
         }
         $remaining = (float) $credit['remaining'];
         if ($remaining < self::LOW_USD) {
-            self::send('ai-credit-low', 86400, '🟠 *Anthropic kredisi azalıyor*: tahmini kalan ' . number_format($remaining, 2, ',', '.') . " \$.\n"
+            self::send('ai-credit-low', 86400, '🟠 *Anthropic kredisi azalıyor*: tahmini kalan ' . Money::format($remaining) . " \$.\n"
                 . "Bitmeden yükleyin (console.anthropic.com → Plans & Billing); yükleyince hub → Toplu Maliyet'e yeni bakiyeyi girin.");
         }
 
