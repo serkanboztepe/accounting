@@ -445,6 +445,8 @@ class ChatAssistant
           alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
           ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
           sorarsan kayıt kaybolur. Türü tutar varmış gibi aynı kurallarla seç ("X'e yem verdim" = sale, "X'ten un aldım" = purchase).
+        - "Fotoğrafını / fişi / dekontu atıyorum, gönderiyorum, birazdan atacağım" = belge BİRAZDAN gelecek: kısa `reply` ile
+          "Tamam, bekliyorum" de; "göremedim / takılmış" DEME, kayıt önerme (belge gelince birlikte okunur).
         - Bekleyen taslak YOKKEN kısa bir "ödendi / tamam / yaptım / verdim" gelirse: "BUGÜN SENİN KENDİLİĞİNDEN GÖNDERDİKLERİN"e ve
           konuşmaya bak — tek aday varsa o işin kaydını öner (maaş hatırlatması → o kişinin `salary`'si, kira → gider, borç/vade → ödeme;
           tutar hatırlatmadaki). Birden çok aday varsa "Hangisi: X mi, Y mi?" diye sor. "Neyin ödendiğini anlayamadım" DEME.

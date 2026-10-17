@@ -3,6 +3,7 @@
 namespace App\Services\Whatsapp;
 
 use App\Models\UsageLog;
+use App\Models\WhatsappMessage;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -320,6 +321,21 @@ class ExpenseExtractor
         throw new RuntimeException('AI yapılandırılmış çıktı döndürmedi.');
     }
 
+    /** Son 3 saatlik konuşma (≤8 mesaj, saatli) — belge okurken bağlam. */
+    private static function recentConversation(string $phone): string
+    {
+        $rows = WhatsappMessage::where('phone', \App\Support\Phone::normalize($phone))->whereNotNull('body')->where('body', '!=', '')
+            ->where('created_at', '>=', now()->subMinutes(ChatAssistant::HISTORY_MINUTES))->orderByDesc('id')->limit(8)->get()->reverse();
+        if ($rows->isEmpty()) {
+            return '';
+        }
+
+        return "\nSON KONUŞMA (belge/fotoğraf bunun devamı olabilir — ör. \"Osman'a çekleri verdim\" yazıldıysa çek fotoğrafı o ödemedir; "
+            . "konuşulan kişi ve işi kullan, yine de belgeyi esas al):\n"
+            . $rows->map(fn ($m) => '  [' . $m->created_at->copy()->timezone(self::TIMEZONE)->format('H:i') . '] '
+                . ($m->direction === 'in' ? 'Kullanıcı' : 'Asistan') . ': ' . mb_substr(str_replace("\n", ' / ', (string) $m->body), 0, 200))->implode("\n") . "\n";
+    }
+
     private function systemPrompt(?array $previous = null, ?array $lastParty = null, ?string $phone = null): string
     {
         $now = now(self::TIMEZONE)->locale('tr');
@@ -413,6 +429,8 @@ class ExpenseExtractor
         }
 
         $lastPartyBlock = $lastParty !== null ? $this->lastPartyContext($lastParty) : '';
+        // Faz 3.3: fotoğraf/belge konuşmanın devamı olabilir ("Osman'a çekleri verdim" → çek fotoğrafı) — okuyucu konuşmayı görsün.
+        $lastPartyBlock .= $phone !== null ? self::recentConversation($phone) : '';
         $understand = Understanding::RULES;
 
         return <<<PROMPT

@@ -335,6 +335,11 @@ return [
             'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
                 ['send' => 'takıldı', 'expect' => ['ready' => true]], ['send' => 'Ok']],
             'expect' => ['balance' => ['@party:Asansör Osman' => 0]]],
+        // Faz 3.3: yazı sonra yazısız fotoğraf — okuyucu konuşmayı görür, fotoğrafı Osman'a bağlar
+        ['id' => 'F3-yazi-sonra-yazisiz-fotograf', 'firm' => 'taner', 'group' => 'understand',
+            'steps' => [['send' => "Asansör Osman'a Atatürk mahallesi asansörü için 3 çek verdim, fotoğrafını atıyorum",
+                'expect' => ['reply_not' => ['göremedim', 'takılmış']]], ['media' => 'cek-asansor.jpg']],
+            'expect' => ['draft' => ['party_id' => '@party:Asansör Osman'], 'saved' => ['ledger' => 0]]],
         // Belirsiz cevap ("asansör bedeli") → soru TEKRAR, tahmin yok
         ['id' => 'U-asansor-belirsiz-cevap-tekrar-sor', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok'],
