@@ -52,7 +52,8 @@ class HubPanelProvider extends PanelProvider
                 'gray'    => Color::Zinc,
             ])
             ->resources([HubFirmResource::class, ConversationReportResource::class, \App\Filament\Hub\AssistantLessons\AssistantLessonResource::class,
-                \App\Filament\Hub\RecordReviews\RecordReviewResource::class])
+                \App\Filament\Hub\RecordReviews\RecordReviewResource::class,
+                \App\Filament\Hub\PartyProfiles\PartyProfileSuggestionResource::class])
             ->pages([\App\Filament\Hub\Pages\CostOverview::class, \App\Filament\Hub\Pages\AssistantScorecardPage::class])
             ->homeUrl(fn (): string => HubFirmResource::getUrl('index', panel: 'hub'))
             ->middleware([

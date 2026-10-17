@@ -153,7 +153,9 @@ class AnalyzeConversations extends Command
             . (($pending = \App\Models\AssistantLesson::where('status', 'pending')->count()) > 0
                 ? "\n🎓 {$pending} ders önerisi onayını bekliyor: /hub → Dersler" : '')
             . (($checks = \App\Models\RecordReview::where('status', 'pending')->count()) > 0
-                ? "\n🔍 {$checks} kayıt kontrolü bekliyor (yanlış kaydedilmiş olabilir): /hub → Kayıt Kontrolleri" : '');
+                ? "\n🔍 {$checks} kayıt kontrolü bekliyor (yanlış kaydedilmiş olabilir): /hub → Kayıt Kontrolleri" : '')
+            . (($profiles = \App\Models\PartyProfileSuggestion::where('status', 'pending')->count()) > 0
+                ? "\n🪪 {$profiles} cari tanımı onay bekliyor: /hub → Cari Tanımları" : '');
 
         $sent = false;
         foreach ($phones as $phone) {
