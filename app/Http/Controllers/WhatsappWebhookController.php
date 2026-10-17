@@ -850,7 +850,19 @@ class WhatsappWebhookController extends Controller
                 if ($pending && empty($data['next_items']) && ! empty($pending->extracted['next_items'])) {
                     $data['next_items'] = $pending->extracted['next_items'];
                 }
-                $out = $this->saveDraft($pending, $phone, $data);
+                // Süzgeç / ikinci göz için senkron süre yetmezse tur arka plana (DeferTurn) — kontrol atlanmaz (17.10).
+                try {
+                    Understanding::$deferOnTimeout = ChatAssistant::$deadline !== null;
+                    $out = $this->saveDraft($pending, $phone, $data);
+                } catch (DeferTurn $e) {
+                    Log::info('WhatsApp tur arka plana bırakıldı', ['why' => $e->getMessage()]);
+                    $this->deferredTurn = ['pending_id' => $pending?->id, 'body' => $body];
+                    $this->inboundKind = 'deferred';
+
+                    return '🔎 Bakıyorum, birkaç saniye…';
+                } finally {
+                    Understanding::$deferOnTimeout = false;
+                }
                 // Doğal konuşmada AI'ın ayrı ön metni tekrar olur — özet zaten konuşur gibi.
                 $said = NaturalVoice::enabled() ? '' : trim((string) ($result['text'] ?? ''));
 

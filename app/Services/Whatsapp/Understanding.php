@@ -30,6 +30,12 @@ final class Understanding
 
     public const OLD_DEBT = 'old_debt';
 
+    /**
+     * Sohbet turunda (kontrolcü açar): ikinci göz / süzgeç için senkron süre yetmezse kontrolü ATLAMA, turu arka plana bırak
+     * (DeferTurn → "🔎 Bakıyorum…", iş süresiz tamamlanır). Kapalıyken (fotoğraf yolu vb.) eski davranış: atla.
+     */
+    public static bool $deferOnTimeout = false;
+
     public const STATUSES = [self::DONE, self::NOT_YET, self::PARTIAL, self::AGREEMENT, self::NO_WORK, self::OLD_DEBT];
 
     /** Prompt kuralı — sohbet asistanı ve belge okuyucu aynı ilkeyle çalışsın. */
@@ -247,6 +253,10 @@ final class Understanding
         if (ChatAssistant::$deadline !== null) {
             $timeout = min(6, (int) floor(ChatAssistant::$deadline - microtime(true)) - 1);
             if ($timeout < 2) {
+                if (self::$deferOnTimeout) {
+                    throw new DeferTurn('ikinci göz için süre');
+                }
+
                 return false;
             }
         }
@@ -398,6 +408,9 @@ final class Understanding
         if (ChatAssistant::$deadline !== null) {
             $timeout = min(6, (int) floor(ChatAssistant::$deadline - microtime(true)) - 2);
             if ($timeout < 2) {
+                if (self::$deferOnTimeout) {
+                    throw new DeferTurn('süzgeç için süre');
+                }
                 \Illuminate\Support\Facades\Log::info('Çapraz kontrol atlandı (süre)');
 
                 return null;
