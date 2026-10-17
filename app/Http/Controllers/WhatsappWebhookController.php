@@ -674,7 +674,7 @@ class WhatsappWebhookController extends Controller
             return $this->saveDraft($pending, $phone, ['party_confirmed' => true, 'question' => null] + $pending->extracted);
         }
         // Önce anla: cevaplanmamış soru varken "evet" kaydetmez — soru tekrar (tahmin yok).
-        if (($ask = Understanding::gap($pending->extracted)) !== null) {
+        if (($ask = ($pending->extracted['scale_question'] ?? null) ?? Understanding::gap($pending->extracted)) !== null) {
             return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
         }
         // K8: hatırlatılmış ve AI'ın şüphe sorusu cevaplanmamış taslak tek "evet"le kaydolmaz — önce soru.
@@ -990,7 +990,9 @@ class WhatsappWebhookController extends Controller
         }
         $data['party_confirmed'] = ! empty($data['party_confirmed']) || (! empty($pending?->extracted['party_confirmed'])
             && ($pending->extracted['party_id'] ?? null) === ($data['party_id'] ?? null));
-        if (($ask = Understanding::gap($data)) !== null) {
+        // Yazılandan farklı tutar ("65 tl" → 65.000) sessizce geçmesin (17.10, Emre).
+        $data['scale_question'] = Understanding::amountScaleQuestion($data, $this->inboundBody);
+        if (($ask = $data['scale_question'] ?? Understanding::gap($data)) !== null) {
             $data['question'] = $ask;
             $data['party_asked'] = Understanding::partyUnclear($data) ? ($data['party_id'] ?? null) : null;
             $text = implode("\n", ['❓ ' . $ask, ...Understanding::checkWarnings($data)]);

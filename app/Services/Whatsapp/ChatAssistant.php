@@ -23,7 +23,8 @@ class ChatAssistant
     private const TIMEZONE = 'Europe/Istanbul';
 
     /** Konuşma geçmişi penceresi: eski konuşmanın carisi yeni mesaja sızmasın (bkz. ConversationContext). */
-    public const HISTORY_MINUTES = 30;
+    // 17.10: 30 → 180 (Emre: 08:00 hatırlatmaya 10:21 "Ödendi" anlaşılmadı). Eski mesaj karışmasın diye her mesajda saat yazılı.
+    public const HISTORY_MINUTES = 180;
 
     private const MAX_HISTORY = 16;
 
@@ -271,8 +272,11 @@ class ChatAssistant
     }
 
     /** Onay sayılan kelimeler — tek kelimelik cevap (kontrolcü) ve cümle içi (hasAssent) aynı listeyi kullanır. "0k" Erkan, 13 Ekim. */
-    public const ASSENT_WORDS = ['evet', 'tamam', 'tamamdır', 'tamamdir', 'olur', 'kaydet', 'onay', 'onayla',
+    public const ASSENT_WORDS = ['evet', 'tamam', 'tamamdır', 'tamamdir', 'olur', 'kaydet', 'kaydedin', 'onay', 'onayla', 'onaylıyorum',
         'ok', '0k', 'okey', 'okay', 'tmm', 'e'];
+
+    /** Çok kelimeli onay ("Ödendi kayıt et" — Oktay 16.10: onay sayılmayıp bir daha sorulmuştu). */
+    public const ASSENT_PHRASES = ['kayıt et', 'kayit et', 'kayda geç', 'kayda gec', 'işle', 'isle'];
 
     /** Modelin cevabını geçmişe geri koyarken boş araç girdisi JSON'da {} olmalı ([] → API 400 "Input should be an object"). */
     private static function echoable(array $content): array
@@ -306,6 +310,11 @@ class ChatAssistant
     public static function hasAssent(string $text): bool
     {
         $lower = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        foreach (self::ASSENT_PHRASES as $phrase) {
+            if (preg_match('/(^|[^\p{L}])' . preg_quote($phrase, '/') . '([^\p{L}]|$)/u', $lower)) {
+                return true;
+            }
+        }
         $words = preg_split('/[\s\p{P}]+/u', $lower, -1, PREG_SPLIT_NO_EMPTY) ?: [];
         foreach ($words as $w) {
             foreach (self::ASSENT_WORDS as $yes) {
@@ -343,7 +352,8 @@ class ChatAssistant
         $messages = [];
         foreach ($rows as $row) {
             $role = $row->direction === 'in' ? 'user' : 'assistant';
-            $this->append($messages, $role, (string) $row->body);
+            // Saat: asistan eski konuşmanın şimdiki mesajla ilgili olup olmadığına kendisi karar versin.
+            $this->append($messages, $role, '[' . $row->created_at->copy()->timezone(self::TIMEZONE)->format('H:i') . '] ' . (string) $row->body);
         }
         $this->append($messages, 'user', $text);
 
@@ -434,6 +444,10 @@ class ChatAssistant
           alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
           ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
           sorarsan kayıt kaybolur. Türü tutar varmış gibi aynı kurallarla seç ("X'e yem verdim" = sale, "X'ten un aldım" = purchase).
+        - Bekleyen taslak YOKKEN kısa bir "ödendi / tamam / yaptım / verdim" gelirse: "BUGÜN SENİN KENDİLİĞİNDEN GÖNDERDİKLERİN"e ve
+          konuşmaya bak — tek aday varsa o işin kaydını öner (maaş hatırlatması → o kişinin `salary`'si, kira → gider, borç/vade → ödeme;
+          tutar hatırlatmadaki). Birden çok aday varsa "Hangisi: X mi, Y mi?" diye sor. "Neyin ödendiğini anlayamadım" DEME.
+          Mesajların başındaki [SS:DD] saattir; saatlerce önceki konuşma yeni işleme karışmasın.
         - Bekleyen taslak varken kullanıcı onaylıyorsa ("evet", "tamam", "ok", "olur", "kaydet", "evert",
           "Evet gider yaz") → `confirm_pending`. Onayla birlikte ödeme durumu söylediyse ("Ödendi evet") `paid` ver.
         - Kullanıcı taslakta bir şeyi düzeltiyorsa ("ödendi", "tutar 5000", "kategori çobanlar", "adı Silajcı
@@ -497,8 +511,28 @@ class ChatAssistant
         return [
             ['type' => 'text', 'text' => $rules, 'cache_control' => ['type' => 'ephemeral']],
             ['type' => 'text', 'text' => trim($context), 'cache_control' => ['type' => 'ephemeral']],
-            ['type' => 'text', 'text' => "ŞU AN: {$today}\n\nBEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}"],
+            ['type' => 'text', 'text' => "ŞU AN: {$today}\n\nBEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}"
+                . self::todaysOutbound($phone)],
         ];
+    }
+
+    /** Bizim kendiliğimizden gönderdiğimiz bugünkü mesajlar (hatırlatma, soru, uyarı) — saatler sonra gelen "Ödendi" bunlara cevap olabilir. */
+    public const OUTBOUND_KINDS = ['reminder', 'due_reminder', 'stock_reminder', 'data_question', 'lesson_question', 'draft_followup'];
+
+    private static function todaysOutbound(?string $phone): string
+    {
+        if (! $phone) {
+            return '';
+        }
+        $start = now(self::TIMEZONE)->startOfDay()->timezone(config('app.timezone'));
+        $rows = WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'out')
+            ->whereIn('kind', self::OUTBOUND_KINDS)->where('created_at', '>=', $start)->orderBy('id')->limit(6)->get();
+        if ($rows->isEmpty()) {
+            return '';
+        }
+
+        return "\n\nBUGÜN SENİN KENDİLİĞİNDEN GÖNDERDİKLERİN (kısa bir \"ödendi / tamam / yaptım\" bunlardan birine cevap olabilir):\n"
+            . $rows->map(fn ($r) => '  [' . $r->created_at->copy()->timezone(self::TIMEZONE)->format('H:i') . '] ' . mb_substr(str_replace("\n", ' ', (string) $r->body), 0, 220))->implode("\n");
     }
 
     private function tools(): array

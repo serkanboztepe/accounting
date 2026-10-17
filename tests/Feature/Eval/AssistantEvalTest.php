@@ -221,6 +221,14 @@ class AssistantEvalTest extends TestCase
         if (isset($expect['meaning_any']) && ! collect($expect['meaning_any'])->contains(fn ($n) => str_contains($low, mb_strtolower($n)))) {
             $fails[] = 'anlam cümlesi yok (beklenen biri: ' . implode(' / ', $expect['meaning_any']) . ')';
         }
+        // Konuşma sonunda ürün stoğu: ['Saman' => 400]
+        foreach ($expect['stock'] ?? [] as $name => $want) {
+            $product = Product::where('name', 'like', $name . '%')->latest('id')->first(); // "Pastacı yağ" ~ "Pastacı yağı"
+            $got = $product ? (float) $product->currentStock() : null;
+            if ($want === null ? ($got !== null && $got > 0.01) : ($got === null || abs($got - (float) $want) > 0.01)) {
+                $fails[] = "stok {$name}: beklenen {$want}, gelen " . json_encode($got);
+            }
+        }
         // Son bakiye: >0 cari bize borçlu, <0 biz ona borçluyuz (PartyStatement konvansiyonu).
         foreach ($expect['balance'] ?? [] as $ref => $want) {
             $name = preg_replace('/^@party:/u', '', $ref);
@@ -283,6 +291,15 @@ class AssistantEvalTest extends TestCase
                 'party_id' => isset($row[4]) ? $this->ids['party'][$row[4]] : null]),
             'expense' => Expense::create(['amount' => $row[1], 'expense_date' => now()->modify($row[2])->toDateString(),
                 'description' => $row[3], 'payment_status' => 'paid']),
+            // Bizim gönderdiğimiz geçmiş mesaj (sabahki hatırlatma gibi): ['out', kind, body, '-140 minutes']
+            'out' => (function () use ($row) {
+                $m = new \App\Models\WhatsappMessage(['phone' => \App\Support\Phone::normalize($this->phone), 'direction' => 'out', 'body' => $row[2], 'kind' => $row[1]]);
+                $m->created_at = now()->modify($row[3]);
+                $m->save();
+            })(),
+            // Başlangıç stoğu: ['stock', ürün, miktar]
+            'stock' => \App\Models\StockMovement::create(['product_id' => $this->ids['product'][$row[1]], 'direction' => \App\Models\StockMovement::DIRECTION_IN,
+                'reason' => \App\Models\StockMovement::REASON_ADJUSTMENT, 'quantity' => $row[2], 'movement_date' => now()->subDays(3)->toDateString()]),
         };
     }
 

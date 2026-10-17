@@ -55,7 +55,7 @@ class TradeDraft
         // Gider sanılan katalog malı ("20 çuval un aldım") → alış belgesi (stoğa girsin).
         if (in_array($kind, [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE], true)
             && config('modules.purchases') && config('modules.stock') && empty($d['settles_expense_id'])) {
-            $product = self::productFromItems($d['items'] ?? []) ?? self::matchProduct((string) ($d['description'] ?? ''));
+            $product = self::productFromItems($d['items'] ?? []) ?? (empty($d['items']) ? self::mentionedProduct((string) ($d['description'] ?? '')) : null);
             if ($product && $product->isProduct()) {
                 $d['kind'] = $kind = ExpenseExtractor::KIND_TRADE_PURCHASE;
                 $d['items'] = ! empty($d['items']) ? $d['items'] : [[
@@ -80,7 +80,7 @@ class TradeDraft
         // Basit cari satış / "alacak" sanılan mal satışı → satış belgesi.
         if (config('modules.sales_desk') && in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true)
             && ($kind === ExpenseExtractor::KIND_SALE || ($d['debt_side'] ?? null) === 'receivable')
-            && (self::hasCatalogItem($d['items'] ?? []) || self::matchProduct((string) ($d['description'] ?? '')))) {
+            && (self::hasCatalogItem($d['items'] ?? []) || (empty($d['items']) && self::mentionedProduct((string) ($d['description'] ?? ''))))) {
             $d['kind'] = $kind = ExpenseExtractor::KIND_TRADE_SALE;
             $d['paid'] = $d['paid'] ?? false;
         }
@@ -95,9 +95,18 @@ class TradeDraft
             return self::normalizeProductAdd($d);
         }
         if (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_STOCK_QUERY], true)) {
-            $product = self::validProduct($d['product_id'] ?? null) ?? self::productFromItems($d['items'] ?? [])
-                ?? self::matchProduct((string) ($d['product_name'] ?? ''))
-                ?? self::matchProduct((string) ($d['description'] ?? ''));
+            $named = trim((string) ($d['product_name'] ?? ''));
+            // Ad yoksa açıklamadan ("Buzağı yemi sayımı" → "Buzağı yemi"): AI'ın seçtiği kart bununla da tutmalı.
+            if ($named === '' && ($descWords = self::words((string) ($d['description'] ?? ''))) !== []) {
+                $named = self::title(implode(' ', $descWords));
+            }
+            $product = self::validProduct($d['product_id'] ?? null);
+            if ($product && $named !== '' && ! self::fits($product->name, $named)) {
+                $product = null; // "buzağı yemi var" → AI "Yem"i seçmiş; adı tutmuyor
+                $d['product_name'] = $named;
+            }
+            $product ??= self::productFromItems($d['items'] ?? [])
+                ?? ($named !== '' ? self::matchProduct($named) : self::mentionedProduct((string) ($d['description'] ?? '')));
             $d['product_id'] = $product?->id;
             $d['new_product'] = null;
             // Kartta olmayan ürünün sayımı / ayarı ("elimde 15 çuval un var") → onaylanınca kart açılır.
@@ -172,7 +181,8 @@ class TradeDraft
                 'description' => self::title($name),
                 'unit' => $item['unit'] ?? null,
                 'unit_price' => isset($item['unit_price']) && $item['unit_price'] > 0 ? (float) $item['unit_price'] : null,
-                'product_id' => null, 'quantity' => null, 'amount' => null,
+                // Söylenen miktar açılış stoğu olur ("400 ton saman ekle" — Oktay 16.10: yalnız kart açılıp stok 0 kalıyordu).
+                'product_id' => null, 'quantity' => isset($item['quantity']) && (float) $item['quantity'] > 0 ? (float) $item['quantity'] : null, 'amount' => null,
             ];
         }
         if ($new === []) {
@@ -196,7 +206,7 @@ class TradeDraft
         $isPurchase = ($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE;
         $partyId = ! empty($d['party_id']) ? (int) $d['party_id'] : null;
         foreach ((array) ($d['items'] ?? []) as $item) {
-            $product = self::validProduct($item['product_id'] ?? null) ?? self::matchProduct((string) ($item['description'] ?? ''));
+            $product = self::itemProduct($item);
             $qty = isset($item['quantity']) && $item['quantity'] !== null ? (float) $item['quantity'] : null;
             $price = isset($item['unit_price']) && $item['unit_price'] !== null ? (float) $item['unit_price'] : null;
             $amount = ! empty($item['amount']) ? (float) $item['amount'] : null;
@@ -236,6 +246,7 @@ class TradeDraft
                 'amount' => $amount,
                 'unit' => $item['unit'] ?? null,
                 'new' => $new,
+                'similar' => $new ? self::similarProduct((string) $item['description'])?->name : null,
                 'prev_price' => $prev !== null && $price !== null && abs($prev - $price) >= 0.005 ? $prev : null,
             ];
         }
@@ -251,7 +262,8 @@ class TradeDraft
                 $missing = [];
             }
         }
-        if ($missing !== []) {
+        // Önce anla: AI'ın anlama sorusu ("mal elinizde mi, Tokgöz'de mi?") varsa önce o — fiyat sonra sorulur.
+        if ($missing !== [] && ! (($d['work_status_known'] ?? null) === false && trim((string) ($d['question'] ?? '')) !== '')) {
             $d['question'] = implode(', ', $missing) . ' fiyatı ne? (tanesi ya da toplam)';
         }
 
@@ -426,7 +438,8 @@ class TradeDraft
                 // Şubeli firmada "işletme stoğu": şube stoğu yok (karar A) — şube adı görünce şube stoğu sanılmasın.
                 $line .= ' (stok ' . StockUsage::quantity($now) . ' → ' . StockUsage::quantity($after) . ')';
             } elseif (! empty($item['new'])) {
-                $line .= ' (🆕 yeni ürün' . (! empty($item['unit']) ? ', birim ' . $item['unit'] : '') . ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ')';
+                $line .= ' (🆕 yeni ürün' . (! empty($item['unit']) ? ', birim ' . $item['unit'] : '') . ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ')'
+                    . (! empty($item['similar']) ? "\n     ❓ Stokta *" . $item['similar'] . '* de var — aynı ürünse "' . $item['similar'] . '" yazın' : '');
             } elseif (! $product) {
                 $line .= ' _(kartta yok — stok değişmez)_';
             }
@@ -490,7 +503,8 @@ class TradeDraft
         $lines = ['🆕 *Ürün kartı açılacak — kontrol et:*'];
         foreach ($d['items'] as $item) {
             $lines[] = '• ' . $item['description'] . ' (' . ($item['unit'] ?? 'adet') . ')'
-                . ($item['unit_price'] !== null ? ' · alış ' . Money::format((float) $item['unit_price']) . ' ₺' : '');
+                . ($item['unit_price'] !== null ? ' · alış ' . Money::format((float) $item['unit_price']) . ' ₺' : '')
+                . (! empty($item['quantity']) ? ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ' ' . ($item['unit'] ?? 'adet') : '');
         }
         $lines[] = 'Birim yanlışsa düzeltmeyi yaz (ör. "maya paket").';
 
@@ -663,12 +677,18 @@ class TradeDraft
     private static function commitProductAdd(array $d): array
     {
         $names = [];
+        $stocked = false;
         foreach ($d['items'] as $item) {
-            $names[] = self::createProduct($item['description'], $item['unit'] ?? null, $item['unit_price'] ?? null)->name;
+            $product = self::createProduct($item['description'], $item['unit'] ?? null, $item['unit_price'] ?? null);
+            if (! empty($item['quantity'])) {
+                $product->countTo((float) $item['quantity'], $d['date'] ?? null);
+                $stocked = true;
+            }
+            $names[] = $product->name . (! empty($item['quantity']) ? ' (stok ' . StockUsage::quantity((float) $item['quantity']) . ' ' . ($item['unit'] ?? 'adet') . ')' : '');
         }
 
         return ['✅ Ürün kartı açıldı: ' . implode(', ', $names)
-            . "\nŞimdi elindekini yazabilirsin, ör. \"" . $names[0] . ' 15 ' . ($d['items'][0]['unit'] ?? 'adet') . ' var"', null];
+            . ($stocked ? '' : "\nŞimdi elindekini yazabilirsin, ör. \"" . $d['items'][0]['description'] . ' 15 ' . ($d['items'][0]['unit'] ?? 'adet') . ' var"'), null];
     }
 
     /** Ürün kartı (stoklu). Aynı adlı ürün o arada açıldıysa onu kullanır — çift kart olmasın. */
@@ -823,7 +843,23 @@ class TradeDraft
 
     // ---------------------------------------------------------------- yardımcılar
 
+    /**
+     * Kalem adı ↔ ürün kartı (17.10, Oktay: "besi yemi" ve "buzağı yemi" sessizce "Yem" kartına bağlanıyordu). Eşleşme ancak
+     * kartın her kelimesi yazılanda varsa VE yazılanda kartta olmayan ayırt edici bir kelime yoksa ("besi" yok → yeni ürün).
+     * Ek toleransı: "yemi" = "yem", "unu" = "un". Birim/sayı/dolgu kelimeleri sayılmaz.
+     */
     public static function matchProduct(string $text): ?Product
+    {
+        if (self::words($text) === []) {
+            return null;
+        }
+        $hits = Product::active()->get()->filter(fn (Product $p) => self::fits($p->name, $text));
+
+        return $hits->sortByDesc(fn (Product $p) => mb_strlen($p->name))->first();
+    }
+
+    /** Uzun serbest açıklamada geçen ürün ("Ak Un'dan 20 çuval un aldım") — kalem yokken kaba tanıma (eski davranış). */
+    public static function mentionedProduct(string $text): ?Product
     {
         $text = self::lower($text);
         if ($text === '') {
@@ -832,11 +868,86 @@ class TradeDraft
         $hits = Product::active()->get()->filter(function (Product $p) use ($text) {
             $name = self::lower($p->name);
 
-            return $name !== '' && preg_match('/(^|[^\p{L}])' . preg_quote($name, '/') . '/u', $text);
+            return $name !== '' && preg_match('/(^|[^\p{L}])' . preg_quote($name, '/') . '\p{L}{0,3}([^\p{L}]|$)/u', $text);
         });
 
-        // Tek ve net eşleşme; birden çoksa en uzun adı (ör. "tam buğday unu" > "un").
         return $hits->sortByDesc(fn (Product $p) => mb_strlen($p->name))->first();
+    }
+
+    /** Yeni kalemle bir kelimesi ortak mevcut kart ("besi yemi" ↔ "Yem") — özette "aynı mı?" diye hatırlatılır. */
+    public static function similarProduct(string $text): ?Product
+    {
+        $words = self::words($text);
+        if ($words === []) {
+            return null;
+        }
+
+        return Product::active()->get()->first(function (Product $p) use ($words) {
+            foreach (self::words($p->name) as $n) {
+                foreach ($words as $w) {
+                    if (self::same($w, $n)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        });
+    }
+
+    private const FILLER = ['adet', 'tane', 'kg', 'kilo', 'gr', 'gram', 'ton', 'çuval', 'cuval', 'koli', 'teneke', 'paket', 'kutu', 'balya',
+        'torba', 'm2', 'm²', 'm3', 'm³', 'metre', 'mt', 'lt', 'litre', 'şişe', 'sise', 'kasa', 'bidon', 've', 'ile', 'da', 'de',
+        // Kayıt dili ("Buzağı yemi sayımı", "un stoğu", "elimde var") — ürünün adı değil.
+        'sayım', 'sayımı', 'sayim', 'sayimi', 'stok', 'stoğu', 'stoku', 'stoğa', 'elimde', 'var', 'kaldı', 'kaldi', 'alış', 'alışı',
+        'satış', 'satışı', 'ürün', 'ürünü', 'giriş', 'girişi', 'ekle'];
+
+    /** @return list<string> ayırt edici kelimeler (sayı, birim, dolgu yok) */
+    private static function words(string $text): array
+    {
+        $parts = preg_split('/[^\p{L}\p{N}²³]+/u', self::lower($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return array_values(array_filter($parts, fn ($w) => ! preg_match('/^\d/u', $w) && ! in_array($w, self::FILLER, true) && mb_strlen($w) >= 2));
+    }
+
+    /** "yemi" ~ "yem", "unu" ~ "un" (Türkçe ek, en çok 3 harf). */
+    private static function same(string $a, string $b): bool
+    {
+        [$short, $long] = mb_strlen($a) <= mb_strlen($b) ? [$a, $b] : [$b, $a];
+
+        return $a === $b || (str_starts_with($long, $short) && mb_strlen($long) - mb_strlen($short) <= 3 && mb_strlen($short) >= 2);
+    }
+
+    private static function fits(string $name, string $text): bool
+    {
+        $n = self::words($name);
+        $t = self::words($text);
+        if ($n === [] || $t === []) {
+            return false;
+        }
+        foreach ($n as $nw) {
+            if (! array_filter($t, fn ($tw) => self::same($tw, $nw))) {
+                return false;
+            }
+        }
+        foreach ($t as $tw) {
+            if (! array_filter($n, fn ($nw) => self::same($tw, $nw))) {
+                return false; // kartta olmayan ayırt edici kelime ("besi") → başka ürün
+            }
+        }
+
+        return true;
+    }
+
+    /** Kalemin ürünü: AI'ın verdiği id kalem adına uymuyorsa yok sayılır (AI "besi yemi"ni "Yem"e bağlamasın). */
+    private static function itemProduct(array $item): ?Product
+    {
+        $desc = trim((string) ($item['description'] ?? ''));
+        $p = self::validProduct($item['product_id'] ?? null);
+        if ($p && $desc !== '' && ! self::fits($p->name, $desc)) {
+            $p = null;
+        }
+
+        return $p ?? ($desc !== '' ? self::matchProduct($desc) : null);
     }
 
     private static function validProduct(mixed $id): ?Product
@@ -847,7 +958,7 @@ class TradeDraft
     private static function productFromItems(array $items): ?Product
     {
         foreach ($items as $item) {
-            if ($p = self::validProduct($item['product_id'] ?? null)) {
+            if (! empty($item['product_id']) && ($p = self::itemProduct($item))) {
                 return $p;
             }
         }
@@ -888,7 +999,7 @@ class TradeDraft
     private static function hasCatalogItem(array $items): bool
     {
         foreach ($items as $item) {
-            if (self::validProduct($item['product_id'] ?? null) || self::matchProduct((string) ($item['description'] ?? ''))) {
+            if (self::itemProduct($item)) {
                 return true;
             }
         }

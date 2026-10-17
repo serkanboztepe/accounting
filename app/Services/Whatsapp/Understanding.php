@@ -61,6 +61,9 @@ final class Understanding
     - CARİLER'de "açık avans: biz verdik" yazan kişi için "işi bitirdi / mal geldi / taktı" denirse avansın karşılığıdır:
       tutar söylenmediyse açık avans tutarıyla `purchase` (work_status done, known) — avanstan düşülür, yeni para çıkmaz.
       "peşin aldık" yazan kişiye "teslim ettim / götürdüm" denirse aynı şekilde `sale` (tutar = peşin alınan).
+    - Stoklu alışta "alacaklıyız / ödemesi yapılmıştı / parası verildi / X'te stoğumuz var" geçiyorsa mal ELDE mi yoksa TEDARİKÇİDE mi
+      duruyor belli değildir → work_status_known=false, soru: "Mal elinizde mi, yoksa X'te mi duruyor?" (Emre/Tokgöz). Tedarikçideyse
+      parası ödenmiş mal = avans (not_yet): stoğa girmez, "geldi" denince girer.
     - BELGE mesajdan üstündür: çek görüntüsünde her çeki `checks`'e yaz (no, vade YAZILDIĞI GİBİ, tutar) — ödeme çekle yapılmıştır;
       çek yazıyla anlatılırsa da ("3 çek verdim 335'er bin, vadeler 31.03, 30.04, 31.05") her çeki `checks`'e yaz (no yoksa boş);
       dekontta gönderen/alıcı/açıklama esastır. Mesajla belge çelişirse sor.
@@ -110,6 +113,10 @@ final class Understanding
     {
         $kind = $d['kind'] ?? null;
         $hasParty = ! empty($d['party_id']) || ! empty($d['party_name']);
+        // Stoklu alış (Emre/Tokgöz 16.10: "alacaklıyız, ödemesi yapılmıştı" → mal elde mi tedarikçide mi?) tutarsız da gelir.
+        if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && $hasParty && empty($d['settles_expense_id'])) {
+            return true;
+        }
         if (! $hasParty || (float) ($d['amount'] ?? 0) <= 0) {
             return false;
         }
@@ -269,6 +276,51 @@ final class Understanding
 
             return false;
         }
+    }
+
+    /**
+     * Yazılandan farklı tutar (17.10, Emre: "Erkan maaşı 65 tl" → sessizce 65.000): kayıttaki tutar mesajda yazan bir sayının
+     * 1000 katıysa ve mesajda "bin/milyon" yoksa → "65 TL mi, 65.000 TL mi?". Hesaplanan tutarlar (adet × fiyat) bu kalıba girmez.
+     */
+    public static function amountScaleQuestion(array $d, string $text): ?string
+    {
+        if (trim($text) === '') {
+            return null;
+        }
+        $written = [];
+        if (preg_match_all('/(\d[\d.,]*)\s*(bin|milyon|k\b)?/iu', mb_strtolower($text), $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                $n = Money::parse($x[1]);
+                if ($n <= 0) {
+                    continue;
+                }
+                $mult = match (true) {
+                    str_starts_with((string) ($x[2] ?? ''), 'milyon') => 1_000_000,
+                    ($x[2] ?? '') !== '' => 1000,
+                    default => 1,
+                };
+                $written[] = round($n * $mult, 2);
+            }
+        }
+        if ($written === []) {
+            return null;
+        }
+        foreach (['amount', 'salary_amount'] as $field) {
+            $v = round((float) ($d[$field] ?? 0), 2);
+            if ($v <= 0 || in_array($v, $written, true)) {
+                continue;
+            }
+            foreach ($written as $n) {
+                if ($n > 0 && $n < 1000 && abs($n * 1000 - $v) < 0.01) {
+                    $whole = fn (float $x) => preg_replace('/,00$/', '', Money::format($x));
+                    $who = ! empty($d['party_id']) || ! empty($d['party_name']) ? self::partyName($d) . (($d['kind'] ?? null) === ExpenseExtractor::KIND_EMPLOYEE_SETTING ? "'ın maaşı " : ' için ') : '';
+
+                    return trim($who . $whole($n) . ' TL mi, ' . $whole($v) . ' TL mi?');
+                }
+            }
+        }
+
+        return null;
     }
 
     /** Çek vadeleri: takvimde olmayan gün (31 Şubat) ya da okunamayan tarih → ⚠️ satırları. */

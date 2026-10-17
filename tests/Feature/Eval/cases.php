@@ -19,7 +19,8 @@ return [
         'akkus' => [
             'profile' => 'trade', 'modules' => ['projects' => true, 'report_monthly' => true], 'sector' => 'bakery',
             'projects' => ['İzzetpaşa', 'Araştırma', 'Ergenekon'],
-            'parties' => ['Abdullah Günhan' => ['is_employee' => true, 'salary_amount' => 50000, 'salary_day' => 15], 'Boztepe Ticaret' => []],
+            'parties' => ['Abdullah Günhan' => ['is_employee' => true, 'salary_amount' => 50000, 'salary_day' => 15], 'Boztepe Ticaret' => [],
+                'Hikmet' => ['is_employee' => true, 'salary_amount' => 62000, 'salary_day' => 17], 'Tokgöz' => []],
             'products' => [['Un', 'çuval']], 'categories' => ['Yakıt', 'Kira'],
         ],
         'erkan' => [
@@ -36,6 +37,11 @@ return [
             'profile' => 'alacak_verecek', 'modules' => ['natural_voice' => true], 'sector' => 'construction',
             'business_note' => 'Konut inşaatı yapar; ustalar ve tedarikçilerle çalışır, çoğunlukla vadeli çekle öder.',
             'parties' => ['Ferhat Yıldız' => [], 'Abdurrahman Usta' => [], 'Sinan Sele' => [], 'Hazal Doğan' => [], 'Asansör Osman' => []],
+        ],
+        // Çiftlik (Oktay, firma 9): stoklu, projesiz.
+        'oktay' => [
+            'profile' => 'trade', 'modules' => ['natural_voice' => true], 'sector' => 'farm',
+            'parties' => ['Damızlık Birliği' => []], 'products' => [['Yem', 'adet'], ['Ezme', 'adet']], 'categories' => ['Çobanlar'],
         ],
         'muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true], 'sector' => 'construction',
@@ -346,6 +352,55 @@ return [
         ['id' => 'U-kisi-belirsiz-sinan-usta', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Sinan usta sıvayı bitirdi 80 bin verdim']],
             'expect' => ['asks' => true, 'reply_has' => ['Sinan Sele'], 'saved' => ['ledger' => 0]]],
+        // ================================================================ FAZ 1 (17.10 müşteri taraması) — gerçek mesajlar
+        // 1.1 Emre: 08:00 "Hikmet maaş günü" hatırlatması, 10:21 "Ödendi" → "anlayamadım" dedi (asistan 30 dk görüyordu)
+        ['id' => 'F1-hatirlatmaya-gec-odendi', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-hikmet-hatirlatma',
+            'steps' => [['send' => 'Ödendi']],
+            'expect' => ['reply_has' => ['Hikmet'], 'reply_not' => ['anlayamadım', 'bekleyen bir kayıt yok']]],
+        ['id' => 'F1-iki-hatirlatma-hangisi', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-iki-hatirlatma',
+            'steps' => [['send' => 'Ödendi']],
+            'expect' => ['asks' => true, 'reply_has' => ['Hikmet', 'kira'], 'saved' => ['ledger' => 0, 'expenses' => 0]]],
+        // 1.2 Oktay: besi + buzağı yemi sessizce mevcut "Yem" kartına bağlandı; düzeltme yok sayıldı
+        ['id' => 'F1-urun-adlari-karismasin', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
+            'steps' => [['send' => '20 ezme 30 besi yemi 10 buzağı yemi geldi']],
+            'expect' => ['reply_has' => ['Besi yemi', 'Buzağı yemi'], 'reply_not' => ['33 → 63', '33 → 43'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'F1-urun-duzeltmesi-uygulanir', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
+            'steps' => [['send' => '20 ezme 30 besi yemi 10 buzağı yemi geldi'],
+                ['send' => '30 yem ayrı onu besi yemi olarak aç buzağı yemi için de yeni stok aç 10 adet ekle']],
+            'expect' => ['reply_has' => ['Besi yemi', 'Buzağı yemi'], 'reply_not' => ['33 → 63', '33 → 43']]],
+        // 1.3 Oktay: "400 ton saman ekle" → yalnız kart açıldı, stok 0 kaldı
+        ['id' => 'F1-yeni-urun-miktari-stoga', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => 'Stoklara 400 ton saman ekle maliyeti ton 2500 tl'], ['send' => 'Evet']],
+            'expect' => ['stock' => ['Saman' => 400]]],
+        ['id' => 'F1-elimde-var-yeni-urun', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => '33 adet buzağı yemi var elimde günde 16 adet gidiyor stoklara ekle'], ['send' => 'Evet']],
+            'expect' => ['stock' => ['Buzağı yemi' => 33]]],
+        // 1.4 Emre: "Erkan maaşı 65 tl" → sessizce 65.000 yazıldı
+        ['id' => 'F1-yazilandan-farkli-tutar-sorar', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Erkan maaşı 65 tl her ayın 30 unda']],
+            'expect' => ['asks' => true, 'reply_any' => ['65 TL mi', '65.000', '65 bin']]],
+        // 1.5 Emre: tedarikçide duran, parası ödenmiş mal → stok sayımı sanıldı
+        ['id' => 'F1-tedarikcide-odenmis-mal-sorar', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Tokgöz 125 koli pastacı yağ 10 teneke tereyağı alacaklıyız ödemesi yapılmıştı']],
+            'expect' => ['asks' => true, 'reply_any' => ['elinizde', 'tedarikçide', "Tokgöz'de", 'geldi mi', 'teslim'], 'saved' => ['ledger' => 0, 'sales' => 0]]],
+        ['id' => 'F1-tedarikcide-ise-stoga-girmez', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Tokgöz 125 koli pastacı yağ 10 teneke tereyağı alacaklıyız ödemesi yapılmıştı'], ['send' => "Tokgöz'de duruyor, parasını 300 bin vermiştik"], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Tokgöz' => 300000], 'stock' => ['Pastacı yağ' => null]]],
+        ['id' => 'F1-elimizdeyse-stoga-girer', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Tokgöz 125 koli pastacı yağ 10 teneke tereyağı alacaklıyız ödemesi yapılmıştı'], ['send' => 'elimizde, geldi'],
+                ['send' => 'yağın kolisi 2000 tereyağı tenekesi 5000'], ['send' => 'evet']],
+            'expect' => ['stock' => ['Pastacı yağ' => 125]]],
+        // 1.7 Oktay: "Ödendi kayıt et" onay sayılmadı, bir daha soruldu
+        ['id' => 'F1-odendi-kayit-et-onaydir', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => 'Çobanlar eldiven aldım 240 TL'], ['send' => 'Ödendi kayıt et']],
+            'expect' => ['saved' => ['expenses' => 1], 'reply_not' => ['Kaydedeyim mi']]],
+        ['id' => 'F1-stoklarimi-goster-dogal', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
+            'steps' => [['send' => 'Stoklarımı göster']],
+            'expect' => ['no_new_draft' => true, 'reply_has' => ['Yem'], 'reply_not' => ['Bu sorgu', 'gösterdi,']]],
+        // 1.8 Ders #3: hafızadaki anlaşmada "X kaldı" stok sayımı sanılmasın
+        ['id' => 'F1-anlasmada-kalan-sayim-degil', 'firm' => 'stok', 'group' => 'understand', 'seed' => 'stok-seramik-anlasma',
+            'steps' => [['send' => 'anlaşmada 600 m2 seramik kaldı']],
+            'expect' => ['reply_not' => ['Sayım', 'sayım'], 'saved' => ['ledger' => 0]]],
         // ---------------------------------------------------------------- Faz 5: zor soru (büyük model)
         ['id' => 'F5-sube-karsilastir', 'firm' => 'akkus', 'group' => 'capability', 'seed' => 'akkus-iki-hafta',
             'steps' => [['send' => 'Son iki haftada hangi şube daha çok kazandırdı']],
@@ -360,6 +415,11 @@ return [
         'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
         'akkus-iki-hafta' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-1 days'], ['sale', 'İzzetpaşa', 21000, '-1 days'], ['sale', 'Araştırma', 50000, '-2 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-2 days'], ['sale', 'Araştırma', 50000, '-3 days'], ['sale', 'Ergenekon', 25000, '-3 days'], ['sale', 'İzzetpaşa', 21000, '-3 days'], ['sale', 'Araştırma', 50000, '-4 days'], ['sale', 'Ergenekon', 25000, '-4 days'], ['sale', 'İzzetpaşa', 21000, '-4 days'], ['sale', 'Araştırma', 50000, '-5 days'], ['sale', 'Ergenekon', 25000, '-5 days'], ['sale', 'İzzetpaşa', 21000, '-5 days'], ['sale', 'Araştırma', 50000, '-6 days'], ['sale', 'Ergenekon', 25000, '-6 days'], ['sale', 'İzzetpaşa', 21000, '-6 days'], ['sale', 'Araştırma', 50000, '-7 days'], ['sale', 'Ergenekon', 25000, '-7 days'], ['sale', 'İzzetpaşa', 21000, '-7 days'], ['sale', 'Araştırma', 40000, '-8 days'], ['sale', 'Ergenekon', 27000, '-8 days'], ['sale', 'İzzetpaşa', 21000, '-8 days'], ['sale', 'Araştırma', 40000, '-9 days'], ['sale', 'Ergenekon', 27000, '-9 days'], ['sale', 'İzzetpaşa', 21000, '-9 days'], ['sale', 'Araştırma', 40000, '-10 days'], ['sale', 'Ergenekon', 27000, '-10 days'], ['sale', 'İzzetpaşa', 21000, '-10 days'], ['sale', 'Araştırma', 40000, '-11 days'], ['sale', 'Ergenekon', 27000, '-11 days'], ['sale', 'İzzetpaşa', 21000, '-11 days'], ['sale', 'Araştırma', 40000, '-12 days'], ['sale', 'Ergenekon', 27000, '-12 days'], ['sale', 'İzzetpaşa', 21000, '-12 days'], ['sale', 'Araştırma', 40000, '-13 days'], ['sale', 'Ergenekon', 27000, '-13 days'], ['sale', 'İzzetpaşa', 21000, '-13 days'], ['sale', 'Araştırma', 40000, '-14 days'], ['sale', 'Ergenekon', 27000, '-14 days'], ['sale', 'İzzetpaşa', 21000, '-14 days']],
         'taner-odemeler' => [['ledger', 'Ferhat Yıldız', 'odeme', 5000, '-1 days', 'Proje bedeli'], ['ledger', 'Sinan Sele', 'odeme', 2500000, '-1 days', '2026 bağlantısı']],
+        'akkus-hikmet-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes']],
+        'akkus-iki-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes'],
+            ['out', 'reminder', '⏰ Hatırlatma: Bugün: Ergenekon dükkan kira ödemesi 54.000 ₺', '-140 minutes']],
+        'oktay-stok' => [['stock', 'Yem', 33], ['stock', 'Ezme', 5]],
+        'stok-seramik-anlasma' => [['memory', 'agreement', 'Seramik anlaşması', 'Ak Un ile 1000 m² seramik anlaşması, m² 650 TL (600 m²si geldi)', 'Ak Un']],
         'taner-osman-avans' => [['ledger', 'Asansör Osman', 'odeme', 1005000, '-14 days', 'Avans — Atatürk mahallesi asansörü']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
