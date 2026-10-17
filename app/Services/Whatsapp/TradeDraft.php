@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\Reminder;
 use App\Models\Sale;
+use App\Models\StockMovement;
 use App\Models\Unit;
 use App\Support\Money;
 use App\Support\MonthlyResult;
@@ -94,6 +95,15 @@ class TradeDraft
         if ($kind === ExpenseExtractor::KIND_PRODUCT_ADD) {
             return self::normalizeProductAdd($d);
         }
+        if ($kind === ExpenseExtractor::KIND_PRODUCTION) {
+            return self::normalizeProduction($d);
+        }
+        if ($kind === ExpenseExtractor::KIND_PRODUCT_RENAME) {
+            $d['product_id'] = self::validProduct($d['product_id'] ?? null)?->id;
+            $d['product_name'] = trim((string) ($d['product_name'] ?? '')) !== '' ? self::title((string) $d['product_name']) : null;
+
+            return $d;
+        }
         if (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_STOCK_QUERY], true)) {
             $named = trim((string) ($d['product_name'] ?? ''));
             $product = self::validProduct($d['product_id'] ?? null);
@@ -115,6 +125,27 @@ class TradeDraft
                 $d['question'] = 'Hangi ürün? Ürün kartındaki adıyla yazar mısın?';
             }
         }
+
+        return $d;
+    }
+
+    /** Üretim: kalemler katalogla eşlenir; kartta yoksa yeni kart önerilir (benzer kart varsa "aynı mı?"). Para yok. */
+    private static function normalizeProduction(array $d): array
+    {
+        $items = [];
+        foreach ((array) ($d['items'] ?? []) as $item) {
+            $desc = trim((string) ($item['description'] ?? ''));
+            $qty = (float) ($item['quantity'] ?? 0);
+            if ($desc === '' && empty($item['product_id'])) {
+                continue;
+            }
+            $product = self::itemProduct($item);
+            $items[] = ['description' => $product?->name ?? self::title($desc), 'product_id' => $product?->id, 'quantity' => $qty > 0 ? $qty : null,
+                'unit' => $item['unit'] ?? null, 'new' => ! $product, 'similar' => ! $product ? self::similarProduct($desc)?->name : null,
+                'unit_price' => null, 'amount' => null];
+        }
+        $d['items'] = $items;
+        $d['amount'] = 0.0;
 
         return $d;
     }
@@ -279,6 +310,8 @@ class TradeDraft
             ExpenseExtractor::KIND_STOCK_COUNT => self::countSummary($d),
             ExpenseExtractor::KIND_STOCK_SETTING => self::settingSummary($d),
             ExpenseExtractor::KIND_PRODUCT_ADD => self::productAddSummary($d),
+            ExpenseExtractor::KIND_PRODUCT_RENAME => self::renameSummary($d),
+            ExpenseExtractor::KIND_PRODUCTION => self::productionSummary($d),
             default => '',
         };
     }
@@ -314,6 +347,22 @@ class TradeDraft
     {
         $kind = $d['kind'];
         if ($kind === ExpenseExtractor::KIND_PRODUCT_ADD) {
+            return null;
+        }
+        if ($kind === ExpenseExtractor::KIND_PRODUCT_RENAME) {
+            return empty($d['product_id']) ? 'Hangi ürünün adı değişecek? Stoktaki adıyla yazar mısınız?'
+                : (empty($d['product_name']) ? 'Yeni adı ne olsun?' : null);
+        }
+        if ($kind === ExpenseExtractor::KIND_PRODUCTION) {
+            if (($d['items'] ?? []) === []) {
+                return 'Ne ürettiniz, ne kadar? (ör. "400 ton silaj")';
+            }
+            foreach ($d['items'] as $item) {
+                if (empty($item['quantity'])) {
+                    return $item['description'] . ' ne kadar?';
+                }
+            }
+
             return null;
         }
         if (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING], true)) {
@@ -497,6 +546,34 @@ class TradeDraft
         return implode("\n", $lines);
     }
 
+    private static function renameSummary(array $d): string
+    {
+        $product = ! empty($d['product_id']) ? Product::find($d['product_id']) : null;
+
+        return '📦 *Ürün adı — kontrol et:*' . "\n• " . ($product?->name ?? '?') . ' → *' . ($d['product_name'] ?? '?') . '*'
+            . "\nStok ve geçmiş kayıtlar aynen kalır, yalnız adı değişir.";
+    }
+
+    private static function productionSummary(array $d): string
+    {
+        $lines = ['🌾 *Üretim girişi — kontrol et:* (alış/gider değil, maliyetsiz stok girişi)'];
+        foreach ($d['items'] ?? [] as $item) {
+            $product = ! empty($item['product_id']) ? Product::with('unit')->find($item['product_id']) : null;
+            $unit = $product?->unit?->name ?? $item['unit'] ?? 'adet';
+            $qty = (float) ($item['quantity'] ?? 0);
+            $line = '• ' . $item['description'] . ': ' . ($qty > 0 ? StockUsage::quantity($qty) . ' ' . $unit : '?');
+            $line .= $product
+                ? ' (stok ' . StockUsage::quantity($product->currentStock()) . ' → ' . StockUsage::quantity($product->currentStock() + $qty) . ')'
+                : ' (🆕 yeni ürün kartı)';
+            $lines[] = $line;
+            if (! empty($item['similar'])) {
+                $lines[] = '   ❓ Stokta *' . $item['similar'] . '* de var — aynı ürünse "' . $item['similar'] . '" yazın';
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
     private static function productAddSummary(array $d): string
     {
         $lines = ['🆕 *Ürün kartı açılacak — kontrol et:*'];
@@ -521,6 +598,8 @@ class TradeDraft
             ExpenseExtractor::KIND_STOCK_COUNT => self::commitCount($d),
             ExpenseExtractor::KIND_STOCK_SETTING => self::commitSetting($d),
             ExpenseExtractor::KIND_PRODUCT_ADD => self::commitProductAdd($d),
+            ExpenseExtractor::KIND_PRODUCT_RENAME => self::commitRename($d),
+            ExpenseExtractor::KIND_PRODUCTION => self::commitProduction($d),
         };
     }
 
@@ -688,6 +767,36 @@ class TradeDraft
 
         return ['✅ Ürün kartı açıldı: ' . implode(', ', $names)
             . ($stocked ? '' : "\nŞimdi elindekini yazabilirsin, ör. \"" . $d['items'][0]['description'] . ' 15 ' . ($d['items'][0]['unit'] ?? 'adet') . ' var"'), null];
+    }
+
+    private static function commitRename(array $d): array
+    {
+        $product = Product::findOrFail($d['product_id']);
+        $old = $product->name;
+        $product->update(['name' => $d['product_name']]);
+
+        return ['✅ Ürün adı değişti: ' . $old . ' → ' . $product->name, null];
+    }
+
+    /** Üretim: kart yoksa açılır, miktar stoğa girer (sebep "üretim", maliyet yok). */
+    private static function commitProduction(array $d): array
+    {
+        $lines = [];
+        foreach ($d['items'] as $item) {
+            $product = ! empty($item['product_id']) ? Product::with('unit')->findOrFail($item['product_id'])
+                : self::createProduct($item['description'], $item['unit'] ?? null)->load('unit');
+            StockMovement::create([
+                'product_id' => $product->id,
+                'direction' => StockMovement::DIRECTION_IN,
+                'reason' => StockMovement::REASON_PRODUCTION,
+                'quantity' => (float) $item['quantity'],
+                'movement_date' => $d['date'] ?? now()->toDateString(),
+                'notes' => 'Üretim (WhatsApp)',
+            ]);
+            $lines[] = $product->name . ' ' . StockUsage::quantity($product->currentStock()) . ' ' . ($product->unit?->name ?? '');
+        }
+
+        return ['✅ Üretim stoğa girdi: ' . implode(' · ', $lines), null];
     }
 
     /** Ürün kartı (stoklu). Aynı adlı ürün o arada açıldıysa onu kullanır — çift kart olmasın. */

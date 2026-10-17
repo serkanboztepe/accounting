@@ -397,6 +397,13 @@ return [
         ['id' => 'F1-stoklarimi-goster-dogal', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
             'steps' => [['send' => 'Stoklarımı göster']],
             'expect' => ['no_new_draft' => true, 'reply_has' => ['Yem'], 'reply_not' => ['Bu sorgu', 'gösterdi,']]],
+        // Faz 4 (Oktay): üretim girişi + ürün adı değiştirme
+        ['id' => 'F4-uretim-girisi', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => "2026 üretilen kaba yemler\nMısır slaji 400 ton\nSaman 15.000 kğ\nYoncalar 1. Bicim 17.500 kg\nBu yıl bunları ürettim"], ['send' => 'Evet']],
+            'expect' => ['stock' => ['Mısır' => 400], 'saved' => ['ledger' => 0, 'expenses' => 0]]],
+        ['id' => 'F4-urun-adi-degistir', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
+            'steps' => [['send' => 'Stoktaki yem i besi yemi olarak değiştir'], ['send' => 'Evet']],
+            'expect' => ['stock' => ['Besi yemi' => 33]]],
         // 1.8 Ders #3: hafızadaki anlaşmada "X kaldı" stok sayımı sanılmasın
         ['id' => 'F1-anlasmada-kalan-sayim-degil', 'firm' => 'stok', 'group' => 'understand', 'seed' => 'stok-seramik-anlasma',
             'steps' => [['send' => 'anlaşmada 600 m2 seramik kaldı']],

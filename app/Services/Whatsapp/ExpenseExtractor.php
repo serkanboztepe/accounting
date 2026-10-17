@@ -70,11 +70,16 @@ class ExpenseExtractor
     public const KIND_STOCK_QUERY = 'stock_query';       // "un ne kadar kaldı?" — kayıt yok
     public const KIND_STOCK_SETTING = 'stock_setting';   // "günde 3 kullanıyorum, 6 kala haber ver"
     public const KIND_MONTH_RESULT = 'month_result';     // "bu ay ne kazandım?" — kayıt yok
+    public const KIND_PRODUCT_RENAME = 'product_rename'; // "stoktaki yemi besi yemi yap" (Oktay 17.10)
+
+    public const KIND_PRODUCTION = 'production';         // "bu yıl 400 ton silaj ürettim" → maliyetsiz stok girişi (Oktay 16.10)
+
     public const KIND_PRODUCT_ADD = 'product_add';       // "un, maya, tuz kullanıyorum" → ürün kartı açılır (onayla)
 
     /** Stoklu satış türleri — yalnız bu firmalarda; kayıt yolu TradeDraft. */
     public const TRADE_KINDS = [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE, self::KIND_STOCK_COUNT,
-        self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING, self::KIND_MONTH_RESULT, self::KIND_PRODUCT_ADD];
+        self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING, self::KIND_MONTH_RESULT, self::KIND_PRODUCT_ADD,
+        self::KIND_PRODUCT_RENAME, self::KIND_PRODUCTION];
 
     private const KIND_HINTS = [
         self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
@@ -100,6 +105,8 @@ class ExpenseExtractor
         self::KIND_STOCK_COUNT => '- "stock_count": SAYIM — elde kalan miktar söyleniyor ("un 9 çuval kaldı", "elimde 12 lastik var", "maya 3 paket"). `product_id` (ÜRÜNLER listesinden — yalnız AYNI ürünse; "buzağı yemi" listedeki "Yem" DEĞİLDİR; yoksa null + `product_name` = yazılan ad ve `unit`) ve `counted_quantity`. Kayıt sistemdeki stoğu bu sayıya eşitler. Soru biçimindeyse ("un ne kadar kaldı?") bu DEĞİL → "stock_query". Aynı mesajda günlük kullanım da varsa ("günde 16 adet gidiyor") onu `next_items` alanına yaz (sonra stock_setting olarak önerilir) — "not aldım" DEME.',
         self::KIND_STOCK_QUERY => '- "stock_query": STOK SORUSU ("un ne kadar kaldı?", "stokta ne var?", "hangi mallar bitiyor?"). Belirli ürün varsa `product_id`, yoksa null (tüm liste). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_STOCK_SETTING => '- "stock_setting": GÜNLÜK KULLANIM / UYARI / ALIŞ FİYATI AYARI ("unu günde 3 çuval kullanıyorum, 6 kala haber ver", "maya 2 paket kalınca haber ver", "unu çuvalı 850\'den alıyorum"). `product_id` (listede yoksa null + `product_name` ve `unit`), `daily_usage` (her gün aynı miktar kullanılıyorsa), `reorder_level` (kaç kalınca haber verilsin), `purchase_price` (birim alış fiyatı). Söylenmeyeni null bırak; amount=0. O an bir mal GELDİYSE/ALINDIYSA bu değil → "trade_purchase".',
+        self::KIND_PRODUCT_RENAME => '- "product_rename": ÜRÜN KARTININ ADI DEĞİŞİYOR ("stoktaki yemi besi yemi yap", "Yem adını Besi yemi olarak değiştir"). `product_id` = ÜRÜNLER listesindeki MEVCUT kart, `product_name` = YENİ ad. Stok ve geçmiş aynen kalır; amount=0. Taslaktaki bir kalemi düzeltmek bu DEĞİL.',
+        self::KIND_PRODUCTION => '- "production": ÜRETİM — kendi ürettiğimiz/yetiştirdiğimiz mal stoğa giriyor; alış ya da gider DEĞİL, para yok ("bu yıl 400 ton silaj, 15 ton saman ürettim", "50 kg peynir yaptık", "yonca 3. biçim 25.000 kg"). `items`: her ürün {description=ad, quantity, unit, product_id = ÜRÜNLER listesinde AYNI ürün varsa}. amount=0.',
         self::KIND_PRODUCT_ADD => '- "product_add": STOKTA TUTULACAK ÜRÜN(LER) TANITILIYOR, alış/satış yok ("un, maya, tuz, şeker kullanıyorum", "ürün ekle: un çuval", "simit de satıyorum"). `items`: her ürün {description=ad, unit=birim ("çuval","kg","paket","adet"; söylenmediyse null), unit_price=alış fiyatı söylendiyse, quantity=ELDEKİ MİKTAR söylendiyse ("400 ton saman ekle" → 400; açılış stoğu olur)}. ÜRÜNLER listesinde olanları yazma. amount=0.',
         self::KIND_MONTH_RESULT => '- "month_result": CİRO / KAZANÇ / KALAN sorusu ("bu ay ne kazandım?", "Eylül ne kaldı?", "ciro ne kadar?", "bugünkü ciro", "dünkü cirolar", "14.10 toplam ciro", "iki günlük ciro ve gider", "bu hafta ne kaldı", "toplam kalan para"). GÜN ya da ARALIK söylendiyse `date_from` / `date_to` (YYYY-MM-DD; "bugün" → bugün/bugün, "dün" → dün/dün, "14.10" → o gün, "iki günlük" → dün/bugün, "bu hafta" → pazartesi/bugün); yalnız AY söylendiyse `month` (YYYY-MM); hiçbiri yoksa ikisi de null (= bu ay). Hiçbir şey kaydedilmez; amount=0. Kasa/şube adı geçse de ("Araştırma kasa ne kadar", "dünkü Ergenekon ciro") bu bir CİRO sorusudur, cari bakiyesi DEĞİL.',
         self::KIND_STATEMENT => '- "statement": EKSTRE / hesap dökümü İSTEĞİ ("Ali\'nin ekstresini at", "Kuşak Beton ekstresi", "Ali\'nin Eylül ekstresi", "Ali\'nin Cumhuriyet ekstresi"). Yazım hataları ve eş anlamlılar da ekstredir — SORMA, gönder: "ekstra", "extra", "extre", "ektre", "ekstire", "ekistre", "eksre", "döküm", "hesap dökümü", "hareketleri", "kişi adı + pdf" ("Hazal doğan ekstra", "Ferhat extre gönder", "Serkan pdf", "Ali döküm" → statement). Hiçbir şey kaydedilmez; amount=0. Dönem söylendiyse `date_from`/`date_to` (ör. "Eylül" → bu yılın 09-01 / 09-30; "bu ay" → ayın 1\'i / bugün; "2026" → 01-01 / 12-31), proje söylendiyse `project_id`. Kullanıcı ekstrenin ya da bir mesajın CARİYE (üçüncü kişiye) gönderilmesini istiyorsa ("Ferdi\'ye at", "Ferdi Cengiz\'e mesaj at", "ekstresini ona gönder", "müşteriye yolla") → yine "statement" ve `forward_to_party`=true (biz cariye mesaj atamayız, kullanıcıya iletmesi söylenir).',
@@ -145,6 +152,8 @@ class ExpenseExtractor
             self::tradeStock() ? self::KIND_STOCK_QUERY : null,
             self::tradeStock() ? self::KIND_STOCK_SETTING : null,
             self::tradeStock() ? self::KIND_PRODUCT_ADD : null,
+            self::tradeStock() ? self::KIND_PRODUCT_RENAME : null,
+            self::tradeStock() ? self::KIND_PRODUCTION : null,
             config('modules.report_monthly') ? self::KIND_MONTH_RESULT : null,
         ]));
     }
@@ -671,7 +680,7 @@ class ExpenseExtractor
             'daily_usage' => ['type' => ['number', 'null'], 'description' => 'Only for stock_setting: daily usage'],
             'reorder_level' => ['type' => ['number', 'null'], 'description' => 'Only for stock_setting: warn when stock falls to this'],
             'purchase_price' => ['type' => ['number', 'null'], 'description' => 'Only for stock_setting: unit purchase price'],
-            'product_name' => ['type' => ['string', 'null'], 'description' => 'Only for stock_count / stock_setting when the product is NOT in ÜRÜNLER'],
+            'product_name' => ['type' => ['string', 'null'], 'description' => 'stock_count / stock_setting: when the product is NOT in ÜRÜNLER; product_rename: the NEW name'],
             'unit' => ['type' => ['string', 'null'], 'description' => 'Only with product_name: unit (çuval, kg, paket, adet)'],
             'cash_amount' => ['type' => ['number', 'null'], 'description' => 'Only for trade_sale: cash part if said'],
             'card_amount' => ['type' => ['number', 'null'], 'description' => 'Only for trade_sale: card part if said'],
@@ -991,7 +1000,7 @@ class ExpenseExtractor
         $kind = in_array($raw, self::allowedKinds(), true) ? $raw : self::KIND_EXPENSE;
 
         $items = [];
-        $tradeItems = in_array($kind, [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE, self::KIND_PRODUCT_ADD], true);
+        $tradeItems = in_array($kind, [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE, self::KIND_PRODUCT_ADD, self::KIND_PRODUCTION], true);
         foreach ((array) ($input['items'] ?? []) as $item) {
             $amount = (float) ($item['amount'] ?? 0);
             if ($tradeItems) {
@@ -1008,7 +1017,7 @@ class ExpenseExtractor
                 $items[] = ['description' => trim((string) ($item['description'] ?? '')), 'amount' => $amount];
             }
         }
-        $stockKind = in_array($kind, [self::KIND_STOCK_COUNT, self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING], true);
+        $stockKind = in_array($kind, [self::KIND_STOCK_COUNT, self::KIND_STOCK_QUERY, self::KIND_STOCK_SETTING, self::KIND_PRODUCT_RENAME], true);
 
         $paymentType = $input['payment_type'] ?? null;
 
@@ -1020,7 +1029,8 @@ class ExpenseExtractor
             'daily_usage' => $kind === self::KIND_STOCK_SETTING && isset($input['daily_usage']) ? (float) $input['daily_usage'] : null,
             'reorder_level' => $kind === self::KIND_STOCK_SETTING && isset($input['reorder_level']) ? (float) $input['reorder_level'] : null,
             'purchase_price' => $kind === self::KIND_STOCK_SETTING && isset($input['purchase_price']) ? (float) $input['purchase_price'] : null,
-            'product_name' => $stockKind && empty($input['product_id']) && is_string($input['product_name'] ?? null) && trim($input['product_name']) !== '' ? trim($input['product_name']) : null,
+            // Ad değiştirmede product_id (eski kart) + product_name (YENİ ad) birlikte gelir.
+            'product_name' => $stockKind && ($kind === self::KIND_PRODUCT_RENAME || empty($input['product_id'])) && is_string($input['product_name'] ?? null) && trim($input['product_name']) !== '' ? trim($input['product_name']) : null,
             'unit' => $stockKind && is_string($input['unit'] ?? null) && trim($input['unit']) !== '' ? mb_strtolower(trim($input['unit'])) : null,
             'cash_amount' => $kind === self::KIND_TRADE_SALE && isset($input['cash_amount']) ? (float) $input['cash_amount'] : null,
             'card_amount' => $kind === self::KIND_TRADE_SALE && isset($input['card_amount']) ? (float) $input['card_amount'] : null,

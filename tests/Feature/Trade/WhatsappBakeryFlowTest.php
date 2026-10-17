@@ -230,6 +230,39 @@ class WhatsappBakeryFlowTest extends TestCase
         $this->assertSame(1, Product::where('name', 'Maya')->count());
     }
 
+    /** Faz 4.2 (Oktay 16.10 "bu yıl şunları ürettim"): maliyetsiz stok girişi; kartta yoksa açılır, alış/gider yazılmaz. */
+    public function test_production_enters_stock_without_cost(): void
+    {
+        $this->fakeAi($this->entry(['kind' => 'production', 'items' => [$this->item('un', 20, productId: $this->flour->id),
+            $this->item('mısır silajı', 400, unit: 'ton')]]));
+        $flourBefore = $this->flour->currentStock();
+        $ledger = \App\Models\PartyLedgerEntry::count();
+        $expenses = \App\Models\Expense::count();
+
+        $summary = $this->send('bu yıl 20 çuval un 400 ton mısır silajı ürettim');
+        $this->assertStringContainsString('Üretim girişi', $summary);
+        $this->assertStringContainsString('🆕 yeni ürün kartı', $summary);
+        $this->assertStringContainsString('Üretim stoğa girdi', $this->send('evet'));
+
+        $this->assertEqualsWithDelta($flourBefore + 20, $this->flour->currentStock(), 0.01);
+        $this->assertEqualsWithDelta(400, Product::where('name', 'Mısır silajı')->first()->currentStock(), 0.01);
+        $this->assertSame($ledger, \App\Models\PartyLedgerEntry::count(), 'alış/borç yok');
+        $this->assertSame($expenses, \App\Models\Expense::count(), 'gider yok');
+    }
+
+    /** Faz 4.1 (Oktay 17.10 "stoktaki yemi besi yemi olarak değiştir"): ad değişir, stok aynı. */
+    public function test_product_rename_keeps_stock(): void
+    {
+        $this->flour->countTo(7);
+        $this->fakeAi($this->entry(['kind' => 'product_rename', 'product_id' => $this->flour->id, 'product_name' => 'tam buğday unu']));
+
+        $this->assertStringContainsString('Un → *Tam buğday unu*', $this->send('unun adını tam buğday unu yap'));
+        $this->send('evet');
+
+        $this->assertSame('Tam buğday unu', $this->flour->fresh()->name);
+        $this->assertEqualsWithDelta(7, $this->flour->fresh()->currentStock(), 0.01);
+    }
+
     public function test_count_of_unknown_product_creates_card_with_stock(): void
     {
         $this->fakeAi($this->entry(['kind' => 'stock_count', 'product_name' => 'şeker', 'unit' => 'kg', 'counted_quantity' => 25]));

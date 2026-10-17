@@ -211,7 +211,7 @@ final class RecordsQuery
         ]));
         if (count($f['types']) === count(self::TYPES)) {
             $reasons = [StockMovement::REASON_PURCHASE, StockMovement::REASON_SALE, StockMovement::REASON_RETURN,
-                StockMovement::REASON_ADJUSTMENT, StockMovement::REASON_USAGE];
+                StockMovement::REASON_ADJUSTMENT, StockMovement::REASON_USAGE, StockMovement::REASON_PRODUCTION];
         }
         $q = self::apply(StockMovement::with(['party:id,name', 'project:id,name', 'product.unit', 'purchase.party:id,name', 'sale.party:id,name'])
             ->where('product_id', $f['product_id'])->whereIn('reason', $reasons), array_merge($f, ['party_id' => null]), 'movement_date', 'amount', ['notes']);
