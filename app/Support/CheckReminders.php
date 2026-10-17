@@ -31,6 +31,19 @@ class CheckReminders
             ->whereNotNull('due_date');
     }
 
+    /**
+     * Kişisiz "çek ödendi" için bekleyen verilmiş çek: tutar tutan (±1 ₺), vadesi 45 gün öncesi ile 10 gün sonrası arasında;
+     * birden çoksa vadesi bugüne en yakını. Yoksa null.
+     */
+    public static function matchDue(float $amount): ?Check
+    {
+        $today = self::today();
+
+        return self::pending()->with('party')->whereBetween('due_date', [$today->copy()->subDays(45)->toDateString(), $today->copy()->addDays(10)->toDateString()])
+            ->get()->filter(fn (Check $c) => abs((float) $c->amount - $amount) < 1)
+            ->sortBy(fn (Check $c) => abs($c->due_date->diffInDays($today, false)))->first();
+    }
+
     /** @return Collection<int, Check> */
     public static function dueOn(CarbonInterface $date): Collection
     {

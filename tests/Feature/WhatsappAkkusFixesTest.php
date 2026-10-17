@@ -146,6 +146,83 @@ class WhatsappAkkusFixesTest extends TestCase
         $this->assertSame($before + 1, \App\Models\Expense::count());
     }
 
+    /** 17.10: kişisiz "çek ödendi" bekleyen verilmiş çekle eşleşir → çek "ödendi" işaretlenir; gider/ödeme yazılmaz (modül açık da olsa). */
+    public function test_check_paid_matches_issued_check_and_marks_it_without_expense(): void
+    {
+        Http::fake();
+        config(['modules.checks' => true]);
+        WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
+        $osman = \App\Models\Party::create(['name' => 'Çek Eşleşme Osman']);
+        $check = \App\Models\Check::create(['party_id' => $osman->id, 'amount' => 335017, 'due_date' => now()->subDays(2)->toDateString(),
+            'status' => 'issued', 'check_number' => '8037567']);
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturn($this->expense(['amount' => 335017]));
+        $this->app->instance(ExpenseExtractor::class, $mock);
+        $expenses = \App\Models\Expense::count();
+        $ledger = \App\Models\PartyLedgerEntry::count();
+
+        $ask = $this->webhook('335.017 çek ödendi');
+        $this->assertStringContainsString('Çek Eşleşme Osman', $ask);
+        $this->assertStringContainsString('ödendi* olarak işaretlensin mi', $ask);
+        $this->assertStringContainsString('işaretlendi', $this->webhook('evet'));
+
+        $this->assertSame('paid', $check->fresh()->status);
+        $this->assertSame($expenses, \App\Models\Expense::count(), 'gider yazılmaz');
+        $this->assertSame($ledger, \App\Models\PartyLedgerEntry::count(), 'yeni ödeme yazılmaz');
+    }
+
+    public function test_check_paid_other_check_falls_back_to_party_question(): void
+    {
+        Http::fake();
+        config(['modules.checks' => true]);
+        WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
+        $osman = \App\Models\Party::create(['name' => 'Çek Eşleşme Osman']);
+        \App\Models\Check::create(['party_id' => $osman->id, 'amount' => 335017, 'due_date' => now()->toDateString(), 'status' => 'issued']);
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturn($this->expense(['amount' => 335017]));
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $this->webhook('335.017 çek ödendi');
+        $this->assertStringContainsString('Bu çek kime yazılmıştı?', $this->webhook('başka'));
+    }
+
+    public function test_check_paid_no_match_asks_party_even_with_module_on(): void
+    {
+        Http::fake();
+        config(['modules.checks' => true]);
+        WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturn($this->expense(['amount' => 98765.43]));
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $this->assertStringContainsString('Bu çek kime yazılmıştı?', $this->webhook('98.765,43 çek ödendi'), 'modül açık diye gider yazılmaz');
+    }
+
+    public function test_contract_linked_check_marks_contract_payment_paid(): void
+    {
+        $osman = \App\Models\Party::create(['name' => 'Çek Sözleşme Osman']);
+        $project = \App\Models\Project::firstOrCreate(['name' => 'Çek Sözleşme Projesi'], ['status' => 'active']);
+        $contract = \App\Models\Contract::create(['project_id' => $project->id, 'party_id' => $osman->id, 'title' => 'Asansör sözleşmesi',
+            'contract_type' => 'supply', 'direction' => \App\Models\Contract::DIRECTION_PURCHASE, 'status' => 'active', 'total_amount' => 335017]);
+        $payment = \App\Models\ContractPayment::create(['contract_id' => $contract->id, 'amount' => 335017, 'payment_date' => now()->subDays(40)->toDateString(),
+            'due_date' => now()->subDay()->toDateString(), 'payment_type' => 'check', 'status' => 'unpaid']);
+        $check = $payment->checks()->first() ?? \App\Models\Check::create(['party_id' => $osman->id, 'contract_payment_id' => $payment->id,
+            'amount' => 335017, 'due_date' => now()->subDay()->toDateString(), 'status' => 'issued']);
+        $this->assertSame('issued', $check->fresh()->status);
+
+        Http::fake();
+        config(['modules.checks' => true]);
+        WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturn($this->expense(['amount' => 335017]));
+        $this->app->instance(ExpenseExtractor::class, $mock);
+        $this->webhook('335.017 çek ödendi');
+        $this->webhook('evet');
+
+        $this->assertSame('paid', $payment->fresh()->status, 'sözleşme ödemesi de ödendi — çekle senkron kalır');
+        $this->assertSame('paid', $check->fresh()->status);
+    }
+
     public function test_check_paid_with_name_becomes_payment_to_party(): void
     {
         Http::fake();
