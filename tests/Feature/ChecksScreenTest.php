@@ -102,4 +102,28 @@ class ChecksScreenTest extends TestCase
 
         $this->assertSame(0, \App\Models\PartyLedgerEntry::where('party_id', $party->id)->count());
     }
+
+    /** 17.10: karşılıksız/iptal yok → "Çeki sil" bağlı ödemeyle birlikte geri alır; çok çekli ödemede yalnız o çekin tutarı düşer. */
+    public function test_remove_check_reverses_its_payment(): void
+    {
+        $party = Party::create(['name' => 'Çek Ekranı Silme']);
+        $entry = \App\Models\PartyLedgerEntry::create(['party_id' => $party->id, 'type' => \App\Models\PartyLedgerEntry::TYPE_PAYMENT,
+            'amount' => 670000, 'entry_date' => now()->toDateString(), 'payment_type' => 'check']);
+        $c1 = Check::create(['party_id' => $party->id, 'party_ledger_entry_id' => $entry->id, 'amount' => 335000, 'due_date' => now()->addMonth(), 'status' => 'issued']);
+        $c2 = Check::create(['party_id' => $party->id, 'party_ledger_entry_id' => $entry->id, 'amount' => 335000, 'due_date' => now()->addMonths(2), 'status' => 'issued']);
+
+        Livewire::test(ListChecks::class)->callTableAction('remove', $c1);
+        $this->assertNull(Check::find($c1->id));
+        $this->assertEqualsWithDelta(335000, (float) $entry->fresh()->amount, 0.01, 'iki çekli ödemeden yalnız bu çekin tutarı düşer');
+
+        \App\Support\CheckRemoval::remove($c2->fresh());
+        $this->assertNull(\App\Models\PartyLedgerEntry::find($entry->id), 'son çek silinince ödeme satırı da gider');
+        $this->assertEqualsWithDelta(0, \App\Support\PartyStatement::build($party)['balance'], 0.01, 'cari etkisiz');
+    }
+
+    public function test_form_offers_only_two_states_per_direction(): void
+    {
+        Livewire::test(CreateCheck::class)
+            ->assertFormFieldExists('status', fn ($field) => array_keys($field->getOptions()) === ['issued', 'paid']);
+    }
 }

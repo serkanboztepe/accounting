@@ -17,16 +17,17 @@ use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
 /**
- * Çek formu (Faz 2.2, 17.10 sadeleştirme): "Durum" yön + durum olarak ikiye ayrıldı — eskiden 6 durum karışıktı ("Portföyde"
+ * Çek formu (Faz 2.2, 17.10 sadeleştirme): "Durum" yön + durum olarak ikiye ayrıldı (verildi/ödendi, alındı/tahsil edildi) — eskiden 6 durum karışıktı ("Portföyde"
  * aslında aldığım çek, "Verildi" verdiğim çek). Veritabanındaki status değerleri AYNEN (issued/paid/portfolio/collected/
  * bounced/cancelled); yalnız ekran değişti. Sözleşme alanı yalnız sözleşme modülünde, proje alanı yalnız proje modülünde.
  */
 class CheckForm
 {
     /** Yön → durum seçenekleri (veritabanı değeri → ekranda görünen). */
+    // 17.10 kullanıcı: yalnız iki durum. Karşılıksız / iptal YOK → "Çeki sil" (bağlı ödeme/tahsilatla birlikte, CheckRemoval).
     public const STATES = [
-        'given' => ['issued' => 'Bekliyor (vadesi gelmedi)', 'paid' => 'Ödendi', 'bounced' => 'Karşılıksız', 'cancelled' => 'İptal'],
-        'received' => ['portfolio' => 'Bekliyor (elimde)', 'collected' => 'Tahsil edildi', 'bounced' => 'Karşılıksız', 'cancelled' => 'İptal'],
+        'given' => ['issued' => 'Verildi', 'paid' => 'Ödendi'],
+        'received' => ['portfolio' => 'Alındı', 'collected' => 'Tahsil edildi'],
     ];
 
     public static function directionOf(?string $status): string

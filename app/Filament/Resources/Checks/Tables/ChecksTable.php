@@ -17,7 +17,8 @@ use Illuminate\Support\Carbon;
 
 /**
  * Çekler listesi (Faz 2.2): yön (verdiğim/aldığım), ne için, vadeye kaç gün kaldı; "yaklaşan / geçmiş" süzgeçleri;
- * satırda tek tık "Ödendi" / "Tahsil edildi" (sözleşmeye bağlı çekte sözleşme ödemesi de — ikisi senkron kalır).
+ * satırda tek tık "Ödendi" / "Tahsil edildi" (sözleşmeye bağlı çekte sözleşme ödemesi de — ikisi senkron kalır); karşılıksız /
+ * iptal durumu yok → "Çeki sil" bağlı ödeme/tahsilatla birlikte geri alır (CheckRemoval).
  */
 class ChecksTable
 {
@@ -38,7 +39,8 @@ class ChecksTable
                 TextColumn::make('due_date')->label('Vade')->date('d.m.Y')->sortable()
                     ->description(fn (Check $r) => self::daysLeft($r)),
                 TextColumn::make('status')->label('Durum')->badge()
-                    ->formatStateUsing(fn (string $state, Check $r) => CheckForm::STATES[CheckForm::directionOf($state)][$state] ?? $state)
+                    ->formatStateUsing(fn (string $state, Check $r) => CheckForm::STATES[CheckForm::directionOf($state)][$state]
+                        ?? ['bounced' => 'Karşılıksız (eski kayıt)', 'cancelled' => 'İptal (eski kayıt)'][$state] ?? $state)
                     ->color(fn (string $state) => match ($state) {
                         'paid', 'collected' => 'success', 'bounced' => 'danger', 'cancelled' => 'gray', default => 'warning'}),
                 TextColumn::make('check_number')->label('Çek No')->searchable()->toggleable(isToggledHiddenByDefault: true),
@@ -73,6 +75,14 @@ class ChecksTable
                         Notification::make()->success()->title('Çek işaretlendi')->send();
                     }),
                 EditAction::make(),
+                Action::make('remove')->label('Çeki sil')->icon(Heroicon::OutlinedTrash)->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('Çeki sil (karşılıksız / iptal)')
+                    ->modalDescription(fn (Check $r) => \App\Support\CheckRemoval::describe($r))
+                    ->action(function (Check $r) {
+                        \App\Support\CheckRemoval::remove($r);
+                        Notification::make()->success()->title('Çek silindi')->send();
+                    }),
             ]);
     }
 

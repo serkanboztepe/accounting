@@ -447,7 +447,7 @@
                         <div class="lg:col-span-2 lg:text-right">
                             <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Durum</div>
                             <span class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-white/10 dark:text-gray-300">
-                                @if ($row['status'] === 'portfolio') Portföyde
+                                @if ($row['status'] === 'portfolio') Alındı
                                 @elseif ($row['status'] === 'issued') Verildi
                                 @elseif ($row['status'] === 'collected') Tahsil Edildi
                                 @elseif ($row['status'] === 'paid') Ödendi
