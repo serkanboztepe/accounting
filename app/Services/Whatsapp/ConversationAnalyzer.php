@@ -62,13 +62,26 @@ class ConversationAnalyzer
      */
     public static function extractLessons(string $text): array
     {
-        $start = mb_strpos($text, '```dersler');
+        return self::extractBlock($text, 'dersler', ['rule', 'problem']);
+    }
+
+    /**
+     * ```<etiket> JSON bloğu (dersler / duzeltmeler): kapanmamışsa tamamlanmış nesneler kurtarılır.
+     *
+     * @param  list<string>  $required  boş olmaması gereken alanlar
+     * @return array{0:list<array>,1:string}
+     */
+    public static function extractBlock(string $text, string $tag, array $required): array
+    {
+        $open = '```' . $tag;
+        $start = mb_strpos($text, $open);
         if ($start === false) {
             return [[], $text];
         }
         $block = mb_substr($text, $start);
         $end = mb_strpos($block, '```', 3);
-        $json = trim(mb_substr($block, 10, $end === false ? null : $end - 10));
+        $len = mb_strlen($open);
+        $json = trim(mb_substr($block, $len, $end === false ? null : $end - $len));
         $decoded = json_decode($json, true);
         if (! is_array($decoded)) {
             // Kurtarma: her tam {...} nesnesi (tırnak içindeki parantezler sayılmaz).
@@ -104,7 +117,18 @@ class ConversationAnalyzer
                 }
             }
         }
-        $lessons = array_values(array_filter($decoded, fn ($l) => is_array($l) && ! empty($l['rule']) && ! empty($l['problem'])));
+        $lessons = array_values(array_filter($decoded, function ($l) use ($required) {
+            if (! is_array($l)) {
+                return false;
+            }
+            foreach ($required as $field) {
+                if (empty($l[$field])) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
 
         return [$lessons, trim(mb_substr($text, 0, $start) . ($end === false ? '' : mb_substr($block, $end + 3)))];
     }
@@ -151,6 +175,8 @@ class ConversationAnalyzer
 
         // Dersler bloğu (Faz 3): raporun sonundaki ```dersler JSON — rapordan ayrılır, hub'da onaya gelir.
         [$lessons, $text] = self::extractLessons($text);
+        // Düzeltmeler (Faz 3.1): kayda geçmiş şüpheli kayıtlar → hub "Kayıt Kontrolleri".
+        [$reviews, $text] = self::extractBlock($text, 'duzeltmeler', ['problem', 'question']);
 
         $summary = '';
         if (preg_match('/^\s*ÖZET:\s*(.+)$/mu', $text, $m)) {
@@ -163,6 +189,7 @@ class ConversationAnalyzer
             'body' => self::maskAmounts($text),
             'model' => $model,
             'cost_usd' => round($cost, 6),
+            'reviews' => array_slice($reviews, 0, 8),
             'lessons' => array_map(fn ($l) => array_map(fn ($v) => is_string($v) ? self::maskAmounts(trim($v)) : $v, $l), array_slice($lessons, 0, 5)),
         ];
     }
@@ -226,6 +253,14 @@ class ConversationAnalyzer
      * ilk kelime de maskelenir, yoksa analist "Tuncay" ile "Cari-1"i farklı kişi sanıyordu.
      * Uzun ifadeler önce değiştirilir ("Ali" "Ali Yılmaz"ın içini bozmasın).
      */
+    /** Firma içinde "Cari-N" → gerçek ad (soru müşteriye gerçek adla gitsin). Firmanın kendi veritabanında çalışır. */
+    public static function unmask(\App\Models\HubFirm $firm, string $text): string
+    {
+        $names = Tenancy::run($firm, fn () => Party::query()->orderBy('id')->pluck('name')->values()->all());
+
+        return preg_replace_callback('/Cari-(\d+)/u', fn ($m) => trim((string) ($names[(int) $m[1] - 1] ?? $m[0])), $text) ?? $text;
+    }
+
     private function partyMask(): array
     {
         $map = [];
@@ -308,6 +343,17 @@ class ConversationAnalyzer
         ```
         scope: yalnız bu firmanın işine/diline özgüyse "firm", her esnafta olabilecekse "general". En çok 5 ders;
         aynı hatanın tekrarını tek derste topla. Asistanın kod hatası (ör. kayıt yazılamadı) ders değildir, raporda öner.
+
+        DÜZELTMELER (derslerden SONRA, makine için): "Yanlış anlaşılmış olabilecek kayıtlar"daki her madde için — yani
+        KAYDEDİLMİŞ (onaylanmış) ve büyük ihtimalle yanlış olan her kayıt — ```duzeltmeler ile başlayan bir kod bloğunda JSON dizi
+        (yoksa []):
+        ```duzeltmeler
+        [{"firm": "Firma adı (raporda yazdığın gibi)", "user": "kullanıcının adı (başlıktaki gibi)", "time": "gün.ay saat:dakika",
+          "problem": "ne yanlış kaydedilmiş olabilir (kısa; adlar Cari-N)",
+          "fix": "doğrusu büyük ihtimalle ne (kısa)",
+          "question": "müşteriye sorulacak TEK, nazik, İKİ SEÇENEKLİ WhatsApp sorusu (siz dili; Cari-N adlarını aynen kullan, TUTAR YAZMA, olayı tarih/saatle tarif et)"}]
+        ```
+        Yalnız kayda geçmiş şüpheli kayıtlar; takılmalar (kaydedilmeyenler) ve dersler buraya girmez. En çok 8.
         PROMPT;
     }
 }

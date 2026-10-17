@@ -62,6 +62,11 @@ class AnalyzeConversations extends Command
             $this->info("{$lessons} ders önerisi onaya düştü (hub → Dersler).");
         }
 
+        $reviews = $this->storeReviews($report, $result['reviews'] ?? []);
+        if ($reviews > 0) {
+            $this->info("{$reviews} kayıt kontrolü düştü (hub → Kayıt Kontrolleri).");
+        }
+
         if (! $this->option('no-send')) {
             $this->sendSummary($report, $sender);
         }
@@ -99,6 +104,39 @@ class AnalyzeConversations extends Command
         return $n;
     }
 
+    /**
+     * Faz 3.1: kayda geçmiş şüpheli kayıtlar → hub "Kayıt Kontrolleri" (pending). Firma ve numara adla bulunur; "Cari-N"
+     * firma içinde gerçek ada çevrilir (soru müşteriye gerçek adla gider). Müşteriye KENDİLİĞİNDEN hiçbir şey gitmez.
+     */
+    private function storeReviews(ConversationReport $report, array $reviews): int
+    {
+        $n = 0;
+        foreach ($reviews as $r) {
+            $firm = \App\Models\HubFirm::where('name', trim((string) ($r['firm'] ?? '')))->first();
+            $phone = $firm ? \App\Models\HubPhone::where('hub_firm_id', $firm->id)->where('name', trim((string) ($r['user'] ?? '')))->value('phone') : null;
+            $real = fn (?string $t) => $t !== null && $firm ? ConversationAnalyzer::unmask($firm, $t) : $t;
+            $problem = $real(mb_substr((string) $r['problem'], 0, 2000));
+            if (\App\Models\RecordReview::where('hub_firm_id', $firm?->id)->where('problem', $problem)->exists()) {
+                continue;
+            }
+            \App\Models\RecordReview::create([
+                'conversation_report_id' => $report->id,
+                'hub_firm_id' => $firm?->id,
+                'firm_name' => $r['firm'] ?? null,
+                'user_name' => $r['user'] ?? null,
+                'phone' => $phone,
+                'happened_at' => isset($r['time']) ? mb_substr((string) $r['time'], 0, 40) : null,
+                'problem' => $problem,
+                'fix' => $real(isset($r['fix']) ? mb_substr((string) $r['fix'], 0, 1000) : null),
+                'question' => $real(mb_substr((string) $r['question'], 0, 1000)),
+                'status' => 'pending',
+            ]);
+            $n++;
+        }
+
+        return $n;
+    }
+
     private function sendSummary(ConversationReport $report, WhatsappSender $sender): void
     {
         $phones = config('services.whatsapp.admin_phones', []);
@@ -113,7 +151,9 @@ class AnalyzeConversations extends Command
             . 'Ayrıntı: ' . rtrim((string) config('app.url'), '/') . "/hub → Günlük Analiz\n"
             . "Yorumların için Claude'a \"Rapor {$report->id}: …\" yaz."
             . (($pending = \App\Models\AssistantLesson::where('status', 'pending')->count()) > 0
-                ? "\n🎓 {$pending} ders önerisi onayını bekliyor: /hub → Dersler" : '');
+                ? "\n🎓 {$pending} ders önerisi onayını bekliyor: /hub → Dersler" : '')
+            . (($checks = \App\Models\RecordReview::where('status', 'pending')->count()) > 0
+                ? "\n🔍 {$checks} kayıt kontrolü bekliyor (yanlış kaydedilmiş olabilir): /hub → Kayıt Kontrolleri" : '');
 
         $sent = false;
         foreach ($phones as $phone) {

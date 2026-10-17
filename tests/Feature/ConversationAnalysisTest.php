@@ -128,4 +128,20 @@ class ConversationAnalysisTest extends TestCase
 
         $this->assertSame([[], 'Ders yok'], ConversationAnalyzer::extractLessons('Ders yok'));
     }
+
+    public function test_record_review_block_is_read_and_kept_out_of_report(): void
+    {
+        $text = "Rapor\n```dersler\n[]\n```\n```duzeltmeler\n[{\"firm\": \"Kent İnşaat\", \"user\": \"Taner Köse\", \"time\": \"13.10 12:41\", "
+            . "\"problem\": \"Cari-4 'borcum ödendi' yeni borç yazıldı\", \"fix\": \"borç kapandı\", "
+            . "\"question\": \"13 Ekim'de Cari-4 için yazdığımız kayıtta borcunuz kapandı mı, yoksa hâlâ borçlu musunuz?\"},\n"
+            . "{\"firm\": \"X\", \"problem\": \"soru yok\"}]\n```";
+
+        [$lessons, $rest] = ConversationAnalyzer::extractLessons($text);
+        [$reviews, $rest] = ConversationAnalyzer::extractBlock($rest, 'duzeltmeler', ['problem', 'question']);
+
+        $this->assertSame([], $lessons);
+        $this->assertCount(1, $reviews, 'sorusu olmayan öneri alınmaz');
+        $this->assertSame('Taner Köse', $reviews[0]['user']);
+        $this->assertSame('Rapor', trim($rest), 'bloklar rapor metninden çıkar');
+    }
 }

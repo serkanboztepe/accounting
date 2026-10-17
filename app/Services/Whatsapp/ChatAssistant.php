@@ -445,6 +445,9 @@ class ChatAssistant
           alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
           ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
           sorarsan kayıt kaybolur. Türü tutar varmış gibi aynı kurallarla seç ("X'e yem verdim" = sale, "X'ten un aldım" = purchase).
+        - Bizim sorduğumuz kayıt kontrol sorusuna ("Bir kaydınızı kontrol etmek istiyorum: …") cevap gelir ve kayıt YANLIŞ çıkarsa:
+          `undo_last` + `find_date` / `find_amount` / `find_text` ile o kaydı bul ve `replacement` ile doğru hâlini öner (müşteri onaylar).
+          Kayıt doğruysa kısa teşekkür et, bir şey değiştirme.
         - "Fotoğrafını / fişi / dekontu atıyorum, gönderiyorum, birazdan atacağım" = belge BİRAZDAN gelecek: kısa `reply` ile
           "Tamam, bekliyorum" de; "göremedim / takılmış" DEME, kayıt önerme (belge gelince birlikte okunur).
         - Bekleyen taslak YOKKEN kısa bir "ödendi / tamam / yaptım / verdim" gelirse: "BUGÜN SENİN KENDİLİĞİNDEN GÖNDERDİKLERİN"e ve
@@ -520,7 +523,7 @@ class ChatAssistant
     }
 
     /** Bizim kendiliğimizden gönderdiğimiz bugünkü mesajlar (hatırlatma, soru, uyarı) — saatler sonra gelen "Ödendi" bunlara cevap olabilir. */
-    public const OUTBOUND_KINDS = ['reminder', 'due_reminder', 'stock_reminder', 'data_question', 'lesson_question', 'draft_followup'];
+    public const OUTBOUND_KINDS = ['reminder', 'due_reminder', 'stock_reminder', 'data_question', 'lesson_question', 'record_review', 'draft_followup'];
 
     private static function todaysOutbound(?string $phone): string
     {
