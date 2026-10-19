@@ -254,7 +254,14 @@ class Reminder extends Model
     {
         $this->acknowledged_at = now();
         if ($this->repeat) {
-            $this->event_date = $this->nextOccurrence($this->event_date)->toDateString();
+            // Olay günü hatırlatması gidince tarih zaten sıradaki aya geçer; aynı gün "ödendi" bir ay daha atlatıyordu
+            // (Akkuş 19.10: Hikmet 17, Afgan Apo 19 Ekim ödendi → Kasım atlandı, sıradaki Aralık). Bu olayın ilk hatırlatması
+            // son gönderimden sonraysa tarih zaten ileride — yalnız yeniden zamanla.
+            $first = $this->alarmsFor($this->event_date)[0] ?? null;
+            $alreadyNext = $this->last_sent_at && $first && $first->gt($this->last_sent_at);
+            if (! $alreadyNext) {
+                $this->event_date = $this->nextOccurrence($this->event_date)->toDateString();
+            }
             $this->scheduleNext(now());
         } else {
             $this->status = 'done';

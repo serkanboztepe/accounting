@@ -211,4 +211,37 @@ class WhatsappEmployeeTest extends TestCase
         $this->assertEquals(30000, \App\Services\Whatsapp\EmployeeDraft::guardSalaryAmount($base + ['amount' => 30000], 'Apoya 30 bin maaş verdim')['amount'], 'kısmi ödeme');
         $this->assertEquals(2000, \App\Services\Whatsapp\EmployeeDraft::guardSalaryAmount($base + ['amount' => 2000, 'description' => 'yevmiye'], 'Apo yevmiye')['amount'], 'yevmiye');
     }
+
+    /** Ayın 17'si maaş günü hatırlatması (gün önce + o gün 08:00); "ödendi" anı ve son gönderim verilir. */
+    private function salaryReminder(string $sentAt, string $paidAt): Reminder
+    {
+        $tz = Reminder::TIMEZONE;
+        $r = new Reminder(['phone' => '905558880005', 'text' => 'Hikmet maaş günü', 'event_date' => '2026-10-17', 'repeat' => 'monthly',
+            'anchor_day' => 17, 'is_alarm' => false, 'status' => 'active']);
+        // reminders:send gibi: gönder → sıradaki ana geç.
+        $r->last_sent_at = \Illuminate\Support\Carbon::parse($sentAt, $tz);
+        $r->scheduleNext(\Illuminate\Support\Carbon::parse($sentAt, $tz));
+        $r->save();
+        $this->travelTo(\Illuminate\Support\Carbon::parse($paidAt, $tz));
+        $r->acknowledge();
+
+        return $r->fresh();
+    }
+
+    public function test_paid_on_salary_day_does_not_skip_next_month(): void
+    {
+        // Akkuş 19.10: olay günü hatırlatması gitti (tarih Kasım'a geçti), aynı gün "maaşı ödendi" → Aralık'a atlıyordu.
+        $r = $this->salaryReminder('2026-10-17 08:00', '2026-10-17 12:00');
+
+        $this->assertSame('2026-11-16 08:00', $r->next_fire_at->setTimezone(Reminder::TIMEZONE)->format('Y-m-d H:i'));
+        $this->assertSame('2026-11-17', $r->event_date->toDateString());
+    }
+
+    public function test_paid_after_day_before_reminder_skips_that_days_reminder(): void
+    {
+        // Bir gün önceki hatırlatma gitti, o gün ödendi → 17 Ekim hatırlatması gereksiz, sıradaki Kasım.
+        $r = $this->salaryReminder('2026-10-16 08:00', '2026-10-16 12:00');
+
+        $this->assertSame('2026-11-16 08:00', $r->next_fire_at->setTimezone(Reminder::TIMEZONE)->format('Y-m-d H:i'));
+    }
 }
