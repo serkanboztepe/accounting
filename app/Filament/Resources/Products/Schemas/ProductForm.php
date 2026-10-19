@@ -80,7 +80,7 @@ class ProductForm
                         ->helperText(fn (Get $get) => $get('reorder_level') === null || $get('reorder_level') === ''
                             ? 'Boş bırakırsan haber verilmez.'
                             : ($get('auto_usage') && (float) $get('daily_usage') > 0
-                                ? 'Yaklaşık ' . (int) floor((float) $get('reorder_level') / (float) $get('daily_usage')) . ' günlük kaldığında haber verilir.'
+                                ? 'Yaklaşık ' . (int) floor((float) $get('reorder_level') / ((float) $get('daily_usage') / max(1, (int) ($get('usage_every_days') ?: 1)))) . ' günlük kaldığında haber verilir.'
                                 : 'Stok bu sayıya inince haber verilir.')),
 
                     Placeholder::make('stock_info')
@@ -89,7 +89,7 @@ class ProductForm
                         ->content(function (Get $get, ?Product $record) {
                             $stock = $record->currentStock();
                             $text = StockUsage::quantity($stock) . ' ' . ($record->unit?->name ?? '');
-                            $daily = (float) $get('daily_usage');
+                            $daily = (float) $get('daily_usage') / max(1, (int) ($get('usage_every_days') ?: 1));
 
                             return $get('auto_usage') && $daily > 0
                                 ? $text . ' — yaklaşık ' . (int) floor(max(0, $stock) / $daily) . ' gün yeter'
@@ -112,6 +112,18 @@ class ProductForm
                         ->visible(fn (Get $get) => (bool) $get('auto_usage'))
                         ->live(onBlur: true)
                         ->suffix(fn (Get $get) => Unit::find($get('unit_id'))?->name),
+
+                    // "3 günde 1 adet" (Oktay 18.10) — boş/1 = her gün.
+                    TextInput::make('usage_every_days')
+                        ->label('Kaç günde bir düşülsün?')
+                        ->helperText('Her gün ise boş bırak. Ör. "3 günde 1 adet" → yukarıya 1, buraya 3.')
+                        ->numeric()
+                        ->integer()
+                        ->minValue(1)
+                        ->maxValue(365)
+                        ->visible(fn (Get $get) => (bool) $get('auto_usage'))
+                        ->live(onBlur: true)
+                        ->suffix('günde bir'),
                 ])
                 ->columns(2)
                 ->columnSpanFull(),

@@ -32,15 +32,19 @@ class StockUsage
         foreach ($ids as $id) {
             DB::transaction(function () use ($id, $today, &$booked) {
                 $product = Product::lockForUpdate()->find($id);
+                // "3 günde 1": düşülen son günden N gün sonra bir kez (N = 1 → her gün, eskisi gibi).
+                $every = $product->usageEveryDays();
                 $from = $product->usage_booked_through
-                    ? Carbon::parse($product->usage_booked_through->toDateString(), Reminder::TIMEZONE)->addDay()
+                    ? Carbon::parse($product->usage_booked_through->toDateString(), Reminder::TIMEZONE)->addDays($every)
                     : $today->copy();
+                $last = null;
 
                 $stock = $product->currentStock();
                 $total = 0.0;
                 $days = 0;
 
-                for ($day = $from; $day->lte($today); $day->addDay()) {
+                for ($day = $from; $day->lte($today); $day->addDays($every)) {
+                    $last = $day->copy();
                     $qty = min((float) $product->daily_usage, max(0.0, $stock));
                     if ($qty > 0) {
                         StockMovement::create([
@@ -57,7 +61,12 @@ class StockUsage
                     }
                 }
 
-                $product->usage_booked_through = $today->toDateString();
+                // Aralıklıda yalnız işlenen güne kadar ilerler (sıradaki düşüş o günden N gün sonra).
+                if ($every === 1) {
+                    $product->usage_booked_through = $today->toDateString();
+                } elseif ($last !== null) {
+                    $product->usage_booked_through = $last->toDateString();
+                }
                 $product->saveQuietly();
 
                 if ($total > 0) {

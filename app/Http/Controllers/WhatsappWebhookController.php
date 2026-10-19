@@ -472,6 +472,14 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, $data));
         }
 
+        // Stok kartı "17 mi olsun, 5 + 17 = 22 mi?" → yalnız sayı cevabı (AI'sız; tutar sanılmasın).
+        if ($pending && $image === null && $this->kind($pending->extracted) === ExpenseExtractor::KIND_STOCK_UPDATE
+            && ($answered = \App\Services\Whatsapp\StockCard::answer($pending->extracted, $body)) !== null) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, ['question' => null] + $answered));
+        }
+
         // Sohbet asistanı (deneme, ayarla açılır): yazılı mesajlar konuşmayı gören asistana gider.
         // Kesin cevaplar (evet / iptal / numara) eskisi gibi kodda kalır — onu AI'a sormaya gerek yok.
         if (ChatAssistant::enabled() && $image === null && $body !== ''

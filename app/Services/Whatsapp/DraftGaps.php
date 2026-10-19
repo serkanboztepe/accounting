@@ -107,6 +107,7 @@ final class DraftGaps
             ExpenseExtractor::KIND_REMEMBER => 'Hatırlanacak bilgi',
             ExpenseExtractor::KIND_FORGET => 'Unutulacak bilgi',
             ExpenseExtractor::KIND_EMPLOYEE_SETTING => 'Personel bilgisi',
+            ExpenseExtractor::KIND_STOCK_UPDATE, ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING => 'Stok',
             default => 'Kayıt',
         };
         $party = self::party($d)?->name ?? ($d['party_name'] ?? null);

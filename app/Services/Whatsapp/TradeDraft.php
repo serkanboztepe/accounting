@@ -92,6 +92,12 @@ class TradeDraft
         if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE) {
             return self::normalizePurchase($d);
         }
+        // Birleşik stok kartı (19.10): AI ürün satırlarını `stock_items` ile verdiyse sayım/ayar/ürün açma tek kart olur.
+        if ($kind === ExpenseExtractor::KIND_STOCK_UPDATE
+            || (in_array($kind, [ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_PRODUCT_ADD], true)
+                && ! empty($d['stock_items']))) {
+            return StockCard::normalize($d);
+        }
         if ($kind === ExpenseExtractor::KIND_PRODUCT_ADD) {
             return self::normalizeProductAdd($d);
         }
@@ -343,6 +349,7 @@ class TradeDraft
             ExpenseExtractor::KIND_STOCK_COUNT => self::countSummary($d),
             ExpenseExtractor::KIND_STOCK_SETTING => self::settingSummary($d),
             ExpenseExtractor::KIND_PRODUCT_ADD => self::productAddSummary($d),
+            ExpenseExtractor::KIND_STOCK_UPDATE => StockCard::summary($d),
             ExpenseExtractor::KIND_PRODUCT_RENAME => self::renameSummary($d),
             ExpenseExtractor::KIND_PRODUCTION => self::productionSummary($d),
             default => '',
@@ -381,6 +388,9 @@ class TradeDraft
         $kind = $d['kind'];
         if ($kind === ExpenseExtractor::KIND_PRODUCT_ADD) {
             return null;
+        }
+        if ($kind === ExpenseExtractor::KIND_STOCK_UPDATE) {
+            return StockCard::blocker($d);
         }
         if ($kind === ExpenseExtractor::KIND_PRODUCT_RENAME) {
             return empty($d['product_id']) ? 'Hangi ürünün adı değişecek? Stoktaki adıyla yazar mısınız?'
@@ -643,6 +653,7 @@ class TradeDraft
             ExpenseExtractor::KIND_STOCK_COUNT => self::commitCount($d),
             ExpenseExtractor::KIND_STOCK_SETTING => self::commitSetting($d),
             ExpenseExtractor::KIND_PRODUCT_ADD => self::commitProductAdd($d),
+            ExpenseExtractor::KIND_STOCK_UPDATE => StockCard::commit($d),
             ExpenseExtractor::KIND_PRODUCT_RENAME => self::commitRename($d),
             ExpenseExtractor::KIND_PRODUCTION => self::commitProduction($d),
         };
@@ -924,6 +935,12 @@ class TradeDraft
     }
 
     /** Ürün kartı (stoklu). Aynı adlı ürün o arada açıldıysa onu kullanır — çift kart olmasın. */
+    /** Stok kartı (StockCard) yeni ürünü buradan açar — birim ve tür kuralları tek yerde. */
+    public static function openProduct(string $name, ?string $unit): Product
+    {
+        return self::createProduct($name, $unit)->load('unit');
+    }
+
     private static function createProduct(string $name, ?string $unit, ?float $purchasePrice = null): Product
     {
         if ($existing = self::matchProduct($name)) {
@@ -1149,7 +1166,7 @@ class TradeDraft
         return $a === $b || (str_starts_with($long, $short) && mb_strlen($long) - mb_strlen($short) <= 3 && mb_strlen($short) >= 2);
     }
 
-    private static function fits(string $name, string $text): bool
+    public static function fits(string $name, string $text): bool
     {
         $n = self::words($name);
         $t = self::words($text);
@@ -1241,7 +1258,7 @@ class TradeDraft
         return null;
     }
 
-    private static function title(string $s): string
+    public static function title(string $s): string
     {
         $s = trim($s);
 

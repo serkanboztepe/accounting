@@ -57,8 +57,8 @@ class ProductsTable
                         $record->isLowStock() => 'warning',
                         default => 'gray',
                     })
-                    ->description(fn (Product $record) => $record->auto_usage
-                        ? 'Günde ' . StockUsage::quantity((float) $record->daily_usage) . ' düşüyor'
+                    ->description(fn (Product $record) => ($label = $record->usageLabel()) !== null
+                        ? mb_strtoupper(mb_substr($label, 0, 1)) . mb_substr($label, 1) . ' düşüyor'
                         : null),
 
                 IconColumn::make('is_active')

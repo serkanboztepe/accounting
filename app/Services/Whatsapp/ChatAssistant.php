@@ -316,7 +316,7 @@ class ChatAssistant
 
     private const CLAIM_REJECTED = 'GERİ ÇEVRİLDİ — kullanıcıya GİTMEDİ: cevabında bir şeyi yaptığını/kaydettiğini söyledin ama düz cevap HİÇBİR ŞEY '
         . 'kaydetmez; kayıt ve ayar yalnız propose_entry + kullanıcının onayıyla olur. Kullanıcı bir şeyin yapılmasını istiyorsa propose_entry '
-        . 'ile öner (ör. "her gün düş" → stock_setting + daily_usage; miktarı bilmiyorsan question ile sor). Yalnız bilgi veriyorsan bağlamda '
+        . 'ile öner (ör. "her gün düş" → stock_setting + stock_items[usage_amount]; miktarı bilmiyorsan question ile sor). Yalnız bilgi veriyorsan bağlamda '
         . '(ÜRÜNLER, CARİLER) GÖRDÜĞÜNÜ "yaptım" demeden anlat; bağlamda yazmayan ayar YOKTUR.';
 
     private const NOT_DONE_REPLY = 'Bunu henüz kaydetmedim. Ne yapmamı istediğini kısaca yazar mısın? (ör. "yem günde 16 adet gidiyor")';
@@ -432,6 +432,11 @@ class ChatAssistant
         $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ')';
         $kinds = ExpenseExtractor::kindGuide();
         $context = ExpenseContext::build($phone);
+        // Stok kartı kodun iç türüdür; AI onu sayım olarak görür (düzeltmede stock_items ile yeniden önerir).
+        if ($pending !== null && ($pending['kind'] ?? null) === ExpenseExtractor::KIND_STOCK_UPDATE) {
+            $pending['kind'] = ExpenseExtractor::KIND_STOCK_COUNT;
+            $pending['stock_items'] = array_map(fn ($r) => array_diff_key($r, ['new' => 1, 'similar' => 1]), (array) ($pending['stock_items'] ?? []));
+        }
         $draft = $pending !== null
             ? json_encode(array_intersect_key($pending, array_flip([
                 'kind', 'amount', 'description', 'date', 'due_date', 'party_id', 'party_name', 'project_id', 'project_name',
@@ -440,7 +445,7 @@ class ChatAssistant
                 'product_id', 'cash_amount', 'card_amount', 'counted_quantity', 'daily_usage', 'reorder_level', 'month',
                 'purchase_price', 'product_name', 'unit', 'next_items',
                 // Önce anla: sorulan soru ve anlaşılanlar (cevap gelince aynı kayıt tamamlanır).
-                'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks',
+                'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks', 'stock_items',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];
@@ -484,7 +489,7 @@ class ChatAssistant
           kalıcı istek de öğretmedir ("Kaya Petrol fişlerinden plakayı da kaydet", "açıklamaya hep … yaz") → remember (preference);
           "yapamıyorum" DEME — hafızadaki tercihe sonraki kayıtlarda uyarsın. Tek kayda yönelikse ("BU fişe plakayı ekle") düzeltmedir.
           Hafıza KENDİLİĞİNDEN İŞ YAPMAZ: "her gün / her ay … ekle, düş, kaydet, hatırlat" hafıza notu DEĞİLDİR — stoktan günlük
-          düşme → stock_setting (daily_usage); tarihli tek hatırlatma → reminder; hafızaya "her gün kaydedilecek" diye söz YAZMA.
+          düşme → stock_setting (stock_items); tarihli tek hatırlatma → reminder; hafızaya "her gün kaydedilecek" diye söz YAZMA.
           Kendin "hatırlarım / not aldım" DEME;
           kaydı sistem onayla yapar. İşlem mesajında kalıcı bir bilgi geçiyorsa (kişi düzeltmesi "kalfa değil, Mehmet Kaya";
           anlaşma "280'den anlaştık") işlemi öner ve `memory_suggestion` doldur — işlem kaydolunca sistem sorar.

@@ -30,6 +30,7 @@ class Product extends Model
         'is_active',
         'auto_usage',
         'daily_usage',
+        'usage_every_days',
         'reorder_level',
         'usage_booked_through',
         'low_stock_alerted_at',
@@ -42,6 +43,7 @@ class Product extends Model
         'is_active'     => 'boolean',
         'auto_usage'    => 'boolean',
         'daily_usage'   => 'decimal:2',
+        'usage_every_days' => 'integer',
         'reorder_level' => 'decimal:2',
         'usage_booked_through' => 'date',
         'low_stock_alerted_at' => 'datetime',
@@ -51,7 +53,8 @@ class Product extends Model
     {
         // Anahtar açıldığı gün düşülmüş sayılır: ilk düşüş ertesi sabah (açtığın gün iki kez düşmesin).
         static::saving(function (Product $product) {
-            if ($product->auto_usage && ($product->isDirty('auto_usage') || $product->usage_booked_through === null)) {
+            // Aralık değişince de yeniden başlar ("3 günde 1": ilk düşüş 3 gün sonra).
+            if ($product->auto_usage && ($product->isDirty('auto_usage') || $product->isDirty('usage_every_days') || $product->usage_booked_through === null)) {
                 $product->usage_booked_through = now(Reminder::TIMEZONE)->toDateString();
             }
             if (! $product->auto_usage) {
@@ -135,7 +138,24 @@ class Product extends Model
             return null;
         }
 
-        return max(0, (int) floor(($stock ?? $this->currentStock()) / (float) $this->daily_usage));
+        return max(0, (int) floor(($stock ?? $this->currentStock()) / ((float) $this->daily_usage / $this->usageEveryDays())));
+    }
+
+    /** Günlük miktar kaç günde bir düşülür (1 = her gün). */
+    public function usageEveryDays(): int
+    {
+        return max(1, (int) ($this->usage_every_days ?? 1));
+    }
+
+    /** "her sabah 12 adet" / "her 3 günde 1 adet" — WhatsApp ve panel aynı dili konuşsun. */
+    public function usageLabel(): ?string
+    {
+        if (! $this->auto_usage || (float) $this->daily_usage <= 0) {
+            return null;
+        }
+        $qty = \App\Support\StockUsage::quantity((float) $this->daily_usage) . ($this->unit?->name ? ' ' . $this->unit->name : '');
+
+        return $this->usageEveryDays() > 1 ? 'her ' . $this->usageEveryDays() . ' günde ' . $qty : 'her sabah ' . $qty;
     }
 
     /**

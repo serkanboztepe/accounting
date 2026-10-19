@@ -149,8 +149,7 @@ class ExpenseContext
                         . (($buy = $p->buyPrice()) !== null ? ' / alış ' . $buy : ''),
                     ($p->isProduct() ? ' — stok ' . \App\Support\StockUsage::quantity($p->currentStock()) : ' — hizmet')
                         // Ayar gerçekte ne (Çiftlik 16.10: AI "zaten otomatik düşüyor" dedi, ayar yoktu) — yoksa "yok" yazar.
-                        . ($p->isProduct() ? ($p->auto_usage && (float) $p->daily_usage > 0
-                            ? ' — her sabah ' . \App\Support\StockUsage::quantity((float) $p->daily_usage) . ' düşülüyor' : ' — otomatik düşme yok')
+                        . ($p->isProduct() ? (($usage = $p->usageLabel()) !== null ? ' — ' . $usage . ' düşülüyor' : ' — otomatik düşme yok')
                             . ($p->reorder_level !== null ? ', ' . \App\Support\StockUsage::quantity((float) $p->reorder_level) . ' kalınca uyarı' : '') : '')))
                 ->implode("\n");
         }

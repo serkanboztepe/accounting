@@ -237,6 +237,12 @@ class AssistantEvalTest extends TestCase
             if (array_key_exists('daily_usage', (array) $want) && ($want['daily_usage'] === null ? $daily !== null : abs((float) $daily - (float) $want['daily_usage']) > 0.01)) {
                 $fails[] = "ayar {$name}: beklenen günlük " . json_encode($want['daily_usage']) . ', gelen ' . json_encode($daily);
             }
+            if (array_key_exists('every_days', (array) $want) && ($product?->usageEveryDays() ?? 1) !== (int) $want['every_days']) {
+                $fails[] = "ayar {$name}: beklenen kaç günde bir {$want['every_days']}, gelen " . json_encode($product?->usageEveryDays());
+            }
+            if (array_key_exists('reorder_level', (array) $want) && abs((float) ($product?->reorder_level ?? -1) - (float) $want['reorder_level']) > 0.01) {
+                $fails[] = "ayar {$name}: beklenen eşik {$want['reorder_level']}, gelen " . json_encode($product?->reorder_level);
+            }
         }
         // Son bakiye: >0 cari bize borçlu, <0 biz ona borçluyuz (PartyStatement konvansiyonu).
         foreach ($expect['balance'] ?? [] as $ref => $want) {
