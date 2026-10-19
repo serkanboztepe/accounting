@@ -176,7 +176,8 @@ class WhatsappStateClaimTest extends TestCase
 
         $reply = $this->send('Çobanlar günde iki ekmek yiyorlar ekmeğin fiyatı 17:30 TL her gün hesap hesaplarına gider olarak ekle');
 
-        $this->assertStringContainsString('kendiliğimden her gün kayıt açamam', $reply);
+        $this->assertStringContainsString('hafıza kendiliğinden kayıt açmaz', $reply);
+        $this->assertStringContainsString('düzenli gider olarak kurarım', $reply);
         $this->assertStringNotContainsString('Hatırlayayım mı', $reply);
         $this->send('evet');
         $this->assertSame($before, \App\Models\AssistantMemory::count());

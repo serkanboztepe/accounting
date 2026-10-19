@@ -62,6 +62,12 @@ class ExpenseExtractor
     public const KIND_SALARY = 'salary';
     public const KIND_REMEMBER = 'remember';       // "bundan sonra kalfa deyince Mehmet'i anla" (MemoryDraft, onaylı)
     public const KIND_FORGET = 'forget';           // "kalfayı unut"
+    public const KIND_RECURRING_EXPENSE = 'recurring_expense'; // "her gün ekmek 34,60 gider yaz" (RecurringDraft, onaylı)
+
+    public const KIND_RECURRING_LIST = 'recurring_list';       // "düzenli giderlerim" — kayıt yok
+
+    public const KIND_RECURRING_STOP = 'recurring_stop';       // "ekmek giderini durdur"
+
     public const KIND_MEMORY_LIST = 'memory_list'; // "neleri hatırlıyorsun" — kayıt yok                     // "Abdullah'ın maaşını verdim" → Maaş satırı + ödeme (avans düşülür)
 
     // Stoklu satış paketi (Satışlar/Alışlar tezgahı açık firmada; diğer firmalarda bu türler YOK):
@@ -87,6 +93,9 @@ class ExpenseExtractor
 
     private const KIND_HINTS = [
         self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
+        self::KIND_RECURRING_EXPENSE => '- "recurring_expense": DÜZENLİ GİDER — her gün / her hafta / her ay KENDİLİĞİNDEN yazılacak aynı gider ("çobanlar günde 2 ekmek yiyor 17,30 TL her gün gider olarak ekle", "her ayın 1\'i kira 20 bin", "her pazartesi pazar 500"). `amount` = HER SEFERİNDEKİ tutar (miktar × birim fiyat: 2 × 17,30 = 34,60; "17:30 TL" saat değil 17,30 TL), `description` kısa ("Çobanlar ekmek"), `category_id`/`category_name`, `recurring_frequency` daily|weekly|monthly, `recurring_day` (haftalık: 1=pazartesi … 7=pazar; aylık: ayın kaçı), `recurring_start` (YYYY-MM-DD, yalnız "bugünden / yarından / 1 Kasım\'dan" denirse). Bugün bir kez yapılan harcama bu DEĞİL → "expense". Hafızaya yazma.',
+        self::KIND_RECURRING_LIST => '- "recurring_list": "düzenli giderlerim", "her gün ne yazılıyor" — kayıt yok. amount=0.',
+        self::KIND_RECURRING_STOP => '- "recurring_stop": düzenli gideri durdur ("ekmek giderini durdur", "kira artık yazılmasın"). `description` = aranacak kelime ("ekmek"). amount=0.',
         self::KIND_FORGET => '- "forget": öğretilen bir bilgiyi unut ("kalfayı unut", "Recep fiyatını sil"). `memory_subject` = aranacak kelime ("kalfa"). amount=0.',
         self::KIND_MEMORY_LIST => '- "memory_list": "neleri hatırlıyorsun", "bana ne öğrettim" — kayıt yok. amount=0.',
         self::KIND_EMPLOYEE_SETTING => '- "employee_setting": PERSONEL BİLGİSİ — çalışanın maaşı / maaş günü söyleniyor, para hareketi YOK ("Abdullah Günhan personelim, maaşı 50 bin, ayın 15\'inde", "Ali\'nin maaşı 55 bin oldu", "Mehmet işçimiz ayın 1\'i maaş alıyor"). `party_id` (listede yoksa `party_name`), `salary_amount` (aylık), `salary_day` (ayın kaçı); söylenmeyen null; amount=0. Asistan az önce "maaşı ne kadar, ayın kaçında?" diye sorduysa cevap ("45 bin, ayın 5\'i", "45 bin") o kişi için employee_setting\'tir. "Maaşından ne kadar kaldı / ne kadar vereceğim" SORUSU kayıt değildir: CARİLER\'deki o kişinin notundaki "maaştan kalan" / "açık avans" rakamıyla cevap ver (hesap yapma).',
@@ -143,6 +152,9 @@ class ExpenseExtractor
             self::KIND_REMEMBER,
             self::KIND_FORGET,
             self::KIND_MEMORY_LIST,
+            config('modules.expenses') ? self::KIND_RECURRING_EXPENSE : null,
+            config('modules.expenses') ? self::KIND_RECURRING_LIST : null,
+            config('modules.expenses') ? self::KIND_RECURRING_STOP : null,
             // Personel: maaş/avans ödemesi var → ödeme açık firmalarda (mimar paketi değişmez — Ferhat kararı).
             config('modules.cari_supplier') ? self::KIND_EMPLOYEE_SETTING : null,
             config('modules.cari_supplier') ? self::KIND_SALARY : null,
@@ -596,7 +608,7 @@ class ExpenseExtractor
             'description' => 'Çıkarılan işlem bilgisini yapılandırılmış olarak döndürür.',
             'input_schema' => [
                 'type' => 'object',
-                'properties' => self::tradeProperties() + Understanding::schema() + [
+                'properties' => self::tradeProperties() + self::recurringProperties() + Understanding::schema() + [
                     'kind' => ['type' => 'string', 'enum' => self::aiKinds(), 'description' => 'Entry kind; see system prompt'],
                     'items' => self::itemsSchema(),
                     'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
@@ -689,6 +701,20 @@ class ExpenseExtractor
     }
 
     /** Stoklu satış alanları (yalnız paket açıkken şemaya eklenir). */
+    /** Düzenli gider alanları (gider takibi açıkken). */
+    private static function recurringProperties(): array
+    {
+        if (! config('modules.expenses')) {
+            return [];
+        }
+
+        return [
+            'recurring_frequency' => ['type' => ['string', 'null'], 'enum' => ['daily', 'weekly', 'monthly', null], 'description' => 'Only for recurring_expense'],
+            'recurring_day' => ['type' => ['integer', 'null'], 'description' => 'Only for recurring_expense: weekly 1=Mon..7=Sun; monthly day of month'],
+            'recurring_start' => ['type' => ['string', 'null'], 'description' => 'Only for recurring_expense: YYYY-MM-DD only if the user said when it starts'],
+        ];
+    }
+
     private static function tradeProperties(): array
     {
         if (! self::tradeEnabled()) {
@@ -1048,6 +1074,9 @@ class ExpenseExtractor
             'items' => $kind === self::KIND_SALE || $tradeItems ? $items : [],
             'product_id' => $stockKind && ! empty($input['product_id']) ? (int) $input['product_id'] : null,
             'counted_quantity' => $kind === self::KIND_STOCK_COUNT && isset($input['counted_quantity']) ? (float) $input['counted_quantity'] : null,
+            'recurring_frequency' => $kind === self::KIND_RECURRING_EXPENSE && in_array($input['recurring_frequency'] ?? null, ['daily', 'weekly', 'monthly'], true) ? $input['recurring_frequency'] : null,
+            'recurring_day' => $kind === self::KIND_RECURRING_EXPENSE && (int) ($input['recurring_day'] ?? 0) >= 1 && (int) $input['recurring_day'] <= 31 ? (int) $input['recurring_day'] : null,
+            'recurring_start' => $kind === self::KIND_RECURRING_EXPENSE ? self::validDate($input['recurring_start'] ?? null) : null,
             'stock_items' => in_array($kind, [self::KIND_STOCK_COUNT, self::KIND_STOCK_SETTING, self::KIND_PRODUCT_ADD], true)
                 ? StockCard::sanitize($input['stock_items'] ?? []) : [],
             'daily_usage' => in_array($kind, [self::KIND_STOCK_SETTING, self::KIND_PRODUCT_ADD], true) && isset($input['daily_usage']) ? (float) $input['daily_usage'] : null,

@@ -489,7 +489,8 @@ class ChatAssistant
           kalıcı istek de öğretmedir ("Kaya Petrol fişlerinden plakayı da kaydet", "açıklamaya hep … yaz") → remember (preference);
           "yapamıyorum" DEME — hafızadaki tercihe sonraki kayıtlarda uyarsın. Tek kayda yönelikse ("BU fişe plakayı ekle") düzeltmedir.
           Hafıza KENDİLİĞİNDEN İŞ YAPMAZ: "her gün / her ay … ekle, düş, kaydet, hatırlat" hafıza notu DEĞİLDİR — stoktan günlük
-          düşme → stock_setting (stock_items); tarihli tek hatırlatma → reminder; hafızaya "her gün kaydedilecek" diye söz YAZMA.
+          düşme → stock_setting (stock_items); her gün/hafta/ay aynı GİDER → recurring_expense (gider takibi açıksa); tarihli tek
+          hatırlatma → reminder; hafızaya "her gün kaydedilecek" diye söz YAZMA.
           Kendin "hatırlarım / not aldım" DEME;
           kaydı sistem onayla yapar. İşlem mesajında kalıcı bir bilgi geçiyorsa (kişi düzeltmesi "kalfa değil, Mehmet Kaya";
           anlaşma "280'den anlaştık") işlemi öner ve `memory_suggestion` doldur — işlem kaydolunca sistem sorar.

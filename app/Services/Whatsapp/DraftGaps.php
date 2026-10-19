@@ -42,6 +42,11 @@ final class DraftGaps
         if (MemoryDraft::handles($d)) {
             return self::confirm();
         }
+        if (RecurringDraft::handles($d)) {
+            return ($question = RecurringDraft::blocker($d))
+                ? ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question]
+                : self::confirm();
+        }
         if (EmployeeDraft::handles($d)) {
             return ($question = EmployeeDraft::blocker($d))
                 ? ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question]
@@ -107,6 +112,8 @@ final class DraftGaps
             ExpenseExtractor::KIND_REMEMBER => 'Hatırlanacak bilgi',
             ExpenseExtractor::KIND_FORGET => 'Unutulacak bilgi',
             ExpenseExtractor::KIND_EMPLOYEE_SETTING => 'Personel bilgisi',
+            ExpenseExtractor::KIND_RECURRING_EXPENSE => 'Düzenli gider',
+            ExpenseExtractor::KIND_RECURRING_STOP => 'Düzenli gideri durdurma',
             ExpenseExtractor::KIND_STOCK_UPDATE, ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING => 'Stok',
             default => 'Kayıt',
         };

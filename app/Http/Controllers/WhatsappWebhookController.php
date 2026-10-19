@@ -32,6 +32,7 @@ use App\Services\Whatsapp\DraftWarnings;
 use App\Services\Whatsapp\EmployeeDraft;
 use App\Services\Whatsapp\MemoryDraft;
 use App\Services\Whatsapp\NaturalVoice;
+use App\Services\Whatsapp\RecurringDraft;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Services\Whatsapp\ProjectChoice;
 use App\Support\Agenda;
@@ -896,7 +897,7 @@ class WhatsappWebhookController extends Controller
     private const ANSWER_KINDS = [ExpenseExtractor::KIND_BALANCE_QUERY, ExpenseExtractor::KIND_TOTALS_QUERY,
         ExpenseExtractor::KIND_STATEMENT, ExpenseExtractor::KIND_EXPENSE_SUMMARY, ExpenseExtractor::KIND_AGENDA,
         ExpenseExtractor::KIND_PARTY_LIST, ExpenseExtractor::KIND_MONTH_RESULT, ExpenseExtractor::KIND_STOCK_QUERY,
-        ExpenseExtractor::KIND_MEMORY_LIST];
+        ExpenseExtractor::KIND_MEMORY_LIST, ExpenseExtractor::KIND_RECURRING_LIST];
 
     /**
      * Akkuş 15.10 22:13: kasa onay beklerken "toplam ciro?" soruldu, cevap bekleyen 51.517'yi anmadı (dahil sandı).
@@ -1076,6 +1077,16 @@ class WhatsappWebhookController extends Controller
             }
 
             return $this->saveConfirmDraft($pending, $phone, $data, MemoryDraft::summary($data, $phone), MemoryDraft::blocker($data, $phone));
+        }
+        // Düzenli gider (ekmek her gün, kira her ay): onaylı kart; liste hemen cevap.
+        if (RecurringDraft::handles($data)) {
+            if (RecurringDraft::isAnswer($data)) {
+                return RecurringDraft::listText();
+            }
+            $data['recurring_source'] = $data['recurring_source'] ?? $this->inboundBody;
+            $blocker = RecurringDraft::blocker($data);
+
+            return $this->saveConfirmDraft($pending, $phone, $data, $blocker === null ? RecurringDraft::summary($data) : '', $blocker);
         }
         // Stoklu satış paketi (satış/alış belgesi, sayım, stok sorusu, ay sonucu) — yalnız o firmalarda.
         if (TradeDraft::handles($data)) {
@@ -1608,6 +1619,16 @@ class WhatsappWebhookController extends Controller
                 return '❓ ' . $question;
             }
             [$text] = MemoryDraft::commit($d, $pending->phone);
+            $pending->update(['status' => 'confirmed']);
+
+            return $text;
+        }
+
+        if (RecurringDraft::handles($d) && ! RecurringDraft::isAnswer($d)) {
+            if ($question = RecurringDraft::blocker($d)) {
+                return '❓ ' . $question;
+            }
+            [$text] = RecurringDraft::commit($d, $pending->phone);
             $pending->update(['status' => 'confirmed']);
 
             return $text;
