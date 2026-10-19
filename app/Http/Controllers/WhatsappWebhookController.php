@@ -19,6 +19,7 @@ use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\AdvanceOffset;
+use App\Services\Whatsapp\BundleDraft;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\DraftFollowUp;
 use App\Services\Whatsapp\DraftGaps;
@@ -375,6 +376,16 @@ class WhatsappWebhookController extends Controller
                 ->orWhere('followed_up_at', '>=', now()->subHours(24)))
             ->orderByDesc('updated_at')->orderByDesc('id')
             ->first();
+        // Toplu düzeltme yalnız net cevapla: "evet" (hepsi), numara ("1 3") ya da "iptal". Başka her mesaj normal işlenir, öneri
+        // dokunulmadan bekler — "süt iptal olmasın, gerisi tamam" hepsini yaptırmasın (yanlış anladıysak hiçbir şey kendiliğinden olmaz).
+        if ($pending && ($pending->extracted['kind'] ?? null) === BundleDraft::KIND) {
+            if ($numMedia === 0 && ($answer = BundleDraft::answer($pending, $body, $this->isConfirm($body), $this->isCancel($body))) !== null) {
+                $this->inboundKind = 'quick';
+
+                return $this->twiml($answer);
+            }
+            $pending = null;
+        }
         $this->openDraft = $pending;
 
         // Ses / video / belge: şimdilik okuyamıyoruz — sessizce yardım metni yerine açıkça söyle.
@@ -1747,6 +1758,9 @@ class WhatsappWebhookController extends Controller
         }
         if (($pending->extracted['kind'] ?? null) === ReturnDraft::KIND) {
             return ReturnDraft::commit($pending);
+        }
+        if (($pending->extracted['kind'] ?? null) === BundleDraft::KIND) {
+            return BundleDraft::commit($pending);
         }
         // Taslak ile onay arasında silinen proje/cari/kategori (review H) — kayıt hatası yerine boşalır, eksikse sorulur.
         $d = ExpenseExtractor::fitToModules(ExpenseExtractor::dropUnknownIds($pending->extracted));

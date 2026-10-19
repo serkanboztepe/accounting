@@ -114,6 +114,7 @@ final class DraftGaps
             ExpenseExtractor::KIND_EMPLOYEE_SETTING => 'Personel bilgisi',
             ExpenseExtractor::KIND_RECURRING_EXPENSE => 'Düzenli gider',
             ExpenseExtractor::KIND_RECURRING_STOP => 'Düzenli gideri durdurma',
+            BundleDraft::KIND => 'Toplu düzeltme',
             ExpenseExtractor::KIND_STOCK_UPDATE, ExpenseExtractor::KIND_STOCK_COUNT, ExpenseExtractor::KIND_STOCK_SETTING => 'Stok',
             default => 'Kayıt',
         };

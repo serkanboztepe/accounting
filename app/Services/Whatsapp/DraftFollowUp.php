@@ -141,7 +141,7 @@ final class DraftFollowUp
     {
         $d = $p->extracted ?? [];
         $kind = $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
-        $skip = in_array($kind, ['undo', 'return'], true);
+        $skip = in_array($kind, ['undo', 'return', 'bundle'], true);
         if (! $skip && (float) ($d['amount'] ?? 0) > 0) {
             $skip = WhatsappPendingExpense::where('phone', $p->phone)->where('status', 'confirmed')->where('id', '>', $p->id)
                 ->get(['extracted'])
