@@ -237,6 +237,28 @@ class WhatsappEmployeeTest extends TestCase
         $this->assertSame('2026-11-17', $r->event_date->toDateString());
     }
 
+    public function test_implausibly_low_monthly_salary_is_asked_once(): void
+    {
+        // Haiku eval 19.10: "Erkan maaşı 65 tl her ayın 30 unda" → 65 ₺ aylık maaş kartı, soru yok.
+        $draft = $this->draft(['kind' => ExpenseExtractor::KIND_EMPLOYEE_SETTING, 'party_name' => 'Personel Testi Erkan', 'salary_amount' => 65, 'salary_day' => 30]);
+        $this->ai($draft, ['is_new_entry' => false] + $draft);
+
+        $this->assertStringContainsString('65 TL mi, 65.000 TL mi?', $this->send('Erkan maaşı 65 tl her ayın 30 unda'));
+        $again = $this->send('65 tl doğru');
+        $this->assertStringNotContainsString('65.000 TL mi', $again, 'teyit edildi — tekrar sorulmaz');
+        $this->assertStringContainsString('Aylık maaş: 65,00', $again);
+    }
+
+    public function test_daily_wage_and_normal_salary_are_not_asked(): void
+    {
+        $this->assertNull(\App\Services\Whatsapp\Understanding::amountScaleQuestion(
+            ['kind' => ExpenseExtractor::KIND_SALARY, 'amount' => 800, 'description' => 'yevmiye', 'party_name' => 'Ali'], 'Ali yevmiye 800'));
+        $this->assertNull(\App\Services\Whatsapp\Understanding::amountScaleQuestion(
+            ['kind' => ExpenseExtractor::KIND_EMPLOYEE_SETTING, 'salary_amount' => 65000, 'party_name' => 'Ali'], 'Ali maaşı 65 bin'));
+        $this->assertNull(\App\Services\Whatsapp\Understanding::amountScaleQuestion(
+            ['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 65, 'description' => 'çay'], 'çay 65 tl'));
+    }
+
     public function test_whatsapp_salary_reminder_for_employee_sets_card_day_not_a_second_reminder(): void
     {
         // Akkuş: "Abdullah Günhan maaş ödemesi 50.000 TL" cariye bağsız ikinci hatırlatma olmuştu.

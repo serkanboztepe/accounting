@@ -21,6 +21,7 @@ return [
         'claude-opus-5' => [5.00, 25.00],
         'claude-opus-5-5' => [4.00, 20.00],
         'claude-haiku-4-5' => [1.00, 5.00],
+        'claude-haiku-5-5' => [0.10, 0.50], // 100K altı istem (19.10 metin modeli — Sonnet 5'in ~20'de biri)
     ],
     'cache_write_multiplier' => 1.25,
     'cache_read_multiplier' => 0.10,

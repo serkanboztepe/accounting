@@ -1185,6 +1185,10 @@ class WhatsappWebhookController extends Controller
             && ($pending->extracted['party_id'] ?? null) === ($data['party_id'] ?? null));
         // Yazılandan farklı tutar ("65 tl" → 65.000) sessizce geçmesin (17.10, Emre).
         $data['scale_question'] = Understanding::amountScaleQuestion($data, $this->inboundBody);
+        // Aynı soru az önce soruldu ve cevapta tutar değişmediyse ("65 TL doğru") kullanıcı teyit etti — tekrar sorulmaz.
+        if ($data['scale_question'] !== null && $data['scale_question'] === ($pending?->extracted['scale_question'] ?? null)) {
+            $data['scale_question'] = null;
+        }
         // Çapraz kontrol (17.10): kaydın anlamı kullanıcının anlattığıyla çelişiyorsa ("borcum ödendi" ↔ "borçlusunuz") dur, sor.
         // Taslak başına bir kez; cevap gelince yeniden önerilen kayıt yine kontrol edilmez (döngü yok).
         // Kayıt DEĞİŞTİYSE (cevaptan sonra başka tür/tutar) yeniden süzülür; aynı kayıt bir daha sorulmaz; taslak başına en çok 2 soru.

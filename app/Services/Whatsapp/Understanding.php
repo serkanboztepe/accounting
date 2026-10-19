@@ -345,6 +345,21 @@ final class Understanding
                 }
             }
         }
+        // Ters yön (Haiku eval 19.10: "Erkan maaşı 65 tl" → 65 ₺ aylık maaş kartı, sormadı): aylık maaş akıl dışı düşükse yazılanı sor.
+        // Yevmiye / günlük / haftalık ücret değil.
+        $kind = $d['kind'] ?? null;
+        $daily = (bool) preg_match('/yevmiye|g[üu]nl[üu]k|haftal[ıi]k/iu', (string) ($d['description'] ?? '') . ' ' . $text);
+        $salary = match (true) {
+            $kind === ExpenseExtractor::KIND_EMPLOYEE_SETTING => round((float) ($d['salary_amount'] ?? 0), 2),
+            $kind === ExpenseExtractor::KIND_SALARY && ! $daily => round((float) ($d['amount'] ?? 0), 2),
+            default => 0.0,
+        };
+        if ($salary > 0 && $salary < 1000 && in_array($salary, $written, true)) {
+            $whole = fn (float $x) => preg_replace('/,00$/', '', Money::format($x));
+            $who = ! empty($d['party_id']) || ! empty($d['party_name']) ? self::partyName($d) . "'ın aylık maaşı " : 'Aylık maaş ';
+
+            return $who . $whole($salary) . ' TL mi, ' . $whole($salary * 1000) . ' TL mi?';
+        }
 
         return null;
     }
