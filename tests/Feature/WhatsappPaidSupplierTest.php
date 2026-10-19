@@ -71,7 +71,7 @@ class WhatsappPaidSupplierTest extends TestCase
         $this->assertStringContainsString('Gider — kontrol et', $card);
         $this->assertStringContainsString('Açıklama: Bizim Toptan gideri', $card);
         $this->assertStringContainsString('Firma: Bizim Toptan (peşin ödendiği için cari açılmaz)', $card);
-        $this->assertStringContainsString('📦 Ne aldın?', $card);
+        $this->assertStringContainsString('📦 Mal aldıysan', $card);
         $this->send('evet');
 
         $this->assertSame($parties, Party::count(), 'cari açılmadı');
@@ -87,7 +87,7 @@ class WhatsappPaidSupplierTest extends TestCase
 
         $card = $this->send('Bizim toptan 18.261 veresiye');
         $this->assertStringContainsString('Alış', $card);
-        $this->assertStringContainsString('📦 Ne aldın?', $card);
+        $this->assertStringContainsString('📦 Mal aldıysan', $card);
         $this->send('evet');
 
         $p = Party::where('name', 'Bizim Toptan')->firstOrFail();
@@ -137,14 +137,14 @@ class WhatsappPaidSupplierTest extends TestCase
 
         $card = $this->send('Bizim toptan 18.261 ödendi');
         $this->assertStringContainsString('Alış', $card);
-        $this->assertStringNotContainsString('Ne aldın', $card);
+        $this->assertStringNotContainsString('Mal aldıysan', $card);
     }
 
     public function test_plain_expense_has_no_what_bought_line(): void
     {
         $this->chat($this->entry(['amount' => 54000, 'description' => 'Ergenekon dükkan kirası', 'category_name' => 'Kira', 'paid' => true]));
 
-        $this->assertStringNotContainsString('Ne aldın', $this->send('Ergenekon kira 54.000 ödendi'));
+        $this->assertStringNotContainsString('Mal aldıysan', $this->send('Ergenekon kira 54.000 ödendi'));
     }
 
     /** AI firma adını satıcı alanına yazar (kişi alanı "önce anla" sorusunu tetikliyordu): gider + firma + "ne aldın?". */
@@ -155,7 +155,7 @@ class WhatsappPaidSupplierTest extends TestCase
 
         $card = $this->send('Bizim toptan 18.261 tl gider');
         $this->assertStringContainsString('Açıklama: Bizim Toptan — Toptan alışveriş', $card);
-        $this->assertStringContainsString('📦 Ne aldın?', $card);
+        $this->assertStringContainsString('📦 Mal aldıysan', $card);
         $this->send('evet');
 
         $this->assertSame($parties, Party::count());

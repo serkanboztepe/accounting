@@ -210,7 +210,8 @@ class WhatsappWebhookController extends Controller
     }
 
     /** Stoklu firmada ürünsüz alışın kartında (soru değil; cevapsız da kaydedilir). */
-    private const WHAT_BOUGHT = '📦 Ne aldın? (ör. *susam 50 kg*) — stoktakiler stoğa girer. Gerek yoksa *evet*.';
+    // Mal mı hizmet mi AI her zaman doğru işaretlemiyor (Haiku, Yeni Yapı 19.10 "Boyacı Ahmet'e 50 bin") — satır ikisine de uyar.
+    private const WHAT_BOUGHT = '📦 Mal aldıysan ne aldığını yaz (ör. *susam 50 kg*), stoğa girsin. Hizmetse (nakliye, usta…) gerek yok, *evet* yeter.';
 
     /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
     private const SYNC_SECONDS = 10;

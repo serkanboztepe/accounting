@@ -45,11 +45,11 @@ class WhatsappServicePurchaseTest extends TestCase
     {
         $card = $this->card(true);
         $this->assertStringContainsString('20.000,00', $card);
-        $this->assertStringNotContainsString('Ne aldın', $card);
+        $this->assertStringNotContainsString('Mal aldıysan', $card);
     }
 
     public function test_goods_or_unclear_purchase_still_asks(): void
     {
-        $this->assertStringContainsString('Ne aldın', $this->card(null));
+        $this->assertStringContainsString('Mal aldıysan', $this->card(null));
     }
 }
