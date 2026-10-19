@@ -213,6 +213,37 @@ class ExpenseExtractor
             return $d;
         }
 
+        // Stoklu firma, YENİ firmadan alış (kullanıcı kararı 19.10, Akkuş "Bizim toptan 18.261 tl gider"): parası AÇIKÇA ödendi ve ne
+        // alındığı belli değil → gider (carisiz, açıklamada firma adı) — her toptancı için cari açılmaz. Ödenmedi denirse ("ödenmedi"
+        // düzeltmesi dahil) cariye döner (bir şey alındı, borç var). Mevcut cari, gider kapalı firma, stoksuz firmalar: eskisi gibi alış.
+        // Yazılı giderde firma adı (seller_name, stoklu firma): mevcut cariyse ya da ödenmediyse cari alış; değilse gider + firma adı.
+        if (TradeDraft::enabled() && config('modules.expenses') && empty($d['from_document']) && empty($d['party_id']) && empty($d['party_name'])
+            && empty($d['supplier_name']) && ! empty($d['seller_name']) && empty($d['items']) && empty($d['settles_expense_id'])) {
+            $seller = trim((string) $d['seller_name']);
+            if (($d['paid'] ?? null) === false || \App\Models\Party::where('name', $seller)->exists()) {
+                $d['party_name'] = $seller;
+            } else {
+                $desc = trim((string) ($d['description'] ?? ''));
+                $d['description'] = $desc !== '' && str_contains(mb_strtolower($desc), mb_strtolower($seller)) ? $desc : trim($seller . ' — ' . $desc, ' —');
+                $d['supplier_name'] = $seller;
+
+                return $d;
+            }
+        }
+        if (! empty($d['supplier_name']) && empty($d['party_id']) && empty($d['party_name']) && ($d['paid'] ?? null) === false) {
+            $d['party_name'] = $d['supplier_name'];
+            $d['supplier_name'] = null;
+        }
+        if (self::paidSupplierAsExpense($d)) {
+            $name = trim((string) $d['party_name']);
+            $desc = trim((string) ($d['description'] ?? ''));
+            $d['description'] = $desc !== '' && str_contains(mb_strtolower($desc), mb_strtolower($name)) ? $desc : trim($name . ' — ' . $desc, ' —');
+            $d['supplier_name'] = $name;
+            $d['party_name'] = null;
+
+            return $d;
+        }
+
         // Carisi olan kayıt gidere değil carinin hesabına yazılır (alış); gider yalnız carisiz harcama.
         // "Sinan'a bağlantı ödendi" carili gider olunca hem gider şişti hem ekstre "hesap kapalı" dedi (Taner, 13 Ekim).
         // İstisna: eski ödenmemiş carili giderin ödemesi (settles_expense_id) gider yolunda kapanır.
@@ -248,6 +279,16 @@ class ExpenseExtractor
             . (in_array(self::KIND_SALE, self::allowedKinds(), true) ? ' Satış olarak yazmak istersen: "Ahmet\'e 50 bin proje yaptım".' : '');
 
         return $d;
+    }
+
+    /** Peşin ödenmiş, içeriği belirsiz, yeni firmadan alış → gider mi (yalnız stoklu paket + gider takibi açık). */
+    private static function paidSupplierAsExpense(array $d): bool
+    {
+        return TradeDraft::enabled() && config('modules.expenses') && empty($d['party_id']) && ! empty($d['party_name'])
+            && ($d['paid'] ?? null) === true && empty($d['paid_from_habit']) && empty($d['items'])
+            && empty($d['settles_expense_id']) && empty($d['debt_repayment']) && empty($d['contract_id'])
+            && empty($d['is_staff']) && empty($d['staff_hint']) && empty($d['payment_purpose'])
+            && ! \App\Models\Party::where('name', trim((string) $d['party_name']))->exists();
     }
 
     /**
@@ -628,7 +669,7 @@ class ExpenseExtractor
                     'direction_unclear' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=sale/purchase: true if it is unclear whether the goods went TO the party (sale) or came FROM the party (purchase); the user is asked'],
                     'debt_repayment' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=payment: true if this payment repays OUR existing debt ("borcum ödendi", "borç iade")'],
                     'bank_fee' => ['type' => ['number', 'null'], 'description' => 'Only from a bank receipt (dekont): transfer fee + BSMV total, NOT included in amount; else null'],
-                    'seller_name' => ['type' => ['string', 'null'], 'description' => 'Only from a receipt/invoice image: the SELLER company name printed on it (market, fuel station…); else null'],
+                    'seller_name' => ['type' => ['string', 'null'], 'description' => 'From a receipt/invoice image: the SELLER company name printed on it (market, fuel station…); in a stock business also the firm named in a text expense (see FİRMADAN ALIŞ); else null'],
                     'party_said' => ['type' => ['string', 'null'], 'description' => "How the user referred to the person/company in THIS message, nominative form, all descriptive words kept (\"Hüseyin BİM'in bacısı Ayten\", \"Ali usta\", \"Demirci Recep\"); null if not named (\"ona\", \"aynı kişi\")"],
                     'category_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing category id or null'],
                     'category_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW short category name if none fits; null if an existing category matched'],
@@ -806,6 +847,32 @@ class ExpenseExtractor
         foreach ($d['items'] as $i => $item) {
             if (! empty($item['product_id'])) {
                 $d['items'][$i]['quantity'] = null;
+            }
+        }
+
+        return $d;
+    }
+
+    /**
+     * Yazılan miktarı AI boş bıraktıysa mesajdan al (19.10, "Ne aldın?" → "20 çuval un": AI bazen miktarı satıra koymayıp "kaç çuval?"
+     * diye soruyordu): kalemin adının hemen önünde (araya en çok bir birim kelimesi) tek bir sayı varsa o miktardır. Tahmin yok —
+     * eşleşme yoksa ya da birden çoksa dokunulmaz.
+     */
+    public static function guardStatedQuantity(array $d, string $text): array
+    {
+        if (! in_array($d['kind'] ?? null, [self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE], true) || empty($d['items']) || trim($text) === '') {
+            return $d;
+        }
+        $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        foreach ($d['items'] as $i => $item) {
+            $word = preg_split('/[^\p{L}]+/u', mb_strtolower(strtr((string) ($item['description'] ?? ''), ['İ' => 'i', 'I' => 'ı']), 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY)[0] ?? '';
+            if (($item['quantity'] ?? null) !== null || mb_strlen($word) < 2) {
+                continue;
+            }
+            // Araya giren kelime birim olabilir ("20 çuval un"), para değil ("17 bin un aldım" = 17 bin TL; "500 tl un").
+            $n = preg_match_all('/(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(?:(?!(?:bin|milyon|tl|lira|liralık|₺)(?!\p{L}))\p{L}+\s+)?' . preg_quote($word, '/') . '\p{L}{0,3}(?!\p{L})/u', $t, $m);
+            if ($n === 1) {
+                $d['items'][$i]['quantity'] = (float) str_replace(',', '.', $m[1][0]);
             }
         }
 
@@ -1018,6 +1085,14 @@ class ExpenseExtractor
     public static function kindGuide(): string
     {
         $guide = implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::aiKinds()));
+        // Stoklu firma (19.10): firmadan alışta adı yazılsın — peşin + içerik belirsizse gider, veresiyeyse cari olduğuna KOD karar
+        // verir ve "ne aldın?" diye sorar. Yalnız bu pakette: diğer firmalarda "Migros 500" carili alışa dönmesin.
+        if (TradeDraft::enabled() && config('modules.expenses')) {
+            $guide .= "\n" . '- FİRMADAN ALIŞ (stoklu işletme): "gider" olarak yazılan harcamada bir firma / toptancı / dükkan adı geçiyorsa ("Bizim toptan '
+                . '18.261 tl gider", "Metro\'dan 5 bin gider") kind "expense" kalsın, firma adını `seller_name`\'e yaz (`party_name`\'e DEĞİL); '
+                . 'peşin mi veresiye mi, gider mi cari mi olacağına sistem karar verir ve ne alındığını sorar. Mazot, kira, fatura gibi firma adı '
+                . 'geçmeyen harcamada seller_name boş.';
+        }
         if (config('modules.cari_supplier')) {
             // Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" sorulmadan alış sayıldı, satıştı.
             $guide .= "\n" . '- YÖN BELİRSİZSE (sale mi purchase mı): malın ona mı gittiği, ondan mı geldiği cümleden anlaşılmıyorsa '

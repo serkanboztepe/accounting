@@ -204,6 +204,9 @@ class WhatsappWebhookController extends Controller
         return $out . "\n" . $lines;
     }
 
+    /** Stoklu firmada ürünsüz alışın kartında (soru değil; cevapsız da kaydedilir). */
+    private const WHAT_BOUGHT = '📦 Ne aldın? (ör. *susam 50 kg*) — stoktakiler stoğa girer. Gerek yoksa *evet*.';
+
     /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
     private const SYNC_SECONDS = 10;
 
@@ -995,6 +998,10 @@ class WhatsappWebhookController extends Controller
     {
         // Kaydı başlatan mesaj — sıradaki kalem "evet" turunda işlenirken emniyetler bunu görür (review 8b).
         $data['source_text'] = $pending?->extracted['source_text'] ?? ($data['source_text'] ?? null) ?? ($this->inboundBody !== '' ? mb_substr($this->inboundBody, 0, 1000) : null);
+        // Peşin ödenip gidere yazılan firma (kişisiz) düzeltme turunda kaybolmasın — "ödenmedi" denirse cariye döner.
+        if ($pending && ! empty($pending->extracted['supplier_name']) && empty($data['party_id']) && empty($data['party_name'])) {
+            $data['supplier_name'] = $pending->extracted['supplier_name'];
+        }
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
         $data = ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody);
@@ -1002,6 +1009,7 @@ class WhatsappWebhookController extends Controller
         if ($pending === null) {
             $data = ExpenseExtractor::guardAssumedQuantity($data, $this->inboundBody); // yeni kayıtta; düzeltmede miktar önceki mesajda
         }
+        $data = ExpenseExtractor::guardStatedQuantity($data, $this->inboundBody);
         // Kişi bizim çalışanımız mı — AI anlamdan karar verir (is_staff: personel, çoban, şoför, "maaşından"…). Düzeltme turunda korunur.
         if ($this->kind($data) === ExpenseExtractor::KIND_PAYMENT && (! empty($data['is_staff']) || ! empty($pending?->extracted['staff_hint']))) {
             $data['staff_hint'] = true;
@@ -1026,6 +1034,10 @@ class WhatsappWebhookController extends Controller
         $data = $this->askCheckParty($data);
         if ($this->kind($data) === self::KIND_CHECK_CLEARED) {
             return $this->saveCheckClearedDraft($pending, $phone, $data);
+        }
+        // "📦 Ne aldın?" sorusunun cevabı ("20 çuval un") malın alındığını söyler — "mal elinize geçti mi?" diye ayrıca sorulmaz.
+        if ($pending && ! empty($pending->extracted['supplier_name']) && $this->kind($data) === ExpenseExtractor::KIND_TRADE_PURCHASE) {
+            $data = ['work_status' => Understanding::DONE, 'work_status_known' => true, 'question' => null] + $data;
         }
         // Önce anla: iş durumu sorulmuştu, AI cevabı "biliyorum"a çevirdi → cevap soruyu gerçekten cevaplıyor mu (ikinci göz)?
         // "asansör bedeli" cevap değildir — soru tekrar (tahmin yok). Yalnız kişiyle para/borç kaydında, soru-cevap anında.
@@ -2273,8 +2285,14 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Ödeme tarihi: ' . \Illuminate\Support\Carbon::parse($d['due_date'])->locale('tr')->translatedFormat('j F Y');
         }
 
+        // Stoklu firmada firmadan ürünsüz alış: ne alındığı sorulur (engellemez) — stoktakiler stoğa girsin (Akkuş 18.10 Bizim Toptan).
+        if (! empty($d['supplier_name'])) {
+            $lines[] = '• Firma: ' . $d['supplier_name'] . ' (peşin ödendiği için cari açılmaz)';
+            $lines[] = self::WHAT_BOUGHT;
+        }
+
         // Kişisiz borç: soru değil ipucu (her "ödenmedi"de ek soru yormasın); ödemesi yine eşleştirilir.
-        if (! $this->isPaid($d) && ! $party && empty($d['party_name'])) {
+        if (! $this->isPaid($d) && ! $party && empty($d['party_name']) && empty($d['supplier_name'])) {
             $lines[] = "💡 Kime borçlu olduğunu da yazarsan (ör. \"Ahmet Bey'e\") ödemeleri kişi bazında takip ederim.";
         }
 
@@ -2408,6 +2426,9 @@ class WhatsappWebhookController extends Controller
                 $lines[] = '💸 Önceden verdiğin ' . Money::format($used) . ' ₺ avanstan düşülür'
                     . ($rest > 0.009 ? ', kalan ' . Money::format($rest) . ' ₺ ' . (! empty($d['paid']) ? 'ödendi' : 'ona borç') : '')
                     . '. Ayrıca yeni ödeme yaptıysan *yeni para* yaz.';
+            }
+            if (TradeDraft::enabled() && empty($d['items']) && ! TradeDraft::mentionedProduct((string) ($d['description'] ?? ''))) {
+                $lines[] = self::WHAT_BOUGHT; // ne alındı? (engellemez) — stoktakiler stoğa girer
             }
             // Sözleşmeli cariden alış: işin bedeli zaten sözleşmede → çift maliyet riski.
             if ($party && $this->activeContracts($party)->isNotEmpty()) {

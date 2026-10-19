@@ -426,6 +426,16 @@ return [
         ['id' => 'C2-tek-seferlik-gider-duzenli-degil', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => '365 Tl cobanlar market']],
             'expect' => ['reply_not' => ['Düzenli gider', 'her gün']]],
+        // 19.10 kullanıcı kararı (Akkuş 18.10 12:31 "Bizim toptan 18.261 tl gider" → "İzzetpaşa ödendi"): peşin + içerik belirsiz → gider, cari yok
+        ['id' => 'E2-pesin-toptanci-gider', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Bizim toptan 18.261 tl gider'], ['send' => 'İzzetpaşa ödendi', 'expect' => ['reply_has' => ['Ne aldın']]], ['send' => 'Evet']],
+            'expect' => ['saved' => ['expenses' => 1, 'ledger' => 0]]],
+        ['id' => 'E2-veresiye-toptanci-cari', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Bizim toptandan 18.261 tl veresiye mal aldım', 'expect' => ['reply_has' => ['Ne aldın']]], ['send' => 'İzzetpaşa'], ['send' => 'Evet']],
+            'expect' => ['saved' => ['ledger' => 1, 'expenses' => 0]]],
+        ['id' => 'E2-ne-aldin-cevabi-stoga', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Bizim toptan 17.000 tl gider ödendi', 'expect' => ['reply_has' => ['Ne aldın']]], ['send' => '20 çuval un'], ['send' => 'Evet']],
+            'expect' => ['stock' => ['Un' => 20]]],
         // 19.10 Akkuş 09:00: avanslı maaş "ödendi" → net 49.500 maaş sanıldı, avans iki kez düştü (49.500 / 44.000)
         ['id' => 'E1-avansli-maas-odendi', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-apo-avansli-maas',
             'steps' => [['send' => 'Afgan Apo maaşı ödendi', 'expect' => ['reply_has' => ['55.000', '49.500'], 'reply_not' => ['44.000']]], ['send' => 'Evet']],
