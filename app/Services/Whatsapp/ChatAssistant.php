@@ -205,6 +205,8 @@ class ChatAssistant
                     }
 
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
+                case 'review_answer':
+                    return ['type' => 'review_ok', 'verdict' => ($input['verdict'] ?? null) === 'declined' ? 'declined' : 'correct', 'text' => $said];
                 case 'return_items':
                     // İade (19.10): asıl kayıt durur, yanına iade yazılır. Yön bulunan kayıttan gelir; side yalnız ipucu.
                     $side = in_array($input['side'] ?? null, ['sale', 'purchase'], true) ? $input['side'] : null;
@@ -600,7 +602,8 @@ class ChatAssistant
             ['type' => 'text', 'text' => $rules, 'cache_control' => ['type' => 'ephemeral']],
             ['type' => 'text', 'text' => trim($context), 'cache_control' => ['type' => 'ephemeral']],
             ['type' => 'text', 'text' => "ŞU AN: {$today}\n\nBEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}"
-                . self::todaysOutbound($phone)],
+                . self::todaysOutbound($phone)
+                . ($phone && ($review = \App\Models\RecordReview::activeFor($phone)) ? $review->promptBlock() : '')],
         ];
     }
 
@@ -701,6 +704,15 @@ class ChatAssistant
                         'amount' => ['type' => ['number', 'null'], 'description' => 'İade tutarı TL, yalnız söylendiyse'],
                         'money_back' => ['type' => ['boolean', 'null'], 'description' => 'true: parası da geri verildi/alındı ("parasını geri verdim", "parayı iade etti")'],
                     ],
+                ],
+            ],
+            [
+                'name' => 'review_answer',
+                'description' => 'Yalnız KAYIT KONTROLÜ bloğu varken: correct = kullanıcı sorduğumuz kaydın DOĞRU olduğunu söylüyor; declined = önerdiğimiz düzeltmeyi istemiyor. İkisinde de kayda dokunulmaz. Yanlış deyip doğrusunu söylüyorsa bu değil → undo_last + replacement.',
+                'input_schema' => [
+                    'type' => 'object',
+                    'properties' => ['verdict' => ['type' => 'string', 'enum' => ['correct', 'declined']]],
+                    'required' => ['verdict'],
                 ],
             ],
             [
