@@ -77,6 +77,8 @@ class WhatsappBundleDraftTest extends TestCase
 
     public function test_asks_one_by_one_yes_does_no_skips_even_hours_later(): void
     {
+        // Saat sabit: "5 saat sonra" gece yarısını geçmesin (19:18'de koşunca "bugün" ertesi güne kayıyordu).
+        $this->travelTo(now('Europe/Istanbul')->setTime(10, 0)->setTimezone(config('app.timezone')));
         [$sale, $yem, $note] = $this->offer();
         $this->assertStringContainsString('1/5', $this->first);
         $this->assertStringContainsString('Çoban ekmeğini her gün', $this->first);
