@@ -2,16 +2,18 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\Expense;
 use App\Models\ExpenseCategory;
-use App\Models\RecurringExpense;
 use App\Models\Reminder;
+use App\Models\WhatsappPendingExpense;
 use App\Support\Money;
 use App\Support\Phone;
 use Illuminate\Support\Carbon;
 
 /**
- * Düzenli gider (Oktay 18.10: "çobanlar günde 2 ekmek, 17,30 TL — her gün gider olarak ekle" hafızaya söz olarak yazılmıştı,
- * hiç girilmedi). Onaylı kart: ne, ne kadar, ne sıklıkla, ilk kayıt günü → sonra her sabah kendiliğinden yazılır.
+ * Düzenli gider (Oktay 18.10: "çobanlar günde 2 ekmek, 17,30 TL — her gün gider olarak ekle"). Ayrı tablo değil: tutarı olan
+ * hatırlatma (kullanıcı kararı 19.10). Günü gelince 08:00'de gider yazılır ve "… gider olarak eklendi, geri almak için *iptal*"
+ * mesajı gider (reminders:send). Onaylı kart: ne, kaç TL, ne sıklıkla, ilk kayıt günü.
  *
  *   recurring_expense → "🔁 Düzenli gider — kontrol et" + onay
  *   recurring_list    → hemen cevap
@@ -20,6 +22,14 @@ use Illuminate\Support\Carbon;
 final class RecurringDraft
 {
     public const KINDS = [ExpenseExtractor::KIND_RECURRING_EXPENSE, ExpenseExtractor::KIND_RECURRING_LIST, ExpenseExtractor::KIND_RECURRING_STOP];
+
+    /** Gönderilen "gider eklendi" mesajının kaydı — "iptal" / "son kaydı sil" bu gideri geri alır. */
+    public const POSTED = 'recurring_post';
+
+    /** "İptal" ile geri alma penceresi (saat). */
+    private const UNDO_HOURS = 12;
+
+    private const FREQUENCY_REPEAT = ['daily' => 'daily', 'weekly' => 'weekly', 'monthly' => 'monthly'];
 
     public static function handles(array $d): bool
     {
@@ -31,28 +41,39 @@ final class RecurringDraft
         return ($d['kind'] ?? null) === ExpenseExtractor::KIND_RECURRING_LIST;
     }
 
+    public static function active()
+    {
+        return Reminder::where('status', 'active')->where('amount', '>', 0);
+    }
+
     public static function listText(): string
     {
-        $rows = RecurringExpense::where('is_active', true)->orderBy('description')->get();
+        $rows = self::active()->orderBy('text')->get();
         if ($rows->isEmpty()) {
             return "🔁 Düzenli giderin yok.\nÖrnek: *her gün çobanlara 2 ekmek 34,60 gider yaz* ya da *her ayın 1'i kira 20 bin*.";
         }
 
-        return "🔁 *Düzenli giderlerin:*\n" . $rows->map(fn (RecurringExpense $r) => '• ' . $r->description . ' — ' . $r->label()
-            . ' · sıradaki ' . $r->nextDate(Carbon::now(Reminder::TIMEZONE)->startOfDay())->format('d.m'))->implode("\n")
+        return "🔁 *Düzenli giderlerin:*\n" . $rows->map(fn (Reminder $r) => '• ' . self::line($r)
+            . ($r->next_fire_at ? ' · sıradaki ' . $r->next_fire_at->setTimezone(Reminder::TIMEZONE)->format('d.m') : ''))->implode("\n")
             . "\n\nDurdurmak için *ekmek giderini durdur* gibi yaz.";
     }
 
-    /** Durdurulacaklar: açıklamasında aranan kelime geçen etkin düzenli giderler. */
+    /** "Kira — her ayın 1'i 20.000,00 ₺ (Ergenekon)" */
+    public static function line(Reminder $r): string
+    {
+        return $r->text . ' — ' . $r->scheduleText() . ' ' . Money::format((float) $r->amount) . ' ₺' . ($r->project ? ' (' . $r->project->name . ')' : '');
+    }
+
+    /** Durdurulacaklar: metninde aranan kelime geçen etkin düzenli giderler. */
     public static function matches(array $d)
     {
         $needle = trim((string) ($d['description'] ?? ''));
         if ($needle === '') {
             return collect();
         }
-        $like = (new RecurringExpense)->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $like = (new Reminder)->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
 
-        return RecurringExpense::where('is_active', true)->where('description', $like, '%' . $needle . '%')->limit(5)->get();
+        return self::active()->where('text', $like, '%' . $needle . '%')->limit(5)->get();
     }
 
     public static function blocker(array $d): ?string
@@ -69,10 +90,10 @@ final class RecurringDraft
         if (empty($d['recurring_frequency'])) {
             return 'Ne sıklıkla: her gün mü, her hafta mı, her ay mı?';
         }
-        if ($d['recurring_frequency'] === RecurringExpense::MONTHLY && empty($d['recurring_day'])) {
+        if ($d['recurring_frequency'] === 'monthly' && empty($d['recurring_day'])) {
             return 'Ayın kaçında yazayım?';
         }
-        if ($d['recurring_frequency'] === RecurringExpense::WEEKLY && empty($d['recurring_day'])) {
+        if ($d['recurring_frequency'] === 'weekly' && empty($d['recurring_day'])) {
             return 'Haftanın hangi günü yazayım?';
         }
 
@@ -83,17 +104,15 @@ final class RecurringDraft
     {
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_RECURRING_STOP) {
             return "🛑 *Bunları durdurayım mı?* (yazılmış eski giderler silinmez)\n"
-                . self::matches($d)->map(fn (RecurringExpense $r) => '• ' . $r->description . ' — ' . $r->label())->implode("\n");
+                . self::matches($d)->map(fn (Reminder $r) => '• ' . self::line($r))->implode("\n");
         }
-        $draft = self::model($d);
-        $first = $draft->nextDate(Carbon::now(Reminder::TIMEZONE)->startOfDay());
+        $draft = self::model($d, '');
         $category = self::categoryName($d);
 
         return "🔁 *Düzenli gider — kontrol et:*\n"
-            . '• ' . trim((string) $d['description']) . ' — ' . $draft->label() . "\n"
+            . '• ' . self::line($draft) . "\n"
             . ($category ? '• Kategori: ' . $category . "\n" : '')
-            . '• İlk kayıt: ' . $first->format('d.m.Y') . ', sonra ' . RecurringExpense::scheduleText($draft->frequency, $draft->weekday, $draft->day_of_month)
-            . ' kendiliğinden yazılır (' . ($draft->paid ? 'ödendi' : 'ödenmedi') . ' olarak)';
+            . '• İlk kayıt: ' . $draft->event_date->format('d.m.Y') . ', sonra ' . $draft->scheduleText() . ' sabah kendiliğinden yazılır, sana haber veririm';
     }
 
     /** @return array{0:string,1:?int} */
@@ -101,44 +120,98 @@ final class RecurringDraft
     {
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_RECURRING_STOP) {
             $rows = self::matches($d);
-            RecurringExpense::whereKey($rows->pluck('id'))->update(['is_active' => false]);
+            Reminder::whereKey($rows->pluck('id'))->update(['status' => 'cancelled', 'next_fire_at' => null]);
 
-            return ['🛑 Durdurdum: ' . $rows->pluck('description')->implode(', ') . '. Bundan sonra yazılmaz; eskileri yerinde.', null];
+            return ['🛑 Durdurdum: ' . $rows->pluck('text')->implode(', ') . '. Bundan sonra yazılmaz; eskileri yerinde.', null];
         }
-        $r = self::model($d);
-        $r->fill([
-            'expense_category_id' => self::categoryId($d),
-            'created_by_phone' => Phone::normalize($phone),
-            'source' => mb_substr((string) ($d['recurring_source'] ?? ''), 0, 1000) ?: null,
-        ])->save();
+        $r = self::model($d, $phone);
+        $r->expense_category_id = self::categoryId($d);
         $today = Carbon::now(Reminder::TIMEZONE)->startOfDay();
-        $written = $r->start_date->toDateString() <= $today->toDateString() ? $r->post($today) : 0; // takvim günü (sunucu UTC)
-        $next = $r->fresh()->nextDate($today->copy()->addDay());
+        // "Bugünden" denirse bugünkü hemen yazılır; sıradaki yarından itibaren.
+        $written = $r->event_date->toDateString() === $today->toDateString();
+        $r->scheduleNext($written ? $today->copy()->endOfDay() : now());
+        $r->save();
+        if ($written) {
+            $r->postExpense($today);
+        }
 
-        return ['✅ Düzenli gider kuruldu: ' . $r->description . ' — ' . $r->label()
-            . ($written > 0 ? "\n📝 Bugünkü yazıldı: " . Money::format((float) $r->amount) . ' ₺' : '')
-            . "\nSıradaki: " . ($written > 0 ? $next : $r->fresh()->nextDate($today))->format('d.m.Y') . ' sabah kendiliğinden yazılır.'
-            . "\nDurdurmak için *" . mb_strtolower(trim($r->description)) . ' giderini durdur* yaz.', null];
+        return ['✅ Düzenli gider kuruldu: ' . self::line($r)
+            . ($written ? "\n📝 Bugünkü yazıldı: " . Money::format((float) $r->amount) . ' ₺' : '')
+            . ($r->next_fire_at ? "\nSıradaki: " . $r->next_fire_at->setTimezone(Reminder::TIMEZONE)->format('d.m.Y') . ' sabah kendiliğinden yazılır, sana haber veririm.' : '')
+            . "\nDurdurmak için *" . mb_strtolower(trim($r->text)) . ' giderini durdur* yaz.', null];
     }
 
-    /** Kaydedilmemiş model (özet ve kayıt aynı hesabı kullansın). */
-    private static function model(array $d): RecurringExpense
+    /**
+     * reminders:send gideri yazınca: mesaj metni + "iptal" / "son kaydı sil" için kayıt (onaylanmış taslak gibi).
+     */
+    public static function posted(Reminder $r, Expense $expense): string
     {
-        $frequency = in_array($d['recurring_frequency'] ?? null, array_keys(RecurringExpense::FREQUENCIES), true) ? $d['recurring_frequency'] : RecurringExpense::DAILY;
+        $text = '🔁 ' . ($r->project ? $r->project->name . ' için ' : '') . Money::format((float) $r->amount) . ' ₺ ' . $r->text
+            . ' gider olarak eklendi (' . $r->scheduleText() . '). Geri almak için *iptal* yaz.';
+        WhatsappPendingExpense::create([
+            'phone' => Phone::whatsappAddress($r->phone),
+            'extracted' => ['kind' => self::POSTED, 'amount' => (float) $r->amount, 'reminder_id' => $r->id,
+                'created_records' => [['expense', $expense->id]]],
+            'summary' => '🔁 ' . $r->text . ' — ' . $expense->expense_date->format('d.m') . ' — ' . Money::format((float) $r->amount) . ' ₺ (düzenli gider)',
+            'status' => 'confirmed',
+        ]);
+
+        return $text;
+    }
+
+    /** Taslak yokken "iptal": son iş az önce yazılan düzenli gider ise onu siler. Değilse null (eski davranış). */
+    public static function undoPosted(string $phone): ?string
+    {
+        $last = WhatsappPendingExpense::where('phone', $phone)->where('status', 'confirmed')
+            ->where('updated_at', '>=', now()->subHours(self::UNDO_HOURS))->latest('id')->first();
+        if (($last?->extracted['kind'] ?? null) !== self::POSTED) {
+            return null;
+        }
+        $deleted = 0;
+        foreach ((array) ($last->extracted['created_records'] ?? []) as [$type, $id]) {
+            if ($type === 'expense' && ($e = Expense::find($id))) {
+                $e->delete();
+                $deleted++;
+            }
+        }
+        $last->update(['status' => 'undone']);
+        $r = Reminder::find($last->extracted['reminder_id'] ?? 0);
+
+        return ($deleted ? '🗑️ Geri aldım: ' . preg_replace('/^🔁\s*/u', '', (string) $last->summary) . ' silindi.' : 'O gider zaten silinmiş.')
+            . ($r && $r->status === 'active' ? "\nDüzenli gider devam ediyor; tamamen durdurmak için *" . mb_strtolower(trim($r->text)) . ' giderini durdur* yaz.' : '');
+    }
+
+    /** Kaydedilmemiş hatırlatma (özet ve kayıt aynı hesabı kullansın). */
+    private static function model(array $d, string $phone): Reminder
+    {
+        $repeat = self::FREQUENCY_REPEAT[$d['recurring_frequency'] ?? ''] ?? 'daily';
         $day = (int) ($d['recurring_day'] ?? 0);
         $start = ! empty($d['recurring_start']) ? Carbon::parse($d['recurring_start'], Reminder::TIMEZONE)->startOfDay()
             : Carbon::now(Reminder::TIMEZONE)->startOfDay()->addDay(); // söylenmediyse yarından (bugünkü elle yazılmış olabilir)
+        // İlk gün düzene uysun: haftalıkta o haftanın günü, aylıkta ayın günü (ay kısaysa son gün).
+        for ($i = 0; $i < 400; $i++) {
+            $fits = match ($repeat) {
+                'weekly' => $day < 1 || $day > 7 || $start->dayOfWeekIso === $day,
+                'monthly' => $day < 1 || $start->day === min($day, $start->daysInMonth),
+                default => true,
+            };
+            if ($fits) {
+                break;
+            }
+            $start->addDay();
+        }
 
-        return new RecurringExpense([
-            'description' => mb_substr(trim((string) $d['description']), 0, 255),
+        return new Reminder([
+            'phone' => $phone !== '' ? Phone::normalize($phone) : '',
+            'text' => mb_substr(trim((string) $d['description']), 0, 255),
             'amount' => round((float) $d['amount'], 2),
             'project_id' => $d['project_id'] ?? null,
-            'frequency' => $frequency,
-            'weekday' => $frequency === RecurringExpense::WEEKLY && $day >= 1 && $day <= 7 ? $day : null,
-            'day_of_month' => $frequency === RecurringExpense::MONTHLY && $day >= 1 && $day <= 31 ? $day : null,
-            'start_date' => $start->toDateString(),
-            'paid' => ($d['paid'] ?? true) !== false,
-            'is_active' => true,
+            'event_date' => $start->toDateString(),
+            'event_time' => sprintf('%02d:00', Reminder::DEFAULT_HOUR),
+            'is_alarm' => true,
+            'repeat' => $repeat,
+            'anchor_day' => $repeat === 'monthly' && $day >= 1 && $day <= 31 ? $day : null,
+            'status' => 'active',
         ]);
     }
 

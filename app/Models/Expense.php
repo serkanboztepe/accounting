@@ -14,7 +14,6 @@ class Expense extends Model
         'project_id',
         'party_id',
         'expense_category_id',
-        'recurring_expense_id',
         'expense_date',
         'amount',
         'payment_status',

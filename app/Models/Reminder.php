@@ -21,7 +21,7 @@ class Reminder extends Model
 
     public const DEFAULT_HOUR = 8;
 
-    public const REPEATS = ['weekly', 'monthly', 'yearly'];
+    public const REPEATS = ['daily', 'weekly', 'monthly', 'yearly'];
 
     /** Gönderildikten sonra bu kadar saat "aldım / tamam" cevabı bu hatırlatmaya bağlanır. */
     public const REPLY_WINDOW_HOURS = 12;
@@ -29,6 +29,7 @@ class Reminder extends Model
     protected $fillable = [
         'phone', 'text', 'party_id', 'event_date', 'event_time', 'lead_minutes', 'is_alarm', 'repeat',
         'anchor_day', 'next_fire_at', 'status', 'attempts', 'last_sent_at', 'acknowledged_at',
+        'amount', 'expense_category_id', 'project_id',
     ];
 
     protected $casts = [
@@ -37,11 +38,74 @@ class Reminder extends Model
         'next_fire_at' => 'datetime',
         'last_sent_at' => 'datetime',
         'acknowledged_at' => 'datetime',
+        'amount' => 'decimal:2',
     ];
 
     public function party(): BelongsTo
     {
         return $this->belongsTo(Party::class);
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ExpenseCategory::class, 'expense_category_id');
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    /** Düzenli gider: tutarı olan hatırlatma o gün mesaj yerine gider yazar (kullanıcı kararı 19.10). */
+    public function isExpense(): bool
+    {
+        return (float) $this->amount > 0;
+    }
+
+    /**
+     * O günün giderini yaz; aynı gün zaten yazıldıysa null (notlardaki "Düzenli gider #id" işaretiyle — ayrı kolon yok).
+     */
+    public function postExpense(CarbonInterface $day): ?Expense
+    {
+        $date = Carbon::parse($day->toDateString())->toDateString();
+        $mark = 'Düzenli gider #' . $this->id;
+        if (Expense::whereDate('expense_date', $date)->where('notes', 'like', $mark . ' %')->exists()) {
+            return null;
+        }
+
+        return Expense::create([
+            'expense_category_id' => $this->expense_category_id,
+            'project_id' => $this->project_id,
+            'expense_date' => $date,
+            'amount' => $this->amount,
+            'payment_status' => 'paid',
+            'description' => $this->text,
+            'notes' => $mark . ' (' . $this->scheduleText() . ')',
+        ]);
+    }
+
+    /** "her gün" / "her pazartesi" / "her ayın 1'i" / "her yıl 5 Mart" / "tek sefer". */
+    public function scheduleText(): string
+    {
+        $day = $this->event_date ? Carbon::parse($this->event_date->toDateString())->locale('tr') : null;
+
+        return match ($this->repeat) {
+            'daily' => 'her gün',
+            'weekly' => 'her ' . mb_strtolower($day?->translatedFormat('l') ?? 'hafta'),
+            'monthly' => 'her ayın ' . ($d = $this->anchor_day ?: ($day?->day ?? 1)) . "'" . self::dayEnding($d),
+            'yearly' => 'her yıl ' . ($day?->translatedFormat('j F') ?? ''),
+            default => 'tek sefer',
+        };
+    }
+
+    /** Türkçe ek: 1'i, 2'si, 3'ü, 6'sı, 9'u, 10'u, 20'si, 30'u (son okunan sayıya göre). */
+    private static function dayEnding(int $d): string
+    {
+        if ($d % 10 === 0) {
+            return $d === 20 ? 'si' : 'u';
+        }
+
+        return [1 => 'i', 2 => 'si', 3 => 'ü', 4 => 'ü', 5 => 'i', 6 => 'sı', 7 => 'si', 8 => 'i', 9 => 'u'][$d % 10];
     }
 
     /** Olay anı (İstanbul): gün + saat; saat yoksa 08:00. */
@@ -132,6 +196,7 @@ class Reminder extends Model
         $next = Carbon::parse($date->toDateString(), self::TIMEZONE);
 
         return match ($this->repeat) {
+            'daily' => $next->addDay(),
             'weekly' => $next->addWeek(),
             'yearly' => self::onDay($next->addYearNoOverflow(), $this->anchor_day),
             default => self::onDay($next->startOfMonth()->addMonth(), $this->anchor_day),

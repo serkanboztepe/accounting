@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\HubPhone;
 use App\Models\Reminder;
 use App\Models\WhatsappMessage;
+use App\Services\Whatsapp\RecurringDraft;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Support\ConversationContext;
 use App\Support\Phone;
@@ -83,6 +84,24 @@ class SendReminders extends Command
             }
 
             $firedAt = $reminder->next_fire_at;
+            // Düzenli gider (tutarlı hatırlatma): o günün gideri yazılır, sonra haber verilir ("iptal" geri alır). Gönderilemese de
+            // gider yazılmış olur ve sıradaki güne geçilir — tekrar denemek ikinci kez yazmaz (postExpense günde bir).
+            if ($reminder->isExpense()) {
+                $expense = $reminder->postExpense($reminder->eventAt());
+                $reminder->attempts = 0;
+                $reminder->scheduleNext($firedAt);
+                $reminder->save();
+                if ($expense) {
+                    $note = RecurringDraft::posted($reminder, $expense);
+                    if ($this->deliver($sender, $reminder->phone, $note, false)) {
+                        $reminder->forceFill(['last_sent_at' => now()])->save();
+                        WhatsappMessage::create(['phone' => $reminder->phone, 'direction' => 'out', 'body' => $note, 'kind' => 'reminder']);
+                    }
+                }
+                $this->line('  ✓ gider ' . ($expense ? 'yazıldı' : 'zaten yazılmış'));
+
+                continue;
+            }
             if ($this->deliver($sender, $reminder->phone, $text)) {
                 $reminder->last_sent_at = now();
                 $reminder->attempts = 0;
@@ -110,13 +129,15 @@ class SendReminders extends Command
         return self::SUCCESS;
     }
 
-    private function deliver(WhatsappSender $sender, string $phone, string $text): bool
+    private function deliver(WhatsappSender $sender, string $phone, string $text, bool $reminder = true): bool
     {
         $contentSid = (string) config('services.whatsapp.reminder_content_sid');
 
-        return TemplateApproval::approved($contentSid)
-            ? $sender->sendTemplate($phone, $contentSid, ['1' => $text], 'hatirlatma')
-            : $sender->sendText($phone, "⏰ Hatırlatma: {$text}\n\nİşin bitince *tamam* yaz. Para geldiyse ya da ödediysen yazman yeterli (ör. *aldım*).");
+        return match (true) {
+            TemplateApproval::approved($contentSid) => $sender->sendTemplate($phone, $contentSid, ['1' => $text], 'hatirlatma'),
+            $reminder => $sender->sendText($phone, "⏰ Hatırlatma: {$text}\n\nİşin bitince *tamam* yaz. Para geldiyse ya da ödediysen yazman yeterli (ör. *aldım*)."),
+            default => $sender->sendText($phone, $text),
+        };
     }
 
     /** Tek panel: numara hub'dan silindiyse / başka firmaya geçtiyse artık gönderme. */

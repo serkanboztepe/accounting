@@ -412,6 +412,13 @@ class WhatsappWebhookController extends Controller
             return $this->twiml("✅ Tamam.\n" . $lines->implode("\n"));
         }
 
+        // Az önce yazılan düzenli gider mesajına "iptal" → o gider silinir (mesaj bunu söylüyor).
+        if (! $pending && $image === null && $this->isCancel($body) && ($undone = RecurringDraft::undoPosted($phone)) !== null) {
+            $this->inboundKind = 'undo';
+
+            return $this->twiml($undone);
+        }
+
         if (! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
             $this->inboundKind = 'no_draft';
             // "Tamam / ok" çoğu zaman sohbet kapanışıdır (Akkuş 17.10 22:46) — yarım kalan kayıt varsa adıyla sorulur.

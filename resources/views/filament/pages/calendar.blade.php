@@ -1,4 +1,4 @@
-{{-- Takvim: hatırlatmalar (kim kurduysa) + ödeme günleri + çek vadeleri, gün gün. Salt görüntü. --}}
+{{-- Takvim: hatırlatmalar (kim kurduysa) + ödeme günleri + çek vadeleri, gün gün; altta hatırlatma / düzenli gider listesi (düzelt, sil). --}}
 <x-filament-panels::page>
     @php
         [$from, $to] = $this->period();
@@ -56,7 +56,40 @@
         @endforeach
     @endif
 
+    @php $reminders = $this->getReminders(); @endphp
+    <x-filament::section compact>
+        <x-slot name="heading">Hatırlatmalar ve düzenli giderler</x-slot>
+        @if ($reminders->isEmpty())
+            <p class="text-sm text-gray-500 dark:text-gray-400">Bekleyen hatırlatma yok. Sağ üstten ekleyebilir ya da WhatsApp'tan yazabilirsin.</p>
+        @else
+            <ul class="divide-y divide-gray-100 dark:divide-white/5">
+                @foreach ($reminders as $r)
+                    <li class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+                        @if ($r->isExpense())
+                            <x-filament::badge size="sm" color="warning">Düzenli gider</x-filament::badge>
+                        @else
+                            <x-filament::badge size="sm" color="gray">Hatırlatma</x-filament::badge>
+                        @endif
+                        <span class="text-gray-950 dark:text-white">{{ $r->text }}</span>
+                        @if ($r->isExpense())
+                            <span class="font-medium tabular-nums">{{ \App\Support\Money::format((float) $r->amount) }} ₺</span>
+                            @if ($r->project)
+                                <span class="text-gray-500 dark:text-gray-400">{{ $r->project->name }}</span>
+                            @endif
+                        @endif
+                        <span class="text-gray-500 dark:text-gray-400">{{ $r->repeat ? $r->scheduleText() : '' }}@if ($r->next_fire_at) · sıradaki {{ $r->next_fire_at->setTimezone(\App\Models\Reminder::TIMEZONE)->format('d.m.Y H:i') }}@endif</span>
+                        <span class="ml-auto flex items-center gap-1">
+                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $this->whoName($r->phone) }}</span>
+                            {{ ($this->editReminderAction)(['id' => $r->id]) }}
+                            {{ ($this->deleteReminderAction)(['id' => $r->id]) }}
+                        </span>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+    </x-filament::section>
+
     <p class="text-xs text-gray-500 dark:text-gray-400">
-        Hatırlatmalar WhatsApp'tan kurulur ("20 Ekim'de teslimatım var") ve firmanın takviminde görünür. Ödenen işler listede yer almaz.
+        Hatırlatmalar WhatsApp'tan ("20 Ekim'de teslimatım var", "her gün çobanlara ekmek 34,60 gider yaz") ya da buradan kurulur. Ödenen işler listede yer almaz.
     </p>
 </x-filament-panels::page>

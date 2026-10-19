@@ -15,7 +15,7 @@ class Reminders
 {
     public const TIMEZONE = Reminder::TIMEZONE;
 
-    private const REPEAT_LABELS = ['weekly' => 'her hafta', 'monthly' => 'her ay', 'yearly' => 'her yıl'];
+    private const REPEAT_LABELS = ['daily' => 'her gün', 'weekly' => 'her hafta', 'monthly' => 'her ay', 'yearly' => 'her yıl'];
 
     /** Taslaktan (AI çıktısı) kaydedilmemiş hatırlatma — teyit özeti ve kayıt aynı hesabı kullansın. */
     public static function fromDraft(array $d, string $phone): Reminder

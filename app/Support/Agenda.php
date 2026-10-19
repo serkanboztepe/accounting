@@ -29,7 +29,8 @@ class Agenda
         foreach ($reminders as $r) {
             foreach ($r->occurrencesBetween($from, $to) as $day) {
                 $items->push(['date' => $day->toDateString(), 'time' => $r->event_time ? substr($r->event_time, 0, 5) : null,
-                    'text' => $r->text, 'type' => 'reminder', 'phone' => $r->phone]);
+                    'text' => $r->isExpense() ? '🔁 ' . $r->text . ' — ' . Money::format((float) $r->amount) . ' ₺ gider yazılır' : $r->text,
+                    'type' => 'reminder', 'phone' => $r->phone]);
             }
         }
 

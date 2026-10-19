@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Filament\Resources\RecurringExpenses\Pages\ListRecurringExpenses;
+use App\Filament\Pages\Calendar;
 use App\Models\Expense;
-use App\Models\RecurringExpense;
+use App\Models\ExpenseCategory;
+use App\Models\Project;
+use App\Models\Reminder;
 use App\Models\User;
 use App\Models\WhatsappMessage;
 use App\Services\Whatsapp\ChatAssistant;
@@ -16,8 +18,9 @@ use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
- * Düzenli gider (Oktay 18.10: "çobanlar günde 2 ekmek, 17,30 TL — her gün gider olarak ekle" hafızaya söz olarak yazıldı,
- * hiç girilmedi). Onaylı kart → her sabah kendiliğinden yazılır; aynı gün iki kez yazılmaz; kaçan gün telafi edilir.
+ * Düzenli gider (Oktay 18.10: "çobanlar günde 2 ekmek, 17,30 TL — her gün gider olarak ekle"). Ayrı tablo değil, tutarı olan
+ * hatırlatma (kullanıcı kararı 19.10): günü gelince 08:00'de gider yazılır + "… gider olarak eklendi, geri almak için iptal yaz";
+ * "iptal" o günün giderini siler, düzen sürer. Aynı gün iki kez yazılmaz. Panelde Takvim'den eklenir / düzeltilir / silinir.
  */
 class RecurringExpenseTest extends TestCase
 {
@@ -29,11 +32,14 @@ class RecurringExpenseTest extends TestCase
     {
         parent::setUp();
         config([
-            'modules' => ModuleProfiles::resolve('trade', ['smart_assistant' => true, 'expenses' => true]), 'app.profile' => 'trade',
+            'modules' => ModuleProfiles::resolve('trade', ['smart_assistant' => true, 'expenses' => true, 'projects' => true]), 'app.profile' => 'trade',
             'services.anthropic.api_key' => 'test', 'services.anthropic.chat_model' => 'claude-sonnet-5',
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 777 00 19'],
+            'services.whatsapp.reminder_content_sid' => null,
+            'services.twilio.sid' => 'AC_test', 'services.twilio.token' => 'test', 'services.whatsapp.from' => '+14786665916',
         ]);
         ChatAssistant::$deadline = null;
+        Http::fake();
         WhatsappMessage::create(['phone' => '905557770019', 'direction' => 'in', 'body' => 'önceki']);
     }
 
@@ -55,7 +61,24 @@ class RecurringExpenseTest extends TestCase
         return Carbon::now('Europe/Istanbul')->startOfDay();
     }
 
-    public function test_bread_every_day_is_set_up_and_written_each_morning(): void
+    private function bread(array $extra = []): Reminder
+    {
+        $r = new Reminder($extra + ['phone' => '905557770019', 'text' => 'Çobanlar ekmek', 'amount' => 34.60, 'event_date' => $this->today()->addDay()->toDateString(),
+            'event_time' => '08:00', 'is_alarm' => true, 'repeat' => 'daily', 'status' => 'active']);
+        $r->scheduleNext(now());
+        $r->save();
+
+        return $r;
+    }
+
+    /** Ertesi gün 08:01'de hatırlatma turu. */
+    private function runAt(Carbon $istanbul): void
+    {
+        $this->travelTo($istanbul->copy()->setTimezone(config('app.timezone')));
+        $this->artisan('reminders:send')->assertSuccessful();
+    }
+
+    public function test_bread_every_day_is_set_up_as_reminder_and_written_each_morning_with_note(): void
     {
         $this->ai(['kind' => 'recurring_expense', 'amount' => 34.60, 'description' => 'Çobanlar ekmek', 'category_name' => 'Çobanlar',
             'recurring_frequency' => 'daily']);
@@ -65,19 +88,48 @@ class RecurringExpenseTest extends TestCase
         $this->assertStringContainsString('Çobanlar ekmek — her gün 34,60 ₺', $card);
         $this->assertStringContainsString('İlk kayıt: ' . $this->today()->addDay()->format('d.m.Y'), $card);
 
-        $done = $this->send('evet');
-        $this->assertStringContainsString('Düzenli gider kuruldu', $done);
-        $r = RecurringExpense::where('description', 'Çobanlar ekmek')->firstOrFail();
+        $this->assertStringContainsString('Düzenli gider kuruldu', $this->send('evet'));
+        $r = Reminder::where('text', 'Çobanlar ekmek')->firstOrFail();
+        $this->assertTrue($r->isExpense());
         $this->assertSame('Çobanlar', $r->category?->name);
-        $this->assertSame(0, Expense::where('recurring_expense_id', $r->id)->count(), 'bugün yazılmaz (söylenmedi)');
+        $this->assertSame(0, Expense::where('description', 'Çobanlar ekmek')->count(), 'bugün yazılmaz (söylenmedi)');
 
-        $this->assertSame(1, $r->post($this->today()->addDay()));
-        $this->assertSame(0, $r->post($this->today()->addDay()), 'aynı gün iki kez yazılmaz');
-        $this->assertSame(3, $r->post($this->today()->addDays(4)), 'kaçan günler telafi');
-        $e = Expense::where('recurring_expense_id', $r->id)->orderBy('expense_date')->first();
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        Http::fake();
+        $tomorrow = $this->today()->addDay();
+        $this->runAt($tomorrow->copy()->setTime(8, 1));
+        $e = Expense::where('description', 'Çobanlar ekmek')->sole();
         $this->assertEquals(34.60, (float) $e->amount);
+        $this->assertSame($tomorrow->toDateString(), $e->expense_date->toDateString());
         $this->assertSame('paid', $e->payment_status);
         $this->assertSame($r->expense_category_id, $e->expense_category_id);
+        $note = WhatsappMessage::where('direction', 'out')->where('kind', 'reminder')->latest('id')->value('body');
+        $this->assertStringContainsString('34,60 ₺ Çobanlar ekmek gider olarak eklendi', $note);
+        $this->assertStringContainsString('Geri almak için *iptal* yaz', $note);
+        Http::assertSent(fn ($req) => str_contains((string) ($req['Body'] ?? ''), 'gider olarak eklendi'));
+
+        $this->runAt($this->today()->setTime(8, 30));
+        $this->assertSame(1, Expense::where('description', 'Çobanlar ekmek')->count(), 'aynı gün iki kez yazılmaz');
+        $this->runAt($this->today()->addDay()->setTime(8, 1));
+        $this->assertSame(2, Expense::where('description', 'Çobanlar ekmek')->count(), 'ertesi gün yine');
+    }
+
+    public function test_iptal_after_note_deletes_that_days_expense_and_keeps_schedule(): void
+    {
+        $project = Project::create(['name' => 'Ergenekon Test Şube']);
+        $r = $this->bread(['text' => 'Kira', 'amount' => 20000, 'repeat' => 'monthly', 'anchor_day' => $this->today()->addDay()->day, 'project_id' => $project->id]);
+        $this->runAt($this->today()->addDay()->setTime(8, 1));
+        $this->assertSame(1, Expense::where('description', 'Kira')->where('project_id', $project->id)->count());
+        $this->assertStringContainsString('Ergenekon Test Şube için 20.000,00 ₺ Kira gider olarak eklendi',
+            WhatsappMessage::where('direction', 'out')->latest('id')->value('body'));
+
+        $out = $this->send('iptal');
+        $this->assertStringContainsString('Geri aldım', $out);
+        $this->assertStringContainsString('kira giderini durdur', $out);
+        $this->assertSame(0, Expense::where('description', 'Kira')->count());
+        $this->assertSame('active', $r->fresh()->status, 'düzen sürer');
+
+        $this->assertStringNotContainsString('Geri aldım', $this->send('iptal'), 'ikinci iptal başka şey silmez');
     }
 
     public function test_starting_today_writes_todays_now(): void
@@ -90,32 +142,23 @@ class RecurringExpenseTest extends TestCase
 
         $this->assertStringContainsString('Bugünkü yazıldı: 50,00 ₺', $done);
         $this->assertSame(1, Expense::whereDate('expense_date', $this->today())->where('description', 'Süt kovası')->count());
+        $this->assertSame($this->today()->addDay()->toDateString(),
+            Reminder::where('text', 'Süt kovası')->sole()->next_fire_at->setTimezone('Europe/Istanbul')->toDateString(), 'sıradaki yarın');
     }
 
-    public function test_monthly_on_31st_uses_last_day_of_short_month(): void
+    public function test_monthly_on_31st_uses_last_day_of_short_month_and_weekly_label(): void
     {
-        $r = RecurringExpense::create(['description' => 'Kira', 'amount' => 20000, 'frequency' => 'monthly', 'day_of_month' => 31,
-            'start_date' => '2031-02-01', 'paid' => false]);
+        $r = $this->bread(['text' => 'Kira', 'amount' => 20000, 'repeat' => 'monthly', 'anchor_day' => 31, 'event_date' => '2031-01-31']);
+        $this->assertSame('2031-02-28', $r->nextOccurrence(Carbon::parse('2031-01-31'))->toDateString());
+        $this->assertSame("her ayın 31'i", $r->scheduleText());
 
-        $this->assertSame(2, $r->post(Carbon::parse('2031-03-31', 'Europe/Istanbul')));
-        $dates = Expense::where('recurring_expense_id', $r->id)->orderBy('expense_date')->pluck('expense_date')->map->toDateString()->all();
-        $this->assertSame(['2031-02-28', '2031-03-31'], $dates);
-        $this->assertSame('unpaid', Expense::where('recurring_expense_id', $r->id)->value('payment_status'));
-        $this->assertSame("her ayın 31'i 20.000,00 ₺", $r->label());
-    }
-
-    public function test_weekly_on_monday(): void
-    {
-        $r = RecurringExpense::create(['description' => 'Pazar', 'amount' => 500, 'frequency' => 'weekly', 'weekday' => 1, 'start_date' => '2031-01-01']);
-
-        $r->post(Carbon::parse('2031-01-31', 'Europe/Istanbul')); // Ocak 2031: pazartesiler 6, 13, 20, 27
-        $this->assertSame(4, Expense::where('recurring_expense_id', $r->id)->count());
-        $this->assertSame('her pazartesi 500,00 ₺', $r->label());
+        $w = $this->bread(['repeat' => 'weekly', 'event_date' => '2031-01-06']); // pazartesi
+        $this->assertSame('her pazartesi', $w->scheduleText());
     }
 
     public function test_stop_and_list(): void
     {
-        $r = RecurringExpense::create(['description' => 'Çobanlar ekmek', 'amount' => 34.60, 'frequency' => 'daily', 'start_date' => $this->today()->toDateString()]);
+        $r = $this->bread();
 
         $this->ai(['kind' => 'recurring_list']);
         $this->assertStringContainsString('Çobanlar ekmek — her gün 34,60 ₺', $this->send('düzenli giderlerim'));
@@ -123,8 +166,9 @@ class RecurringExpenseTest extends TestCase
         $this->ai(['kind' => 'recurring_stop', 'description' => 'ekmek']);
         $this->assertStringContainsString('durdurayım mı', $this->send('ekmek giderini durdur'));
         $this->assertStringContainsString('Durdurdum: Çobanlar ekmek', $this->send('evet'));
-        $this->assertFalse($r->fresh()->is_active);
-        $this->assertSame(0, $r->fresh()->post($this->today()->addDays(3)));
+        $this->assertSame('cancelled', $r->fresh()->status);
+        $this->runAt($this->today()->addDay()->setTime(8, 1));
+        $this->assertSame(0, Expense::where('description', 'Çobanlar ekmek')->count());
     }
 
     public function test_missing_frequency_is_asked_not_guessed(): void
@@ -132,24 +176,46 @@ class RecurringExpenseTest extends TestCase
         $this->ai(['kind' => 'recurring_expense', 'amount' => 34.60, 'description' => 'Ekmek']);
 
         $this->assertStringContainsString('Ne sıklıkla', $this->send('ekmek 34,60 düzenli yaz'));
-        $this->assertSame(0, RecurringExpense::count());
+        $this->assertSame(0, Reminder::where('amount', '>', 0)->where('text', 'Ekmek')->count());
     }
 
-    public function test_command_writes_due_expenses(): void
+    public function test_plain_reminder_is_not_an_expense(): void
     {
-        $r = RecurringExpense::create(['description' => 'Çobanlar ekmek', 'amount' => 34.60, 'frequency' => 'daily',
-            'start_date' => $this->today()->subDays(2)->toDateString()]);
+        $r = $this->bread(['text' => 'Kredi kartı', 'amount' => null]);
+        $this->runAt($this->today()->addDay()->setTime(8, 1));
 
-        $this->artisan('expenses:recurring')->assertSuccessful();
-
-        $this->assertSame(3, Expense::where('recurring_expense_id', $r->id)->count());
+        $this->assertSame(0, Expense::where('description', 'Kredi kartı')->count());
+        $this->assertStringContainsString('Hatırlatma: ', WhatsappMessage::where('direction', 'out')->latest('id')->value('body'));
+        $this->assertFalse($r->isExpense());
     }
 
-    public function test_panel_list_shows_recurring_expenses(): void
+    public function test_panel_calendar_lists_and_adds_recurring_expense(): void
     {
+        config(['app.env' => 'local']);
         $this->actingAs(User::factory()->create());
-        $r = RecurringExpense::create(['description' => 'Çobanlar ekmek', 'amount' => 34.60, 'frequency' => 'daily', 'start_date' => $this->today()->toDateString()]);
+        $this->bread();
+        $cat = ExpenseCategory::firstOrCreate(['name' => 'Kira']);
 
-        Livewire::test(ListRecurringExpenses::class)->assertCanSeeTableRecords([$r])->assertSee('Her gün');
+        Livewire::test(Calendar::class)
+            ->assertSee('Hatırlatmalar ve düzenli giderler')->assertSee('Çobanlar ekmek')->assertSee('Düzenli gider')
+            ->callAction('addExpense', ['text' => 'Dükkan kirası', 'amount' => '20.000,00',
+                'expense_category_id' => $cat->id, 'event_date' => $this->today()->addDays(3)->toDateString(), 'repeat' => 'monthly',
+                'phone' => '905557770019'])
+            ->assertHasNoActionErrors();
+
+        $r = Reminder::where('text', 'Dükkan kirası')->sole();
+        $this->assertEquals(20000, (float) $r->amount);
+        $this->assertSame('monthly', $r->repeat);
+        $this->assertSame($this->today()->addDays(3)->day, $r->anchor_day);
+        $this->assertSame('08:00', substr((string) $r->event_time, 0, 5));
+
+        Livewire::test(Calendar::class)
+            ->callAction('addReminder', ['text' => 'Teslimat', 'event_date' => $this->today()->addDays(2)->toDateString(), 'event_time' => '14:00',
+                'repeat' => '', 'phone' => '905557770019'])
+            ->assertHasNoActionErrors();
+        $plain = Reminder::where('text', 'Teslimat')->sole();
+        $this->assertFalse($plain->isExpense());
+        $this->assertNull($plain->repeat);
+        $this->assertTrue($plain->is_alarm);
     }
 }
