@@ -50,6 +50,32 @@ final class EmployeeDraft
         return $card > 0 ? (float) $card : null;
     }
 
+    /**
+     * Maaş tutarı emniyeti (Akkuş 19.10: "Afgan Apo maaşı ödendi" → AI hatırlatmadaki NET 49.500'ü maaş sandı, avans ikinci kez
+     * düşüldü: maaş 49.500 / ödenen 44.000 yazıldı; doğrusu 55.000 / 49.500). Kartında maaşı olan çalışanda:
+     *  - mesajda hiç rakam yoksa tutar KARTTAKİ maaştır (AI'ın bağlamdan aldığı sayı değil);
+     *  - AI'ın tutarı "maaş − açık avans"a eşitse (net) tam maaşa çevrilir.
+     * Yazılan farklı tutar ("Afgan'a 30 bin verdim") olduğu gibi kalır (kısmi ödeme); yevmiyeye dokunulmaz.
+     */
+    public static function guardSalaryAmount(array $d, string $text): array
+    {
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_SALARY || self::isDaily($d) || ! ($party = self::party($d))
+            || (float) $party->salary_amount <= 0) {
+            return $d;
+        }
+        $card = (float) $party->salary_amount;
+        $amount = (float) ($d['amount'] ?? 0);
+        if (! preg_match('/\d/u', $text)) {
+            return ['amount' => $card] + $d;
+        }
+        $advance = min($card, AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE));
+        if ($advance > 0.01 && abs($amount - ($card - $advance)) < 0.01) {
+            return ['amount' => $card] + $d;
+        }
+
+        return $d;
+    }
+
     /** Açık avans (maaştan düşülecek) — yalnız kayıtlı cari. */
     public static function advance(array $d): float
     {

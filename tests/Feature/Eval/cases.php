@@ -20,7 +20,8 @@ return [
             'profile' => 'trade', 'modules' => ['projects' => true, 'report_monthly' => true], 'sector' => 'bakery',
             'projects' => ['İzzetpaşa', 'Araştırma', 'Ergenekon'],
             'parties' => ['Abdullah Günhan' => ['is_employee' => true, 'salary_amount' => 50000, 'salary_day' => 15], 'Boztepe Ticaret' => [],
-                'Hikmet' => ['is_employee' => true, 'salary_amount' => 62000, 'salary_day' => 17], 'Tokgöz' => []],
+                'Hikmet' => ['is_employee' => true, 'salary_amount' => 62000, 'salary_day' => 17], 'Tokgöz' => [],
+                'Afgan Apo' => ['is_employee' => true, 'salary_amount' => 55000, 'salary_day' => 19]],
             'products' => [['Un', 'çuval']], 'categories' => ['Yakıt', 'Kira'],
         ],
         'erkan' => [
@@ -425,6 +426,10 @@ return [
         ['id' => 'C2-tek-seferlik-gider-duzenli-degil', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => '365 Tl cobanlar market']],
             'expect' => ['reply_not' => ['Düzenli gider', 'her gün']]],
+        // 19.10 Akkuş 09:00: avanslı maaş "ödendi" → net 49.500 maaş sanıldı, avans iki kez düştü (49.500 / 44.000)
+        ['id' => 'E1-avansli-maas-odendi', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-apo-avansli-maas',
+            'steps' => [['send' => 'Afgan Apo maaşı ödendi', 'expect' => ['reply_has' => ['55.000', '49.500'], 'reply_not' => ['44.000']]], ['send' => 'Evet']],
+            'expect' => ['balance' => ['Afgan Apo' => 0]]],
         // 18.10 Akkuş 00:43: "Kaç günlük" → "1 Ekim'den bugüne 18 günlük" (kayıtlar 5 günlüktü) — kayıttan cevaplanmalı
         ['id' => 'R7-kac-gunluk', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-uc-gun',
             'steps' => [['send' => 'Toplam ciro', 'expect' => ['reply_has' => ['Satış girilen gün: 3']]], ['send' => 'Kaç günlük']],
@@ -496,6 +501,8 @@ return [
         'akkus-iki-hafta' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-1 days'], ['sale', 'İzzetpaşa', 21000, '-1 days'], ['sale', 'Araştırma', 50000, '-2 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-2 days'], ['sale', 'Araştırma', 50000, '-3 days'], ['sale', 'Ergenekon', 25000, '-3 days'], ['sale', 'İzzetpaşa', 21000, '-3 days'], ['sale', 'Araştırma', 50000, '-4 days'], ['sale', 'Ergenekon', 25000, '-4 days'], ['sale', 'İzzetpaşa', 21000, '-4 days'], ['sale', 'Araştırma', 50000, '-5 days'], ['sale', 'Ergenekon', 25000, '-5 days'], ['sale', 'İzzetpaşa', 21000, '-5 days'], ['sale', 'Araştırma', 50000, '-6 days'], ['sale', 'Ergenekon', 25000, '-6 days'], ['sale', 'İzzetpaşa', 21000, '-6 days'], ['sale', 'Araştırma', 50000, '-7 days'], ['sale', 'Ergenekon', 25000, '-7 days'], ['sale', 'İzzetpaşa', 21000, '-7 days'], ['sale', 'Araştırma', 40000, '-8 days'], ['sale', 'Ergenekon', 27000, '-8 days'], ['sale', 'İzzetpaşa', 21000, '-8 days'], ['sale', 'Araştırma', 40000, '-9 days'], ['sale', 'Ergenekon', 27000, '-9 days'], ['sale', 'İzzetpaşa', 21000, '-9 days'], ['sale', 'Araştırma', 40000, '-10 days'], ['sale', 'Ergenekon', 27000, '-10 days'], ['sale', 'İzzetpaşa', 21000, '-10 days'], ['sale', 'Araştırma', 40000, '-11 days'], ['sale', 'Ergenekon', 27000, '-11 days'], ['sale', 'İzzetpaşa', 21000, '-11 days'], ['sale', 'Araştırma', 40000, '-12 days'], ['sale', 'Ergenekon', 27000, '-12 days'], ['sale', 'İzzetpaşa', 21000, '-12 days'], ['sale', 'Araştırma', 40000, '-13 days'], ['sale', 'Ergenekon', 27000, '-13 days'], ['sale', 'İzzetpaşa', 21000, '-13 days'], ['sale', 'Araştırma', 40000, '-14 days'], ['sale', 'Ergenekon', 27000, '-14 days'], ['sale', 'İzzetpaşa', 21000, '-14 days']],
         'taner-odemeler' => [['ledger', 'Ferhat Yıldız', 'odeme', 5000, '-1 days', 'Proje bedeli'], ['ledger', 'Sinan Sele', 'odeme', 2500000, '-1 days', '2026 bağlantısı']],
         'akkus-hikmet-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes']],
+        'akkus-apo-avansli-maas' => [['ledger', 'Afgan Apo', 'odeme', 5500, '-3 days', 'Avans'],
+            ['out', 'reminder', "⏰ Hatırlatma: Bugün: Afgan Apo maaş günü — maaş 55.000,00 ₺ − avans 5.500,00 = 49.500,00 ₺ ödeyeceksin. Ödeyince *Afgan Apo maaşı ödendi* yaz", '-60 minutes']],
         'akkus-iki-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes'],
             ['out', 'reminder', '⏰ Hatırlatma: Bugün: Ergenekon dükkan kira ödemesi 54.000 ₺', '-140 minutes']],
         'oktay-stok' => [['stock', 'Yem', 33], ['stock', 'Ezme', 5]],

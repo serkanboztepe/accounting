@@ -177,4 +177,38 @@ class WhatsappEmployeeTest extends TestCase
         $this->send('evet');
         $this->assertFalse(Party::where('name', 'Usta Testi Ali')->firstOrFail()->is_employee);
     }
+
+    /** Akkuş 19.10: "Afgan Apo maaşı ödendi" → AI hatırlatmadaki net 49.500'ü maaş sandı; avans iki kez düşüldü (49.500 / 44.000). */
+    public function test_salary_without_number_uses_card_salary_not_net(): void
+    {
+        $apo = Party::create(['name' => 'Afgan Apo', 'is_employee' => true, 'salary_amount' => 55000, 'salary_day' => 19]);
+        PartyLedgerEntry::create(['party_id' => $apo->id, 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 5500,
+            'entry_date' => now()->subDays(3)->toDateString(), 'description' => 'Avans']);
+        $this->ai($this->draft(['kind' => ExpenseExtractor::KIND_SALARY, 'party_id' => $apo->id, 'amount' => 49500, 'paid' => true,
+            'description' => 'Afgan Apo maaşı (avans düşülmüş)']));
+
+        $card = $this->send('Afgan Apo maaşı ödendi');
+        $this->assertStringContainsString('maaş', $card);
+        $this->assertStringContainsString('55.000,00', $card);
+        $this->assertStringContainsString('Avanstan düşülen: 5.500,00', $card);
+        $this->assertStringContainsString('Ödenen: 49.500,00', $card);
+        $this->send('evet');
+
+        $this->assertEquals(55000, (float) PartyLedgerEntry::where('party_id', $apo->id)->where('type', PartyLedgerEntry::TYPE_PURCHASE)->value('amount'));
+        $this->assertEquals(49500, (float) PartyLedgerEntry::where('party_id', $apo->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)
+            ->where('description', 'like', 'Maaş ödemesi%')->value('amount'));
+        $this->assertEqualsWithDelta(0, PartyStatement::build($apo)['balance'], 0.01);
+    }
+
+    public function test_net_amount_written_by_ai_is_turned_into_full_salary_but_partial_payment_stays(): void
+    {
+        $apo = Party::create(['name' => 'Afgan Apo', 'is_employee' => true, 'salary_amount' => 55000]);
+        PartyLedgerEntry::create(['party_id' => $apo->id, 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 5500,
+            'entry_date' => now()->subDays(3)->toDateString(), 'description' => 'Avans']);
+        $base = ['kind' => ExpenseExtractor::KIND_SALARY, 'party_id' => $apo->id, 'paid' => true];
+
+        $this->assertEquals(55000, \App\Services\Whatsapp\EmployeeDraft::guardSalaryAmount($base + ['amount' => 49500], 'Apoya 49.500 maaş verdim')['amount']);
+        $this->assertEquals(30000, \App\Services\Whatsapp\EmployeeDraft::guardSalaryAmount($base + ['amount' => 30000], 'Apoya 30 bin maaş verdim')['amount'], 'kısmi ödeme');
+        $this->assertEquals(2000, \App\Services\Whatsapp\EmployeeDraft::guardSalaryAmount($base + ['amount' => 2000, 'description' => 'yevmiye'], 'Apo yevmiye')['amount'], 'yevmiye');
+    }
 }

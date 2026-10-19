@@ -1128,6 +1128,8 @@ class WhatsappWebhookController extends Controller
         }
         // Personel bilgisi / maaş (her firmada).
         if (EmployeeDraft::handles($data)) {
+            $data = EmployeeDraft::guardSalaryAmount($data, $this->inboundBody);
+
             return $this->saveEmployeeDraft($pending, $phone, $data);
         }
         // İşletme hafızası (Faz 2): hatırla / unut onaylı; "neleri hatırlıyorsun" hemen cevap.
