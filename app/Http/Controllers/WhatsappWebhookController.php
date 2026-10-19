@@ -2438,7 +2438,9 @@ class WhatsappWebhookController extends Controller
         // Stoklu firmada firmadan ürünsüz alış: ne alındığı sorulur (engellemez) — stoktakiler stoğa girsin (Akkuş 18.10 Bizim Toptan).
         if (! empty($d['supplier_name'])) {
             $lines[] = '• Firma: ' . $d['supplier_name'] . ' (peşin ödendiği için cari açılmaz)';
-            $lines[] = self::WHAT_BOUGHT;
+            if (empty($d['is_service'])) {
+                $lines[] = self::WHAT_BOUGHT;
+            }
         }
 
         // Kişisiz borç: soru değil ipucu (her "ödenmedi"de ek soru yormasın); ödemesi yine eşleştirilir.
@@ -2577,7 +2579,8 @@ class WhatsappWebhookController extends Controller
                     . ($rest > 0.009 ? ', kalan ' . Money::format($rest) . ' ₺ ' . (! empty($d['paid']) ? 'ödendi' : 'ona borç') : '')
                     . '. Ayrıca yeni ödeme yaptıysan *yeni para* yaz.';
             }
-            if (TradeDraft::enabled() && empty($d['items']) && ! TradeDraft::mentionedProduct((string) ($d['description'] ?? ''))) {
+            // Hizmet (nakliye, işçilik, tamir) mal değil — "Ne aldın?" sorulmaz (Yeni Yapı 19.10 22:37 "Nakliyeciye 20 bin ödedim").
+            if (TradeDraft::enabled() && empty($d['items']) && empty($d['is_service']) && ! TradeDraft::mentionedProduct((string) ($d['description'] ?? ''))) {
                 $lines[] = self::WHAT_BOUGHT; // ne alındı? (engellemez) — stoktakiler stoğa girer
             }
             // Sözleşmeli cariden alış: işin bedeli zaten sözleşmede → çift maliyet riski.

@@ -427,6 +427,10 @@ return [
             'steps' => [['send' => '365 Tl cobanlar market']],
             'expect' => ['reply_not' => ['Düzenli gider', 'her gün']]],
         // 19.10 kullanıcı kararı (Akkuş 18.10 12:31 "Bizim toptan 18.261 tl gider" → "İzzetpaşa ödendi"): peşin + içerik belirsiz → gider, cari yok
+        // Yeni Yapı 19.10 22:37: hizmet (nakliye) ödemesinde "📦 Ne aldın? stoğa girer" satırı çıkmasın
+        ['id' => 'E3-nakliye-hizmet-ne-aldin-yok', 'firm' => 'akkus', 'group' => 'understand',
+            'steps' => [['send' => 'Nakliyeciye 20 bin ödedim'], ['send' => 'Yapıldı']],
+            'expect' => ['reply_not' => ['Ne aldın']]],
         ['id' => 'E2-pesin-toptanci-gider', 'firm' => 'akkus', 'group' => 'understand',
             'steps' => [['send' => 'Bizim toptan 18.261 tl gider'], ['send' => 'İzzetpaşa ödendi', 'expect' => ['reply_has' => ['Ne aldın']]], ['send' => 'Evet']],
             'expect' => ['saved' => ['expenses' => 1, 'ledger' => 0]]],
