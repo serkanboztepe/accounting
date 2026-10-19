@@ -122,7 +122,7 @@ class PartyStatement
                 $entry->project?->name,
                 $entry->id,
                 // Satışa/iadeye/alış belgesine bağlı satırlar buradan düzenlenmez (kaynak = belge).
-                $entry->sale_id === null && $entry->sale_return_id === null && $entry->purchase_id === null,
+                $entry->sale_id === null && $entry->sale_return_id === null && $entry->purchase_id === null && $entry->purchase_return_id === null,
                 // Yalnız satış (borç) satırına Düzenle / Aç bağla — iade satırına değil.
                 $isSaleRow ? $entry->sale_id : null,
                 // İadesi varsa düzenleme kilitli.

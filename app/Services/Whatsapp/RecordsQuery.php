@@ -7,6 +7,7 @@ use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Purchase;
 use App\Models\Sale;
+use App\Models\PurchaseReturn;
 use App\Models\SaleReturn;
 use App\Models\StockMovement;
 use Illuminate\Support\Collection;
@@ -190,7 +191,7 @@ final class RecordsQuery
         $ledger = array_values(array_intersect($t, ['satis', 'alis', 'maas', 'odeme', 'tahsilat']));
         if ($ledger !== []) {
             $q = self::apply(PartyLedgerEntry::with(['party:id,name', 'project:id,name']), $f, 'entry_date', 'amount', ['description', 'notes'])
-                ->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id')
+                ->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id')->whereNull('purchase_return_id')
                 ->whereIn('type', [PartyLedgerEntry::TYPE_SALE, PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION]);
             foreach (self::rows($q) as $e) {
                 $type = match ($e->type) {
@@ -218,6 +219,19 @@ final class RecordsQuery
             foreach (self::rows($q) as $r) {
                 $rows->push(self::row('iade', $r->id, 'return', $r->return_date, (float) $r->total_amount, $r->party?->name, $r->project?->name,
                     $r->notes ?: 'Satış iadesi', null));
+            }
+            $q = self::apply(PurchaseReturn::with(['party:id,name', 'project:id,name']), $f, 'return_date', 'total_amount', ['notes']);
+            foreach (self::rows($q) as $r) {
+                $rows->push(self::row('iade', $r->id, 'purchase_return', $r->return_date, (float) $r->total_amount, $r->party?->name, $r->project?->name,
+                    $r->notes ?: 'Alış iadesi', null));
+            }
+            // Belgesiz basit satış/alışın iadesi (başlıksız cari satırı).
+            $q = self::apply(PartyLedgerEntry::with(['party:id,name', 'project:id,name']), $f, 'entry_date', 'amount', ['description', 'notes'])
+                ->whereIn('type', [PartyLedgerEntry::TYPE_SALE_RETURN, PartyLedgerEntry::TYPE_PURCHASE_RETURN])
+                ->whereNull('sale_return_id')->whereNull('purchase_return_id');
+            foreach (self::rows($q) as $e) {
+                $rows->push(self::row('iade', $e->id, 'ledger', $e->entry_date, (float) $e->amount, $e->party?->name, $e->project?->name,
+                    $e->description ?: $e->typeLabel(), null));
             }
         }
 

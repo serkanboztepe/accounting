@@ -95,6 +95,20 @@ class WhatsappUndoPartySaleTest extends TestCase
         $this->assertNull(Sale::find($sale->id));
     }
 
+    public function test_number_in_message_picks_the_matching_record(): void
+    {
+        $akkus = Party::create(['name' => 'Akkuş Fırın']);
+        $milk = Product::create(['name' => 'Süt', 'type' => 'product']);
+        $this->milkSale($akkus, $milk, 50, now()->subDays(3)->toDateString());
+        $this->milkSale($akkus, $milk, 30, now()->subDay()->toDateString());
+        $this->undo(['party' => 'Akkuş', 'message' => 'Akkuş fırından 50 litre süt düş']);
+
+        $card = $this->send('Akkuş fırından 50 litre süt düş');
+        $this->assertStringContainsString('Şu kaydı sileceğim', $card);
+        $this->assertStringContainsString('50 litre', $card);
+        $this->assertStringNotContainsString('30 litre', $card);
+    }
+
     public function test_unknown_party_says_so(): void
     {
         $this->undo(['party' => 'Olmayan Bakkal']);

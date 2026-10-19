@@ -11,8 +11,10 @@ use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Models\Purchase;
+use App\Models\PurchaseReturn;
 use App\Models\Reminder;
 use App\Models\Sale;
+use App\Models\SaleReturn;
 use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
@@ -33,6 +35,7 @@ use App\Services\Whatsapp\EmployeeDraft;
 use App\Services\Whatsapp\MemoryDraft;
 use App\Services\Whatsapp\NaturalVoice;
 use App\Services\Whatsapp\RecurringDraft;
+use App\Services\Whatsapp\ReturnDraft;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Services\Whatsapp\ProjectChoice;
 use App\Support\Agenda;
@@ -923,6 +926,10 @@ class WhatsappWebhookController extends Controller
                 $this->inboundKind = 'undo';
 
                 return $this->undoDraft($pending, $phone, $result['replacement'] ?? null, $result['find'] ?? null);
+            case 'return':
+                $this->inboundKind = 'return';
+
+                return ReturnDraft::propose($pending, $phone, $result['find'] ?? []);
             case 'cancel':
                 $this->inboundKind = 'quick';
                 $pending?->update(['status' => 'cancelled']);
@@ -1455,6 +1462,17 @@ class WhatsappWebhookController extends Controller
                 self::$recording[] = ['purchase', $purchase->id];
             }
         });
+        // İade: başlık silinince stok ve cari satırı birlikte gider (cascade).
+        SaleReturn::created(function (SaleReturn $r) {
+            if (self::$recording !== null) {
+                self::$recording[] = ['sale_return', $r->id];
+            }
+        });
+        PurchaseReturn::created(function (PurchaseReturn $r) {
+            if (self::$recording !== null) {
+                self::$recording[] = ['purchase_return', $r->id];
+            }
+        });
         StockMovement::created(function (StockMovement $m) {
             if (self::$recording !== null && $m->reason === StockMovement::REASON_ADJUSTMENT) {
                 self::$recording[] = ['stock', $m->id];
@@ -1559,7 +1577,7 @@ class WhatsappWebhookController extends Controller
             ->merge($filter(Expense::query(), 'amount', 'expense_date', 'description')
                 ->map(fn ($e) => [['expense', $e->id], '📝 Gider — ' . $e->expense_date->format('d.m') . ' — ' . Money::format((float) $e->amount) . ' ₺ — ' . ($e->description ?: '—'), $e->expense_date]))
             // Belgeli satış/alışın carideki aynası ayrıca listelenmez — belgeyle birlikte gider.
-            ->merge($filter(PartyLedgerEntry::with('party')->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id'), 'amount', 'entry_date', 'description')
+            ->merge($filter(PartyLedgerEntry::with('party')->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id')->whereNull('purchase_return_id'), 'amount', 'entry_date', 'description')
                 ->map(fn ($l) => [['ledger', $l->id], '📒 ' . (PartyLedgerEntry::TYPES[$l->type]['label'] ?? $l->type) . ' — ' . ($l->party?->name ?? '—') . ' — '
                     . $l->entry_date->format('d.m') . ' — ' . Money::format((float) $l->amount) . ' ₺ — ' . ($l->description ?: '—'), $l->entry_date]))
             // Satış / alış belgesi: silinince bağlı stok hareketleri ve cari satırı da gider (veritabanı cascade; panelin "geri al"ı gibi).
@@ -1567,7 +1585,7 @@ class WhatsappWebhookController extends Controller
             ->merge($filter(Sale::with('party')->whereDoesntHave('saleReturns'), 'total_amount', 'sale_date', 'notes')
                 ->map(fn ($x) => [['sale', $x->id], '🧾 Satış — ' . ($x->party ? $x->party->name . ' — ' : '') . $day($x->sale_date) . ' — '
                     . Money::format((float) $x->total_amount) . ' ₺ — ' . ($x->notes ?: '—'), $x->sale_date]))
-            ->merge($filter(Purchase::with('party'), 'total_amount', 'purchase_date', 'notes')
+            ->merge($filter(Purchase::with('party')->whereDoesntHave('purchaseReturns'), 'total_amount', 'purchase_date', 'notes')
                 ->map(fn ($x) => [['purchase', $x->id], '🛒 Alış — ' . ($x->party ? $x->party->name . ' — ' : '') . $day($x->purchase_date) . ' — '
                     . Money::format((float) $x->total_amount) . ' ₺ — ' . ($x->notes ?: '—'), $x->purchase_date]));
         // "son satışı / en son" → en yeni olan (aynı kişinin birden çok kaydı varken liste yerine).
@@ -1575,6 +1593,14 @@ class WhatsappWebhookController extends Controller
             $hits = $hits->sortByDesc(fn ($h) => \Illuminate\Support\Carbon::parse($h[2])->format('Y-m-d') . sprintf('%012d', $h[0][1]))->take(1)->values();
         }
 
+        // Mesajdaki sayı yalnız bir adayda geçiyorsa o (Oktay: "50 litre süt düş" → 30 ve 50 litrelik iki satıştan 50'lik).
+        if ($hits->count() > 1 && preg_match_all('/\d+(?:[.,]\d+)*/u', (string) ($find['message'] ?? ''), $m)) {
+            $nums = array_unique($m[0]);
+            $narrowed = $hits->filter(fn ($h) => collect($nums)->contains(fn ($n) => preg_match('/(?<![\d.,])' . preg_quote($n, '/') . '(?![\d]|[.,]\d)/u', $h[1])))->values();
+            if ($narrowed->count() === 1) {
+                $hits = $narrowed;
+            }
+        }
         if ($hits->isEmpty()) {
             return 'Tarif ettiğin kaydı bulamadım (son 60 gün). Tutarı ya da tarihi yazar mısın? (ör. "14 Ekim 25.113 gider")';
         }
@@ -1634,6 +1660,8 @@ class WhatsappWebhookController extends Controller
             'ledger' => PartyLedgerEntry::find($target[1] ?? 0),
             'sale' => Sale::find($target[1] ?? 0),
             'purchase' => Purchase::find($target[1] ?? 0),
+            'sale_return' => SaleReturn::find($target[1] ?? 0),
+            'purchase_return' => PurchaseReturn::find($target[1] ?? 0),
             'stock' => StockMovement::find($target[1] ?? 0),
             default => null,
         };
@@ -1709,6 +1737,9 @@ class WhatsappWebhookController extends Controller
         }
         if (($pending->extracted['kind'] ?? null) === self::KIND_CHECK_CLEARED) {
             return $this->commitCheckCleared($pending);
+        }
+        if (($pending->extracted['kind'] ?? null) === ReturnDraft::KIND) {
+            return ReturnDraft::commit($pending);
         }
         // Taslak ile onay arasında silinen proje/cari/kategori (review H) — kayıt hatası yerine boşalır, eksikse sorulur.
         $d = ExpenseExtractor::fitToModules(ExpenseExtractor::dropUnknownIds($pending->extracted));

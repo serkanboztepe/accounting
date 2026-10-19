@@ -20,6 +20,7 @@ class PartyLedgerEntry extends Model
     public const TYPE_SALE          = 'satis';          // biz sattık → cari borçlanır
     public const TYPE_SALE_RETURN   = 'satis_iade';     // satış iadesi → cari alacak (borcu azaltır)
     public const TYPE_PURCHASE      = 'alis';           // biz aldık → biz borçlanırız (cari alacak)
+    public const TYPE_PURCHASE_RETURN = 'alis_iade';    // alış iadesi → cari borç (borcumuz azalır)
     public const TYPE_COLLECTION    = 'tahsilat';       // para girdi → cari alacak
     public const TYPE_PAYMENT       = 'odeme';          // para çıktı → cari borç
     public const TYPE_CHECK_BOUNCED = 'cek_karsiliksiz'; // çek karşılıksız → tahsilatı geri alan ters borç
@@ -28,6 +29,7 @@ class PartyLedgerEntry extends Model
         self::TYPE_SALE          => ['label' => 'Satış',          'direction' => self::DIRECTION_DEBIT],
         self::TYPE_SALE_RETURN   => ['label' => 'Satış İadesi',   'direction' => self::DIRECTION_CREDIT],
         self::TYPE_PURCHASE      => ['label' => 'Alış / Hizmet',  'direction' => self::DIRECTION_CREDIT],
+        self::TYPE_PURCHASE_RETURN => ['label' => 'Alış İadesi',  'direction' => self::DIRECTION_DEBIT],
         self::TYPE_COLLECTION    => ['label' => 'Tahsilat',       'direction' => self::DIRECTION_CREDIT],
         self::TYPE_PAYMENT       => ['label' => 'Ödeme',          'direction' => self::DIRECTION_DEBIT],
         self::TYPE_CHECK_BOUNCED => ['label' => 'Karşılıksız Çek', 'direction' => self::DIRECTION_DEBIT],
@@ -39,6 +41,7 @@ class PartyLedgerEntry extends Model
         'sale_id',
         'sale_return_id',
         'purchase_id',
+        'purchase_return_id',
         'entry_date',
         'due_date',
         'description',

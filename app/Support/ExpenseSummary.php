@@ -56,7 +56,12 @@ class ExpenseSummary
             ->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', 'Borç kaydı%'))
             ->whereBetween('entry_date', [$from, $to])
             ->when($projectId, fn ($q) => $q->where('project_id', $projectId))
-            ->sum('amount');
+            ->sum('amount')
+            - (float) PartyLedgerEntry::query()
+                ->where('type', PartyLedgerEntry::TYPE_PURCHASE_RETURN)
+                ->whereBetween('entry_date', [$from, $to])
+                ->when($projectId, fn ($q) => $q->where('project_id', $projectId))
+                ->sum('amount');
 
         $expenseTotal = (float) $expenses->sum('amount');
 

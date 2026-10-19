@@ -186,6 +186,10 @@ class ChatAssistant
                     if ($find && ! empty($input['find_latest'])) {
                         $find['latest'] = true;
                     }
+                    // Birden çok aday çıkarsa mesajdaki sayı ("50 litre süt düş") hangisi olduğunu seçer (kodda; AI ara sıra vermiyor).
+                    if ($find) {
+                        $find['message'] = $text;
+                    }
 
                     // Onay bekleyen taslak varken "son kaydı düzelt" = TASLAĞI düzelt (henüz kayıt yok). "Recep değil Hüseyin"
                     // ara sıra geri alma sanılıp "geri alacak kayıt yok" deniyordu, taslak eski kalıyordu (deneme seti 16.10).
@@ -201,6 +205,19 @@ class ChatAssistant
                     }
 
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
+                case 'return_items':
+                    // İade (19.10): asıl kayıt durur, yanına iade yazılır. Yön bulunan kayıttan gelir; side yalnız ipucu.
+                    $side = in_array($input['side'] ?? null, ['sale', 'purchase'], true) ? $input['side'] : null;
+
+                    return ['type' => 'return', 'find' => array_filter([
+                        'party' => is_string($input['find_party'] ?? null) && trim($input['find_party']) !== '' ? trim($input['find_party']) : null,
+                        'text' => is_string($input['find_text'] ?? null) && trim($input['find_text']) !== '' ? trim($input['find_text']) : null,
+                        'date' => is_string($input['find_date'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $input['find_date']) ? $input['find_date'] : null,
+                        'side' => $side,
+                        'quantity' => isset($input['quantity']) && (float) $input['quantity'] > 0 ? (float) $input['quantity'] : null,
+                        'amount' => isset($input['amount']) && (float) $input['amount'] > 0 ? (float) $input['amount'] : null,
+                        'money_back' => ! empty($input['money_back']) ? true : null,
+                    ], fn ($v) => $v !== null)];
                 case 'reply':
                     // Düz cevapta yapılmamış işi "yaptım" demesin (Çiftlik 16.10: "zaten kaydettim, otomatik düşüyor" — ayar yoktu):
                     // bir tur daha (kayıt yalnız propose_entry ile); yine derse sabit, doğru cevap.
@@ -534,9 +551,14 @@ class ChatAssistant
           `undo_last` + `find_amount` / `find_date` / `find_text` (sistem bulup gösterir). Kayıt bilgisi istemek için `reply` KULLANMA.
         - Kullanıcının söylediğini GENEL BİLGİYLE SORGULAMA ("fırın süt satmaz", "bu mantıklı değil" DEME — Oktay 18.10): CARİLER,
           hafıza ve geçmiş kayıtlar esastır; anlamadıysan kibarca ne demek istediğini sor. Kaydedilmiş bir işlemi kişiyle anıp
-          "düş / iptal et / sil / geri al / yanlış oldu / bozuk çıktı, saymayalım" diyorsa ("Akkuş fırından 50 litre süt düş",
+          "düş / iptal et / sil / yanlış oldu / saymayalım" diyorsa ("Akkuş fırından 50 litre süt düş",
           "Akkuş'a giden son satışı iptal et") → `undo_last` + `find_party` (+ `find_amount` / `find_text` / `find_latest`); sistem kaydı
           bulup gösterir, kullanıcı onaylar.
+        - İADE ≠ İPTAL: kayıt DOĞRUYDU ama mal sonradan geri geldi / geri gitti ("Ahmet'e sattığım yemin 3 çuvalını geri aldım",
+          "müşteri 2 kasayı geri getirdi", "Oktay'dan aldığım sütün 20 litresini geri verdim", "bozuk çıktı, tedarikçiye iade ettim")
+          → `return_items` (kayıt silinmez, iade yazılır; miktar söylenmediyse null = tamamı). Kayıt YANLIŞ girilmişse / hiç
+          olmadıysa ("iptal et", "sil", "yanlış girdim", "öyle bir satış yok") → `undo_last`. Onay bekleyen iade kartına ek bilgi
+          ("parası verildi", "4 çuvaldı") → `return_items`'ı aynı kayıtla, düzeltilmiş alanlarla tekrar çağır.
         - Kategoriyi her kayıt için KENDİ içeriğine göre seç; önceki kaydın kategorisini taşıma (tosun/hayvan alımı ≠ "Çobanlar").
         - OKUMA (kayıtlara bakıp cevap): liste / ayrıntı / karşılaştırma / "en son" / "kime" / "hangi" / "neler" / "neden"
           soruları → `query_records` ("kime ne kadar ödedim" = types odeme + group_by party; "un en son kimden kaçtan" =
@@ -655,13 +677,29 @@ class ChatAssistant
                     'properties' => [
                         'find_amount' => ['type' => ['number', 'null'], 'description' => 'Yalnız SON kayıt değilse: aranan kaydın tutarı (ör. 25113)'],
                         'find_date' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: aranan kaydın tarihi YYYY-MM-DD'],
-                        'find_text' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: açıklamadaki bir kelime (ör. "süt", "Ergenekon")'],
+                        'find_text' => ['type' => ['string', 'null'], 'description' => 'Açıklamadaki bir kelime ya da mesajdaki miktar (ör. "süt", "Ergenekon", "50 litre" — "50 litre süt düş" → "50 litre")'],
                         'find_party' => ['type' => ['string', 'null'], 'description' => 'Kaydın kişisi (CARİLER\'deki ad, ör. "Akkuş Fırın") — "Akkuş\'a giden satış", "Recep\'ten alış"'],
                         'find_latest' => ['type' => ['boolean', 'null'], 'description' => 'true: "son / en son / az önceki" — bulunanlardan en yenisi'],
                         'replacement' => [
                             'type' => ['object', 'null'],
                             'description' => 'Yalnız düzeltmede: kaydın doğru hâli (propose_entry ile aynı alanlar). Önceki kayıttan kişi, tutar, açıklama, tarih KORUNUR; yalnız istenen değişir. Sadece silme isteniyorsa null.',
                         ],
+                    ],
+                ],
+            ],
+            [
+                'name' => 'return_items',
+                'description' => 'İADE: satılan mal geri geldi ("Ahmet\'e sattığım yemin 3 çuvalını geri aldım", "müşteri 2 kasa geri getirdi") ya da alınan mal tedarikçiye geri verildi ("Oktay\'dan aldığım sütün 20 litresini geri verdim", "bozuk çıktı, iade ettim"). Asıl kayıt SİLİNMEZ, yanına iade yazılır; sistem kaydı bulup kartla onay ister. Kayıt yanlış girilmiş / hiç olmamışsa (iptal, sil, yanlış girdim) bu değil → undo_last.',
+                'input_schema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'find_party' => ['type' => ['string', 'null'], 'description' => 'Kime satılmıştı / kimden alınmıştı (CARİLER\'deki ad)'],
+                        'find_text' => ['type' => ['string', 'null'], 'description' => 'Mal adı ya da açıklamadaki kelime (ör. "yem", "süt")'],
+                        'find_date' => ['type' => ['string', 'null'], 'description' => 'Asıl satış/alış tarihi söylendiyse YYYY-MM-DD'],
+                        'side' => ['type' => ['string', 'null'], 'enum' => ['sale', 'purchase', null], 'description' => 'sale: bizim SATTIĞIMIZ mal geri geldi ("geri aldım", "geri getirdi"); purchase: bizim ALDIĞIMIZ mal geri gitti ("geri verdim", "tedarikçiye iade"). Belirsizse null.'],
+                        'quantity' => ['type' => ['number', 'null'], 'description' => 'Geri gelen/giden miktar (ör. 3 çuval → 3). Söylenmediyse null (tamamı).'],
+                        'amount' => ['type' => ['number', 'null'], 'description' => 'İade tutarı TL, yalnız söylendiyse'],
+                        'money_back' => ['type' => ['boolean', 'null'], 'description' => 'true: parası da geri verildi/alındı ("parasını geri verdim", "parayı iade etti")'],
                     ],
                 ],
             ],

@@ -56,6 +56,93 @@ class Purchase extends Model
         return $this->hasMany(PartyLedgerEntry::class, 'purchase_id');
     }
 
+    /** İade başlıkları (tedarikçiye geri verilen mal). */
+    public function purchaseReturns(): HasMany
+    {
+        return $this->hasMany(PurchaseReturn::class);
+    }
+
+    /** Bir ürün için: alınan − iade edilen = iade edilebilecek kalan. */
+    public function returnableQtyForProduct(int $productId): float
+    {
+        $bought = (float) $this->lines()->where('product_id', $productId)->sum('quantity');
+        $returned = (float) StockMovement::where('purchase_id', $this->id)->where('reason', StockMovement::REASON_RETURN)
+            ->where('product_id', $productId)->sum('quantity');
+
+        return max(0.0, $bought - $returned);
+    }
+
+    /** İade edilebilecek kalan tutar (toplam − önceki iadeler). */
+    public function returnableAmount(): float
+    {
+        return max(0.0, (float) $this->total_amount - (float) $this->purchaseReturns()->sum('total_amount'));
+    }
+
+    /**
+     * İade işle (Sale::processReturn'ün aynası): her ürün için çıkan/return stok hareketi + cariden alındıysa "alış iadesi"
+     * (borcumuz azalır). $lines: [['product_id'=>, 'return_qty'=>, 'unit_price'=>], ...]; ürünsüz alışta $manualAmount.
+     */
+    public function processReturn(array $lines, string $date, ?string $notes = null, ?float $manualAmount = null): ?PurchaseReturn
+    {
+        $prepared = [];
+        $total = 0.0;
+        foreach ($lines as $line) {
+            $productId = (int) ($line['product_id'] ?? 0);
+            $qty = (float) ($line['return_qty'] ?? 0);
+            if (! $productId || $qty <= 0) {
+                continue;
+            }
+            $unitPrice = blank($line['unit_price'] ?? null) ? null : Money::parse($line['unit_price']);
+            $amount = $unitPrice !== null ? round($qty * $unitPrice, 2) : null;
+            $prepared[] = compact('productId', 'qty', 'unitPrice', 'amount');
+            $total += (float) ($amount ?? 0);
+        }
+        $total += max(0.0, (float) $manualAmount);
+        if ($prepared === [] && $total <= 0) {
+            return null;
+        }
+
+        $return = $this->purchaseReturns()->create([
+            'party_id'     => $this->party_id,
+            'project_id'   => $this->project_id,
+            'return_date'  => $date,
+            'total_amount' => $total,
+            'notes'        => $notes,
+        ]);
+
+        foreach ($prepared as $p) {
+            StockMovement::create([
+                'product_id'         => $p['productId'],
+                'purchase_id'        => $this->id,
+                'purchase_return_id' => $return->id,
+                'direction'          => StockMovement::DIRECTION_OUT,
+                'reason'             => StockMovement::REASON_RETURN,
+                'quantity'           => $p['qty'],
+                'unit_price'         => $p['unitPrice'],
+                'amount'             => $p['amount'],
+                'party_id'           => $this->party_id,
+                'project_id'         => $this->project_id,
+                'movement_date'      => $date,
+                'notes'              => $notes,
+            ]);
+        }
+
+        // Peşin (carisiz) alışın iadesi cariye yazılmaz; stok yine düşer, alış toplamından düşülür.
+        if ($total > 0 && $this->party_id) {
+            PartyLedgerEntry::create([
+                'party_id'           => $this->party_id,
+                'project_id'         => $this->project_id,
+                'purchase_return_id' => $return->id,
+                'entry_date'         => $date,
+                'type'               => PartyLedgerEntry::TYPE_PURCHASE_RETURN,
+                'amount'             => $total,
+                'description'        => 'Alış #' . $this->id . ' iadesi',
+            ]);
+        }
+
+        return $return;
+    }
+
     public function supplierLabel(): string
     {
         return $this->party?->name ?? 'Peşin';

@@ -56,4 +56,11 @@ class PurchaseResource extends Resource
             'edit'  => EditPurchase::route('/{record}/edit'),
         ];
     }
+
+    public static function getRelations(): array
+    {
+        return [
+            RelationManagers\ReturnsRelationManager::class,
+        ];
+    }
 }

@@ -97,6 +97,12 @@ class Sale extends Model
             ->where('type', PartyLedgerEntry::TYPE_SALE);
     }
 
+    /** İade alınabilecek kalan tutar (toplam − önceki iadeler). */
+    public function returnableAmount(): float
+    {
+        return max(0.0, (float) $this->total_amount - (float) $this->saleReturns()->sum('total_amount'));
+    }
+
     /** Bir ürün için: satılan − iade edilen = iade edilebilecek kalan. */
     public function returnableQtyForProduct(int $productId): float
     {
@@ -236,7 +242,7 @@ class Sale extends Model
      * $lines: [['product_id'=>, 'return_qty'=>, 'unit_price'=> (Money'li)], ...]
      * "Sevkte satış" modeli: stok geri +, cari borç − (alacak).
      */
-    public function processReturn(array $lines, string $date, ?string $notes = null): ?SaleReturn
+    public function processReturn(array $lines, string $date, ?string $notes = null, ?float $manualAmount = null): ?SaleReturn
     {
         // Önce geçerli kalemleri süz + tutarları hesapla.
         $prepared = [];
@@ -256,7 +262,9 @@ class Sale extends Model
             $totalReturn += (float) ($amount ?? 0);
         }
 
-        if (empty($prepared)) {
+        // Ürünsüz satış belgesinin iadesi (WhatsApp "sattığım … geri geldi"): yalnız tutar.
+        $totalReturn += max(0.0, (float) $manualAmount);
+        if (empty($prepared) && $totalReturn <= 0) {
             return null;
         }
 

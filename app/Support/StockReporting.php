@@ -52,7 +52,9 @@ class StockReporting
         $col = $groupBy === 'project' ? 'project_id' : 'party_id';
 
         $rows = StockMovement::query()
-            ->whereIn('reason', [StockMovement::REASON_SALE, StockMovement::REASON_RETURN])
+            // Yalnız satış iadesi (giren); alış iadesi (çıkan/return) satıştan düşülmez.
+            ->where(fn ($q) => $q->where('reason', StockMovement::REASON_SALE)
+                ->orWhere(fn ($q) => $q->where('reason', StockMovement::REASON_RETURN)->where('direction', StockMovement::DIRECTION_IN)))
             ->selectRaw(
                 "$col AS gid,
                  SUM(CASE WHEN reason = 'sale' THEN amount ELSE 0 END)   AS gross,

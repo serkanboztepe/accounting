@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Expense;
 use App\Models\PartyLedgerEntry;
 use App\Models\Purchase;
+use App\Models\PurchaseReturn;
 use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Models\StockMovement;
@@ -14,7 +15,7 @@ use Illuminate\Support\Carbon;
  * Ay Sonucu (yaklaşık) = ciro − alışlar − giderler. Ödeme ve tahsilat SAYILMAZ (para hareketi, kazanç değil).
  * Her kaynak yalnız bir kez sayılır:
  *   ciro   = satış belgeleri (Satışlar + caride kalemli satış) + belgesiz basit "Satış Yaptım" − iadeler
- *   alış   = alış belgeleri (Alışlar) + belgesiz basit "Alış Yaptım" + belgesiz Mal Girişi (tutarlı olanlar)
+ *   alış   = alış belgeleri (Alışlar) + belgesiz basit "Alış Yaptım" + belgesiz Mal Girişi (tutarlı olanlar) − alış iadeleri
  *   gider  = Giderler (modül açıksa)
  * Yaklaşık: ay sonunda stokta duran malın değeri düşülmez (alınan her şey o ayın alışı sayılır).
  */
@@ -72,7 +73,10 @@ class MonthlyResult
         $bank = (float) $p(Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to]))->sum('bank_amount');
         $salesLedger = (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE)->whereNull('sale_id')
             ->whereBetween('entry_date', [$from, $to]))->sum('amount');
-        $returns = (float) $p(SaleReturn::whereBetween('return_date', [$from, $to]))->sum('total_amount');
+        // Belgesiz basit satışın iadesi (WhatsApp) başlıksız cari satırıdır; belgelinin cari aynası SaleReturn'de sayılı.
+        $returns = (float) $p(SaleReturn::whereBetween('return_date', [$from, $to]))->sum('total_amount')
+            + (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE_RETURN)->whereNull('sale_return_id')
+                ->whereBetween('entry_date', [$from, $to]))->sum('amount');
         $revenue = $salesDocs + $salesLedger - $returns;
 
         $purchaseDocs = (float) $p(Purchase::whereBetween('purchase_date', [$from, $to]))->sum('total_amount');
@@ -86,7 +90,11 @@ class MonthlyResult
             ->whereBetween('movement_date', [$from, $to]));
         $goodsInAmount = (float) (clone $goodsIn)->sum('amount');
         $unpriced = (clone $goodsIn)->whereNull('amount')->count();
-        $purchases = $purchaseDocs + $purchaseLedger + $goodsInAmount;
+        // Alış iadesi (tedarikçiye geri verilen) alıştan düşülür: belgeli = PurchaseReturn, belgesiz = başlıksız cari satırı.
+        $purchaseReturns = (float) $p(PurchaseReturn::whereBetween('return_date', [$from, $to]))->sum('total_amount')
+            + (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE_RETURN)->whereNull('purchase_return_id')
+                ->whereBetween('entry_date', [$from, $to]))->sum('amount');
+        $purchases = $purchaseDocs + $purchaseLedger + $goodsInAmount - $purchaseReturns;
 
         $expenses = config('modules.expenses')
             ? (float) $p(Expense::whereBetween('expense_date', [$from, $to]))->sum('amount')
@@ -107,6 +115,7 @@ class MonthlyResult
             'purchase_docs'   => $purchaseDocs,
             'purchase_ledger' => $purchaseLedger,
             'goods_in'        => $goodsInAmount,
+            'purchase_returns' => $purchaseReturns,
             'unpriced_goods'  => $unpriced,
             'expenses'        => $expenses,
             'personnel'       => $personnel,

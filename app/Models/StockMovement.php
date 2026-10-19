@@ -47,6 +47,7 @@ class StockMovement extends Model
         'sale_id',
         'sale_return_id',
         'purchase_id',
+        'purchase_return_id',
         'movement_date',
         'related_movement_id',
         'notes',
