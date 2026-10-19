@@ -180,7 +180,12 @@ class ChatAssistant
                         'amount' => isset($input['find_amount']) && (float) $input['find_amount'] > 0 ? (float) $input['find_amount'] : null,
                         'date' => is_string($input['find_date'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $input['find_date']) ? $input['find_date'] : null,
                         'text' => is_string($input['find_text'] ?? null) && trim($input['find_text']) !== '' ? trim($input['find_text']) : null,
+                        'party' => is_string($input['find_party'] ?? null) && trim($input['find_party']) !== '' ? trim($input['find_party']) : null,
                     ]);
+                    // "son satışı" — aranan kişinin/tutarın en yeni kaydı (yalnız başka bir arama ölçütüyle birlikte).
+                    if ($find && ! empty($input['find_latest'])) {
+                        $find['latest'] = true;
+                    }
 
                     // Onay bekleyen taslak varken "son kaydı düzelt" = TASLAĞI düzelt (henüz kayıt yok). "Recep değil Hüseyin"
                     // ara sıra geri alma sanılıp "geri alacak kayıt yok" deniyordu, taslak eski kalıyordu (deneme seti 16.10).
@@ -521,6 +526,11 @@ class ChatAssistant
           (geri kalan her şey önceki kayıttaki gibi). Sistem ikisini gösterip tek onay ister. SON kayıt değil de DAHA ESKİ
           bir kayıt tarif ediliyorsa ("kategorisiz olan 25.113 yanlış", "14.10'daki gideri sil", "Ergenekon gideri yanlış") → yine
           `undo_last` + `find_amount` / `find_date` / `find_text` (sistem bulup gösterir). Kayıt bilgisi istemek için `reply` KULLANMA.
+        - Kullanıcının söylediğini GENEL BİLGİYLE SORGULAMA ("fırın süt satmaz", "bu mantıklı değil" DEME — Oktay 18.10): CARİLER,
+          hafıza ve geçmiş kayıtlar esastır; anlamadıysan kibarca ne demek istediğini sor. Kaydedilmiş bir işlemi kişiyle anıp
+          "düş / iptal et / sil / geri al / yanlış oldu / bozuk çıktı, saymayalım" diyorsa ("Akkuş fırından 50 litre süt düş",
+          "Akkuş'a giden son satışı iptal et") → `undo_last` + `find_party` (+ `find_amount` / `find_text` / `find_latest`); sistem kaydı
+          bulup gösterir, kullanıcı onaylar.
         - Kategoriyi her kayıt için KENDİ içeriğine göre seç; önceki kaydın kategorisini taşıma (tosun/hayvan alımı ≠ "Çobanlar").
         - OKUMA (kayıtlara bakıp cevap): liste / ayrıntı / karşılaştırma / "en son" / "kime" / "hangi" / "neler" / "neden"
           soruları → `query_records` ("kime ne kadar ödedim" = types odeme + group_by party; "un en son kimden kaçtan" =
@@ -637,7 +647,9 @@ class ChatAssistant
                     'properties' => [
                         'find_amount' => ['type' => ['number', 'null'], 'description' => 'Yalnız SON kayıt değilse: aranan kaydın tutarı (ör. 25113)'],
                         'find_date' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: aranan kaydın tarihi YYYY-MM-DD'],
-                        'find_text' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: açıklamadaki bir kelime (ör. "Ergenekon")'],
+                        'find_text' => ['type' => ['string', 'null'], 'description' => 'Yalnız SON kayıt değilse: açıklamadaki bir kelime (ör. "süt", "Ergenekon")'],
+                        'find_party' => ['type' => ['string', 'null'], 'description' => 'Kaydın kişisi (CARİLER\'deki ad, ör. "Akkuş Fırın") — "Akkuş\'a giden satış", "Recep\'ten alış"'],
+                        'find_latest' => ['type' => ['boolean', 'null'], 'description' => 'true: "son / en son / az önceki" — bulunanlardan en yenisi'],
                         'replacement' => [
                             'type' => ['object', 'null'],
                             'description' => 'Yalnız düzeltmede: kaydın doğru hâli (propose_entry ile aynı alanlar). Önceki kayıttan kişi, tutar, açıklama, tarih KORUNUR; yalnız istenen değişir. Sadece silme isteniyorsa null.',

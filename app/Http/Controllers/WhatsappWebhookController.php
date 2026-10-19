@@ -1396,7 +1396,22 @@ class WhatsappWebhookController extends Controller
         $amount = $find['amount'] ?? null;
         $date = $find['date'] ?? null;
         $text = $find['text'] ?? null;
-        $filter = function ($q, string $amountCol, string $dateCol, string $textCol) use ($amount, $date, $text, $since) {
+        // Kişiyle (Oktay 18.10: "Akkuş fırına giden son satışı iptal et" → bulunamadı): kişi adı ya da kelime bir cariye uyuyorsa
+        // o carinin kayıtları aranır; kelime açıklamada aranmaz.
+        $like = (new Party)->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+        $partyIds = [];
+        foreach (array_filter([$find['party'] ?? null, $text]) as $name) {
+            $ids = Party::where('name', $like, '%' . $name . '%')->pluck('id')->all();
+            if ($ids !== []) {
+                $partyIds = $ids;
+                $text = $text === $name ? null : $text;
+                break;
+            }
+        }
+        if (! empty($find['party']) && $partyIds === []) {
+            return 'Carilerde "' . $find['party'] . '" adında biri yok. Adını listedeki gibi yazar mısın? (*cariler* yazarsan listeyi gösteririm)';
+        }
+        $filter = function ($q, string $amountCol, string $dateCol, ?string $textCol) use ($amount, $date, $text, $since, $partyIds) {
             $q->where($dateCol, '>=', $since);
             if ($amount) {
                 $q->whereBetween($amountCol, [$amount - 0.01, $amount + 0.01]);
@@ -1407,18 +1422,32 @@ class WhatsappWebhookController extends Controller
             if ($text) {
                 $q->where($textCol, 'like', '%' . $text . '%');
             }
+            if ($partyIds !== []) {
+                $q->whereIn('party_id', $partyIds);
+            }
 
-            return $q->limit(6)->get();
+            return $q->orderByDesc($dateCol)->orderByDesc('id')->limit(6)->get();
         };
+        $day = fn ($d) => \Illuminate\Support\Carbon::parse($d)->format('d.m');
         $hits = collect()
             ->merge($filter(Expense::query(), 'amount', 'expense_date', 'description')
-                ->map(fn ($e) => [['expense', $e->id], '📝 Gider — ' . $e->expense_date->format('d.m') . ' — ' . Money::format((float) $e->amount) . ' ₺ — ' . ($e->description ?: '—')]))
-            ->merge($filter(PartyLedgerEntry::with('party'), 'amount', 'entry_date', 'description')
+                ->map(fn ($e) => [['expense', $e->id], '📝 Gider — ' . $e->expense_date->format('d.m') . ' — ' . Money::format((float) $e->amount) . ' ₺ — ' . ($e->description ?: '—'), $e->expense_date]))
+            // Belgeli satış/alışın carideki aynası ayrıca listelenmez — belgeyle birlikte gider.
+            ->merge($filter(PartyLedgerEntry::with('party')->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id'), 'amount', 'entry_date', 'description')
                 ->map(fn ($l) => [['ledger', $l->id], '📒 ' . (PartyLedgerEntry::TYPES[$l->type]['label'] ?? $l->type) . ' — ' . ($l->party?->name ?? '—') . ' — '
-                    . $l->entry_date->format('d.m') . ' — ' . Money::format((float) $l->amount) . ' ₺ — ' . ($l->description ?: '—')]))
-            // Satış: yalnız ürünsüz, carisiz kasa (ciro) — silince bağlı stok/cari satırı kalmasın.
-            ->merge($filter(Sale::query()->whereNull('party_id')->whereDoesntHave('lines'), 'total_amount', 'sale_date', 'notes')
-                ->map(fn ($x) => [['sale', $x->id], '🧾 Satış — ' . \Illuminate\Support\Carbon::parse($x->sale_date)->format('d.m') . ' — ' . Money::format((float) $x->total_amount) . ' ₺ — ' . ($x->notes ?: '—')]));
+                    . $l->entry_date->format('d.m') . ' — ' . Money::format((float) $l->amount) . ' ₺ — ' . ($l->description ?: '—'), $l->entry_date]))
+            // Satış / alış belgesi: silinince bağlı stok hareketleri ve cari satırı da gider (veritabanı cascade; panelin "geri al"ı gibi).
+            // İadesi olan satış silinmez (iade ona bağlı).
+            ->merge($filter(Sale::with('party')->whereDoesntHave('saleReturns'), 'total_amount', 'sale_date', 'notes')
+                ->map(fn ($x) => [['sale', $x->id], '🧾 Satış — ' . ($x->party ? $x->party->name . ' — ' : '') . $day($x->sale_date) . ' — '
+                    . Money::format((float) $x->total_amount) . ' ₺ — ' . ($x->notes ?: '—'), $x->sale_date]))
+            ->merge($filter(Purchase::with('party'), 'total_amount', 'purchase_date', 'notes')
+                ->map(fn ($x) => [['purchase', $x->id], '🛒 Alış — ' . ($x->party ? $x->party->name . ' — ' : '') . $day($x->purchase_date) . ' — '
+                    . Money::format((float) $x->total_amount) . ' ₺ — ' . ($x->notes ?: '—'), $x->purchase_date]));
+        // "son satışı / en son" → en yeni olan (aynı kişinin birden çok kaydı varken liste yerine).
+        if (! empty($find['latest']) && $hits->count() > 1) {
+            $hits = $hits->sortByDesc(fn ($h) => \Illuminate\Support\Carbon::parse($h[2])->format('Y-m-d') . sprintf('%012d', $h[0][1]))->take(1)->values();
+        }
 
         if ($hits->isEmpty()) {
             return 'Tarif ettiğin kaydı bulamadım (son 60 gün). Tutarı ya da tarihi yazar mısın? (ör. "14 Ekim 25.113 gider")';

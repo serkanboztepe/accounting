@@ -41,7 +41,7 @@ return [
         // Çiftlik (Oktay, firma 9): stoklu, projesiz.
         'oktay' => [
             'profile' => 'trade', 'modules' => ['natural_voice' => true], 'sector' => 'farm',
-            'parties' => ['Damızlık Birliği' => []], 'products' => [['Yem', 'adet'], ['Ezme', 'adet']], 'categories' => ['Çobanlar'],
+            'parties' => ['Damızlık Birliği' => [], 'Akkuş Fırın' => []], 'products' => [['Yem', 'adet'], ['Ezme', 'adet']], 'categories' => ['Çobanlar'],
         ],
         'muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true], 'sector' => 'construction',
@@ -394,6 +394,13 @@ return [
         ['id' => 'C2-ekmek-soz-yok', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => 'Çobanlar günde iki ekmek yiyorlar ekmeğin fiyatı 17:30 TL her gün hesap hesaplarına gider olarak ekle']],
             'expect' => ['reply_not' => ['hatırlayacağım', 'Hatırlayayım mı', 'kaydettim'], 'saved' => ['expenses' => 0]]],
+        // 18.10 Oktay 13:04: süt bozuk çıktı, satışı geri almak istedi → "fırın süt satmaz sanırım" + "bulamadım"
+        ['id' => 'O3-sut-dus-geri-alma', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-akkus-sut',
+            'steps' => [['send' => 'Akkuş fırından 50 litre süt düş']],
+            'expect' => ['reply_has' => ['Şu kaydı sileceğim', '1.500,00'], 'reply_not' => ['satmaz', 'karışmış', 'bulamadım']]],
+        ['id' => 'O4-son-satisi-iptal', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-akkus-sut',
+            'steps' => [['send' => 'Akkuş fırına giden son satışı iptal et'], ['send' => 'Evet']],
+            'expect' => ['reply_has' => ['Silindi'], 'balance' => ['Akkuş Fırın' => 900]]],
         // 17.10 Oktay: kartsız ürüne birim fiyat ("litresi 30") → toplam 0 kalıyordu
         ['id' => 'F4-kartsiz-urun-birim-fiyat', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => 'Damızlık birliğine 50 litre süt gitti'], ['send' => 'Litresi 30 Tl']],
@@ -457,6 +464,7 @@ return [
         'akkus-iki-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes'],
             ['out', 'reminder', '⏰ Hatırlatma: Bugün: Ergenekon dükkan kira ödemesi 54.000 ₺', '-140 minutes']],
         'oktay-stok' => [['stock', 'Yem', 33], ['stock', 'Ezme', 5]],
+        'oktay-akkus-sut' => [['ledger', 'Akkuş Fırın', 'satis', 900, '-3 days', "Akkuş Fırın'a 30 litre süt"], ['ledger', 'Akkuş Fırın', 'satis', 1500, '-1 days', "Akkuş Fırın'a 50 litre süt"]],
         'stok-seramik-anlasma' => [['memory', 'agreement', 'Seramik anlaşması', 'Ak Un ile 1000 m² seramik anlaşması, m² 650 TL (600 m²si geldi)', 'Ak Un']],
         'taner-osman-avans' => [['ledger', 'Asansör Osman', 'odeme', 1005000, '-14 days', 'Avans — Atatürk mahallesi asansörü']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
