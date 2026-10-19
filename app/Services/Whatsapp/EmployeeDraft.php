@@ -192,14 +192,57 @@ final class EmployeeDraft
             $next = $today->copy()->startOfMonth()->addMonthNoOverflow();
             $event = $next->day(min($day, $next->daysInMonth));
         }
-        $reminder = Reminder::where('party_id', $party->id)->where('repeat', 'monthly')->where('status', 'active')
-            ->where('text', 'like', '%maaş%')->first() ?? new Reminder(['phone' => Phone::normalize($phone)]);
+        $reminder = self::salaryReminder($party) ?? new Reminder(['phone' => Phone::normalize($phone)]);
         $reminder->fill(['text' => $party->name . ' maaş günü', 'party_id' => $party->id, 'event_date' => $event->toDateString(),
             'event_time' => null, 'lead_minutes' => null, 'is_alarm' => false, 'repeat' => 'monthly', 'anchor_day' => $day]);
         $reminder->scheduleNext();
         $reminder->save();
 
         return $reminder;
+    }
+
+    /**
+     * Panelde kart kaydedilince (kullanıcı 19.10): maaş günü yalnız kartta tutulur, hatırlatma ondan beslenir. Personel + gün varsa
+     * hatırlatma kurulur / günü güncellenir (numara: varsa eski hatırlatmanınki, yoksa firmanın sabah hatırlatması alan ilk numarası);
+     * personellikten çıkınca ya da gün silinince kapanır.
+     */
+    public static function syncFromCard(Party $party): void
+    {
+        $existing = self::salaryReminder($party);
+        if (! $party->is_employee || ! $party->salary_day) {
+            $existing?->update(['status' => 'cancelled', 'next_fire_at' => null]);
+
+            return;
+        }
+        if ($existing && (int) $existing->anchor_day === (int) $party->salary_day) {
+            return;
+        }
+        $phone = $existing?->phone ?? (\App\Tenancy\Tenancy::current()?->reminderPhones()[0] ?? null);
+        if ($phone) {
+            self::syncReminder($party, $phone);
+        }
+    }
+
+    public static function salaryReminder(Party $party): ?Reminder
+    {
+        return Reminder::where('party_id', $party->id)->where('repeat', 'monthly')->where('status', 'active')
+            ->where('text', 'like', '%maaş%')->first();
+    }
+
+    /**
+     * WhatsApp "Hikmet'in maaş hatırlatmasını kur / her ayın 17'si maaş hatırlat": personelin maaşı için düz hatırlatma açılmaz —
+     * kartın maaş günü ayarı olur (Akkuş: cariye bağsız "Abdullah Günhan maaş ödemesi 50.000 TL" ikinci hatırlatma olmuştu).
+     */
+    public static function salaryReminderParty(array $d): ?Party
+    {
+        $text = (string) ($d['description'] ?? '');
+        if (! preg_match('/ma[aâ][şs]/iu', $text)) {
+            return null;
+        }
+        $party = ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+        $party ??= Party::where('is_employee', true)->get()->first(fn (Party $p) => mb_stripos($text, $p->name) !== false);
+
+        return $party?->is_employee ? $party : null;
     }
 
     /** Hatırlatma notu: "maaş 50.000 − avans 20.000 = 30.000 ₺ ödeyeceksin" (Reminders::fireText). */

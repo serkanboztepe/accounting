@@ -31,7 +31,7 @@ class PartyForm
                         ->visible(fn (Get $get) => (bool) $get('is_employee')),
                     TextInput::make('salary_day')->label('Maaş günü (ayın kaçı)')
                         ->numeric()->minValue(1)->maxValue(31)
-                        ->helperText('WhatsApp\'tan "X\'in maaş günü ayın 15\'i" yazılınca o gün hatırlatma da kurulur.')
+                        ->helperText('Girilince her ay o gün (ve bir gün önce) 08:00\'de WhatsApp\'tan maaş hatırlatması gelir; Takvim\'de görünür.')
                         ->visible(fn (Get $get) => (bool) $get('is_employee')),
                 ]),
         ]);

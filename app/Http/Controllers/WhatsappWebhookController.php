@@ -2151,6 +2151,18 @@ class WhatsappWebhookController extends Controller
      */
     private function saveReminderDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
     {
+        // Personelin maaş hatırlatması = kartın maaş günü (tek doğru yer kart; hatırlatma ondan kurulur).
+        if (! empty($data['event_date']) && ($employee = EmployeeDraft::salaryReminderParty($data))) {
+            $out = $this->saveDraft($pending, $phone, array_filter([
+                'kind' => ExpenseExtractor::KIND_EMPLOYEE_SETTING,
+                'party_id' => $employee->id,
+                'salary_day' => \Illuminate\Support\Carbon::parse($data['event_date'])->day,
+                'salary_amount' => (float) ($data['amount'] ?? 0) > 0 ? (float) $data['amount'] : null,
+                'confidence' => 'high',
+            ], fn ($v) => $v !== null));
+
+            return is_array($out) ? implode("\n\n", $out) : $out;
+        }
         $reminder = Reminders::fromDraft($data, $phone);
         $data['question'] = null;
 

@@ -237,6 +237,50 @@ class WhatsappEmployeeTest extends TestCase
         $this->assertSame('2026-11-17', $r->event_date->toDateString());
     }
 
+    public function test_whatsapp_salary_reminder_for_employee_sets_card_day_not_a_second_reminder(): void
+    {
+        // Akkuş: "Abdullah Günhan maaş ödemesi 50.000 TL" cariye bağsız ikinci hatırlatma olmuştu.
+        $party = Party::create(['name' => 'Personel Testi Hikmet', 'is_employee' => true, 'salary_amount' => 62000, 'salary_day' => 17]);
+        \App\Services\Whatsapp\EmployeeDraft::syncReminder($party, '905558880005');
+        $day = now('Europe/Istanbul')->addMonthNoOverflow()->startOfMonth()->day(20)->toDateString();
+        $this->ai($this->draft(['kind' => ExpenseExtractor::KIND_REMINDER, 'description' => 'Personel Testi Hikmet maaş ödemesi',
+            'event_date' => $day, 'repeat' => 'monthly']));
+
+        $card = $this->send("Personel Testi Hikmet'in maaşını her ayın 20'si hatırlat");
+        $this->assertStringContainsString("Maaş günü: her ayın 20'i", $card);
+        $this->send('evet');
+
+        $this->assertSame(20, $party->fresh()->salary_day);
+        $active = Reminder::where('status', 'active')->where('text', 'like', '%Personel Testi Hikmet%')->get();
+        $this->assertCount(1, $active, 'tek hatırlatma');
+        $this->assertSame($party->id, $active->first()->party_id);
+        $this->assertSame(20, (int) $active->first()->anchor_day);
+    }
+
+    public function test_plain_reminder_for_non_employee_is_unchanged(): void
+    {
+        $this->ai($this->draft(['kind' => ExpenseExtractor::KIND_REMINDER, 'description' => 'Kredi kartı ödemesi',
+            'event_date' => now('Europe/Istanbul')->addDays(5)->toDateString()]));
+
+        $this->assertStringContainsString('Hatırlatma — kontrol et', $this->send('5 gün sonra kredi kartı ödemesini hatırlat'));
+    }
+
+    public function test_card_salary_day_change_moves_reminder_and_leaving_staff_closes_it(): void
+    {
+        $party = Party::create(['name' => 'Personel Testi Kart', 'is_employee' => true, 'salary_amount' => 50000, 'salary_day' => 17]);
+        $r = \App\Services\Whatsapp\EmployeeDraft::syncReminder($party, '905558880005');
+
+        $party->update(['salary_day' => 25]);
+        \App\Services\Whatsapp\EmployeeDraft::syncFromCard($party);
+        $this->assertSame(25, (int) $r->fresh()->anchor_day);
+        $this->assertSame('905558880005', $r->fresh()->phone, 'kuran numara korunur');
+        $this->assertSame(1, Reminder::where('party_id', $party->id)->where('status', 'active')->count());
+
+        $party->update(['is_employee' => false]);
+        \App\Services\Whatsapp\EmployeeDraft::syncFromCard($party);
+        $this->assertSame('cancelled', $r->fresh()->status);
+    }
+
     public function test_paid_after_day_before_reminder_skips_that_days_reminder(): void
     {
         // Bir gün önceki hatırlatma gitti, o gün ödendi → 17 Ekim hatırlatması gereksiz, sıradaki Kasım.

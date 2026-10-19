@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Parties\Pages;
 
+use App\Services\Whatsapp\EmployeeDraft;
 use App\Support\Labels;
 use App\Filament\Resources\Parties\PartyResource;
 use App\Models\Check;
@@ -38,6 +39,12 @@ use Filament\Schemas\Schema;
 class EditParty extends EditRecord
 {
     protected static string $resource = PartyResource::class;
+
+    /** Kartta maaş günü / personel değişince maaş günü hatırlatması güncellenir ya da kapanır (tek doğru yer kart). */
+    protected function afterSave(): void
+    {
+        EmployeeDraft::syncFromCard($this->record);
+    }
 
     protected function getHeaderActions(): array
     {
