@@ -793,6 +793,30 @@ class WhatsappWebhookController extends Controller
         return 'Az önceki *' . DraftGaps::label($left->extracted) . "* henüz kaydedilmedi. Kaydedeyim mi? *evet* / *iptal*";
     }
 
+    /**
+     * Firmanın BAŞKA numarasında son 30 dk'da onay bekleyen kasa / satış / alış / gider (Akkuş 18.10 22:46: Ergenekon numarası kasayı
+     * girmiş, onay bekliyordu; Emre "Ergenekon ciro ne kadar" diye sorunca "henüz kasa yok" dendi). Yalnız bilgi; kayda dokunmaz.
+     */
+    private function otherPhonesPending(string $phone): string
+    {
+        try {
+            $mine = Phone::normalize($phone);
+            $rows = WhatsappPendingExpense::where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))
+                ->latest('updated_at')->limit(10)->get()
+                ->filter(fn ($p) => Phone::normalize((string) $p->phone) !== $mine && in_array($this->kind($p->extracted), [ExpenseExtractor::KIND_TRADE_SALE,
+                    ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_EXPENSE], true)
+                    && (float) ($p->extracted['amount'] ?? 0) > 0);
+        } catch (\Throwable $e) {
+            Log::warning('Diğer numaraların bekleyen kayıtları okunamadı', ['msg' => $e->getMessage()]);
+
+            return '';
+        }
+
+        return $rows->isEmpty() ? '' : "\n\n⏳ Diğer numaradan onay bekleyen (henüz sayılmadı):\n" . $rows->map(fn ($p) => '• …'
+            . mb_substr(Phone::normalize((string) $p->phone), -4) . ': ' . DraftGaps::label($p->extracted)
+            . (! empty($p->extracted['project_id']) && ($b = Project::whereKey($p->extracted['project_id'])->value('name')) ? ' · ' . $b : ''))->implode("\n");
+    }
+
     /** İlk kalem iptal edilince aynı mesajdaki sıradaki iş kaybolmasın (review 8: sessizce düşüyordu). */
     private static function leftoverNextItem(WhatsappPendingExpense $pending): string
     {
@@ -940,7 +964,7 @@ class WhatsappWebhookController extends Controller
             default:
                 $this->inboundKind = 'chat';
 
-                return $result['text'];
+                return $result['text'] . $this->otherPhonesPending($phone);
         }
     }
 
@@ -979,6 +1003,10 @@ class WhatsappWebhookController extends Controller
             && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
             && trim((string) $open->summary) !== '' && str_contains($out, trim((string) $open->summary))) {
             $out = NaturalVoice::render($out, $this->inboundBody, (float) ($open->extracted['amount'] ?? 0) ?: null);
+        }
+        // Soru cevabı: firmanın başka numarasında onay bekleyen kasa/satış/gider de söylenir (Akkuş 18.10 22:46).
+        if (in_array($this->inboundKind, self::ANSWER_KINDS, true) && ($others = $this->otherPhonesPending($phone)) !== '') {
+            $out = is_array($out) ? [$out[0] . $others, $out[1] ?? null] : $out . $others;
         }
         $draft = $this->openDraft?->fresh();
         if (! in_array($this->inboundKind, self::ANSWER_KINDS, true) || ! $draft || $draft->status !== 'awaiting_confirmation') {
