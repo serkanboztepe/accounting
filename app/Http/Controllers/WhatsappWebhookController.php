@@ -408,8 +408,13 @@ class WhatsappWebhookController extends Controller
 
         if (! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
             $this->inboundKind = 'no_draft';
+            // "Tamam / ok" çoğu zaman sohbet kapanışıdır (Akkuş 17.10 22:46) — yarım kalan kayıt varsa adıyla sorulur.
+            if ($this->isConfirm($body)) {
+                return $this->twiml($this->ackWithoutDraft($phone));
+            }
 
-            return $this->twiml('Onay bekleyen bir kayıt yok (taslaklar 30 dk geçerli). Yeni bir işlem yazabilirsin.');
+            return $this->twiml($this->isCancel($body) ? '👍 İptal edilecek bekleyen bir kayıt yok.'
+                : 'Bu sayı bir şeye cevap değil gibi — ne yapmak istediğini kısaca yazar mısın?');
         }
 
         // Kartta olmayan malın alışı: "gider" → ürün kartı açılmaz, aynı alış gider olarak yazılır (AI'sız, kesin cevap).
@@ -768,6 +773,23 @@ class WhatsappWebhookController extends Controller
         return is_string($out) ? $done . "\n\n➡️ *Sıradaki:*\n" . $out : $done;
     }
 
+    /**
+     * Bekleyen taslak yokken "tamam / ok" (kullanıcı kararı 19.10; Akkuş 17.10: açıklamaya "Tamam" → "Onay bekleyen kayıt yok
+     * (taslaklar 30 dk geçerli)"). Yarım kalmış (30 dk'yı geçmiş) kayıt varsa adıyla anılıp tekrar sorulur — onay sanılıp
+     * sessizce kaydedilmez de, unutulmaz da; yoksa yalnız 👍.
+     */
+    private function ackWithoutDraft(string $phone): string
+    {
+        $left = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')
+            ->where('updated_at', '>=', now()->subDay())->latest('updated_at')->first();
+        if (! $left) {
+            return '👍';
+        }
+        $left->touch(); // tekrar etkin: "evet" ona gider
+
+        return 'Az önceki *' . DraftGaps::label($left->extracted) . "* henüz kaydedilmedi. Kaydedeyim mi? *evet* / *iptal*";
+    }
+
     /** İlk kalem iptal edilince aynı mesajdaki sıradaki iş kaybolmasın (review 8: sessizce düşüyordu). */
     private static function leftoverNextItem(WhatsappPendingExpense $pending): string
     {
@@ -856,7 +878,7 @@ class WhatsappWebhookController extends Controller
             case 'confirm':
                 $this->inboundKind = 'quick';
                 if (! $pending) {
-                    return 'Onay bekleyen bir kayıt yok. Yeni bir işlem yazabilirsin.';
+                    return $this->ackWithoutDraft($phone);
                 }
                 if (($result['paid'] ?? null) !== null
                     && in_array($this->kind($pending->extracted), [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE], true)) {
@@ -869,7 +891,7 @@ class WhatsappWebhookController extends Controller
 
                 return $pending
                     ? "Kaydedeyim mi? *evet* / *tamam* / *ok* — değiştirmek istediğin bir şey varsa yaz.\n\n" . $pending->summary
-                    : 'Onay bekleyen bir kayıt yok. Yeni bir işlem yazabilirsin.';
+                    : $this->ackWithoutDraft($phone);
             case 'undo':
                 $this->inboundKind = 'undo';
 
@@ -976,6 +998,7 @@ class WhatsappWebhookController extends Controller
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
         $data = ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody);
+        $data = ExpenseExtractor::guardNightTill($data, $this->inboundBody);
         if ($pending === null) {
             $data = ExpenseExtractor::guardAssumedQuantity($data, $this->inboundBody); // yeni kayıtta; düzeltmede miktar önceki mesajda
         }

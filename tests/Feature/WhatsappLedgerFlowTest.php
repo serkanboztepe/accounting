@@ -264,7 +264,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->fakeAi(); // AI hiç çağrılmamalı
         $reply = $this->send('evet');
 
-        $this->assertStringContainsString('Onay bekleyen bir kayıt yok', $reply);
+        $this->assertStringContainsString('👍', $reply); // bekleyen kayıt yok → sohbet kapanışı (19.10)
         $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
     }
 

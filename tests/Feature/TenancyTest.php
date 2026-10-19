@@ -229,7 +229,7 @@ class TenancyTest extends TestCase
         $res = $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+905321234567', 'Body' => 'evet', 'NumMedia' => '0'])
             ->assertOk()->getContent();
 
-        $this->assertStringContainsString('Onay bekleyen bir kayıt yok', $res);
+        $this->assertStringContainsString('👍', $res); // bekleyen kayıt yok → sohbet kapanışı (19.10)
         $this->assertSame(2, HubMessageLog::where('hub_firm_id', $this->b->id)->count());
         $this->assertNull(Tenancy::current(), 'istek bitince firma bağlamı kapanmalı');
     }

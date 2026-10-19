@@ -41,7 +41,8 @@ class MonthlyResult
         $branch = self::compute($fromDate, $toDate, $projectId);
         $all = self::compute($fromDate, $toDate, null);
         $general = self::compute($fromDate, $toDate, 'none');
-        $generalCost = $general['purchases'] + $general['personnel'] + $general['expenses'];
+        // Tek gün: aylık maaş günün sonucuna (ve şube payına) yazılmaz — bilgi satırı (kullanıcı kararı 19.10).
+        $generalCost = $general['purchases'] + ($fromDate->isSameDay($toDate) ? 0.0 : $general['personnel']) + $general['expenses'];
         $share = $all['revenue'] > 0 ? max(0.0, $branch['revenue'] / $all['revenue']) : 0.0;
         $allocated = round($generalCost * $share, 2);
 
@@ -109,7 +110,16 @@ class MonthlyResult
             'unpriced_goods'  => $unpriced,
             'expenses'        => $expenses,
             'personnel'       => $personnel,
-            'result'          => $revenue - $purchases - $personnel - $expenses,
+            // Tek günde maaş düşülmez (Akkuş 17.10: 60.750 ciroluk gün maaş yüzünden "eksi 2.400" göründü) — bilgi satırı.
+            'result'          => $revenue - $purchases - ($fromDate->isSameDay($toDate) ? 0.0 : $personnel) - $expenses,
+            'personnel_names' => $fromDate->isSameDay($toDate) && $personnel > 0
+                ? \App\Models\Party::whereIn('id', (clone $ledgerIn())->whereIn('party_id', $employees)->pluck('party_id'))->pluck('name')->all() : [],
+            // Satış girilen günler ("kaç günlük?" — Akkuş 18.10: 5 günlük ciroya "18 günlük" denmişti).
+            'sale_days'       => collect()
+                ->merge($p(Sale::whereBetween('sale_date', [$from, $to]))->pluck('sale_date')->map(fn ($x) => Carbon::parse($x)->toDateString()))
+                ->merge($p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE)->whereNull('sale_id')->whereBetween('entry_date', [$from, $to]))
+                    ->pluck('entry_date')->map(fn ($x) => Carbon::parse($x)->toDateString()))
+                ->unique()->sort()->values()->all(),
         ];
     }
 
@@ -150,7 +160,8 @@ class MonthlyResult
                 . ($r['cash'] + $r['bank'] > 0 ? ' (peşin nakit ' . Money::format($r['cash']) . ', kart ' . Money::format($r['bank']) . ')' : ''),
             'Alış' . $own . ': ' . Money::format($r['purchases']) . ' ₺',
         ];
-        if (($r['personnel'] ?? 0) > 0) {
+        $oneDay = $r['from']->isSameDay($r['to']);
+        if (($r['personnel'] ?? 0) > 0 && ! $oneDay) {
             $lines[] = 'Personel' . $own . ': ' . Money::format($r['personnel']) . ' ₺';
         }
         if (config('modules.expenses')) {
@@ -160,6 +171,17 @@ class MonthlyResult
             $lines[] = 'Genel maliyet payı (%' . Money::format($r['share'] * 100, 0) . ', tahmini): ' . Money::format($r['allocated']) . ' ₺';
         }
         $lines[] = ($r['result'] >= 0 ? '✅ Kalan: ' : '🔻 Eksi: ') . Money::format(abs($r['result'])) . ' ₺';
+        if ($oneDay && ($r['personnel'] ?? 0) > 0) {
+            $lines[] = '👷 Bugün maaş ödendi' . (($r['personnel_names'] ?? []) ? ' (' . implode(', ', $r['personnel_names']) . ')' : '') . ': '
+                . Money::format($r['personnel']) . ' ₺ — aylık sonuçta düşülür';
+        }
+        $days = $r['sale_days'] ?? [];
+        if (! $oneDay && $days !== []) {
+            $first = Carbon::parse($days[0])->locale('tr');
+            $last = Carbon::parse(end($days))->locale('tr');
+            $lines[] = '📅 Satış girilen gün: ' . count($days) . ' (' . ($first->isSameDay($last) ? $first->translatedFormat('j F')
+                : self::rangeLabel($first, $last)) . ')';
+        }
         if (isset($r['allocated']) && $r['general_cost'] > 0) {
             $lines[] = '_Şubesiz alış/gider (' . Money::format($r['general_cost']) . ' ₺) ciro payına göre dağıtıldı._';
         }

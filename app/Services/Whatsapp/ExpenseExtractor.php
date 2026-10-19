@@ -2,6 +2,8 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\Reminder;
+
 use App\Models\UsageLog;
 use App\Models\WhatsappMessage;
 use Illuminate\Support\Facades\Http;
@@ -818,6 +820,23 @@ class ExpenseExtractor
 
         return (bool) preg_match('/nakit\s*:?\s*' . $n . '|' . $n . '\s*nakit/u', $t)
             && (bool) preg_match('/(?:kart|pos)\s*:?\s*' . $n . '|' . $n . '\s*(?:kart|pos)/u', $t);
+    }
+
+    /**
+     * Gece kasası (kullanıcı kararı 19.10): 00:00–05:00 arasında girilen carisiz kasa (gün sonu) biten iş gününe yazılır —
+     * "bugünkü ciro" sorusu gece zaten önceki günü gösteriyor, kayıt da aynı güne gitsin. Mesajda "bugün" geçiyorsa ya da
+     * başka bir tarih verilmişse dokunulmaz; gece yazılan gider/ödeme gerçek tarihinde kalır.
+     */
+    public static function guardNightTill(array $d, string $text): array
+    {
+        $local = now(Reminder::TIMEZONE);
+        if (($d['kind'] ?? null) !== self::KIND_TRADE_SALE || ! empty($d['party_id']) || ! empty($d['party_name']) || $local->hour >= 5
+            || ($d['date'] ?? $local->toDateString()) !== $local->toDateString()
+            || preg_match('/bug[uü]n/u', mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8'))) {
+            return $d;
+        }
+
+        return array_merge($d, ['date' => $local->copy()->subDay()->toDateString(), 'night_till' => true]);
     }
 
     public static function guardSaleWithExpense(array $d, string $text): array

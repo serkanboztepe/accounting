@@ -472,7 +472,8 @@ class TradeDraft
         if (! empty($d['description']) && empty($d['items'])) {
             $lines[] = '• Açıklama: ' . $d['description'];
         }
-        $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
+        $lines[] = '• Tarih: ' . Carbon::parse($d['date'] ?? now()->format('Y-m-d'))->format('d.m.Y')
+            . (! empty($d['night_till']) ? ' (dünkü kasa — gece girildi; bugünün ise *bugünün* yaz)' : '');
         if (($extra = (float) ($d['extra_expense']['amount'] ?? 0)) > 0) {
             $lines[] = '📝 *+ Gider:* ' . Money::format($extra) . ' ₺ — ' . ($d['extra_expense']['description'] ?? 'gider') . ' (ayrı kayıt)';
             $lines[] = 'İkisini birden kaydederim.';

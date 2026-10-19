@@ -425,6 +425,10 @@ return [
         ['id' => 'C2-tek-seferlik-gider-duzenli-degil', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => '365 Tl cobanlar market']],
             'expect' => ['reply_not' => ['Düzenli gider', 'her gün']]],
+        // 18.10 Akkuş 00:43: "Kaç günlük" → "1 Ekim'den bugüne 18 günlük" (kayıtlar 5 günlüktü) — kayıttan cevaplanmalı
+        ['id' => 'R7-kac-gunluk', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-uc-gun',
+            'steps' => [['send' => 'Toplam ciro', 'expect' => ['reply_has' => ['Satış girilen gün: 3']]], ['send' => 'Kaç günlük']],
+            'expect' => ['reply_has' => ['3'], 'reply_not' => ['18 gün', '19 gün', '1 Ekim']]],
         // 18.10 Oktay 13:04: süt bozuk çıktı, satışı geri almak istedi → "fırın süt satmaz sanırım" + "bulamadım"
         ['id' => 'O3-sut-dus-geri-alma', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-akkus-sut',
             'steps' => [['send' => 'Akkuş fırından 50 litre süt düş']],
@@ -495,6 +499,7 @@ return [
         'akkus-iki-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes'],
             ['out', 'reminder', '⏰ Hatırlatma: Bugün: Ergenekon dükkan kira ödemesi 54.000 ₺', '-140 minutes']],
         'oktay-stok' => [['stock', 'Yem', 33], ['stock', 'Ezme', 5]],
+        'akkus-uc-gun' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-3 days']],
         'oktay-akkus-sut' => [['ledger', 'Akkuş Fırın', 'satis', 900, '-3 days', "Akkuş Fırın'a 30 litre süt"], ['ledger', 'Akkuş Fırın', 'satis', 1500, '-1 days', "Akkuş Fırın'a 50 litre süt"]],
         'stok-seramik-anlasma' => [['memory', 'agreement', 'Seramik anlaşması', 'Ak Un ile 1000 m² seramik anlaşması, m² 650 TL (600 m²si geldi)', 'Ak Un']],
         'taner-osman-avans' => [['ledger', 'Asansör Osman', 'odeme', 1005000, '-14 days', 'Avans — Atatürk mahallesi asansörü']],

@@ -62,6 +62,7 @@ final class RecordsQuery
 
     public static function run(array $in): array
     {
+        self::$capped = false;
         $f = self::filters($in);
         $rows = ! empty($f['product_id']) ? self::productRows($f) : self::moneyRows($f);
 
@@ -77,8 +78,17 @@ final class RecordsQuery
             'türe_göre' => $byType,
             'satırlar' => $rows->take($f['limit'])->map(fn ($r) => array_diff_key($r, ['_id' => 1, '_g' => 1]))->all(),
         ];
+        // Kayıtların kapsadığı günler ("kaç günlük?" sorusu takvimden değil kayıttan cevaplansın — Akkuş 18.10).
+        if ($rows->isNotEmpty()) {
+            $days = $rows->pluck('tarih')->filter()->unique()->sort()->values();
+            $out['kayıt_günleri'] = ['ilk' => $days->first(), 'son' => $days->last(), 'gün_sayısı' => $days->count()];
+        }
         if ($rows->count() > $f['limit']) {
             $out['not'] = 'İlk ' . $f['limit'] . ' satır gösterildi; toplamlar TÜM ' . $rows->count() . ' kayıt içindir.';
+        }
+        if (self::$capped) {
+            $out['not'] = 'DİKKAT: kayıt çok, en yeni ' . self::MAX_PER_SOURCE . ' kayıt okundu — toplamlar EKSİK olabilir; kullanıcıya '
+                . 'tarih aralığını daraltmasını söyle, toplamı kesin diye sunma.';
         }
         if ($f['group_by']) {
             $out['gruplar'] = $rows->groupBy(fn ($r) => $r['_g'][$f['group_by']] ?? '—')
@@ -131,7 +141,20 @@ final class RecordsQuery
                     }
                 });
             })
-            ->limit(self::MAX_PER_SOURCE);
+            ->orderByDesc($dateCol)->limit(self::MAX_PER_SOURCE); // sınıra takılırsa en yeniler kalsın
+    }
+
+    /** Bir kaynak sınıra (MAX_PER_SOURCE) takıldı mı — toplamlar o zaman eksiktir, cevapta söylenir. */
+    private static bool $capped = false;
+
+    private static function rows($q): Collection
+    {
+        $rows = $q->get();
+        if ($rows->count() >= self::MAX_PER_SOURCE) {
+            self::$capped = true;
+        }
+
+        return $rows;
     }
 
     private static function moneyRows(array $f): Collection
@@ -142,7 +165,7 @@ final class RecordsQuery
 
         if (in_array('satis', $t, true)) {
             $q = self::apply(Sale::with(['party:id,name', 'project:id,name', 'lines.product:id,name']), $f, 'sale_date', 'total_amount', ['notes']);
-            foreach ($q->get() as $s) {
+            foreach (self::rows($q) as $s) {
                 $items = $s->lines->map(fn ($l) => $l->product?->name)->filter()->unique()->implode(', ');
                 $rows->push(self::row('satis', $s->id, 'sale', $s->sale_date, (float) $s->total_amount, $s->party?->name, $s->project?->name,
                     trim(($items ? $items . ' — ' : '') . ($s->notes ?? '')) ?: ($s->party ? 'Satış' : 'Peşin satış (kasa)'), null,
@@ -151,7 +174,7 @@ final class RecordsQuery
         }
         if (in_array('alis', $t, true)) {
             $q = self::apply(Purchase::with(['party:id,name', 'lines.product:id,name']), $f, 'purchase_date', 'total_amount', ['notes']);
-            foreach ($q->get() as $p) {
+            foreach (self::rows($q) as $p) {
                 $items = $p->lines->map(fn ($l) => $l->product?->name)->filter()->unique()->implode(', ');
                 $rows->push(self::row('alis', $p->id, 'purchase', $p->purchase_date, (float) $p->total_amount, $p->party?->name, null,
                     trim(($items ? $items . ' — ' : '') . ($p->notes ?? '')) ?: 'Alış', null));
@@ -159,7 +182,7 @@ final class RecordsQuery
             // Belgesiz mal girişi (alış belgesine bağlı olmayan, tutarlı).
             $q = self::apply(StockMovement::with(['party:id,name', 'project:id,name', 'product:id,name'])
                 ->where('reason', StockMovement::REASON_PURCHASE)->whereNull('purchase_id')->whereNotNull('amount'), $f, 'movement_date', 'amount', ['notes']);
-            foreach ($q->get() as $m) {
+            foreach (self::rows($q) as $m) {
                 $rows->push(self::row('alis', $m->id, 'stock', $m->movement_date, (float) $m->amount, $m->party?->name, $m->project?->name,
                     'Mal girişi — ' . ($m->product?->name ?? ''), null));
             }
@@ -169,7 +192,7 @@ final class RecordsQuery
             $q = self::apply(PartyLedgerEntry::with(['party:id,name', 'project:id,name']), $f, 'entry_date', 'amount', ['description', 'notes'])
                 ->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id')
                 ->whereIn('type', [PartyLedgerEntry::TYPE_SALE, PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION]);
-            foreach ($q->get() as $e) {
+            foreach (self::rows($q) as $e) {
                 $type = match ($e->type) {
                     PartyLedgerEntry::TYPE_SALE => 'satis',
                     PartyLedgerEntry::TYPE_PURCHASE => in_array($e->party_id, $employees, true) ? 'maas' : 'alis',
@@ -185,14 +208,14 @@ final class RecordsQuery
         if (in_array('gider', $t, true) && config('modules.expenses')) {
             $q = self::apply(Expense::with(['party:id,name', 'project:id,name', 'category:id,name']), $f, 'expense_date', 'amount', ['description', 'notes'])
                 ->when($f['category_id'], fn ($q, $id) => $q->where('expense_category_id', $id));
-            foreach ($q->get() as $e) {
+            foreach (self::rows($q) as $e) {
                 $rows->push(self::row('gider', $e->id, 'expense', $e->expense_date, (float) $e->amount, $e->party?->name, $e->project?->name,
                     $e->description ?: 'Gider', $e->category?->name, $e->payment_status !== 'paid' ? ['ödenmedi' => true] : null));
             }
         }
         if (in_array('iade', $t, true)) {
             $q = self::apply(SaleReturn::with(['party:id,name', 'project:id,name']), $f, 'return_date', 'total_amount', ['notes']);
-            foreach ($q->get() as $r) {
+            foreach (self::rows($q) as $r) {
                 $rows->push(self::row('iade', $r->id, 'return', $r->return_date, (float) $r->total_amount, $r->party?->name, $r->project?->name,
                     $r->notes ?: 'Satış iadesi', null));
             }
@@ -216,7 +239,7 @@ final class RecordsQuery
         $q = self::apply(StockMovement::with(['party:id,name', 'project:id,name', 'product.unit', 'purchase.party:id,name', 'sale.party:id,name'])
             ->where('product_id', $f['product_id'])->whereIn('reason', $reasons), array_merge($f, ['party_id' => null]), 'movement_date', 'amount', ['notes']);
         $rows = collect();
-        foreach ($q->get() as $m) {
+        foreach (self::rows($q) as $m) {
             $party = $m->party?->name ?? $m->purchase?->party?->name ?? $m->sale?->party?->name;
             if ($f['party_id'] && ! in_array($f['party_id'], array_filter([$m->party_id, $m->purchase?->party_id, $m->sale?->party_id]), true)) {
                 continue;

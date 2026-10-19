@@ -221,7 +221,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->assertStringContainsString('açık değil', $this->send('Ben akın dile 40000 borçluyum'));
 
         $this->assertSame(0, \App\Models\WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->count());
-        $this->assertStringContainsString('Onay bekleyen', $this->send('evet'));
+        $this->assertStringContainsString('👍', $this->send('evet')); // kapanan taslak sorulmaz (19.10)
     }
 
     public function test_name_check_rules(): void
