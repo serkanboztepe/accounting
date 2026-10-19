@@ -11,12 +11,32 @@ class RecordReview extends Model
 {
     use UsesCentralConnection;
 
-    public const STATUSES = ['pending' => 'Bekliyor', 'asked' => 'Müşteriye soruldu', 'dismissed' => 'Gerek yok', 'resolved' => 'Düzeltildi'];
+    public const STATUSES = ['pending' => 'Bekliyor', 'asked' => 'Müşteriye soruldu', 'resolved' => 'Düzeltildi', 'correct' => 'Doğruymuş', 'dismissed' => 'Gerek yok'];
+
+    /** Kapatma sebepleri (Kapat penceresi). */
+    public const CLOSED = ['resolved' => 'Düzeltildi', 'correct' => 'Doğruymuş', 'dismissed' => 'Gerek yok'];
 
     protected $fillable = ['conversation_report_id', 'hub_firm_id', 'firm_name', 'user_name', 'phone', 'happened_at', 'problem', 'fix',
-        'question', 'status', 'asked_at', 'asked_announcement_id', 'customer_answer', 'answered_at', 'decided_at'];
+        'question', 'status', 'asked_at', 'asked_announcement_id', 'customer_answer', 'answered_at', 'decided_at', 'decision_note'];
 
     protected $casts = ['asked_at' => 'datetime', 'answered_at' => 'datetime', 'decided_at' => 'datetime'];
+
+    /** Açık: henüz bakılmamış ya da sorulmuş ama cevap gelmemiş. */
+    public function scopeOpen($q)
+    {
+        return $q->where(fn ($w) => $w->where('status', 'pending')->orWhere(fn ($a) => $a->where('status', 'asked')->whereNull('answered_at')));
+    }
+
+    /** Cevap geldi: müşteri yazdı, yöneticinin bakması gerekiyor. */
+    public function scopeAnswered($q)
+    {
+        return $q->where('status', 'asked')->whereNotNull('answered_at');
+    }
+
+    public function scopeClosed($q)
+    {
+        return $q->whereIn('status', array_keys(self::CLOSED));
+    }
 
     public function firm()
     {
