@@ -215,11 +215,30 @@ class TradeDraft
                 'product_id' => null, 'quantity' => isset($item['quantity']) && (float) $item['quantity'] > 0 ? (float) $item['quantity'] : null, 'amount' => null,
             ];
         }
+        $daily = isset($d['daily_usage']) && (float) $d['daily_usage'] > 0 ? (float) $d['daily_usage'] : null;
+        $reorder = isset($d['reorder_level']) && (float) $d['reorder_level'] > 0 ? (float) $d['reorder_level'] : null;
         if ($new === []) {
+            // Kart zaten var ama günlük kullanım / eşik söylendi → o kartın ayarı (bilgi kaybolmasın).
+            $existing = self::matchProduct(trim((string) ($d['items'][0]['description'] ?? '')));
+            if ($existing && ($daily !== null || $reorder !== null)) {
+                return ['kind' => ExpenseExtractor::KIND_STOCK_SETTING, 'product_id' => $existing->id, 'daily_usage' => $daily,
+                    'reorder_level' => $reorder, 'purchase_price' => null, 'items' => [], 'amount' => 0.0] + $d;
+            }
+
             return ['kind' => ExpenseExtractor::KIND_STOCK_QUERY, 'product_id' => null] + $d;
         }
         $d['items'] = array_values($new);
         $d['amount'] = 0.0;
+        // Günlük kullanım / eşik tek karta aittir (Çiftlik 16.10: "günde 16 gidiyor" kayboldu). Birden çok üründe hangisi belli
+        // değil → sıradaki kalem olarak sorulur, sessizce düşmez.
+        if (count($d['items']) > 1 && ($daily !== null || $reorder !== null)) {
+            $said = trim(($daily !== null ? 'günde ' . StockUsage::quantity($daily) . ' gidiyor' : '')
+                . ($reorder !== null ? ' ' . StockUsage::quantity($reorder) . ' kalınca haber ver' : ''));
+            $d['next_items'] = trim(($d['next_items'] ?? '') . ' ' . $said . ' (aynı mesajdan: ürün kartları açıldı; bu ayarın HANGİ ürün için olduğunu sor)');
+            $daily = $reorder = null;
+        }
+        $d['daily_usage'] = $daily;
+        $d['reorder_level'] = $reorder;
 
         return $d;
     }
@@ -601,6 +620,13 @@ class TradeDraft
                 . ($item['unit_price'] !== null ? ' · alış ' . Money::format((float) $item['unit_price']) . ' ₺' : '')
                 . (! empty($item['quantity']) ? ' · stok 0 → ' . StockUsage::quantity((float) $item['quantity']) . ' ' . ($item['unit'] ?? 'adet') : '');
         }
+        $unit = $d['items'][0]['unit'] ?? 'adet';
+        if (($d['daily_usage'] ?? null) !== null) {
+            $lines[] = '• Her sabah ' . StockUsage::quantity((float) $d['daily_usage']) . ' ' . $unit . ' stoktan düşülecek (yarından itibaren)';
+        }
+        if (($d['reorder_level'] ?? null) !== null) {
+            $lines[] = '• ' . StockUsage::quantity((float) $d['reorder_level']) . ' ' . $unit . ' kalınca sabah 08:00\'de haber vereceğim';
+        }
         $lines[] = 'Birim yanlışsa düzeltmeyi yaz (ör. "maya paket").';
 
         return implode("\n", $lines);
@@ -800,8 +826,22 @@ class TradeDraft
             }
             $names[] = $product->name . (! empty($item['quantity']) ? ' (stok ' . StockUsage::quantity((float) $item['quantity']) . ' ' . ($item['unit'] ?? 'adet') . ')' : '');
         }
+        // Tek ürün: söylenen günlük kullanım / eşik aynı onayla karta yazılır (normalizeProductAdd çok üründe boşaltır).
+        $setting = [];
+        $notes = [];
+        if (count($d['items']) === 1 && (float) ($d['daily_usage'] ?? 0) > 0) {
+            $setting += ['auto_usage' => true, 'daily_usage' => (float) $d['daily_usage']];
+            $notes[] = 'her sabah ' . StockUsage::quantity((float) $d['daily_usage']) . ' ' . ($d['items'][0]['unit'] ?? 'adet') . ' düşülecek';
+        }
+        if (count($d['items']) === 1 && (float) ($d['reorder_level'] ?? 0) > 0) {
+            $setting['reorder_level'] = (float) $d['reorder_level'];
+            $notes[] = StockUsage::quantity((float) $d['reorder_level']) . ' kalınca haber vereceğim';
+        }
+        if ($setting !== []) {
+            $product->update($setting);
+        }
 
-        return ['✅ Ürün kartı açıldı: ' . implode(', ', $names)
+        return ['✅ Ürün kartı açıldı: ' . implode(', ', $names) . ($notes ? ' · ' . implode(' · ', $notes) : '')
             . ($stocked ? '' : "\nŞimdi elindekini yazabilirsin, ör. \"" . $d['items'][0]['description'] . ' 15 ' . ($d['items'][0]['unit'] ?? 'adet') . ' var"'), null];
     }
 

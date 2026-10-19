@@ -62,7 +62,26 @@ final class MemoryDraft
             return self::matches($d, $phone)->isEmpty() ? 'Böyle bir şey hatırlamıyorum. Neyi unutayım? (*neleri hatırlıyorsun* yazarsan listeyi gösteririm)' : null;
         }
 
-        return trim((string) ($d['memory_fact'] ?? '')) === '' ? 'Neyi hatırlayayım? Kısaca yazar mısın?' : null;
+        if (trim((string) ($d['memory_fact'] ?? '')) === '') {
+            return 'Neyi hatırlayayım? Kısaca yazar mısın?';
+        }
+        // Hafıza bir şeyi kendiliğinden YAPMAZ (Çiftlik 18.10: "her gün ekmek gideri ekle" hafızaya söz olarak yazıldı, hiç girilmedi).
+        if (self::promisesAction((string) $d['memory_fact'])) {
+            return 'Bunu not olarak hatırlarım ama kendiliğimden her gün kayıt açamam. '
+                . 'Her gün/ay tekrarlanan bir gider için *her gün 34,60 ekmek gideri yaz* gibi yazarsan düzenli gider olarak kurarım; '
+                . 'stoktan her gün düşmek için *yem günde 16 gidiyor* yazman yeterli.';
+        }
+
+        return null;
+    }
+
+    /** Not, gelecekte kendiliğinden yapılacak bir iş vaat ediyor mu ("her gün gider olarak kaydedilecek", "her ay hatırlat"). */
+    public static function promisesAction(string $fact): bool
+    {
+        $t = mb_strtolower(strtr($fact, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+
+        return (bool) preg_match('/(her ?gün|her sabah|her akşam|her hafta|her ay|hergün|günlük olarak|haftalık olarak|aylık olarak)/u', $t)
+            && (bool) preg_match('/(ekle|eklen|kaydet|kaydedil|kayda geç|yaz(ıl|ıla|acak)?|gider olarak|düş(ül)?|hatırlat|gönder|mesaj at|öde(n|necek))/u', $t);
     }
 
     public static function summary(array $d, string $phone): string

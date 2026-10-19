@@ -380,6 +380,20 @@ return [
         ['id' => 'F1-elimde-var-yeni-urun', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => '33 adet buzağı yemi var elimde günde 16 adet gidiyor stoklara ekle'], ['send' => 'Evet']],
             'expect' => ['stock' => ['Buzağı yemi' => 33]]],
+        // 18.10 Çiftlik (16.10 14:47–14:48): ürün açarken "günde 16 gidiyor" kayboldu, sonra AI "zaten kaydettim, otomatik düşüyor" dedi
+        ['id' => 'C1-yeni-urun-gunluk-kullanim', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => '33 adet kuzu yemi var elimde gunde 16 adet gidiyor stoklara ekle', 'expect' => ['reply_has' => ['16', '33']]], ['send' => 'Evet']],
+            'expect' => ['stock' => ['Kuzu yemi' => 33], 'product_setting' => ['Kuzu yemi' => ['daily_usage' => 16]]]],
+        ['id' => 'C1-gunluk-dus-yalan-yok', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
+            'steps' => [['send' => 'Hergun giden yemi dus']],
+            'expect' => ['reply_not' => ['kaydettim', 'zaten', 'otomatik düşüyor'], 'reply_any' => ['kaç', 'Her sabah', 'günde'], 'product_setting' => ['Yem' => ['daily_usage' => null]]]],
+        ['id' => 'C1-gunluk-dus-ayar', 'firm' => 'oktay', 'group' => 'understand', 'seed' => 'oktay-stok',
+            'steps' => [['send' => 'Yem her gün 16 adet gidiyor stoktan düş'], ['send' => 'Evet']],
+            'expect' => ['product_setting' => ['Yem' => ['daily_usage' => 16]]]],
+        // 18.10 Çiftlik 12:52: "her gün ekmek gideri ekle" hafızaya söz olarak yazıldı (düzenli gider yoktu)
+        ['id' => 'C2-ekmek-soz-yok', 'firm' => 'oktay', 'group' => 'understand',
+            'steps' => [['send' => 'Çobanlar günde iki ekmek yiyorlar ekmeğin fiyatı 17:30 TL her gün hesap hesaplarına gider olarak ekle']],
+            'expect' => ['reply_not' => ['hatırlayacağım', 'Hatırlayayım mı', 'kaydettim'], 'saved' => ['expenses' => 0]]],
         // 17.10 Oktay: kartsız ürüne birim fiyat ("litresi 30") → toplam 0 kalıyordu
         ['id' => 'F4-kartsiz-urun-birim-fiyat', 'firm' => 'oktay', 'group' => 'understand',
             'steps' => [['send' => 'Damızlık birliğine 50 litre süt gitti'], ['send' => 'Litresi 30 Tl']],

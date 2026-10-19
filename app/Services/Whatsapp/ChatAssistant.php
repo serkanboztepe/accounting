@@ -83,6 +83,7 @@ class ChatAssistant
 
         $maxTokens = 1024;
         $deep = false;
+        $claimRetried = false;
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
             $timeout = 60;
             if (self::$deadline !== null) {
@@ -120,6 +121,16 @@ class ChatAssistant
             $call = collect($content)->first(fn ($b) => ($b['type'] ?? null) === 'tool_use');
 
             if (! $call) {
+                if (self::claimsDone($said)) {
+                    if ($claimRetried) {
+                        return ['type' => 'reply', 'text' => self::NOT_DONE_REPLY];
+                    }
+                    $claimRetried = true;
+                    $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
+                    $messages[] = ['role' => 'user', 'content' => self::CLAIM_REJECTED];
+                    continue;
+                }
+
                 return ['type' => 'reply', 'text' => $said !== '' ? self::whatsappFormat($said) : 'Tam anlayamadım, biraz daha açık yazar mısın?'];
             }
 
@@ -130,7 +141,8 @@ class ChatAssistant
                     $data['is_new_entry'] = (bool) ($input['is_new_entry'] ?? true);
                     $data['confidence'] = 'high'; // yazılı tutar belirsiz değildir (eski çıkarıcıdaki gibi)
                     // Aynı mesajdaki kalan kalem(ler): onaydan sonra sıradaki taslak olarak önerilir.
-                    $data['next_items'] = trim((string) ($input['next_items'] ?? '')) ?: null;
+                    // Kodun eklediği sıradaki kalem (ör. çok üründe "günde 16 gidiyor — hangisi?") silinmesin.
+                    $data['next_items'] = trim(trim((string) ($input['next_items'] ?? '')) . ' ' . trim((string) ($data['next_items'] ?? ''))) ?: null;
                     // Kayıttan sonra "Hatırlayayım mı?" diye sorulacak kalıcı bilgi (Faz 2).
                     $ms = is_array($input['memory_suggestion'] ?? null) ? $input['memory_suggestion'] : [];
                     $data['memory_suggestion'] = ! empty($ms['fact']) && $data['kind'] !== ExpenseExtractor::KIND_REMEMBER
@@ -185,6 +197,18 @@ class ChatAssistant
 
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
                 case 'reply':
+                    // Düz cevapta yapılmamış işi "yaptım" demesin (Çiftlik 16.10: "zaten kaydettim, otomatik düşüyor" — ayar yoktu):
+                    // bir tur daha (kayıt yalnız propose_entry ile); yine derse sabit, doğru cevap.
+                    if (self::claimsDone((string) ($input['text'] ?? ''))) {
+                        if ($claimRetried) {
+                            return ['type' => 'reply', 'text' => self::NOT_DONE_REPLY];
+                        }
+                        $claimRetried = true;
+                        $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
+                        $messages[] = ['role' => 'user', 'content' => self::toolResults($content, [$call['id'] => self::CLAIM_REJECTED])];
+                        break;
+                    }
+
                     return ['type' => 'reply', 'text' => self::whatsappFormat(trim((string) ($input['text'] ?? ''))) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'query_records':
                 case 'search_conversations':
@@ -275,6 +299,22 @@ class ChatAssistant
     /** Onay sayılan kelimeler — tek kelimelik cevap (kontrolcü) ve cümle içi (hasAssent) aynı listeyi kullanır. "0k" Erkan, 13 Ekim. */
     public const ASSENT_WORDS = ['evet', 'tamam', 'tamamdır', 'tamamdir', 'olur', 'kaydet', 'kaydedin', 'onay', 'onayla', 'onaylıyorum',
         'ok', '0k', 'okey', 'okay', 'tmm', 'e'];
+
+    /** Düz cevapta asistanın kendi adına "yaptım" sözü — kayıt/ayar yalnız onaylı taslakla olur, düz cevap hiçbir şey yapmaz. */
+    public static function claimsDone(string $text): bool
+    {
+        $lower = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+
+        return (bool) preg_match('/(?<!\p{L})(kaydett?im|kayda geçtim|kayda geçirdim|ayarladım|ekledim|güncelledim|sildim|değiştirdim|işledim|'
+            . 'not ettim|not aldım|not düştüm|girdim|tanımladım|kurdum|hallettim|düzelttim|açtım)(?!\p{L})/u', $lower);
+    }
+
+    private const CLAIM_REJECTED = 'GERİ ÇEVRİLDİ — kullanıcıya GİTMEDİ: cevabında bir şeyi yaptığını/kaydettiğini söyledin ama düz cevap HİÇBİR ŞEY '
+        . 'kaydetmez; kayıt ve ayar yalnız propose_entry + kullanıcının onayıyla olur. Kullanıcı bir şeyin yapılmasını istiyorsa propose_entry '
+        . 'ile öner (ör. "her gün düş" → stock_setting + daily_usage; miktarı bilmiyorsan question ile sor). Yalnız bilgi veriyorsan bağlamda '
+        . '(ÜRÜNLER, CARİLER) GÖRDÜĞÜNÜ "yaptım" demeden anlat; bağlamda yazmayan ayar YOKTUR.';
+
+    private const NOT_DONE_REPLY = 'Bunu henüz kaydetmedim. Ne yapmamı istediğini kısaca yazar mısın? (ör. "yem günde 16 adet gidiyor")';
 
     /** Çok kelimeli onay ("Ödendi kayıt et" — Oktay 16.10: onay sayılmayıp bir daha sorulmuştu). */
     public const ASSENT_PHRASES = ['kayıt et', 'kayit et', 'kayda geç', 'kayda gec', 'işle', 'isle'];
@@ -438,6 +478,8 @@ class ChatAssistant
           → propose_entry kind "remember" (sistem "Hatırlayayım mı?" diye sorar). Gelecekteki kayıtların NASIL yazılacağına dair
           kalıcı istek de öğretmedir ("Kaya Petrol fişlerinden plakayı da kaydet", "açıklamaya hep … yaz") → remember (preference);
           "yapamıyorum" DEME — hafızadaki tercihe sonraki kayıtlarda uyarsın. Tek kayda yönelikse ("BU fişe plakayı ekle") düzeltmedir.
+          Hafıza KENDİLİĞİNDEN İŞ YAPMAZ: "her gün / her ay … ekle, düş, kaydet, hatırlat" hafıza notu DEĞİLDİR — stoktan günlük
+          düşme → stock_setting (daily_usage); tarihli tek hatırlatma → reminder; hafızaya "her gün kaydedilecek" diye söz YAZMA.
           Kendin "hatırlarım / not aldım" DEME;
           kaydı sistem onayla yapar. İşlem mesajında kalıcı bir bilgi geçiyorsa (kişi düzeltmesi "kalfa değil, Mehmet Kaya";
           anlaşma "280'den anlaştık") işlemi öner ve `memory_suggestion` doldur — işlem kaydolunca sistem sorar.

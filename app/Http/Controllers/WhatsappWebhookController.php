@@ -1062,6 +1062,10 @@ class WhatsappWebhookController extends Controller
                 return MemoryDraft::listText($phone);
             }
             $data['memory_source'] = $data['memory_source'] ?? $this->inboundBody;
+            // Kendiliğinden iş vaat eden not ("her gün gider ekle") kaydedilmez — soru değil, açık bilgi.
+            if (($data['kind'] ?? null) === ExpenseExtractor::KIND_REMEMBER && MemoryDraft::promisesAction((string) ($data['memory_fact'] ?? ''))) {
+                return (string) MemoryDraft::blocker($data, $phone);
+            }
 
             return $this->saveConfirmDraft($pending, $phone, $data, MemoryDraft::summary($data, $phone), MemoryDraft::blocker($data, $phone));
         }
@@ -1912,6 +1916,10 @@ class WhatsappWebhookController extends Controller
                 . ($question !== null && ProjectChoice::blocker($data) === null ? "\n❓ " . $question : '');
         if ($question === null && (float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
+        }
+        // Aynı mesajdaki ikinci iş görünsün (buildSummary'deki gibi) — kullanıcı unutulduğunu sanıp tekrar yazmasın.
+        if (! empty($data['next_items']) && ! str_starts_with($summary, '❓')) {
+            $summary .= "\n➡️ Sırada: " . ExpenseExtractor::nextItemsLabel($data['next_items']) . ' (bunu onaylayınca sorarım)';
         }
         $footer = $question !== null
             ? "\n\nCevabını yaz, vazgeçmek için *iptal*."

@@ -230,6 +230,14 @@ class AssistantEvalTest extends TestCase
                 $fails[] = "stok {$name}: beklenen {$want}, gelen " . json_encode($got);
             }
         }
+        // Ürün ayarı (18.10 Çiftlik: "günde 16 gidiyor" kayboldu): ['Yem' => ['daily_usage' => 16]] · null = otomatik düşme yok.
+        foreach ($expect['product_setting'] ?? [] as $name => $want) {
+            $product = Product::where('name', 'like', $name . '%')->latest('id')->first();
+            $daily = $product && $product->auto_usage ? (float) $product->daily_usage : null;
+            if (array_key_exists('daily_usage', (array) $want) && ($want['daily_usage'] === null ? $daily !== null : abs((float) $daily - (float) $want['daily_usage']) > 0.01)) {
+                $fails[] = "ayar {$name}: beklenen günlük " . json_encode($want['daily_usage']) . ', gelen ' . json_encode($daily);
+            }
+        }
         // Son bakiye: >0 cari bize borçlu, <0 biz ona borçluyuz (PartyStatement konvansiyonu).
         foreach ($expect['balance'] ?? [] as $ref => $want) {
             $name = preg_replace('/^@party:/u', '', $ref);

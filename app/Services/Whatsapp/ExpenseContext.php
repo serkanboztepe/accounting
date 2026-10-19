@@ -141,13 +141,18 @@ class ExpenseContext
         if (config('modules.sales_desk') || config('modules.purchases')) {
             $products = self::scoped(\App\Models\Product::active(), 'products')->with('unit')->orderBy('name')->get();
             $lines[] = '';
-            $lines[] = 'ÜRÜNLER (id: ad [birim] — satış fiyatı / alış fiyatı — stok):';
+            $lines[] = 'ÜRÜNLER (id: ad [birim] — satış fiyatı / alış fiyatı — stok — otomatik düşme / uyarı ayarı; yazmayan ayar YOKTUR):';
             $lines[] = $products->isEmpty()
                 ? '  (kayıtlı ürün yok — ürün adı geçse de product_id null)'
                 : $products->map(fn ($p) => sprintf('  %d: %s%s — %s%s', $p->id, $p->name, $p->unit ? " [{$p->unit->name}]" : '',
                     ($p->default_price !== null ? 'satış ' . (float) $p->default_price : 'satış fiyatsız')
                         . (($buy = $p->buyPrice()) !== null ? ' / alış ' . $buy : ''),
-                    $p->isProduct() ? ' — stok ' . \App\Support\StockUsage::quantity($p->currentStock()) : ' — hizmet'))->implode("\n");
+                    ($p->isProduct() ? ' — stok ' . \App\Support\StockUsage::quantity($p->currentStock()) : ' — hizmet')
+                        // Ayar gerçekte ne (Çiftlik 16.10: AI "zaten otomatik düşüyor" dedi, ayar yoktu) — yoksa "yok" yazar.
+                        . ($p->isProduct() ? ($p->auto_usage && (float) $p->daily_usage > 0
+                            ? ' — her sabah ' . \App\Support\StockUsage::quantity((float) $p->daily_usage) . ' düşülüyor' : ' — otomatik düşme yok')
+                            . ($p->reorder_level !== null ? ', ' . \App\Support\StockUsage::quantity((float) $p->reorder_level) . ' kalınca uyarı' : '') : '')))
+                ->implode("\n");
         }
 
         // Ödenmemiş giderler: "kirayı ödedim" yeni gider açıp aynı kirayı ikinci kez saymasın — AI
