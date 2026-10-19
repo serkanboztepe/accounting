@@ -70,6 +70,15 @@ class PartyLedgerEntry extends Model
         });
     }
 
+    /**
+     * Avans satırları: açıklamada "avans" geçen para hareketleri. Yalnız "Avans…" ile başlayanlar aranıyordu; açıklama zaten "avans"
+     * içerince başa eklenmiyor ("Boyacı Ahmet avansı", Yeni Yapı 19.10) → açık avans 0 sayılıp mahsup akışı hiç çalışmıyordu.
+     */
+    public function scopeAdvance($query)
+    {
+        return $query->whereRaw('LOWER(description) LIKE ?', ['%avans%']);
+    }
+
     public function typeLabel(): string
     {
         return self::TYPES[$this->type]['label']

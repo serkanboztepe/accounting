@@ -352,6 +352,10 @@ return [
         ['id' => 'U-acik-avans-is-geldi', 'firm' => 'taner', 'group' => 'understand', 'seed' => 'taner-osman-avans',
             'steps' => [['send' => 'Osman asansörü taktı', 'expect' => ['ready' => true]], ['send' => 'evet']],
             'expect' => ['balance' => ['@party:Asansör Osman' => 0]]],
+        // Yeni Yapı 19.10: açıklaması "… avansı" olan avans açık sayılmıyordu → "işimi yaptı" garip soru
+        ['id' => 'U-acik-avans-aciklama-sonda', 'firm' => 'taner', 'group' => 'understand', 'seed' => 'taner-osman-avans-sonda',
+            'steps' => [['send' => 'Osman işimi yaptı', 'expect' => ['ready' => true]], ['send' => 'evet']],
+            'expect' => ['balance' => ['@party:Asansör Osman' => 0]]],
         // Açık mesaj → soru YOK (aşırı soru da hata)
         ['id' => 'U-acik-is-bitti-odendi', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Mehmet usta sıvayı bitirdi 80 bin verdim', 'expect' => ['ready' => true]], ['send' => 'evet']],
@@ -560,6 +564,7 @@ return [
         'akkus-tokgoz-yag-alis' => [['ledger', 'Tokgöz', 'alis', 3000, '-1 days', '10 teneke yağ']],
         'stok-seramik-anlasma' => [['memory', 'agreement', 'Seramik anlaşması', 'Ak Un ile 1000 m² seramik anlaşması, m² 650 TL (600 m²si geldi)', 'Ak Un']],
         'taner-osman-avans' => [['ledger', 'Asansör Osman', 'odeme', 1005000, '-14 days', 'Avans — Atatürk mahallesi asansörü']],
+        'taner-osman-avans-sonda' => [['ledger', 'Asansör Osman', 'odeme', 20000, '-1 days', 'Asansör Osman avansı']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],

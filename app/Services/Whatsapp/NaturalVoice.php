@@ -81,7 +81,7 @@ final class NaturalVoice
         $system = <<<'PROMPT'
         Sen esnafın WhatsApp'taki samimi, akıllı asistanısın. Sistem bir kaydın ÖZETİNİ (kartını) hazırladı; kart kullanıcıya AYNEN
         gösterilecek. Sen yalnız kartın ÜSTÜNE kısa bir giriş ve ALTINA son soruyu yazacaksın. `write_reply` aracıyla dön:
-        - lead: 1-2 kısa, doğal Türkçe cümle — kullanıcıya ne anladığını anlat. Özette 🗣 ile başlayan satır OLAYIN ANLAMIDIR:
+        - lead: TEK kısa, doğal Türkçe cümle (en çok ~10 kelime) — kullanıcıya ne anladığını anlat. Özette 🗣 ile başlayan satır OLAYIN ANLAMIDIR:
           lead onu söylesin, muhasebe işlemini değil ("alış kaydı / avans / gider olarak açıyorum" DEME). "Sen" diye hitap et. Emoji en çok 1.
           Kartı tekrar etme, kalem kalem sayma. SORU SORMA (tek soru `ask`'tedir).
         - ask: son soru. Özette ❓ ile başlayan soru varsa onu (sadeleştirerek ama anlamını ve rakamlarını koruyarak) sor; yoksa "Kaydedeyim mi?".
@@ -176,7 +176,21 @@ final class NaturalVoice
             $standard ? null : $p['footer'],
         ]));
 
-        return $o['lead'] . ($p['card'] ? "\n\n" . implode("\n", $p['card']) : '') . ($closing ? "\n\n" . implode("\n", $closing) : '');
+        // Kısa tut (Serkan 19.10: "Ahmet işimi yaptı diyorum, uzatıyor uzatıyor"): yalnız soru varsa giriş yok; giriş en çok tek cümle.
+        $lead = $p['card'] === [] ? '' : self::firstSentence((string) $o['lead']);
+
+        return ltrim($lead . ($p['card'] ? "\n\n" . implode("\n", $p['card']) : '') . ($closing ? "\n\n" . implode("\n", $closing) : ''));
+    }
+
+    /** "Anladım, X'e 50.000 ₺ ödedin. İş bitmiş görünüyor." → ilk cümle. */
+    private static function firstSentence(string $text): string
+    {
+        $text = trim($text);
+        if (preg_match('/^(.+?[.!…])(\s|$)/us', $text, $m)) {
+            return trim($m[1]);
+        }
+
+        return $text;
     }
 
     /** Güvenlik kontrolü: null = güvenli; değilse reddetme sebebi. */

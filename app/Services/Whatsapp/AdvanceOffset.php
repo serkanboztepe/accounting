@@ -29,7 +29,7 @@ final class AdvanceOffset
             return 0.0;
         }
         $advances = (float) PartyLedgerEntry::where('party_id', $party->id)->where('type', $type)
-            ->where('description', 'like', 'Avans%')->sum('amount');
+            ->advance()->sum('amount');
 
         return round(min($owed, $advances), 2);
     }

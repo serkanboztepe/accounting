@@ -119,7 +119,7 @@ final class MorningAlerts
     {
         $lines = [];
         $rows = PartyLedgerEntry::with('party')->whereIn('type', [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION])
-            ->where('description', 'like', 'Avans%')->orderByDesc('entry_date')->get()->groupBy(fn ($e) => $e->party_id . ':' . $e->type);
+            ->advance()->orderByDesc('entry_date')->get()->groupBy(fn ($e) => $e->party_id . ':' . $e->type);
         foreach ($rows as $entries) {
             $last = $entries->first();
             $party = $last->party;

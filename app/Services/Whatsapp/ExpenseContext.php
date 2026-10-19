@@ -124,7 +124,7 @@ class ExpenseContext
         $lines[] = '';
         $lines[] = 'CARİLER (id: isim):';
         // Açık avansı olan cariler (Faz G): "Osman işi bitirdi" tutarsız gelince avansın karşılığı olarak tanınsın. Tek sorgu + yalnız onlar.
-        $withAdvance = PartyLedgerEntry::where('description', 'like', 'Avans%')
+        $withAdvance = PartyLedgerEntry::advance()
             ->whereIn('type', [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION])->distinct()->pluck('party_id')->flip();
         $lines[] = $parties->isEmpty()
             ? '  (kayıtlı cari yok)'

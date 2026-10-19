@@ -140,7 +140,18 @@ class NaturalVoiceTest extends TestCase
 
         $out = NaturalVoice::render($q, "Osman'a asansör parası verdim");
 
-        $this->assertSame("Osman'a ödeme yaptığını anladım.\n\nAsansör takıldı mı, yoksa peşin mi ödüyorsun?\nVazgeçmek için *iptal*.", $out);
+        // Yalnız soru varken giriş cümlesi yok (Serkan 19.10: "uzatıyor uzatıyor").
+        $this->assertSame("Asansör takıldı mı, yoksa peşin mi ödüyorsun?\nVazgeçmek için *iptal*.", $out);
+    }
+
+    public function test_lead_is_cut_to_one_sentence(): void
+    {
+        $this->fakeAi(['lead' => "Ali'ye ödeme yaptığını anladım. İş de bitmiş görünüyor, avans da düşülecek gibi.", 'ask' => 'Kaydedeyim mi?']);
+
+        $out = NaturalVoice::render($this->summary, "Ali'ye 20 bin verdim", 20000);
+
+        $this->assertStringStartsWith("Ali'ye ödeme yaptığını anladım.\n\n", $out);
+        $this->assertStringNotContainsString('İş de bitmiş', $out);
     }
 
     public function test_disabled_module_or_no_time_keeps_template(): void
