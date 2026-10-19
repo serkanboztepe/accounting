@@ -783,7 +783,11 @@ class WhatsappWebhookController extends Controller
             return $done . "\n\nAynı mesajdaki diğer kalemi (" . ExpenseExtractor::nextItemsLabel($next) . ') ayrıca yazar mısın?';
         }
         if ($result['type'] !== 'entry') {
-            return $done . "\n\n" . ($result['text'] ?? '');
+            // Sıradaki kalem sessizce düşmesin (Oktay 19.10: "Ekle" → düzenli gider kuruldu, 18 Ekim kalemi boş cevapla kayboldu).
+            $text = $result['type'] === 'reply' ? trim((string) ($result['text'] ?? '')) : '';
+
+            return $done . "\n\n" . ($text !== '' ? $text
+                : 'Aynı mesajdaki diğer kalemi (' . ExpenseExtractor::nextItemsLabel($next) . ') ayrıca yazar mısın?');
         }
         $data = $result['data'];
         $data['is_new_entry'] = true;

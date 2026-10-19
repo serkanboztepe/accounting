@@ -254,6 +254,23 @@ class WhatsappChatAssistantTest extends TestCase
     }
 
     /** Erkan, Recep takası (13 Ekim): ikinci kalem özette görünür, düzeltmede kaybolmaz, onaydan sonra sorulur. */
+    public function test_next_item_that_cannot_be_proposed_is_not_silently_lost(): void
+    {
+        // Oktay 19.10: "Ekle" → düzenli gider kuruldu, 18 Ekim kalemi boş cevapla kayboldu ("…durdur* yaz.\n\n" ve hiçbir şey).
+        $this->chat(
+            ['type' => 'entry', 'data' => $this->sale(5000, 'Sıra Testi Ayşe', '18 Ekim çoban ekmeği 34,60 gider'), 'text' => ''],
+            ['type' => 'confirm', 'paid' => null],
+            ['type' => 'review_ok', 'verdict' => 'correct', 'text' => ''],
+        );
+
+        $this->send('Ayşe 5000 iş yaptım ve 18 Ekim ekmeği de ekle');
+        $out = $this->send('evet');
+
+        $this->assertStringContainsString('Kaydedildi', $out);
+        $this->assertStringContainsString('diğer kalemi', $out);
+        $this->assertStringContainsString('18 Ekim çoban ekmeği', $out);
+    }
+
     public function test_swap_second_item_shown_kept_on_correction_and_proposed(): void
     {
         $purchase = ['kind' => ExpenseExtractor::KIND_PURCHASE, 'description' => 'Yemleme aleti', 'paid' => false]
