@@ -104,7 +104,8 @@ class WhatsappWebhookController extends Controller
         // Peş peşe gelen mesajlar ("kira 20 bin" + hemen "ödeme yapıldı") aynı anda işlenince ikincisi
         // taslağı göremiyor, ayrı ayrı cevaplanıyordu → aynı telefonun mesajları sıraya girer.
         // Kilit süresi en uzun işlemden (AI 60 sn) uzun olmalı; yoksa süre dolunca ikinci mesaj araya girer (review C).
-        $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 120);
+        // Arka plana bırakılan tur (DeferTurn) süresiz çalışır (5 AI turu × 60 sn + kontroller) — kilit onu kapsasın (review 4).
+        $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 360);
         try {
             $lock->block(12);
         } catch (LockTimeoutException) {
@@ -226,6 +227,9 @@ class WhatsappWebhookController extends Controller
                 $this->replies = [];
                 $pending = $turn['pending_id'] ? WhatsappPendingExpense::whereKey($turn['pending_id'])
                     ->where('status', 'awaiting_confirmation')->first() : null;
+                if (! empty($turn['source'])) {
+                    $this->inboundBody = $turn['source']; // sıradaki kalem: emniyetler asıl mesajı görsün
+                }
                 try {
                     $out = $this->chatTurn($pending, $phone, $turn['body']);
                 } catch (\Throwable $e) {
@@ -495,7 +499,7 @@ class WhatsappWebhookController extends Controller
             if ($this->isCancel($body)) {
                 $pending->update(['status' => 'cancelled']);
 
-                return $this->twiml('İptal edildi. ✖️');
+                return $this->twiml('İptal edildi. ✖️' . self::leftoverNextItem($pending));
             }
 
             // Alacak/borç kaydı, yön belirsiz → "o bana" / "ben ona".
@@ -723,8 +727,21 @@ class WhatsappWebhookController extends Controller
             return $this->withLeftover($done, $phone, $pending->id);
         }
 
+        // Sıradaki kalem asıl mesajla işlenir (review 8b: emniyetler "evet"e bakıyordu) ve kontroller atlanmaz: süre yetmezse
+        // kalem arka planda hazırlanır, ayrı mesajla gelir.
+        $source = (string) ($pending->extracted['source_text'] ?? '');
+        $deferNext = function () use ($done, $next, $source) {
+            $this->deferredTurn = ['pending_id' => null, 'body' => 'Sıradaki kalem: ' . $next, 'source' => $source];
+
+            return $done . "\n\n➡️ Sıradaki kalemi (" . ExpenseExtractor::nextItemsLabel($next) . ') hazırlıyorum…';
+        };
+        if (ChatAssistant::$deadline !== null && ChatAssistant::$deadline - microtime(true) < 8) {
+            return $deferNext();
+        }
         try {
             $result = app(ChatAssistant::class)->respond($phone, 'Sıradaki kalem: ' . $next, null);
+        } catch (DeferTurn) {
+            return $deferNext();
         } catch (\Throwable $e) {
             Log::warning('WhatsApp sıradaki kalem önerilemedi', ['msg' => $e->getMessage()]);
 
@@ -735,9 +752,28 @@ class WhatsappWebhookController extends Controller
         }
         $data = $result['data'];
         $data['is_new_entry'] = true;
-        $out = $this->saveDraft(null, $phone, $data);
+        $data['source_text'] = $source !== '' ? $source : null;
+        $said = $this->inboundBody;
+        $this->inboundBody = $source !== '' ? $source : $said;
+        try {
+            Understanding::$deferOnTimeout = ChatAssistant::$deadline !== null;
+            $out = $this->saveDraft(null, $phone, $data);
+        } catch (DeferTurn) {
+            return $deferNext();
+        } finally {
+            Understanding::$deferOnTimeout = false;
+            $this->inboundBody = $said;
+        }
 
         return is_string($out) ? $done . "\n\n➡️ *Sıradaki:*\n" . $out : $done;
+    }
+
+    /** İlk kalem iptal edilince aynı mesajdaki sıradaki iş kaybolmasın (review 8: sessizce düşüyordu). */
+    private static function leftoverNextItem(WhatsappPendingExpense $pending): string
+    {
+        $next = $pending->extracted['next_items'] ?? null;
+
+        return $next ? "\n➡️ Aynı mesajda bir de şu vardı: " . ExpenseExtractor::nextItemsLabel((string) $next) . ' — kaydetmemi istersen yazman yeterli.' : '';
     }
 
     /** İş bitti: yarım kalan en eski kayıt varsa cevabın sonunda sorulur (Oktay "kira" yazıp onaylamadı). */
@@ -842,7 +878,7 @@ class WhatsappWebhookController extends Controller
                 $this->inboundKind = 'quick';
                 $pending?->update(['status' => 'cancelled']);
 
-                return $pending ? 'İptal edildi. ✖️' : 'Tamam.';
+                return $pending ? 'İptal edildi. ✖️' . self::leftoverNextItem($pending) : 'Tamam.';
             case 'entry':
                 $data = $result['data'];
                 if ($pending && ! empty($data['is_new_entry'])) {
@@ -935,6 +971,8 @@ class WhatsappWebhookController extends Controller
 
     private function saveDraftInner(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
+        // Kaydı başlatan mesaj — sıradaki kalem "evet" turunda işlenirken emniyetler bunu görür (review 8b).
+        $data['source_text'] = $pending?->extracted['source_text'] ?? ($data['source_text'] ?? null) ?? ($this->inboundBody !== '' ? mb_substr($this->inboundBody, 0, 1000) : null);
         $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
         $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
         $data = ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody);
@@ -973,6 +1011,10 @@ class WhatsappWebhookController extends Controller
             && ! Understanding::answerSettles((string) $pending->extracted['question'], $this->inboundBody)) {
             $data['work_status_known'] = false;
             $data['question'] = $pending->extracted['question'];
+        }
+        // "Borçtan mı, yeni iş mi?" bir kez sorulur — cevap turunda aynı kişiyse tekrar sorulmaz.
+        if ($pending && ! empty($pending->extracted['debt_asked']) && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
+            $data['debt_asked'] = true;
         }
         // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
         $data = Understanding::apply($data);
@@ -1594,6 +1636,12 @@ class WhatsappWebhookController extends Controller
 
     private function commitDraft(WhatsappPendingExpense $pending): string
     {
+        // Çift kayıt emniyeti (review 2): taslak hâlâ onay bekliyor mu — satır kilitli okunur (commit() işlemi içinde). Mesaj kilidi
+        // dolsa ya da aynı onay iki kez gelse bile ikinci "evet" yeni kayıt açmaz. Mesaj tekrarından (SID) bağımsız.
+        $locked = WhatsappPendingExpense::whereKey($pending->id)->lockForUpdate()->first();
+        if (! $locked || $locked->status !== 'awaiting_confirmation') {
+            return $locked?->status === 'confirmed' ? '✅ Bu kayıt zaten kaydedildi.' : 'Bu kayıt artık açık değil. Yeni bir işlem yazabilirsin.';
+        }
         if (($pending->extracted['kind'] ?? null) === self::KIND_CHECK_CLEARED) {
             return $this->commitCheckCleared($pending);
         }

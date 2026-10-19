@@ -293,4 +293,43 @@ class WhatsappUnderstandingTest extends TestCase
 
         $this->assertStringContainsString('Ne için verdin', $this->send('Aliye 5000 ödedim'));
     }
+
+    /** Review 3 (18.10): "usta işi geçen hafta bitirmişti, bugün parasını verdim" — işin borcu kayıtlıyken yeni alış açılmaz. */
+    public function test_done_payment_to_party_we_owe_pays_the_debt(): void
+    {
+        $usta = Party::create(['name' => 'Borçlu Usta']);
+        PartyLedgerEntry::create(['party_id' => $usta->id, 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 50000,
+            'entry_date' => now()->subWeek()->toDateString(), 'description' => 'Sıva işçiliği']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 50000, 'party_id' => $usta->id,
+            'work_status' => 'done', 'work_status_known' => true, 'description' => 'Sıva']));
+        $purchases = PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->count();
+
+        $card = $this->send('Usta işi geçen hafta bitirmişti bugün parasını verdim 50 bin');
+        $this->assertStringContainsString('borcunu ödedin', $card);
+        $this->send('evet');
+
+        $this->assertSame($purchases, PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->count(), 'yeni alış yok');
+        $this->assertEqualsWithDelta(0, PartyStatement::build($usta)['balance'], 0.01, 'borç kapandı');
+    }
+
+    public function test_done_payment_bigger_than_debt_asks_then_new_job(): void
+    {
+        $usta = Party::create(['name' => 'Borçlu Usta']);
+        PartyLedgerEntry::create(['party_id' => $usta->id, 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 50000,
+            'entry_date' => now()->subWeek()->toDateString(), 'description' => 'Sıva işçiliği']);
+        $done = $this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 80000, 'party_id' => $usta->id,
+            'work_status' => 'done', 'work_status_known' => true, 'description' => 'Boya']);
+        $this->ai($done, ['is_new_entry' => false] + $done);
+        config(['services.anthropic.api_key' => 'sk-test']);
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use', 'name' => 'judge', 'input' => ['answers' => true]]], 'usage' => []])]);
+
+        $q = $this->send('Usta boyayı bitirdi 80 bin verdim');
+        $this->assertStringContainsString("Borçlu Usta'e zaten 50.000,00 ₺ borcun görünüyor", $q);
+        $this->assertStringNotContainsString('Kaydedeyim mi', $q);
+
+        $this->send('yeni iş, boyanın parası');
+        $this->send('evet');
+        $this->assertEqualsWithDelta(-50000, PartyStatement::build($usta)['balance'], 0.01, 'eski borç durur, yeni iş peşin');
+    }
 }

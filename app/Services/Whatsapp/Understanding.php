@@ -174,6 +174,19 @@ final class Understanding
         if ($status === self::NO_WORK && $kind === ExpenseExtractor::KIND_PAYMENT) {
             return array_merge($d, ['payment_purpose' => 'loan', 'advance' => true]);
         }
+        // İş bitti + para verildi ama ona zaten borcumuz var (review 3, 18.10: "usta işi geçen hafta bitirmişti, bugün parasını
+        // verdim" → işin borcu kayıtlıyken yeni alış açılıyor, maliyet iki kez yazılıyordu): ödeme borca sığıyorsa borçtan düşer
+        // (açık borca ödeme kuralı); borçtan büyükse sorulur — bir kısmı yeni iş olabilir. Cevaptan sonra (debt_asked) "iş bitti" = yeni iş.
+        if ($status === self::DONE && $kind === ExpenseExtractor::KIND_PAYMENT && empty($d['debt_asked']) && ($party = self::party($d))
+            && ($owed = -PartyStatement::build($party)['balance']) > 0.01) {
+            if ((float) ($d['amount'] ?? 0) <= $owed + 0.01) {
+                return array_merge($d, ['debt_repayment' => true, 'payment_purpose' => null, 'advance' => false]);
+            }
+
+            return array_merge($d, ['work_status_known' => false, 'debt_asked' => true,
+                'question' => $party->name . "'e zaten " . Money::format($owed) . ' ₺ borcun görünüyor. Bu ' . Money::format((float) $d['amount'])
+                    . ' ₺ o borçtan mı düşsün, yoksa yeni bitmiş bir işin parası mı?']);
+        }
         // İş bitti + para verildi → alış + ödeme (bakiye değişmez). "Ne için verdin?" kalıbı sorulmaz.
         if ($status === self::DONE && $kind === ExpenseExtractor::KIND_PAYMENT) {
             return array_merge($d, ['kind' => ExpenseExtractor::KIND_PURCHASE, 'paid' => true, 'payment_purpose' => null, 'advance' => false]);
@@ -209,8 +222,8 @@ final class Understanding
         if (($d['work_status_known'] ?? null) !== false && ($d['work_status'] ?? null) !== self::PARTIAL) {
             return null;
         }
-        // Ödeme + açık borcu olan kişi: ödeme o borca gider (eski davranış) — sorulmaz.
-        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && ($party = self::party($d))
+        // Ödeme + açık borcu olan kişi: ödeme o borca gider (eski davranış) — sorulmaz. Borçtan büyük ödemede apply() sorar.
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && empty($d['debt_asked']) && ($party = self::party($d))
             && PartyStatement::build($party)['balance'] < -0.01) {
             return null;
         }

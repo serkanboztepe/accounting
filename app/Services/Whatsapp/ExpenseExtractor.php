@@ -748,7 +748,9 @@ class ExpenseExtractor
         }
         $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
         $later = '/(verece[gğk]|verice[mk]|verece[mk]|g[oö]nderece[gğk]|g[oö]nderice[mk]|g[oö]nderece[mk]|g[oö]t[uü]rece[gğk]|g[oö]t[uü]r[uü]?ce[mk]'
-            . '|teslim edece[gğk]|teslim edilecek|verilecek|g[oö]nderilecek|g[oö]t[uü]r[uü]lecek)/u';
+            . '|teslim edece[gğk]|teslim edilecek|verilecek|g[oö]nderilecek|g[oö]t[uü]r[uü]lecek'
+            // Olumsuz geçmiş (review 2, 18.10): "parasını aldım, malı teslim etmedim / vermedim / götürmedim".
+            . '|teslim etmedim|teslim edilmedi|vermedim|g[oö]ndermedim|g[oö]t[uü]rmedim|daha gitmedi|hen[uü]z gitmedi)/u';
         $done = '/(verdim|g[oö]nderdim|g[oö]t[uü]rd[uü]m|teslim ettim|teslim edildi|verildi|g[oö]nderildi)/u';
         if (! preg_match($later, $t) || preg_match($done, $t)) {
             return $d;
