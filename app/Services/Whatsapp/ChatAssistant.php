@@ -315,7 +315,8 @@ class ChatAssistant
     }
 
     /** claude-sonnet-5-5 / claude-opus-5-5 ve sonrası tool_choice any/tool kabul etmiyor. */
-    private static function forcesTools(string $model): bool
+    /** Zorunlu araç seçimini (tool_choice any/tool) destekleyen eski modeller; yeni nesil (…-5-5, 6+) yalnız auto kabul eder. */
+    public static function forcesTools(string $model): bool
     {
         return ! preg_match('/-5-5\b|-[6-9]\b|-[6-9]-/', $model);
     }

@@ -43,7 +43,7 @@ return [
         // Günlük konuşma analizi (gecede bir, düşük hacim) — en güçlü model.
         'analysis_model' => env('ANTHROPIC_ANALYSIS_MODEL', 'claude-opus-5-5'),
         // Fotoğraf (el yazısı çek/fiş) için güçlü vision modeli — okuma kalitesi kritik.
-        'vision_model' => env('ANTHROPIC_VISION_MODEL', 'claude-opus-4-8'),
+        'vision_model' => env('ANTHROPIC_VISION_MODEL', 'claude-opus-5-5'), // 20.10: 4.8'den 5.5'e (daha yeni + ucuz)
         // Sohbet asistanı (deneme): son konuşmayı görür, araç kullanır. Varsayılan KAPALI.
         'chat_assistant' => env('WHATSAPP_CHAT_ASSISTANT', false),
         'chat_model' => env('ANTHROPIC_CHAT_MODEL'),

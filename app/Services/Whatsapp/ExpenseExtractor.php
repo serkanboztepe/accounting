@@ -337,43 +337,53 @@ class ExpenseExtractor
             ? config('services.anthropic.vision_model')
             : config('services.anthropic.model');
 
-        $response = Http::withHeaders([
-            'x-api-key' => $apiKey,
-            'anthropic-version' => '2023-06-01',
-            'content-type' => 'application/json',
-        ])
-            // Bağlantı kurulamazsa (ağ dalgalanması) hızlı vazgeç, bir kez daha dene — Twilio 15 sn bekler.
-            ->connectTimeout(5)
-            ->retry(2, 300, fn ($e) => $e instanceof \Illuminate\Http\Client\ConnectionException, throw: false)
-            ->timeout(90)->post(self::ENDPOINT, [
-            'model' => $model,
-            'max_tokens' => 1024,
-            'system' => $this->systemPrompt($previous, $lastParty, $phone),
-            'tools' => [$this->tool()],
-            'tool_choice' => ['type' => 'tool', 'name' => 'save_entry'],
-            'messages' => [
-                ['role' => 'user', 'content' => $content],
-            ],
-        ]);
+        // Yeni nesil modeller (Opus 5.5 — fotoğraf okuma 20.10) zorunlu araç seçimini kabul etmez (400): auto + gerekirse bir hatırlatma.
+        $forced = ChatAssistant::forcesTools((string) $model);
+        $messages = [['role' => 'user', 'content' => $content]];
+        $system = $this->systemPrompt($previous, $lastParty, $phone);
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $response = Http::withHeaders([
+                'x-api-key' => $apiKey,
+                'anthropic-version' => '2023-06-01',
+                'content-type' => 'application/json',
+            ])
+                // Bağlantı kurulamazsa (ağ dalgalanması) hızlı vazgeç, bir kez daha dene — Twilio 15 sn bekler.
+                ->connectTimeout(5)
+                ->retry(2, 300, fn ($e) => $e instanceof \Illuminate\Http\Client\ConnectionException, throw: false)
+                ->timeout(90)->post(self::ENDPOINT, [
+                'model' => $model,
+                'max_tokens' => 1024,
+                'system' => $system,
+                'tools' => [$this->tool()],
+                'tool_choice' => $forced ? ['type' => 'tool', 'name' => 'save_entry'] : ['type' => 'auto'],
+                'messages' => $messages,
+            ]);
 
-        if ($response->failed()) {
-            \App\Support\CreditAlert::fromApiError($response->body()); // kredi bittiyse yöneticiye hemen haber
-            throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
-        }
-
-        // Maliyet takibi: her çağrının token'ı ve $ karşılığı (firma başına rapor).
-        UsageLog::recordAi((string) $model, (array) $response->json('usage', []));
-
-        foreach ($response->json('content', []) as $block) {
-            if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'save_entry') {
-                $data = $this->normalize($block['input'] ?? []);
-                // Yazılı tutar belirsiz olamaz ("20.000 tl" için "emin değilim" deniyordu); şüphe yalnız fotoğrafta.
-                if ($image === null) {
-                    $data['confidence'] = 'high';
-                }
-
-                return $data;
+            if ($response->failed()) {
+                \App\Support\CreditAlert::fromApiError($response->body()); // kredi bittiyse yöneticiye hemen haber
+                throw new RuntimeException('Anthropic API hatası: ' . $response->status() . ' ' . $response->body());
             }
+
+            // Maliyet takibi: her çağrının token'ı ve $ karşılığı (firma başına rapor).
+            UsageLog::recordAi((string) $model, (array) $response->json('usage', []));
+
+            foreach ($response->json('content', []) as $block) {
+                if (($block['type'] ?? null) === 'tool_use' && ($block['name'] ?? null) === 'save_entry') {
+                    $data = $this->normalize($block['input'] ?? []);
+                    // Yazılı tutar belirsiz olamaz ("20.000 tl" için "emin değilim" deniyordu); şüphe yalnız fotoğrafta.
+                    if ($image === null) {
+                        $data['confidence'] = 'high';
+                    }
+
+                    return $data;
+                }
+            }
+            if ($forced) {
+                break;
+            }
+            // Araçsız düz metin döndü: bir kez hatırlat.
+            $messages[] = ['role' => 'assistant', 'content' => $response->json('content', [])];
+            $messages[] = ['role' => 'user', 'content' => 'Cevabını yalnız save_entry aracıyla ver.'];
         }
 
         throw new RuntimeException('AI yapılandırılmış çıktı döndürmedi.');
