@@ -364,6 +364,15 @@ return [
         ['id' => 'U-kisi-belirsiz-sinan-usta', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Sinan usta sıvayı bitirdi 80 bin verdim']],
             'expect' => ['asks' => true, 'reply_has' => ['Sinan Sele'], 'reply_not' => ['değilse adını', 'için yazıyorum'], 'saved' => ['ledger' => 0]]],
+        // Yıldız 20.10: "Özkan varlı cari" → "ne yapmamı istersin?" — yalnız ad (+ cari / durum) = bakiye
+        ['id' => 'U-yalniz-ad-cari', 'firm' => 'ferhat', 'group' => 'understand',
+            'steps' => [['send' => 'Fuat alkan cari']], 'expect' => ['reply_has' => ['📊', 'FUAT ALKAN'], 'reply_not' => ['ne yapmamı'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'U-yalniz-ad-durum', 'firm' => 'ferhat', 'group' => 'understand',
+            'steps' => [['send' => 'Yakup taş durum']], 'expect' => ['reply_has' => ['📊', 'YAKUP TAŞ'], 'reply_not' => ['ne yapmamı'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'U-yalniz-ad', 'firm' => 'ferhat', 'group' => 'understand',
+            'steps' => [['send' => 'Bahadır pir']], 'expect' => ['reply_has' => ['📊', 'BAHADIR PİR'], 'reply_not' => ['ne yapmamı'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'U-yalniz-ad-cari-yok', 'firm' => 'ferhat', 'group' => 'understand',
+            'steps' => [['send' => 'Kemal yılmaz cari']], 'expect' => ['reply_has' => ['bulamadım', 'Ne yapmamı'], 'saved' => ['ledger' => 0]]],
         // ================================================================ FAZ 1 (17.10 müşteri taraması) — gerçek mesajlar
         // 1.1 Emre: 08:00 "Hikmet maaş günü" hatırlatması, 10:21 "Ödendi" → "anlayamadım" dedi (asistan 30 dk görüyordu)
         ['id' => 'F1-hatirlatmaya-gec-odendi', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-hikmet-hatirlatma',

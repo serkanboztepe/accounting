@@ -164,6 +164,20 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(0, $this->ledgerCount('Uyarısız Veli'));
     }
 
+    /** Kullanıcı kuralı 20.10: yalnız ad → cari varsa bakiye, yoksa "ne yapmamı istersin?". */
+    public function test_name_only_shows_balance_or_asks_when_no_party(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Ad Testi Özkan']);
+        $query = fn (string $name, ?int $id) => ['type' => 'entry', 'data' => ['kind' => ExpenseExtractor::KIND_BALANCE_QUERY, 'amount' => 0,
+            'party_id' => $id, 'party_name' => $id ? null : $name, 'is_new_entry' => true] + $this->sale(0, $name), 'text' => ''];
+        $this->chat($query('Ad Testi Özkan', $party->id), $query('Ad Testi Yok', null), $query('AD TESTİ ÖZKAN', null));
+
+        $this->assertStringContainsString('📊 Ad Testi Özkan', $this->send('Ad testi özkan cari'));
+        $this->assertStringContainsString('"Ad Testi Yok" adında bir cari bulamadım. Ne yapmamı istersin?', $this->send('Ad testi yok cari'));
+        // AI kimliği vermeyip yalnız adı yazdı (Yakup taş durum) → adı birebir tutan cari bulunur
+        $this->assertStringContainsString('📊 Ad Testi Özkan', $this->send('ad testi özkan durum'));
+    }
+
     public function test_affirms_check_words(): void
     {
         foreach (['Dogru', 'doğru', 'Evet doğru', 'DOĞRU.', 'aynen'] as $yes) {

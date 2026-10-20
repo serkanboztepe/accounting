@@ -2666,12 +2666,13 @@ class WhatsappWebhookController extends Controller
     /** "Ahmet'e ne kadar borcum var?" → kayıt açmadan cevap. */
     private function balanceAnswer(array $d): string
     {
-        $party = $this->existingParty($d);
+        $party = $this->queriedParty($d);
         if (! $party) {
             $name = $d['party_name'] ?? null;
 
+            // Yalnız ad yazıldı ("Özkan varlı cari") ama böyle cari yok → ne istediğini sor (Yıldız 20.10, kullanıcı kuralı).
             return $name
-                ? '"' . $name . '" adında bir cari bulamadım.'
+                ? '"' . $name . '" adında bir cari bulamadım. Ne yapmamı istersin? Kayıt yazacaksan tutarı ve ne için olduğunu yaz.'
                 : 'Hangi carinin bakiyesini soruyorsun?';
         }
 
@@ -2696,7 +2697,7 @@ class WhatsappWebhookController extends Controller
      */
     private function statementAnswer(array $d): array|string
     {
-        $party = $this->existingParty($d);
+        $party = $this->queriedParty($d);
         if (! $party) {
             $name = $d['party_name'] ?? null;
 
@@ -2996,6 +2997,25 @@ class WhatsappWebhookController extends Controller
     private function existingParty(array $d): ?Party
     {
         return DraftGaps::party($d);
+    }
+
+    /**
+     * Soru cevabı (bakiye / ekstre) için cari: AI kimliği vermeyip yalnız adı yazdıysa ("Yakup taş durum" → party_name "YAKUP TAŞ")
+     * adı birebir tutan TEK cari. Yalnız okuma — kayıtta kullanılmaz.
+     */
+    private function queriedParty(array $d): ?Party
+    {
+        if (($party = $this->existingParty($d)) !== null) {
+            return $party;
+        }
+        $key = fn (string $s) => mb_strtolower(strtr(trim($s), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $name = $key((string) ($d['party_name'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+        $same = Party::get(['id', 'name'])->filter(fn (Party $p) => $key($p->name) === $name);
+
+        return $same->count() === 1 ? Party::find($same->first()->id) : null;
     }
 
     private function resolveParty(array $d): Party
