@@ -118,15 +118,17 @@ final class ProjectChoice
         if ($general !== null) {
             $choices[] = $inline ? '*0* ' . $general : '   0) ' . $general . ' / ortak';
         }
-        $menu = fn (string $head) => $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
+        $menu = fn (string $head, array $choices) => $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
 
         if (! empty($d['project_suggested'])) {
             $name = $projects->firstWhere('id', $d['project_id'])?->name ?? '—';
+            // Önerilen "başkaysa" listesinde tekrar yazılmaz; numaralar aynı kalır (choose() tam listeyle sayar).
+            $choices = array_values(array_filter($choices, fn ($c, $i) => $projects->get($i)?->id !== ($d['project_id'] ?? null), ARRAY_FILTER_USE_BOTH));
 
-            return $menu("{$icon} {$label}: *{$name}* (son) — başkaysa:");
+            return $menu("{$icon} {$label}: *{$name}* (son) — başkaysa:", $choices);
         }
         if (! empty($d['project_needed'])) {
-            return $menu("{$icon} Hangi " . mb_strtolower($label) . '?');
+            return $menu("{$icon} Hangi " . mb_strtolower($label) . '?', $choices);
         }
         if (! empty($d['project_id']) && ($p = Project::find($d['project_id']))) {
             return ["{$icon} {$label}: {$p->name}"];

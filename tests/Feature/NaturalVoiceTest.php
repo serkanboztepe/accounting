@@ -16,7 +16,7 @@ class NaturalVoiceTest extends TestCase
 {
     use DatabaseTransactions;
 
-    private string $summary = "💸 *Sen* → Fatih 👷 (yeni personel): 20.000,00 ₺ ödedin\n• Tür: Maaş avansı (maaşından düşülür)\n• Tarih: 2026-10-16\n• Bakiye: 0 → alacağın 20.000,00\n\nKaydedeyim mi? *evet* / *tamam* / *ok* — yanlış bir şey varsa düzeltmeyi yazman yeterli.";
+    private string $summary = "💸 *Sen* → Fatih 👷 (yeni personel): 20.000,00 ₺ ödedin\n• Tür: Maaş avansı (maaşından düşülür)\n• Tarih: 2026-10-16\n• Bakiye: 0 → alacağın 20.000,00\n\nKaydedeyim mi? *evet*";
 
     protected function setUp(): void
     {
@@ -41,7 +41,18 @@ class NaturalVoiceTest extends TestCase
         // Kart kodun satırları, aynen.
         $this->assertStringContainsString("💸 *Sen* → Fatih 👷 (yeni personel): 20.000,00 ₺ ödedin\n• Tür: Maaş avansı (maaşından düşülür)", $out);
         $this->assertStringContainsString('• Bakiye: 0 → alacağın 20.000,00', $out);
-        $this->assertStringEndsWith('Kaydedeyim mi?', $out);
+        $this->assertStringEndsWith('Kaydedeyim mi? *evet*', $out);
+    }
+
+    /** Firma 7, 20.10 23:33: soru (❓) yokken AI kendi uzun sorusunu yazıp proje satırını tekrarlıyordu — kodun kısa satırı kalır. */
+    public function test_no_question_keeps_short_code_footer(): void
+    {
+        $this->fakeAi(['lead' => "Fatih'e 20 bin verdin.", 'ask' => 'Proje Deneme Fatih mi, yoksa başka proje mi (1-2-0)? Uygunsa "evet" diyebilirsin.']);
+
+        $out = NaturalVoice::render($this->summary, 'Fatihe 20 bin verdim', 20000);
+
+        $this->assertStringEndsWith("\n\nKaydedeyim mi? *evet*", $out);
+        $this->assertStringNotContainsString('diyebilirsin', $out);
     }
 
     public function test_ai_card_lines_are_never_used(): void
@@ -65,7 +76,7 @@ class NaturalVoiceTest extends TestCase
     /** Çiftlik 16.10 14:47: kayıtta olmayan "günde 16" kullanıcının mesajından alınıp onay kartına girmişti. */
     public function test_number_only_in_user_message_is_not_allowed(): void
     {
-        $summary = "🆕 *Ürün kartı açılacak — kontrol et:*\n• Yem (adet)\nBirim yanlışsa düzeltmeyi yaz (ör. \"maya paket\").\n\nKaydedeyim mi? *evet* / *tamam* / *ok* — yanlış bir şey varsa düzeltmeyi yazman yeterli.";
+        $summary = "🆕 *Ürün kartı açılacak — kontrol et:*\n• Yem (adet)\nBirim yanlışsa düzeltmeyi yaz (ör. \"maya paket\").\n\nKaydedeyim mi? *evet*";
         $this->fakeAi(['lead' => 'Elindeki 33 adet yemi stoklara yeni ürün olarak açıyorum, günde 16 adet tükendiğini not düştüm.', 'ask' => 'Kaydedeyim mi?']);
 
         $this->assertSame($summary, NaturalVoice::render($summary, '33 adet yem var elimde gunde 16 adet gidiyor stoklara ekle'));
@@ -89,7 +100,7 @@ class NaturalVoiceTest extends TestCase
 
     public function test_person_name_not_in_record_is_not_allowed(): void
     {
-        $summary = "💸 *Sen* → Sinan Sele: 5.000,00 ₺ ödedin\n\nKaydedeyim mi? *evet* / *tamam* / *ok* — yanlış bir şey varsa düzeltmeyi yazman yeterli.";
+        $summary = "💸 *Sen* → Sinan Sele: 5.000,00 ₺ ödedin\n\nKaydedeyim mi? *evet*";
         $this->fakeAi(['lead' => "Sinan Usta'ya 5 bin verdin.", 'ask' => 'Kaydedeyim mi?']);
         $this->assertSame($summary, NaturalVoice::render($summary, 'Sinan ustaya 5 bin verdim', 5000));
 

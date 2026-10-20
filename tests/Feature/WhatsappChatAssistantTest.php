@@ -265,6 +265,21 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertStringNotContainsString('8.800.000', $month);
     }
 
+    /** Önerilen proje "başkaysa" listesinde tekrar yazılmaz (firma 7, 20.10 23:33: "Deneme Fatih (son) — başkaysa: *1* Deneme Fatih …"). */
+    public function test_suggested_project_is_not_repeated(): void
+    {
+        config(['modules.projects' => true, 'app.profile' => 'muteahhit']);
+        $a = \App\Models\Project::create(['name' => 'Öneri Testi Fatih', 'status' => 'active']);
+        \App\Models\Project::create(['name' => 'Öneri Testi Atatürk', 'status' => 'active']);
+
+        $line = implode("\n", \App\Services\Whatsapp\ProjectChoice::lines(['kind' => ExpenseExtractor::KIND_PURCHASE,
+            'project_suggested' => true, 'project_id' => $a->id]));
+
+        $this->assertStringContainsString('🏗 Proje: *Öneri Testi Fatih* (son) — başkaysa:', $line);
+        $this->assertSame(1, substr_count($line, 'Öneri Testi Fatih'));
+        $this->assertStringContainsString('Öneri Testi Atatürk', $line);
+    }
+
     public function test_affirms_check_words(): void
     {
         foreach (['Dogru', 'doğru', 'Evet doğru', 'DOĞRU.', 'aynen'] as $yes) {

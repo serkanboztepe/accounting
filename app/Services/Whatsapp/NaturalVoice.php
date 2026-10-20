@@ -84,7 +84,8 @@ final class NaturalVoice
         - lead: TEK kısa, doğal Türkçe cümle (en çok ~10 kelime) — kullanıcıya ne anladığını anlat. Özette 🗣 ile başlayan satır OLAYIN ANLAMIDIR:
           lead onu söylesin, muhasebe işlemini değil ("alış kaydı / avans / gider olarak açıyorum" DEME). "Sen" diye hitap et. Emoji en çok 1.
           Kartı tekrar etme, kalem kalem sayma. SORU SORMA (tek soru `ask`'tedir).
-        - ask: son soru. Özette ❓ ile başlayan soru varsa onu (sadeleştirerek ama anlamını ve rakamlarını koruyarak) sor; yoksa "Kaydedeyim mi?".
+        - ask: son soru, KISA (en çok ~12 kelime). Özette ❓ ile başlayan soru varsa onu (sadeleştirerek ama anlamını ve rakamlarını
+          koruyarak) sor; yoksa "Kaydedeyim mi?". Kartta zaten yazan seçenekleri (proje menüsü, numaralar) tekrar etme.
         KURALLAR:
         - Kişi ve ürün adlarını ÖZETTEKİ yazılışıyla yaz. Kullanıcı başka ad kullandıysa bile özettekini yaz (kayıt o ada yazılır).
         - Rakam yazacaksan yalnız ÖZETTEKİ değerleri kullan; özette olmayan rakam, kişi, ürün, tarih, ayar EKLEME. Hesap yapma.
@@ -171,9 +172,11 @@ final class NaturalVoice
     {
         $p = self::parts($summary);
         $standard = $p['footer'] !== null && preg_match(self::STANDARD_FOOTER, $p['footer']);
+        // Kartta soru (❓) yoksa kodun kısa onay satırı ("Kaydedeyim mi? *evet*") AYNEN kalır — AI'ın kendi sorusu proje satırını
+        // tekrarlayıp uzatıyordu (firma 7, 20.10 23:33 "Proje Deneme Fatih mi, yoksa başka proje mi (1-2-0)? Uygunsa evet diyebilirsin").
         $closing = array_values(array_filter([
-            $p['questions'] !== [] || $standard || $p['footer'] === null ? $o['ask'] : null,
-            $standard ? null : $p['footer'],
+            $p['questions'] !== [] || $p['footer'] === null ? $o['ask'] : null,
+            $p['questions'] !== [] && $standard ? null : $p['footer'],
         ]));
 
         // Kısa tut (Serkan 19.10: "Ahmet işimi yaptı diyorum, uzatıyor uzatıyor"): yalnız soru varsa giriş yok; giriş en çok tek cümle.
