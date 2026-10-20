@@ -73,7 +73,7 @@ class ModuleProfilesTest extends TestCase
     {
         $this->assertOnlyDisabled([
             'land_share', 'property_tax', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
-            'contracts', 'dashboard', 'report_stock', 'report_sales',
+            'contracts', 'report_stock', 'report_sales',
         ], $this->modulesFor(['APP_PROFILE' => 'muteahhit']));
     }
 

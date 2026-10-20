@@ -11,6 +11,7 @@ use App\Filament\Widgets\ReceivablesTable;
 use App\Filament\Widgets\SalesReceivablesOverview;
 use App\Filament\Widgets\TopCustomersTable;
 use App\Filament\Widgets\TopSubcontractorsTable;
+use App\Filament\Widgets\TopPurchasePartiesTable;
 use App\Filament\Widgets\TopSuppliersTable;
 use App\Filament\Widgets\UnpaidContractBalancesTable;
 use App\Filament\Widgets\UpcomingChecksTable;
@@ -95,6 +96,20 @@ class Dashboard extends BaseDashboard
                 UpcomingCollectionsTable::class,
                 TopCustomersTable::class,
             ];
+        }
+
+        // Sözleşmesiz firma (sade müteahhit): aynı ana sayfa, sözleşmeye dayanan bölümler yok; tedarikçi/taşeron
+        // Top 5 (sözleşmeden okur) yerine cari alışından "En çok alış yapılan 5 cari".
+        if (! config('modules.contracts')) {
+            return array_values(array_filter([
+                PurchaseOverviewCard::class,
+                PayablesReminderWidget::class,
+                config('modules.checks') ? MonthlyCheckPaymentsChart::class : null,
+                config('modules.projects') ? ProjectComparisonTable::class : null,
+                TopPurchasePartiesTable::class,
+                config('modules.checks') ? UpcomingChecksTable::class : null,
+                config('modules.checks') ? OverdueChecksTable::class : null,
+            ]));
         }
 
         return [

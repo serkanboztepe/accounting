@@ -2,9 +2,11 @@
 
 namespace App\Filament\Widgets;
 
+use App\Models\Check;
 use App\Models\Contract;
 use App\Models\Project;
 use App\Support\Money;
+use App\Support\ProjectCost;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -17,6 +19,9 @@ class ProjectComparisonTable extends TableWidget
 
     public function table(Table $table): Table
     {
+        // Sözleşmesiz firma: sözleşme / ödenen / teslimat / kalan sütunları yerine maliyet (gider + cari alış) — Proje Raporu ile aynı.
+        $contracts = (bool) config('modules.contracts');
+
         return $table
             ->query(
                 Project::query()
@@ -47,14 +52,39 @@ class ProjectComparisonTable extends TableWidget
                         default     => 'warning',
                     }),
 
+                Tables\Columns\TextColumn::make('purchase_total')
+                    ->label('Cari Alış')
+                    ->visible(! $contracts)
+                    ->getStateUsing(fn (Project $p): float => ProjectCost::purchases($p->id))
+                    ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
+                    ->alignEnd(),
+
+                Tables\Columns\TextColumn::make('total_cost')
+                    ->label('Toplam Maliyet')
+                    ->visible(! $contracts)
+                    ->getStateUsing(fn (Project $p): float => ProjectCost::purchases($p->id) + ProjectCost::expenses($p->id))
+                    ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
+                    ->alignEnd()
+                    ->weight('bold'),
+
+                Tables\Columns\TextColumn::make('project_checks')
+                    ->label('Açık Çek')
+                    ->visible(! $contracts && config('modules.checks'))
+                    ->getStateUsing(fn (Project $p): float => (float) Check::query()->where('project_id', $p->id)->where('status', 'issued')->sum('amount'))
+                    ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
+                    ->alignEnd()
+                    ->color('warning'),
+
                 Tables\Columns\TextColumn::make('contracts_total')
                     ->label('Sözleşme')
+                    ->visible($contracts)
                     ->getStateUsing(fn (Project $p): float => $p->contracts->sum(fn (Contract $c) => $c->reportableTotal()))
                     ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
                     ->alignEnd(),
 
                 Tables\Columns\TextColumn::make('cash_paid')
                     ->label('Gerçek Ödenen')
+                    ->visible($contracts)
                     ->getStateUsing(fn (Project $p): float => $p->contracts->sum(fn (Contract $c) => $c->cashPaidAmount()))
                     ->formatStateUsing(function (float $state, Project $p): string {
                         $total = $p->contracts->sum(fn (Contract $c) => $c->reportableTotal());
@@ -77,6 +107,7 @@ class ProjectComparisonTable extends TableWidget
 
                 Tables\Columns\TextColumn::make('pending_checks')
                     ->label('Açık Çek')
+                    ->visible($contracts)
                     ->getStateUsing(fn (Project $p): float => $p->contracts->sum(fn (Contract $c) => $c->pendingCheckAmount()))
                     ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
                     ->alignEnd()
@@ -84,6 +115,7 @@ class ProjectComparisonTable extends TableWidget
 
                 Tables\Columns\TextColumn::make('delivery_total')
                     ->label('Teslimat')
+                    ->visible($contracts)
                     ->getStateUsing(fn (Project $p): float => (float) $p->contractDeliveries()->sum('amount'))
                     ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
                     ->alignEnd(),
@@ -96,6 +128,7 @@ class ProjectComparisonTable extends TableWidget
 
                 Tables\Columns\TextColumn::make('remaining_balance')
                     ->label('Kalan Bakiye')
+                    ->visible($contracts)
                     // Rapor sayfasıyla aynı: Kalan = max(0, tutar − gerçek ödenen).
                     // Bekleyen çek Kalan'ın içindedir; ayrıca "Açık Çek" kolonunda detaylanır.
                     ->getStateUsing(fn (Project $p): float => $p->contracts->sum(

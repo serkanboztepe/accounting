@@ -8,7 +8,7 @@ namespace App\Support;
  *   mimar     = yildiz   (sadece Mimar grubu + basit cari Satış/Tahsilat)
  *   muteahhit = sade müteahhit (20.10 kullanıcı kararı): alacak-verecek + projeler (şantiye) + proje raporu + çek;
  *               sözleşme YOK — maliyet = projeli gider + projeli cari alışı. Eski sözleşmeli kurulum (Muhasebe, firma 2)
- *               hub'da contracts / purchase_contracts / dashboard açık ezmesiyle aynen kalır.
+ *               hub'da contracts / purchase_contracts açık ezmesiyle aynen kalır. Ana sayfa açık: sözleşmesiz bölümlerle.
  *   trade     = Stoklu satış (fırın, toptancı, lastikçi…): Satışlar + Alışlar tezgahı, stok, cari iki yön, gider
  *   alacak_verecek = esnaf defteri: sadece cari (iki yön: satış/tahsilat + alış/ödeme) + gider; proje YOK
  * Burada olmayan anahtar = açık (true). Tek tek MOD_* env satırı her zaman profili ezer.
@@ -40,7 +40,6 @@ class ModuleProfiles
             'sales_contracts'    => false,
             'quotes'             => false,
             'contracts'          => false,
-            'dashboard'          => false,
             'report_stock'       => false,
             'report_sales'       => false,
         ],

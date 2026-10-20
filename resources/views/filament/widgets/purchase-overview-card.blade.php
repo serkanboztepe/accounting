@@ -1,6 +1,8 @@
 <x-filament-widgets::widget>
-    @php($d = $this->getData())
-    @php($m = fn ($v) => '₺' . \App\Support\Money::format((float) $v))
+    @php
+        $d = $this->getData();
+        $m = fn ($v) => '₺' . \App\Support\Money::format((float) $v);
+    @endphp
 
     <style>
         .pc-summary {
@@ -38,6 +40,38 @@
         }
     </style>
 
+    @if (! empty($d['simple']))
+    {{-- Sözleşmesiz firma: maliyet = gider + cari alış; ödenecek = carilere açık borç + bekleyen çek --}}
+    <div class="pc-summary">
+        <div class="pc-top">
+            <div>
+                <div class="pc-eyebrow">Genel Durum · Maliyet</div>
+                <div class="pc-hero tnum">{{ $m($d['total_cost']) }}</div>
+            </div>
+            <div class="pc-break tnum">{{ $d['active_projects'] }} aktif proje · Direkt gider <b>{{ $m($d['expenses_total']) }}</b> + Cari alış <b>{{ $m($d['purchase_total']) }}</b></div>
+        </div>
+
+        <div class="pc-grid">
+            <div class="pc-cell">
+                <div class="pc-k">Carilere Borcum</div>
+                <div class="pc-v tnum" style="color: var(--pc-warn)">{{ $m($d['payables']) }}</div>
+                <div class="pc-sub">Cari ekstrelerindeki açık borç</div>
+            </div>
+            <div class="pc-cell">
+                <div class="pc-k"><span class="pc-op">+</span>Bekleyen Çek</div>
+                <div class="pc-v tnum" style="color: var(--pc-pend)">{{ $m($d['pending_checks']) }}</div>
+                <div class="pc-sub">Verildi, vadesi bekleniyor{{ $d['pending_note'] }}</div>
+            </div>
+            <div class="pc-cell pc-total">
+                <div class="pc-k"><span class="pc-op">=</span>Toplam Ödenecek</div>
+                <div class="pc-v tnum">{{ $m($d['total_due']) }}</div>
+                <div class="pc-sub">Açık borç + bekleyen çek</div>
+            </div>
+        </div>
+
+        <div class="pc-foot tnum">Maliyet = direkt gider + cariden alış (iş / malzeme) · Ödeme ve avans maliyete girmez · Çek verildiğinde cari borcu düşer, vadesine kadar "Bekleyen Çek"te durur</div>
+    </div>
+    @else
     <div class="pc-summary">
         <div class="pc-top">
             <div>
@@ -73,4 +107,5 @@
 
         <div class="pc-foot tnum">Gerçek ödenen = nakit/EFT + tahsil edilmiş çek · Toplam çıkış = gerçek ödenen + {{ $m($d['expenses_total']) }} direkt gider = <b>{{ $m($d['total_cash_out']) }}</b></div>
     </div>
+    @endif
 </x-filament-widgets::widget>

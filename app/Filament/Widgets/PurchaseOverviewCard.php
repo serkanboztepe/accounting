@@ -7,6 +7,8 @@ use App\Models\Contract;
 use App\Models\Expense;
 use App\Models\Project;
 use App\Support\Money;
+use App\Support\PartyBalances;
+use App\Support\ProjectCost;
 use Illuminate\Support\Carbon;
 use Filament\Widgets\Widget;
 
@@ -21,6 +23,31 @@ class PurchaseOverviewCard extends Widget
     public function getData(): array
     {
         $today = Carbon::today();
+
+        // Sözleşmesiz firma (sade müteahhit): maliyet = gider + cari alış (Proje Raporu ile aynı hesap); ödenecek =
+        // carilere açık borç (ekstre) + bekleyen çek. Çek verildiği an cari borcu düşer → ikisi çift sayılmaz.
+        if (! config('modules.contracts')) {
+            $pending = (float) Check::query()->where('status', 'issued')->sum('amount');
+            $overdue = Check::query()->where('status', 'issued')->whereDate('due_date', '<', $today);
+            $overdueCount = (clone $overdue)->count();
+            $payables = (float) PartyBalances::payables()->sum(fn ($r) => abs((float) $r['balance']));
+            $expenses = ProjectCost::expenses();
+            $purchases = ProjectCost::purchases();
+
+            return [
+                'simple'          => true,
+                'active_projects' => Project::query()->where('status', 'active')->count(),
+                'expenses_total'  => $expenses,
+                'purchase_total'  => $purchases,
+                'total_cost'      => $expenses + $purchases,
+                'payables'        => $payables,
+                'pending_checks'  => $pending,
+                'total_due'       => $payables + $pending,
+                'pending_note'    => $overdueCount > 0
+                    ? ' · ₺' . Money::format((float) (clone $overdue)->sum('amount')) . ' vadesi geçmiş (' . $overdueCount . ')'
+                    : '',
+            ];
+        }
 
         $activeProjects = Project::query()->where('status', 'active')->count();
 

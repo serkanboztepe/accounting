@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Support\Money;
+use App\Support\ProjectCost;
 use Illuminate\Support\Facades\DB;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
@@ -148,7 +149,7 @@ class ProjectReports extends Page implements HasSchemas
 
         // Cariden alış (usta işi, malzeme) — sözleşmesiz müteahhitte maliyetin asıl kalemi. Ödeme/avans maliyet DEĞİL
         // (para çıkışı); alış iadesi düşer. Avanstan düşülen iş de alış satırıdır, bir kez sayılır.
-        $purchaseCost = $this->purchaseCost($project->id);
+        $purchaseCost = ProjectCost::purchases($project->id);
 
         return [
             'direct_expenses' => $directExpenses,
@@ -242,14 +243,6 @@ class ProjectReports extends Page implements HasSchemas
         }
 
         return array_values($grouped);
-    }
-
-    private function purchaseCost(int $projectId): float
-    {
-        $sum = fn (string $type) => (float) PartyLedgerEntry::query()
-            ->where('project_id', $projectId)->where('type', $type)->sum('amount');
-
-        return $sum(PartyLedgerEntry::TYPE_PURCHASE) - $sum(PartyLedgerEntry::TYPE_PURCHASE_RETURN);
     }
 
     /**
