@@ -84,7 +84,7 @@ class WhatsappBranchTest extends TestCase
         $before = Sale::count();
 
         $reply = $this->send('Kasa nakit 5900 pos 21540');
-        $this->assertStringContainsString('Hangi şube? Numarayı yaz', $reply);
+        $this->assertStringContainsString('Hangi şube?', $reply);
         $this->assertStringNotContainsString('0) Genel', $reply, 'kasada genel yok');
         $this->send('evet');
         $this->assertSame($before, Sale::count(), 'şubesiz kasa kaydedilmez');
@@ -117,7 +117,7 @@ class WhatsappBranchTest extends TestCase
 
         $reply = $this->send('Un toptancıdan 25 çuval un 35750');
         $this->assertStringContainsString('Şube: *İzzetpaşa Test* (son)', $reply);
-        $this->assertStringContainsString('0) Genel / ortak', $reply);
+        $this->assertStringContainsString('*0* Genel', $reply);
         $this->send('0');
         $this->assertNull(PartyLedgerEntry::where('party_id', $party->id)->latest('id')->value('project_id'));
     }

@@ -80,7 +80,7 @@ class WhatsappReviewFixesTest extends TestCase
         );
 
         $this->send("Recep'ten 5 bin alacağım var, bir de 3.000 peynir parasını aldım ama peyniri daha teslim etmedim");
-        $this->assertStringContainsString('Peşin para (avans)', $this->send('evet'));
+        $this->assertStringContainsString('Peşin para* ←', $this->send('evet'));
 
         $next = WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->latest('id')->first();
         $this->assertNotNull($next);

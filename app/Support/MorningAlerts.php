@@ -137,7 +137,7 @@ final class MorningAlerts
             }
             $date = Carbon::parse($last->entry_date)->locale('tr')->translatedFormat('j F');
             $lines[] = $ours
-                ? '⏳ ' . $party->name . ': ' . $date . "'de verdiğiniz " . Money::format($open) . ' ₺ avansın işi/malı geldi mi? Geldiyse yazmanız yeterli (ör. "' . $party->name . ' işi bitirdi").'
+                ? '⏳ ' . $party->name . ': ' . $date . "'de önceden verdiğiniz " . Money::format($open) . ' ₺\'nin işi/malı geldi mi? Geldiyse yazmanız yeterli (ör. "' . $party->name . ' işi bitirdi").'
                 : '⏳ ' . $party->name . ': ' . $date . "'de aldığınız " . Money::format($open) . ' ₺ peşin paranın malı/işi teslim edildi mi? Edildiyse yazmanız yeterli (ör. "' . $party->name . "'e teslim ettim\").";
             if (count($lines) >= 3) {
                 break;

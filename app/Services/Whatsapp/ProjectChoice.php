@@ -109,23 +109,30 @@ final class ProjectChoice
         }
         $label = Labels::project();
         $projects = self::projects();
-        $menu = $projects->map(fn ($p, $i) => '   ' . ($i + 1) . ') ' . $p->name)->all();
-        $general = '   0) Genel / ortak';
+        $icon = $label === 'Şube' ? '🏪' : '🏗';
+        // Az seçenek → tek satır ("🏗 Hangi proje? *1* Fatih · *2* Atatürk · *0* Genel"); kalabalıksa alt alta (kullanıcı 20.10:
+        // "cevaplar çok uzun" — 4 satırlık menü tek satıra sığıyordu).
+        $general = self::isCashSale($d) && empty($d['project_suggested']) ? null : 'Genel';
+        $inline = $projects->count() <= 6;
+        $choices = $projects->map(fn ($p, $i) => $inline ? '*' . ($i + 1) . '* ' . $p->name : '   ' . ($i + 1) . ') ' . $p->name)->all();
+        if ($general !== null) {
+            $choices[] = $inline ? '*0* ' . $general : '   0) ' . $general . ' / ortak';
+        }
+        $menu = fn (string $head) => $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
 
         if (! empty($d['project_suggested'])) {
             $name = $projects->firstWhere('id', $d['project_id'])?->name ?? '—';
 
-            return array_merge(["🏪 {$label}: *{$name}* (son) — başkaysa numarayı yaz:"], $menu, [$general]);
+            return $menu("{$icon} {$label}: *{$name}* (son) — başkaysa:");
         }
         if (! empty($d['project_needed'])) {
-            return array_merge(['❓ Hangi ' . mb_strtolower($label) . '? Numarayı yaz:'], $menu,
-                self::isCashSale($d) ? [] : [$general . ' (ya da direkt *evet*)']);
+            return $menu("{$icon} Hangi " . mb_strtolower($label) . '?');
         }
         if (! empty($d['project_id']) && ($p = Project::find($d['project_id']))) {
-            return ["🏪 {$label}: {$p->name}"];
+            return ["{$icon} {$label}: {$p->name}"];
         }
         if (! empty($d['project_name'])) {
-            return ["🏪 {$label}: {$d['project_name']} (yeni)"];
+            return ["{$icon} {$label}: {$d['project_name']} (yeni)"];
         }
 
         return [];

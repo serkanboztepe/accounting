@@ -65,7 +65,7 @@ class MorningAlertsTest extends TestCase
 
         $day14 = implode("\n", MorningAlerts::openAdvances($this->today));
         $this->assertStringContainsString('Sabah Avans Osman', $day14);
-        $this->assertStringContainsString('1.005.000,00 ₺ avansın işi/malı geldi mi', $day14);
+        $this->assertStringContainsString("1.005.000,00 ₺'nin işi/malı geldi mi", $day14);
         $this->assertStringNotContainsString('Personel', $day14, 'personel avansı maaştan düşer, sorulmaz');
         $this->assertStringNotContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->subDay())), '13. gün sessiz');
         $this->assertStringContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->addDays(16))), '30. gün');

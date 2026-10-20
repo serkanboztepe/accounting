@@ -472,8 +472,11 @@ class TradeDraft
         if (! empty($d['description']) && empty($d['items'])) {
             $lines[] = '• Açıklama: ' . $d['description'];
         }
-        $lines[] = '• Tarih: ' . Carbon::parse($d['date'] ?? now()->format('Y-m-d'))->format('d.m.Y')
-            . (! empty($d['night_till']) ? ' (dünkü kasa — gece girildi; bugünün ise *bugünün* yaz)' : '');
+        // Tarih yalnız bugün değilse ya da gece girilen dünkü kasaysa (kullanıcı 20.10: "cevaplar çok uzun").
+        if (! empty($d['night_till']) || ! self::isToday($d)) {
+            $lines[] = '• Tarih: ' . Carbon::parse($d['date'] ?? now()->format('Y-m-d'))->format('d.m.Y')
+                . (! empty($d['night_till']) ? ' (dünkü kasa — gece girildi; bugünün ise *bugünün* yaz)' : '');
+        }
         if (($extra = (float) ($d['extra_expense']['amount'] ?? 0)) > 0) {
             $lines[] = '📝 *+ Gider:* ' . Money::format($extra) . ' ₺ — ' . ($d['extra_expense']['description'] ?? 'gider') . ' (ayrı kayıt)';
             $lines[] = 'İkisini birden kaydederim.';
@@ -487,6 +490,11 @@ class TradeDraft
         }
 
         return implode("\n", $lines);
+    }
+
+    private static function isToday(array $d): bool
+    {
+        return empty($d['date']) || $d['date'] === now('Europe/Istanbul')->toDateString();
     }
 
     private static function purchaseSummary(array $d): string
@@ -508,7 +516,9 @@ class TradeDraft
         if (self::canBecomeExpense($d)) {
             $lines[] = '🆕 Kartta olmayan ürün onaylayınca açılır ve stoğa girer. Stok takibi istemiyorsan *gider* yaz.';
         }
-        $lines[] = '• Tarih: ' . ($d['date'] ?? now()->format('Y-m-d'));
+        if (! self::isToday($d)) {
+            $lines[] = '• Tarih: ' . Carbon::parse($d['date'])->format('d.m.Y');
+        }
         if ($party) {
             $before = PartyStatement::build($party)['balance'];
             $after = ! empty($d['paid']) ? $before : $before - (float) $d['amount'];

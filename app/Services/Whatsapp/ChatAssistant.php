@@ -323,7 +323,7 @@ class ChatAssistant
 
     /** Onay sayılan kelimeler — tek kelimelik cevap (kontrolcü) ve cümle içi (hasAssent) aynı listeyi kullanır. "0k" Erkan, 13 Ekim. */
     public const ASSENT_WORDS = ['evet', 'tamam', 'tamamdır', 'tamamdir', 'olur', 'kaydet', 'kaydedin', 'onay', 'onayla', 'onaylıyorum',
-        'ok', '0k', 'okey', 'okay', 'tmm', 'e'];
+        'ok', '0k', 'okey', 'okay', 'tmm', 'e', 'yaz'];
 
     /** Düz cevapta asistanın kendi adına "yaptım" sözü — kayıt/ayar yalnız onaylı taslakla olur, düz cevap hiçbir şey yapmaz. */
     public static function claimsDone(string $text): bool

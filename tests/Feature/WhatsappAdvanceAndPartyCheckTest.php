@@ -78,8 +78,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->fakeAi($this->entry(['amount' => 6000, 'paid' => true, 'party_id' => $party->id, 'party_said' => 'Ayten Avans']));
 
         $reply = $this->send("Ayten'in 10 kilo peynirini gönderdim, hepsini aldım");
-        $this->assertStringContainsString('(önceden aldığın paradan düşüldü)', $reply);
-        $this->assertStringContainsString('6.000,00 ₺ bu işten düşülür', $reply);
+        $this->assertStringContainsString('· önceden aldığın paradan düşüldü', $reply);
         $this->assertStringNotContainsString('Aynı kişi mi', $reply);
 
         $this->send('evet');
@@ -93,7 +92,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $party = $this->partyWith('Ayten Kalan', PartyLedgerEntry::TYPE_COLLECTION, 6000, 'Avans — peynir');
         $this->fakeAi($this->entry(['amount' => 8000, 'paid' => true, 'party_id' => $party->id]));
 
-        $this->assertStringContainsString('kalan 2.000,00 ₺ tahsil edildi', $this->send('Ayten 8000 peynir gönderdim parasını aldım'));
+        $this->assertStringContainsString('6.000,00 ₺ önceden aldığın paradan, kalan 2.000,00 ₺ alındı', $this->send('Ayten 8000 peynir gönderdim parasını aldım'));
         $this->send('evet');
 
         $this->assertEquals(2000, PartyLedgerEntry::where('party_id', $party->id)->where('description', 'like', 'Satış tahsilatı%')->value('amount'));
@@ -140,7 +139,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $party = $this->partyWith('Usta Avans', PartyLedgerEntry::TYPE_PAYMENT, 10000, 'Avans — sıva');
         $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 10000, 'paid' => true, 'party_id' => $party->id]));
 
-        $this->assertStringContainsString('10.000,00 ₺ ödemeden düşülür', $this->send('Usta sıvayı bitirdi 10 bin ödedim'));
+        $this->assertStringContainsString('10.000,00 ₺ · önceki ödemeden düşüldü', $this->send('Usta sıvayı bitirdi 10 bin ödedim'));
         $this->send('evet');
         $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)->count());
         $this->assertSame(0.0, $this->balance($party));
@@ -175,7 +174,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->assertStringContainsString('Tutar ne kadardı?', $this->send("Hüseyin BİM'in bacısı ayten'in peynirini gönderdim"));
         $reply = $this->send('6000 lira hepsini aldım');
 
-        $this->assertStringContainsString('(önceden aldığın paradan düşüldü)', $reply);
+        $this->assertStringContainsString('· önceden aldığın paradan düşüldü', $reply);
         $this->assertStringContainsString('*Aynı kişi mi?*', $reply);
         $this->send('evet');
         $this->assertSame(0.0, $this->balance($party));

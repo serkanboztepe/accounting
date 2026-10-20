@@ -68,8 +68,8 @@ class WhatsappPaidSupplierTest extends TestCase
         $parties = Party::count();
 
         $card = $this->send('Bizim toptan 18.261 tl gider ödendi');
-        $this->assertStringContainsString('Gider — kontrol et', $card);
-        $this->assertStringContainsString('Açıklama: Bizim Toptan gideri', $card);
+        $this->assertStringContainsString('📝 *Gider*:', $card);
+        $this->assertStringContainsString('— Bizim Toptan gideri', $card);
         $this->assertStringContainsString('Firma: Bizim Toptan (peşin ödendiği için cari açılmaz)', $card);
         $this->assertStringContainsString('📦 Mal aldıysan', $card);
         $this->send('evet');
@@ -154,7 +154,7 @@ class WhatsappPaidSupplierTest extends TestCase
         $parties = Party::count();
 
         $card = $this->send('Bizim toptan 18.261 tl gider');
-        $this->assertStringContainsString('Açıklama: Bizim Toptan — Toptan alışveriş', $card);
+        $this->assertStringContainsString('— Bizim Toptan — Toptan alışveriş', $card);
         $this->assertStringContainsString('📦 Mal aldıysan', $card);
         $this->send('evet');
 

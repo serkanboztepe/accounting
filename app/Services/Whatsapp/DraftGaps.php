@@ -89,7 +89,7 @@ final class DraftGaps
                 'why' => 'Ödeyip ödemediğini yazmadığın için kaydedemedim.'];
         }
         if (self::needsPaymentChoice($d)) {
-            return ['code' => self::CHOICE, 'ask' => 'Seç: *1* iş/mal aldım, *2* avans.',
+            return ['code' => self::CHOICE, 'ask' => 'Seç: *1* iş/mal aldım, *2* önceden verdim (iş/mal sonra).',
                 'why' => 'Ne için verdiğini seçmediğin için kaydedemedim.'];
         }
 

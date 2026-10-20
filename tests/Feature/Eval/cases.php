@@ -165,6 +165,13 @@ return [
                 ['send' => '1']],
             'expect' => ['saved' => ['ledger' => 2], 'balance' => ['Asansörcü' => 500000]]],
 
+        // Kullanıcı 20.10: müteahhitte "günlük / bu ay" yok — proje maliyeti şu ana kadar, gider + alış (iki farklı cevap çıkmıştı).
+        ['id' => 'muteahhit-maliyet-su-ana-kadar', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'cumhuriyet şantiyesine 5 bin mazot aldım'], ['send' => 'evet'],
+                ['send' => 'Cumhuriyetin maliyeti', 'expect' => ['reply_has' => ['5.000', 'şu ana kadar'], 'reply_not' => ['Ekim', 'gidere dahil değil']]],
+                ['send' => 'toplam maliyetim ne']],
+            'expect' => ['reply_has' => ['Toplam maliyet', 'Cumhuriyet'], 'reply_not' => ['gidere dahil değil'], 'saved' => ['expenses' => 1]]],
+
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Ak Un'dan 20 çuval un aldım 17000"]],
@@ -228,7 +235,7 @@ return [
             'expect' => ['draft' => ['kind' => 'payment', 'amount' => 3000], 'reply_has' => ['personel']]],
         ['id' => 'yy-usta-avansi-personel-degil', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Boyacı ustaya 10 bin avans verdim işe başlayacak"]],
-            'expect' => ['draft' => ['kind' => 'payment', 'payment_purpose' => 'advance'], 'reply_has' => ['iş sonra yapılacak'], 'reply_not' => ['personel']]],
+            'expect' => ['draft' => ['kind' => 'payment', 'payment_purpose' => 'advance'], 'reply_any' => ['iş sonra', 'henüz başlamadı', 'başlamadan', 'iş/mal sonra'], 'reply_not' => ['personel']]],
         ['id' => 'yy-personel-tam-akis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Personelim Fatih e 20 bin avans verdim"], ['send' => 'evet'], ['send' => "45 bin ayın 5'i"], ['send' => 'evet'],
                 ['send' => 'Fatih e 10 bin daha verdim'], ['send' => 'evet'], ['send' => 'Fatihin maaşından ne kadar kaldı']],

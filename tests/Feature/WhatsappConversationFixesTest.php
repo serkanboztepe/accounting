@@ -158,7 +158,7 @@ class WhatsappConversationFixesTest extends TestCase
         ]));
 
         $summary = $this->send("Arda Test Mehmet A'ya 20 bin avans verdim");
-        $this->assertStringContainsString('Tür: Avans (iş sonra yapılacak)', $summary);
+        $this->assertStringContainsString('Önceden ödeme (iş/mal sonra gelecek)', $summary);
         $this->assertStringNotContainsString('Ne için verdin?', $summary);
 
         $this->send('evet');
@@ -216,7 +216,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Kira', 'settles_expense_id' => $rent->id]));
 
         $this->send('20 bin kira ödedim');
-        $this->assertStringContainsString('Gider — kontrol et', $this->send('yeni'));
+        $this->assertStringContainsString('📝 *Gider*:', $this->send('yeni'));
         $this->send('evet');
 
         $this->assertSame($before + 1, Expense::count());
@@ -233,7 +233,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->send('Kira');
         $summary = $this->send('yeni');
 
-        $this->assertStringContainsString('Açıklama: Kira', $summary);
+        $this->assertStringContainsString('— Kira', $summary);
         $this->assertStringNotContainsString('Test ev kirası', $summary);
     }
 
@@ -245,7 +245,7 @@ class WhatsappConversationFixesTest extends TestCase
 
         $summary = $this->send('25 bin kira ödedim');
 
-        $this->assertStringContainsString('Gider — kontrol et', $summary);
+        $this->assertStringContainsString('📝 *Gider*:', $summary);
         $this->assertStringNotContainsString('Borç ödemesi', $summary);
     }
 

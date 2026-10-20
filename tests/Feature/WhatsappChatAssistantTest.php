@@ -189,8 +189,8 @@ class WhatsappChatAssistantTest extends TestCase
 
         $reply = $this->send('500.000 tl lik iş yaptı');
 
-        $this->assertStringContainsString('(önceki ödemeden düşüldü)', $reply);
-        $this->assertStringContainsString('Önceden yaptığın 500.000,00 ₺ ödemeden düşülür', $reply);
+        $this->assertStringContainsString('500.000,00 ₺ · önceki ödemeden düşüldü', $reply);
+        $this->assertStringNotContainsString('yeni para', $reply);
         $this->assertStringNotContainsString('avans', mb_strtolower($reply));
     }
 
@@ -208,6 +208,61 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertStringNotContainsString($q, $reply);
         $this->assertStringContainsString('Döngü Testi', $reply);
         $this->assertSame(0, $this->ledgerCount('Döngü Testi'));
+    }
+
+    /** Kullanıcı 20.10 "cevaplar çok uzun": kart kısa — bugünün tarihi, "yeni para", uzun kapanış ve 4 satırlık menü yok. */
+    public function test_card_is_short(): void
+    {
+        config(['modules.projects' => true, 'app.profile' => 'muteahhit']);
+        \App\Models\Project::create(['name' => 'Kısa Kart Fatih', 'status' => 'active']);
+        \App\Models\Project::create(['name' => 'Kısa Kart Atatürk', 'status' => 'active']);
+        $party = \App\Models\Party::create(['name' => 'Kısa Kart Seramik']);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 2500000,
+            'entry_date' => now()->toDateString(), 'description' => 'Avans — fayans']);
+        $this->chat(['type' => 'entry', 'data' => ['kind' => ExpenseExtractor::KIND_PURCHASE, 'party_id' => $party->id, 'party_name' => null,
+            'paid' => true, 'description' => '200 m² fayans (600 TL/m²)', 'date' => now('Europe/Istanbul')->toDateString(),
+            'meaning' => "Kısa Kart Seramik'ten 200 m² fayans geldi, m²'si 600 TL"] + $this->sale(120000, 'x'), 'text' => ''], ['type' => 'ask_confirm']);
+
+        $card = $this->send('Seramik parktan 200 m2 fayans geldi');
+
+        $this->assertStringContainsString('120.000,00 ₺ · önceki ödemeden düşüldü', $card);
+        $this->assertMatchesRegularExpression('/🏗 Hangi proje\? \*1\* .+ · \*0\* Genel\n/u', $card);
+        $this->assertStringContainsString('Kaydedeyim mi? *evet*', $card);
+        foreach (['Tarih:', 'yeni para', 'Açıklama:', 'düzeltmeyi yazman yeterli', 'avans'] as $no) {
+            $this->assertStringNotContainsString($no, $card, $no);
+        }
+        $this->assertLessThanOrEqual(6, substr_count(trim($card), "\n") + 1, $card);
+
+        // Onay anlaşılmadı → kartın tamamı değil tek satır
+        $again = $this->send('hmm');
+        $this->assertStringContainsString('⏳ Alış — Kısa Kart Seramik 120.000,00 ₺', $again);
+        $this->assertStringNotContainsString('Hangi proje', $again);
+    }
+
+    /** Müteahhitte proje maliyeti tek hesap: gider + cari alış, dönem yoksa baştan bugüne (firma 7, 20.10 iki farklı cevap). */
+    public function test_project_cost_answer_matches_report(): void
+    {
+        config(['app.profile' => 'muteahhit', 'modules.projects' => true]);
+        $project = \App\Models\Project::create(['name' => 'Maliyet Cevabı Fatih', 'status' => 'active']);
+        $party = \App\Models\Party::create(['name' => 'Maliyet Cevabı Usta']);
+        \App\Models\Expense::create(['amount' => 8000000, 'expense_date' => now()->subMonths(2), 'project_id' => $project->id,
+            'description' => 'Arsa', 'payment_status' => 'paid']);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'project_id' => $project->id, 'type' => PartyLedgerEntry::TYPE_PURCHASE,
+            'amount' => 800000, 'entry_date' => now()->toDateString(), 'description' => 'İş']);
+
+        $text = \App\Support\ExpenseSummary::text(null, null, $project->id);
+
+        $this->assertStringContainsString('Maliyet Cevabı Fatih maliyeti (şu ana kadar): 8.800.000,00 ₺', $text);
+        $this->assertStringContainsString('Cari alış (iş / malzeme): 800.000,00 ₺', $text);
+        $this->assertStringNotContainsString('gidere dahil değil', $text);
+
+        // Projesiz soru: firma toplamı (şu ana kadar) + proje dökümü; dönem söylenince yalnız o dönem
+        $firm = \App\Support\ExpenseSummary::text(null, null);
+        $this->assertStringContainsString('Toplam maliyet (şu ana kadar):', $firm);
+        $this->assertStringContainsString('• Maliyet Cevabı Fatih: 8.800.000,00 ₺', $firm);
+        $month = \App\Support\ExpenseSummary::text(now()->startOfMonth()->toDateString(), now()->toDateString(), $project->id);
+        $this->assertStringContainsString('800.000,00 ₺', $month);
+        $this->assertStringNotContainsString('8.800.000', $month);
     }
 
     public function test_affirms_check_words(): void

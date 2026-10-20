@@ -140,7 +140,7 @@ class WhatsappAkkusFixesTest extends TestCase
         $this->app->instance(ExpenseExtractor::class, $mock);
 
         $this->assertStringContainsString('Bu çek kime yazılmıştı?', $this->webhook('105.000 çek ödendi'));
-        $this->assertStringContainsString('Gider — kontrol et', $this->webhook('gider'));
+        $this->assertStringContainsString('📝 *Gider*:', $this->webhook('gider'));
         $before = \App\Models\Expense::count();
         $this->webhook('evet');
         $this->assertSame($before + 1, \App\Models\Expense::count());
@@ -250,7 +250,7 @@ class WhatsappAkkusFixesTest extends TestCase
         $mock->shouldReceive('extract')->andReturn($this->expense(['amount' => 54000, 'description' => 'Kira ödemesi']));
         $this->app->instance(ExpenseExtractor::class, $mock);
 
-        $this->assertStringContainsString('Gider — kontrol et', $this->webhook('54.000 kira'));
+        $this->assertStringContainsString('📝 *Gider*:', $this->webhook('54.000 kira'));
     }
 
     /** K4: "nakit … kart … X gider" → peşin satış + ayrı gider, tek özet, tek evet. AI gider dese de. */

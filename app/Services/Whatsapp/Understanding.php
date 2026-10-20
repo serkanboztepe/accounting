@@ -70,6 +70,8 @@ final class Understanding
       (yakıt fişi, kira, market).
     - CARİLER'de "önceden verdiğimiz para" yazan kişi için "işi bitirdi / mal geldi / taktı" denirse avansın karşılığıdır:
       tutar söylenmediyse açık avans tutarıyla `purchase` (work_status done, known) — avanstan düşülür, yeni para çıkmaz.
+      Bunu kod düşer ve kart söyler: "ayrıca ödeme mi yaptın / önceden verilenden mi düşülsün?" diye SORMA; `description`'a
+      ödeme notu ("avanstan düşülecek" gibi) yazma — yalnız ne iş / ne mal ("Asansör işi", "5 palet tuğla").
       "peşin aldık" yazan kişiye "teslim ettim / götürdüm" denirse aynı şekilde `sale` (tutar = peşin alınan).
     - Stoklu alışta "alacaklıyız / ödemesi yapılmıştı / parası verildi / X'te stoğumuz var" geçiyorsa mal ELDE mi yoksa TEDARİKÇİDE mi
       duruyor belli değildir → work_status_known=false, soru: "Mal elinizde mi, yoksa X'te mi duruyor?" (Emre/Tokgöz). Tedarikçideyse

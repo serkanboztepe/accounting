@@ -202,7 +202,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $sale = ['kind' => ExpenseExtractor::KIND_SALE, 'amount' => 12000, 'party_id' => $party->id, 'description' => '20 kg peynir', 'paid' => true];
         $this->fakeAi($this->entry($sale));
 
-        $this->assertStringContainsString('Peşin para (avans)', $this->send('Hıdır 12 bin gönderdi parasını aldım peyniri sonra göndereceğim'));
+        $this->assertStringContainsString('Peşin para* ←', $this->send('Hıdır 12 bin gönderdi parasını aldım peyniri sonra göndereceğim'));
         $this->send('evet');
         $this->assertSame(-12000.0, $this->balance($party));
 
@@ -226,7 +226,7 @@ class WhatsappLedgerFlowTest extends TestCase
         ]));
 
         $reply = $this->send('Zülfikar 3 bin verdi peyniri sonra vereceğim');
-        $this->assertStringContainsString('Peşin para (avans)', $reply);
+        $this->assertStringContainsString('Peşin para* ←', $reply);
         $this->assertStringContainsString('borcun 3.000,00', $reply);
 
         $this->send('0k');
@@ -357,7 +357,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertSame(0, Expense::where('party_id', $party->id)->count());
         $this->assertSame(-100000.0, $this->balance($party));
 
-        $this->assertStringContainsString('Durum: Ödendi', $this->send('5 bin yakıt'));
+        $this->assertStringContainsString('· ödendi', $this->send('5 bin yakıt'));
         $this->send('evet');
         $this->assertSame('paid', Expense::where('description', 'Yakıt Varsayılan')->sole()->payment_status);
     }
@@ -407,7 +407,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertSame($before, Expense::count());
 
         $summary = $this->send('20.000 tl');
-        $this->assertStringContainsString('Tutar: 20.000,00 ₺', $summary);
+        $this->assertStringContainsString('*Gider*: 20.000,00 ₺', $summary);
         $this->assertStringContainsString('Kaydedildi', $this->send('evet'));
         $this->assertSame($before + 1, Expense::count());
         $this->assertEqualsWithDelta(20000, (float) Expense::latest('id')->first()->amount, 0.001);

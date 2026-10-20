@@ -80,6 +80,17 @@ class ExpenseSummary
 
     public static function text(?string $from, ?string $to, ?int $projectId = null): string
     {
+        // Müteahhitte proje sorusu = proje maliyeti, Proje Raporu ile AYNI (gider + cari alış [+ teslimat]); dönem yoksa
+        // projenin başından bugüne (firma 7, 20.10: "Fatihin maliyeti" → bu ayın gideri + "alışlar gidere dahil değil",
+        // hemen ardından "Fatih projesinin maliyeti" → 8.800.000 — aynı soruya iki rakam).
+        if ($projectId && config('app.profile') === 'muteahhit' && ($project = Project::find($projectId))) {
+            return self::projectCostText($project, $from, $to);
+        }
+        // Müteahhitte projesiz soru ("toplam maliyetim ne", "ne kadar harcadım") da aynı mantık: gider + cari alış, dönem yoksa
+        // şu ana kadar, proje proje döküm — Ana sayfadaki "Toplam maliyet" ile aynı (kullanıcı 20.10: "müteahhitte günlük bir şey yok").
+        if (! $projectId && config('app.profile') === 'muteahhit' && config('modules.projects')) {
+            return self::firmCostText($from, $to);
+        }
         $s = self::build($from, $to, $projectId);
         $project = $projectId ? Project::find($projectId) : null;
         $label = self::periodLabel($s['from'], $s['to']);
@@ -115,6 +126,63 @@ class ExpenseSummary
         }
         if ($s['total'] < 0.01 && $s['purchases'] < 0.01) {
             $lines = ['📊 ' . ($project ? $project->name . ' — ' : '') . $label . ' kayıtlı giderin yok.'];
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private static function projectCostText(Project $project, ?string $from, ?string $to): string
+    {
+        if ($from === null && $to === null) {
+            $expenses = ProjectCost::expenses($project->id);
+            $purchases = ProjectCost::purchases($project->id);
+            $deliveries = config('modules.contracts') ? (float) ContractDelivery::where('project_id', $project->id)->sum('amount') : 0.0;
+            $label = 'şu ana kadar';
+        } else {
+            $s = self::build($from, $to, $project->id);
+            [$expenses, $purchases, $deliveries] = [$s['expenses'], $s['purchases'], $s['deliveries']];
+            $label = self::periodLabel($s['from'], $s['to']);
+        }
+        $total = $expenses + $purchases + $deliveries;
+        if ($total < 0.01) {
+            return '📊 ' . $project->name . ' — ' . $label . ' maliyet kaydı yok.';
+        }
+
+        return implode("\n", array_filter([
+            '📊 *' . $project->name . ' maliyeti (' . $label . '): ' . Money::format($total) . ' ₺*',
+            $expenses >= 0.01 ? '• Gider: ' . Money::format($expenses) . ' ₺' : null,
+            $purchases >= 0.01 ? '• Cari alış (iş / malzeme): ' . Money::format($purchases) . ' ₺' : null,
+            $deliveries >= 0.01 ? '• Sözleşme teslimatı: ' . Money::format($deliveries) . ' ₺' : null,
+        ]));
+    }
+
+    private static function firmCostText(?string $from, ?string $to): string
+    {
+        $all = $from === null && $to === null;
+        $label = $all ? 'şu ana kadar' : self::periodLabel(...self::period($from, $to));
+        $cost = function (?int $projectId) use ($all, $from, $to): float {
+            if ($all) {
+                return $projectId === null ? ProjectCost::expenses() + ProjectCost::purchases() : ProjectCost::expenses($projectId) + ProjectCost::purchases($projectId);
+            }
+            $s = self::build($from, $to, $projectId);
+
+            return $s['expenses'] + $s['purchases'] + $s['deliveries'];
+        };
+        $total = $cost(null) + ($all && config('modules.contracts') ? (float) ContractDelivery::sum('amount') : 0.0);
+        if ($total < 0.01) {
+            return '📊 ' . ucfirst($label) . ' maliyet kaydı yok.';
+        }
+        $lines = ['📊 *Toplam maliyet (' . $label . '): ' . Money::format($total) . ' ₺*'];
+        $sum = 0.0;
+        foreach (Project::orderBy('id')->get(['id', 'name']) as $p) {
+            $c = $cost($p->id) + ($all && config('modules.contracts') ? (float) ContractDelivery::where('project_id', $p->id)->sum('amount') : 0.0);
+            if ($c >= 0.01) {
+                $lines[] = '• ' . $p->name . ': ' . Money::format($c) . ' ₺';
+                $sum += $c;
+            }
+        }
+        if ($total - $sum >= 0.01) {
+            $lines[] = '• Genel (projesiz): ' . Money::format($total - $sum) . ' ₺';
         }
 
         return implode("\n", $lines);
