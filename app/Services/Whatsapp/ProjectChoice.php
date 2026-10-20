@@ -110,25 +110,23 @@ final class ProjectChoice
         $label = Labels::project();
         $projects = self::projects();
         $icon = $label === 'Şube' ? '🏪' : '🏗';
-        // Az seçenek → tek satır ("🏗 Hangi proje? *1* Fatih · *2* Atatürk · *0* Genel"); kalabalıksa alt alta (kullanıcı 20.10:
-        // "cevaplar çok uzun" — 4 satırlık menü tek satıra sığıyordu).
-        $general = self::isCashSale($d) && empty($d['project_suggested']) ? null : 'Genel';
-        $inline = $projects->count() <= 6;
-        $choices = $projects->map(fn ($p, $i) => $inline ? '*' . ($i + 1) . '* ' . $p->name : '   ' . ($i + 1) . ') ' . $p->name)->all();
-        if ($general !== null) {
-            $choices[] = $inline ? '*0* ' . $general : '   0) ' . $general . ' / ortak';
-        }
-        $menu = fn (string $head, array $choices) => $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
+        // Tek soru, bütün seçenekler (kullanıcı 20.10: "projeleri sorsun, başka seçim yapabileyim; 2 / 0 yazınca kaydetsin"):
+        // "🏗 Hangi proje? *1* Fatih (son) · *2* Atatürk · *0* Genel" — öneri "(son)" ile işaretli, numara seçince kayıt.
+        // Kalabalıksa (>6) alt alta.
+        if (! empty($d['project_suggested']) || ! empty($d['project_needed'])) {
+            $suggested = ! empty($d['project_suggested']) ? ($d['project_id'] ?? null) : null;
+            $inline = $projects->count() <= 6;
+            $choices = $projects->map(function ($p, $i) use ($inline, $suggested) {
+                $name = $p->name . ($suggested !== null && (int) $p->id === (int) $suggested ? ' (son)' : '');
 
-        if (! empty($d['project_suggested'])) {
-            $name = $projects->firstWhere('id', $d['project_id'])?->name ?? '—';
-            // Önerilen "başkaysa" listesinde tekrar yazılmaz; numaralar aynı kalır (choose() tam listeyle sayar).
-            $choices = array_values(array_filter($choices, fn ($c, $i) => $projects->get($i)?->id !== ($d['project_id'] ?? null), ARRAY_FILTER_USE_BOTH));
+                return $inline ? '*' . ($i + 1) . '* ' . $name : '   ' . ($i + 1) . ') ' . $name;
+            })->all();
+            if (! (self::isCashSale($d) && $suggested === null)) {
+                $choices[] = $inline ? '*0* Genel' : '   0) Genel / ortak';
+            }
+            $head = "{$icon} Hangi " . mb_strtolower($label) . '?';
 
-            return $menu("{$icon} {$label}: *{$name}* (son) — başkaysa:", $choices);
-        }
-        if (! empty($d['project_needed'])) {
-            return $menu("{$icon} Hangi " . mb_strtolower($label) . '?', $choices);
+            return $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
         }
         if (! empty($d['project_id']) && ($p = Project::find($d['project_id']))) {
             return ["{$icon} {$label}: {$p->name}"];

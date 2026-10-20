@@ -225,7 +225,9 @@ class AssistantEvalTest extends TestCase
             $fails[] = ! $ready ? 'kayıt onaya hazır değil' : 'açık mesajda gereksiz soru sordu';
         }
         // Anlam cümlesi: olayın düz anlatımı (ör. "henüz takılmadı", "teslim etti") — biri yeter.
-        if (isset($expect['meaning_any']) && ! collect($expect['meaning_any'])->contains(fn ($n) => str_contains($low, mb_strtolower($n)))) {
+        // Anlam cümlesi artık kartta gösterilmiyor (kullanıcı 20.10) → taslaktaki `meaning` alanında aranır (cevapta da olabilir).
+        $meaningText = $low . ' ' . mb_strtolower((string) ($draft?->extracted['meaning'] ?? ''));
+        if (isset($expect['meaning_any']) && ! collect($expect['meaning_any'])->contains(fn ($n) => str_contains($meaningText, mb_strtolower($n)))) {
             $fails[] = 'anlam cümlesi yok (beklenen biri: ' . implode(' / ', $expect['meaning_any']) . ')';
         }
         // Konuşma sonunda ürün stoğu: ['Saman' => 400]

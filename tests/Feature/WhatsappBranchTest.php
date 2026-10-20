@@ -101,7 +101,7 @@ class WhatsappBranchTest extends TestCase
         $this->send('evet');
 
         $reply = $this->send('kasa nakit 5000 pos 1000');
-        $this->assertStringContainsString('Şube: *Ergenekon Test* (son)', $reply);
+        $this->assertStringContainsString('Ergenekon Test (son)', $reply);
         $this->send('evet');
         $this->assertSame($this->branches['Ergenekon']->id, Sale::latest('id')->value('project_id'));
     }
@@ -116,7 +116,7 @@ class WhatsappBranchTest extends TestCase
             'confidence' => 'high', 'question' => null, 'is_new_entry' => true]);
 
         $reply = $this->send('Un toptancıdan 25 çuval un 35750');
-        $this->assertStringContainsString('Şube: *İzzetpaşa Test* (son)', $reply);
+        $this->assertStringContainsString('İzzetpaşa Test (son)', $reply);
         $this->assertStringContainsString('*0* Genel', $reply);
         $this->send('0');
         $this->assertNull(PartyLedgerEntry::where('party_id', $party->id)->latest('id')->value('project_id'));

@@ -31,17 +31,13 @@ class NaturalVoiceTest extends TestCase
             'usage' => ['input_tokens' => 10, 'output_tokens' => 10]], 200)]);
     }
 
-    public function test_natural_lead_on_top_of_code_card(): void
+    /** Kullanıcı 20.10: "bu da gereksiz, direkt alıştan başlasın" — soru yokken kart AYNEN gider, AI çağrılmaz. */
+    public function test_card_without_question_is_sent_as_is_without_ai(): void
     {
-        $this->fakeAi(['lead' => "Fatih'e 20 bin maaş avansı verdin, onu personel olarak açıyorum — maaşından düşeriz.", 'ask' => 'Kaydedeyim mi?']);
+        $this->fakeAi(['lead' => "Fatih'e 20 bin maaş avansı verdin.", 'ask' => 'Kaydedeyim mi?']);
 
-        $out = NaturalVoice::render($this->summary, 'Personelim Fatihe 20 bin avans verdim', 20000);
-
-        $this->assertStringStartsWith("Fatih'e 20 bin maaş avansı verdin", $out);
-        // Kart kodun satırları, aynen.
-        $this->assertStringContainsString("💸 *Sen* → Fatih 👷 (yeni personel): 20.000,00 ₺ ödedin\n• Tür: Maaş avansı (maaşından düşülür)", $out);
-        $this->assertStringContainsString('• Bakiye: 0 → alacağın 20.000,00', $out);
-        $this->assertStringEndsWith('Kaydedeyim mi? *evet*', $out);
+        $this->assertSame($this->summary, NaturalVoice::render($this->summary, 'Personelim Fatihe 20 bin avans verdim', 20000));
+        Http::assertNothingSent();
     }
 
     /** Firma 7, 20.10 23:33: soru (❓) yokken AI kendi uzun sorusunu yazıp proje satırını tekrarlıyordu — kodun kısa satırı kalır. */
@@ -90,10 +86,10 @@ class NaturalVoiceTest extends TestCase
 
         $this->assertSame($summary, NaturalVoice::render($summary, '20 ezme 30 besi yemi 10 buzağı yemi geldi'));
 
-        // Kayıttaki adla yazarsa geçer (ek toleransı: "yemi" ~ "Yem").
+        // Kayıttaki adla yazarsa geçer (ek toleransı: "yemi" ~ "Yem"); giriş cümlesi yok, kart en üstte.
         $this->fakeAi(['lead' => 'Ezme ve yemi stoğa ekliyorum.', 'ask' => 'Kimden aldın?']);
         $out = NaturalVoice::render($summary, '20 ezme 30 yemi geldi');
-        $this->assertStringStartsWith('Ezme ve yemi stoğa ekliyorum.', $out);
+        $this->assertStringStartsWith('🛒 *Peşin alış', $out);
         $this->assertStringContainsString('• 10 Adet Yem (stok 33 → 43)', $out);
         $this->assertStringEndsWith('Kimden aldın?', $out);
     }
@@ -105,7 +101,7 @@ class NaturalVoiceTest extends TestCase
         $this->assertSame($summary, NaturalVoice::render($summary, 'Sinan ustaya 5 bin verdim', 5000));
 
         $this->fakeAi(['lead' => "Sinan Sele'ye 5 bin verdin.", 'ask' => 'Kaydedeyim mi?']);
-        $this->assertStringStartsWith("Sinan Sele'ye 5 bin verdin.", NaturalVoice::render($summary, 'Sinan ustaya 5 bin verdim', 5000));
+        $this->assertSame($summary, NaturalVoice::render($summary, 'Sinan ustaya 5 bin verdim', 5000), 'soru yok → kart aynen');
     }
 
     /** Seçenekli alt satır kodun beklediği cevaplardır ("o bana" / "ben ona") — AI'ın sorusuyla yutulmaz. */
@@ -116,7 +112,7 @@ class NaturalVoiceTest extends TestCase
 
         $out = NaturalVoice::render($summary, 'Ali 3000 borç', 3000);
 
-        $this->assertStringStartsWith('Ali ile 3 bin borç var.', $out);
+        $this->assertStringStartsWith('📒 Ali', $out);
         $this->assertStringEndsWith('*o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun) yaz, vazgeçmek için *iptal*.', $out);
         $this->assertStringNotContainsString('Kim kime borçlu?', $out);
     }
@@ -155,14 +151,16 @@ class NaturalVoiceTest extends TestCase
         $this->assertSame("Asansör takıldı mı, yoksa peşin mi ödüyorsun?\nVazgeçmek için *iptal*.", $out);
     }
 
-    public function test_lead_is_cut_to_one_sentence(): void
+    /** Kartta soru varken: kart üstte, AI yalnız soruyu sadeleştirir — giriş cümlesi yazılmaz. */
+    public function test_question_card_has_no_lead(): void
     {
-        $this->fakeAi(['lead' => "Ali'ye ödeme yaptığını anladım. İş de bitmiş görünüyor, avans da düşülecek gibi.", 'ask' => 'Kaydedeyim mi?']);
+        $summary = "💸 *Sen* → Ali: 20.000,00 ₺ ödedin\n❓ Ali'nin işi bitti mi, yoksa önceden mi ödüyorsun?\n\nKaydedeyim mi? *evet*";
+        $this->fakeAi(['lead' => "Ali'ye ödeme yaptığını anladım.", 'ask' => "Ali'nin işi bitti mi, yoksa önceden mi ödüyorsun?"]);
 
-        $out = NaturalVoice::render($this->summary, "Ali'ye 20 bin verdim", 20000);
+        $out = NaturalVoice::render($summary, "Ali'ye 20 bin verdim", 20000);
 
-        $this->assertStringStartsWith("Ali'ye ödeme yaptığını anladım.\n\n", $out);
-        $this->assertStringNotContainsString('İş de bitmiş', $out);
+        $this->assertStringStartsWith('💸 *Sen* → Ali', $out);
+        $this->assertStringNotContainsString('anladım', $out);
     }
 
     public function test_disabled_module_or_no_time_keeps_template(): void

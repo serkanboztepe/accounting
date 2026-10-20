@@ -159,8 +159,8 @@ class WhatsappEmployeeTest extends TestCase
 
         $reply = $this->send("Personelim Fatih e 20\nBin avans verdim");
         $this->assertStringContainsString('yeni personel', $reply);
-        $this->assertStringContainsString('Maaş avansı', $reply);
-        $this->assertStringNotContainsString('iş/mal sonra gelecek', $reply);
+        $this->assertStringContainsString('maaş avansı', $reply);
+        $this->assertStringNotContainsString('iş/mal sonra', $reply);
         $this->send('evet');
 
         $this->assertTrue(Party::where('name', 'Personel Testi Fatih')->firstOrFail()->is_employee);
@@ -173,7 +173,7 @@ class WhatsappEmployeeTest extends TestCase
             'paid' => true, 'payment_purpose' => 'advance', 'description' => 'Avans']));
 
         $reply = $this->send('Ali ustaya 20 bin avans verdim');
-        $this->assertStringContainsString('iş/mal sonra gelecek', $reply);
+        $this->assertStringContainsString('iş/mal sonra', $reply);
         $this->send('evet');
         $this->assertFalse(Party::where('name', 'Usta Testi Ali')->firstOrFail()->is_employee);
     }

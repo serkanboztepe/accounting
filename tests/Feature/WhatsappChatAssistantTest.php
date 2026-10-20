@@ -225,10 +225,10 @@ class WhatsappChatAssistantTest extends TestCase
 
         $card = $this->send('Seramik parktan 200 m2 fayans geldi');
 
-        $this->assertStringContainsString('120.000,00 ₺ · önceki ödemeden düşüldü', $card);
-        $this->assertMatchesRegularExpression('/🏗 Hangi proje\? \*1\* .+ · \*0\* Genel\n/u', $card);
-        $this->assertStringContainsString('Kaydedeyim mi? *evet*', $card);
-        foreach (['Tarih:', 'yeni para', 'Açıklama:', 'düzeltmeyi yazman yeterli', 'avans'] as $no) {
+        $this->assertStringContainsString('120.000,00 ₺ — 200 m² fayans (600 TL/m²) · önceki ödemeden düşüldü', $card);
+        $this->assertMatchesRegularExpression('/🏗 Hangi proje\? \*1\* .+ · \*0\* Genel/u', $card);
+        // Menü sorudur: numara seçince kayıt — ayrıca "Kaydedeyim mi?" yok; anlam cümlesi (🗣) yok.
+        foreach (['Kaydedeyim mi?', '🗣', 'Tarih:', 'yeni para', 'Açıklama:', 'düzeltmeyi yazman yeterli', 'avans'] as $no) {
             $this->assertStringNotContainsString($no, $card, $no);
         }
         $this->assertLessThanOrEqual(6, substr_count(trim($card), "\n") + 1, $card);
@@ -275,7 +275,8 @@ class WhatsappChatAssistantTest extends TestCase
         $line = implode("\n", \App\Services\Whatsapp\ProjectChoice::lines(['kind' => ExpenseExtractor::KIND_PURCHASE,
             'project_suggested' => true, 'project_id' => $a->id]));
 
-        $this->assertStringContainsString('🏗 Proje: *Öneri Testi Fatih* (son) — başkaysa:', $line);
+        $this->assertStringContainsString('🏗 Hangi proje?', $line);
+        $this->assertStringContainsString('Öneri Testi Fatih (son)', $line);
         $this->assertSame(1, substr_count($line, 'Öneri Testi Fatih'));
         $this->assertStringContainsString('Öneri Testi Atatürk', $line);
     }

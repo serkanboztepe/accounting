@@ -181,6 +181,8 @@ class WhatsappDraftFollowUpTest extends TestCase
     /** Yeni Yapı 20.10: hatırlatmada kişi sorusu iki kez + AI'ın parantezli eki — tek kısa soru, avans notu, ne yazacağı. */
     public function test_party_question_reminder_is_asked_once_and_short(): void
     {
+        // Gece yarısından sonra İstanbul/UTC günü ayrışıp "(20 Ekim)" eki çıkıyordu — sabit öğlen.
+        $this->travelTo(now('Europe/Istanbul')->setTime(12, 0)->setTimezone(config('app.timezone')));
         $party = \App\Models\Party::create(['name' => 'Boyacı Ahmet Test']);
         $p = $this->draft(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 20000, 'description' => 'Boyacı işi',
             'party_id' => $party->id, 'party_certain' => false, 'work_status' => 'done', 'work_status_known' => true, 'advance_used' => 20000,

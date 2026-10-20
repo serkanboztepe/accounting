@@ -138,7 +138,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringNotContainsString('1)', $question);
 
         $summary = $this->send('geri alacağım');
-        $this->assertStringContainsString('Tür: Borç verdin (geri alacaksın)', $summary);
+        $this->assertStringContainsString('· borç verdin (geri alacaksın)', $summary);
 
         $this->send('evet');
         $party = Party::where('name', 'Arda Test Ahmet')->sole();
@@ -158,7 +158,7 @@ class WhatsappConversationFixesTest extends TestCase
         ]));
 
         $summary = $this->send("Arda Test Mehmet A'ya 20 bin avans verdim");
-        $this->assertStringContainsString('Önceden ödeme (iş/mal sonra gelecek)', $summary);
+        $this->assertStringContainsString('· önceden ödeme (iş/mal sonra)', $summary);
         $this->assertStringNotContainsString('Ne için verdin?', $summary);
 
         $this->send('evet');
@@ -416,7 +416,7 @@ class WhatsappConversationFixesTest extends TestCase
         );
 
         $summary = $this->send("Alış Test Serkan'dan 4 yem aldım 4400 tl, 15 Kasım'da ödeyeceğim");
-        $this->assertStringContainsString('Alış* ← Alış Test Serkan (yeni cari): 4.400,00 ₺ (ona borçlandın)', $summary);
+        $this->assertStringContainsString('Alış* ← Alış Test Serkan (yeni cari): 4.400,00 ₺ — Yem (ona borçlandın)', $summary);
         $this->send('evet');
         $serkan = Party::where('name', 'Alış Test Serkan')->sole();
         $row = PartyLedgerEntry::where('party_id', $serkan->id)->sole();

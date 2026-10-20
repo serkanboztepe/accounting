@@ -44,7 +44,9 @@ final class NaturalVoice
     /** @param  string  $summary  kodun hazırladığı özet + alt satır (kalıp) */
     public static function render(string $summary, string $userMessage, ?float $mainAmount = null): string
     {
-        if (! self::enabled() || trim($summary) === '') {
+        // Giriş cümlesi yok (kullanıcı 20.10: "bu da gereksiz, direkt alıştan başlasın"): AI yalnız karttaki soruyu (❓)
+        // sadeleştirir; soru yoksa hiç çağrılmaz — kart kodun kısa hâliyle gider (AI çağrısı ve bekleme de kalkar).
+        if (! self::enabled() || trim($summary) === '' || self::parts($summary)['questions'] === []) {
             return $summary;
         }
         $timeout = 6;
@@ -180,21 +182,11 @@ final class NaturalVoice
         ]));
 
         // Kısa tut (Serkan 19.10: "Ahmet işimi yaptı diyorum, uzatıyor uzatıyor"): yalnız soru varsa giriş yok; giriş en çok tek cümle.
-        $lead = $p['card'] === [] ? '' : self::firstSentence((string) $o['lead']);
+        $lead = '';
 
         return ltrim($lead . ($p['card'] ? "\n\n" . implode("\n", $p['card']) : '') . ($closing ? "\n\n" . implode("\n", $closing) : ''));
     }
 
-    /** "Anladım, X'e 50.000 ₺ ödedin. İş bitmiş görünüyor." → ilk cümle. */
-    private static function firstSentence(string $text): string
-    {
-        $text = trim($text);
-        if (preg_match('/^(.+?[.!…])(\s|$)/us', $text, $m)) {
-            return trim($m[1]);
-        }
-
-        return $text;
-    }
 
     /** Güvenlik kontrolü: null = güvenli; değilse reddetme sebebi. */
     public static function unsafe(string $summary, string $userMessage, string $text, array $o, ?float $mainAmount = null): ?string

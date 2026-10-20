@@ -302,7 +302,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $before = Expense::count();
 
         $this->sendPhoto();
-        $this->assertStringContainsString('🛒 *Alış* ← Fiş Market (yeni cari): 850,00 ₺ (ona borçlandın)', $this->send('ödemedim'));
+        $this->assertStringContainsString('🛒 *Alış* ← Fiş Market (yeni cari): 850,00 ₺ — Temizlik (ona borçlandın)', $this->send('ödemedim'));
         $this->send('evet');
         $this->assertSame($before, Expense::count());
         $this->assertSame(-850.0, $this->balance('Fiş Market'));

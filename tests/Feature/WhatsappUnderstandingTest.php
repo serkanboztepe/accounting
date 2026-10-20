@@ -177,7 +177,9 @@ class WhatsappUnderstandingTest extends TestCase
             'meaning' => "Osman'a asansör parasını ödedin, asansör henüz takılmadı."]));
 
         $reply = $this->send('daha takılmadı');
-        $this->assertStringContainsString('🗣 Osman\'a asansör parasını ödedin, asansör henüz takılmadı.', $reply);
+        // Anlam cümlesi kartta gösterilmez (kullanıcı 20.10); kart yön + önceden ödeme olduğunu söyler, anlam taslakta kalır.
+        $this->assertStringContainsString('· önceden ödeme (iş/mal sonra)', $reply);
+        $this->assertStringNotContainsString('🗣', $reply);
         $this->send('evet');
 
         $this->assertEqualsWithDelta(1005000, PartyStatement::build($osman)['balance'], 0.01, 'avans: o bize iş borçlu');

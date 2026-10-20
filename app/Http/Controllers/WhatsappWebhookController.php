@@ -1364,19 +1364,18 @@ class WhatsappWebhookController extends Controller
             return is_string($done) ? $label . "\n" . $done . "\n\nYanlışsa *son kaydı sil* yaz." : $done;
         }
 
+        // Anlam cümlesi kartta GÖSTERİLMEZ (kullanıcı 20.10: "bu da gereksiz, direkt alıştan başlasın") — kart yönü ve tutarı
+        // zaten açıkça yazıyor; anlam yine süzgeçte ve AI'ın anlamasında kullanılır.
         $summary = $this->buildSummary($data);
-        // Anlam cümlesi (16.10): kesin anlaşılsa bile olay düz cümleyle en üstte — kullanıcı yanlışı burada yakalar.
-        if (! empty($data['meaning'])) {
-            $summary = '🗣 ' . $data['meaning'] . "\n" . $summary;
-        }
         if ($warnings = Understanding::checkWarnings($data)) {
             $summary .= "\n" . implode("\n", $warnings);
         }
         if ($projectLines = ProjectChoice::lines($data)) {
             $summary .= "\n" . implode("\n", $projectLines);
         }
-        // Büyük tutar yazıyla: "96 tosun 17.017000 tl" tek "tamam"la 17 milyon girdi — rakam gözden kaçmasın.
-        if ((float) ($data['amount'] ?? 0) >= self::WORDS_FROM) {
+        // Büyük tutar yazıyla: "96 tosun 17.017000 tl" tek "tamam"la 17 milyon girdi — rakam gözden kaçmasın (yalnız kartta;
+        // kart yerine soru gidiyorsa gereksiz).
+        if ((float) ($data['amount'] ?? 0) >= self::WORDS_FROM && ! str_starts_with($summary, '❓')) {
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
         }
         // AI şüphelendiyse ("Bu borç ona mı, ondan mı?") alanlar dolu olsa bile soruyu göster — tahmin sessizce geçmesin.
@@ -1391,11 +1390,15 @@ class WhatsappWebhookController extends Controller
         $footer = match (true) {
             $this->needsContractChoice($data) => "\n\nSözleşme numarasını yaz, vazgeçmek için *iptal*.",
             $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
+            // Kişi eksik ama AI başka bir şey soruyor ("Asansör takıldı mı?") → "Cari adını yaz" yanlış talimat (firma 7, 20.10).
+            $this->missingParty($data) && ! empty($data['question']) => "\n\nVazgeçmek için *iptal*.",
             $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
             DraftGaps::needsSaleOrPurchase($data) => "\n\n*sattım* ya da *aldım* yaz, vazgeçmek için *iptal*.",
             DraftGaps::needsPaidAnswer($data) => "\n\nVazgeçmek için *iptal*.",
             $this->needsDebtSide($data) => "\n\n*o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun) yaz, vazgeçmek için *iptal*.",
             ! empty($data['settles_expense_id']) => "\n\n✅ Onaylamak için *evet*. Ayrı (yeni) bir gider ise *yeni* yaz, vazgeçmek için *iptal*.",
+            // Proje menüsü sorudur: numara seçince kaydeder — ayrıca "Kaydedeyim mi?" fazlalık (kullanıcı 20.10).
+            ChatAssistant::enabled() && ProjectChoice::menuShown($data) => '',
             ChatAssistant::enabled() => "\n\nKaydedeyim mi? *evet*",
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
         };
@@ -2202,7 +2205,7 @@ class WhatsappWebhookController extends Controller
                 . ($question !== null ? "\n❓ " . $question : '');
         $footer = $question !== null
             ? "\n\nCevabını yaz, vazgeçmek için *iptal*."
-            : "\n\nKaydedeyim mi? *evet*";
+            : (ProjectChoice::menuShown($data) ? '' : "\n\nKaydedeyim mi? *evet*");
 
         if ($pending) {
             $pending->update(['extracted' => $data, 'summary' => $summary]);
@@ -2237,7 +2240,7 @@ class WhatsappWebhookController extends Controller
         $footer = $question !== null
             ? "\n\nCevabını yaz, vazgeçmek için *iptal*."
             : (ChatAssistant::enabled()
-                ? "\n\nKaydedeyim mi? *evet*"
+                ? (ProjectChoice::menuShown($data) ? '' : "\n\nKaydedeyim mi? *evet*")
                 : "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.");
 
         if ($pending) {
@@ -2537,9 +2540,20 @@ class WhatsappWebhookController extends Controller
         };
 
         $lines = [];
+        // Açıklama başlık satırında ("— 200 m² fayans"); yalnız kişi adı / "iş" / "ödeme" gibi boş sözse yazılmaz.
+        $desc = trim((string) ($d['description'] ?? ''));
+        $inline = $desc !== '' && in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_SALE,
+            ExpenseExtractor::KIND_COLLECTION], true) && ($kind !== ExpenseExtractor::KIND_SALE || empty($d['items']));
+        $headDesc = $inline && ! self::saidInMeaning($desc, $name . ' iş işi işçilik ödeme ödemesi alış alışı satış tahsilat avans avansı verilen')
+            ? ' — ' . $desc : '';
         if ($kind === ExpenseExtractor::KIND_PAYMENT) {
+            $type = ! empty($d['advance']) ? match (true) {
+                ($d['payment_purpose'] ?? null) === 'loan' => ' · borç verdin (geri alacaksın)',
+                $staff => ' · maaş avansı (maaşından düşülür)',
+                default => ' · önceden ödeme (iş/mal sonra)',
+            } : '';
             $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ '
-                . (! empty($d['debt_repayment']) ? '*borcunu ödedin*' : 'ödedin');
+                . (! empty($d['debt_repayment']) ? '*borcunu ödedin*' : 'ödedin') . $headDesc . $type;
             if (($missing = DraftGaps::unrecordedDebt($d)) > 0) {
                 $lines[] = 'ℹ️ Bu borç kayıtlı değildi' . ($missing < $amount ? ' (' . Money::format($amount - $missing) . ' ₺ kayıtlıydı)' : '')
                     . ' — ekstreye eski borç ' . Money::format($missing) . ' ₺ + ödeme olarak yazarım.';
@@ -2571,24 +2585,12 @@ class WhatsappWebhookController extends Controller
 
                 return implode("\n", $lines);
             }
-            if (! empty($d['advance'])) {
-                // Niyet AI'dan okundu — kayıttan önce yorumu göster, yanlışsa kullanıcı düzeltsin. Düz önceden ödemede anlam
-                // cümlesi ("iş henüz başlamadı") zaten söylüyor → satır tekrar etmez (kullanıcı 20.10: "cevaplar çok uzun").
-                $type = match (true) {
-                    ($d['payment_purpose'] ?? null) === 'loan' => '• Tür: Borç verdin (geri alacaksın)',
-                    $staff => '• Tür: Maaş avansı (maaşından düşülür)',
-                    empty($d['meaning']) => '• Önceden ödeme (iş/mal sonra gelecek)',
-                    default => null,
-                };
-                if ($type !== null) {
-                    $lines[] = $type;
-                }
-            }
+            // Niyet (önceden ödeme / borç / maaş avansı) başlık satırının sonunda — yanlışsa kullanıcı düzeltsin.
         } elseif ($kind === ExpenseExtractor::KIND_SALE) {
             // Günlük dil + tek satır (kullanıcı 20.10: "avans demesine gerek yok"; "yeni para yaz" satırı gereksiz —
             // ayrıca para aldıysa kendisi yazar, AdvanceOffset::DECLINE anlar).
             $rest = $amount - $used;
-            $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺'
+            $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺' . $headDesc
                 . match (true) {
                     $used >= $amount - 0.009 => ' · önceden aldığın paradan düşüldü',
                     $used > 0 => ' · ' . Money::format($used) . ' ₺ önceden aldığın paradan, kalan ' . Money::format($rest) . ' ₺ '
@@ -2607,7 +2609,7 @@ class WhatsappWebhookController extends Controller
                 . (! empty($d['party_check']) ? "\n❓ \"" . $d['party_said'] . '" yazdın, *' . $name . '* ile eşleştirdim. *Aynı kişi mi?* Değilse *yeni* yaz.' : '');
         } elseif ($kind === ExpenseExtractor::KIND_PURCHASE) {
             $rest = $amount - $used;
-            $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
+            $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺' . $headDesc
                 . match (true) {
                     $used >= $amount - 0.009 => ' · önceki ödemeden düşüldü',
                     $used > 0 => ' · ' . Money::format($used) . ' ₺ önceki ödemeden, kalan ' . Money::format($rest) . ' ₺ '
@@ -2633,14 +2635,14 @@ class WhatsappWebhookController extends Controller
                 : '📒 *Alacak kaydı*: ' . $label . ' → sana ' . Money::format($amount) . ' ₺ borçlu';
         } elseif ($kind === ExpenseExtractor::KIND_COLLECTION && ($d['payment_purpose'] ?? null) === 'advance') {
             // Müşteri avansı: para geldi, mal/iş borcu bizde — ekstrede müşteri alacaklı görünür.
-            $lines[] = '💰 *Peşin para* ← ' . $label . ': ' . Money::format($amount) . ' ₺ aldın, mal/iş sonra verilecek';
+            $lines[] = '💰 *Peşin para* ← ' . $label . ': ' . Money::format($amount) . ' ₺ aldın' . $headDesc . ' · mal/iş sonra verilecek';
         } else {
-            $lines[] = '💰 ' . $label . ' → *sana*: ' . Money::format($amount) . ' ₺ ödedi';
+            $lines[] = '💰 ' . $label . ' → *sana*: ' . Money::format($amount) . ' ₺ ödedi' . $headDesc;
         }
 
         if (! empty($d['description']) && ($kind !== ExpenseExtractor::KIND_SALE || empty($d['items']))
             && ! ($kind === ExpenseExtractor::KIND_DEBT_NOTE && $this->isTrivialDebtText($d['description']))
-            && ! self::saidInMeaning((string) $d['description'], (string) ($d['meaning'] ?? ''))) {
+            && ! $inline) {
             $lines[] = '• Açıklama: ' . $d['description'];
         }
         if (($date = self::dateLine($d)) !== '') {
@@ -2688,7 +2690,7 @@ class WhatsappWebhookController extends Controller
         return $prefix . '• Tarih: ' . $c->translatedFormat($c->year === now('Europe/Istanbul')->year ? 'j F' : 'j F Y');
     }
 
-    /** Açıklama anlam cümlesinde zaten söylendiyse (anlamlı kelimelerinin hepsi geçiyorsa) tekrar yazılmaz. */
+    /** Açıklamanın anlamlı kelimelerinin hepsi verilen metinde geçiyorsa (yeni bilgi yok) true — tekrar yazılmaz. */
     private static function saidInMeaning(string $description, string $meaning): bool
     {
         if (trim($meaning) === '') {
