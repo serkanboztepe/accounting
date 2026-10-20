@@ -274,7 +274,7 @@ final class Understanding
             }
         }
         try {
-            $model = (string) (config('services.anthropic.model') ?: 'claude-sonnet-5');
+            $model = (string) (config('services.anthropic.check_model') ?: config('services.anthropic.model') ?: 'claude-sonnet-5');
             $response = \Illuminate\Support\Facades\Http::withHeaders([
                 'x-api-key' => $apiKey, 'anthropic-version' => '2023-06-01', 'content-type' => 'application/json',
             ])->connectTimeout(min(3, $timeout))->timeout($timeout)->post('https://api.anthropic.com/v1/messages', [
@@ -447,7 +447,7 @@ final class Understanding
             }
         }
         try {
-            $model = (string) (config('services.anthropic.model') ?: 'claude-sonnet-5');
+            $model = (string) (config('services.anthropic.check_model') ?: config('services.anthropic.model') ?: 'claude-sonnet-5');
             $response = \Illuminate\Support\Facades\Http::withHeaders([
                 'x-api-key' => $apiKey, 'anthropic-version' => '2023-06-01', 'content-type' => 'application/json',
             ])->connectTimeout(min(3, $timeout))->timeout($timeout)->post('https://api.anthropic.com/v1/messages', [

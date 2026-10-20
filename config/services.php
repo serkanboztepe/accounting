@@ -47,6 +47,9 @@ return [
         // Sohbet asistanı (deneme): son konuşmayı görür, araç kullanır. Varsayılan KAPALI.
         'chat_assistant' => env('WHATSAPP_CHAT_ASSISTANT', false),
         'chat_model' => env('ANTHROPIC_CHAT_MODEL'),
+        // Süzgeç / ikinci göz (kayıt kullanıcının anlattığıyla çelişiyor mu?): günlük sohbet ucuz modelde olsa da kontrol güçlü
+        // modelde (19.10 Haiku geçişi: Haiku süzgeci gereksiz alarm verip "A mı B mi?" sorusunda kilitledi).
+        'check_model' => env('ANTHROPIC_CHECK_MODEL', 'claude-sonnet-5'),
     ],
 
     'twilio' => [

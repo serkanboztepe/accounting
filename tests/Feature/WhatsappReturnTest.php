@@ -39,6 +39,8 @@ class WhatsappReturnTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Sabit saat (öğlen): gece yarısından sonra İstanbul günü ile UTC günü ayrışıp "bugünkü iade" aralık dışında kalıyordu.
+        $this->travelTo(now('Europe/Istanbul')->setTime(12, 0)->setTimezone(config('app.timezone')));
         config([
             'modules' => ModuleProfiles::resolve('trade', ['smart_assistant' => true]), 'app.profile' => 'trade',
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 777 00 19'],

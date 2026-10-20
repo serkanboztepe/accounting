@@ -732,8 +732,12 @@ class WhatsappWebhookController extends Controller
             return $this->saveDraft($pending, $phone, ['party_confirmed' => true, 'question' => null] + $pending->extracted);
         }
         // Önce anla: cevaplanmamış soru varken "evet" kaydetmez — soru tekrar (tahmin yok). Tutar ve çapraz kontrol sorusu da.
-        if (($ask = ($pending->extracted['scale_question'] ?? null) ?? Understanding::gap($pending->extracted)
-            ?? ($pending->extracted['cross_question'] ?? null)) !== null) {
+        // Süzgeç sorusuna "evet" (çoğu zaman "A mı B mi?" sorusuna verilen doğal cevap): aynı soru TEKRARLANMAZ — kayıt kartı gösterilir,
+        // kullanıcı gördüğünü onaylar ya da düzeltir (19.10 Yeni Yapı: aynı soru üç tur döndü).
+        if (! empty($pending->extracted['cross_question']) && ($pending->extracted['scale_question'] ?? null) === null) {
+            return $this->saveDraft($pending, $phone, ['cross_question' => null, 'question' => null] + $pending->extracted);
+        }
+        if (($ask = ($pending->extracted['scale_question'] ?? null) ?? Understanding::gap($pending->extracted)) !== null) {
             return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
         }
         // K8: hatırlatılmış ve AI'ın şüphe sorusu cevaplanmamış taslak tek "evet"le kaydolmaz — önce soru.
@@ -1198,7 +1202,8 @@ class WhatsappWebhookController extends Controller
         $crossDone = array_values(array_filter((array) ($pending?->extracted['cross_asked'] ?? []), 'is_string'));
         $data['cross_asked'] = $crossDone;
         $ask = $data['scale_question'] ?? Understanding::gap($data);
-        if ($ask === null && ! in_array($crossSig, $crossDone, true) && count($crossDone) < 2
+        // Taslak başına EN ÇOK BİR kez (19.10 Yeni Yapı: cevap sonrası kayıt biraz değişince yeniden süzülüp aynı soru tekrar soruldu).
+        if ($ask === null && $crossDone === []
             && ($cross = Understanding::crossCheck($data, $this->inboundBody, $phone)) !== null) {
             $ask = $cross;
             $data['cross_asked'] = [...$crossDone, $crossSig];

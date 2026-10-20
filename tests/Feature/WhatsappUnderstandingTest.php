@@ -114,8 +114,29 @@ class WhatsappUnderstandingTest extends TestCase
         $reply = $this->send('Hazal doğan verilen hatır çekinden borcum ödendi 100.000');
         $this->assertStringContainsString('borcunuz kapandı mı', $reply);
         $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
-        $this->assertStringContainsString('borcunuz kapandı mı', $this->send('evet'), '"evet" çelişkili kaydı geçiremez');
-        $this->assertSame($before, PartyLedgerEntry::count());
+        // "evet" kaydı geçiremez; ama aynı soru da tekrarlanmaz (19.10 Yeni Yapı: üç tur döndü) — kart gösterilir, kullanıcı gördüğünü onaylar.
+        $card = $this->send('evet');
+        $this->assertStringNotContainsString('borcunuz kapandı mı', $card, 'süzgeç sorusu tekrar sorulmaz');
+        $this->assertStringContainsString('100.000', $card, 'kayıt kartı gösterilir');
+        $this->assertSame($before, PartyLedgerEntry::count(), 'ilk "evet" kaydetmez');
+    }
+
+    public function test_cross_check_asks_only_once_per_draft(): void
+    {
+        // 19.10 Yeni Yapı: cevap sonrası kayıt biraz değişince yeniden süzülüp aynı tür soru tekrar geldi.
+        $hazal = Party::create(['name' => 'Anlama Testi Hazal İki']);
+        $first = $this->d(['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'payable', 'amount' => 100000, 'party_id' => $hazal->id,
+            'work_status' => 'no_work', 'work_status_known' => true, 'meaning' => 'Hazal\'a borcunu ödedin.']);
+        $this->ai($first, ['amount' => 90000, 'is_new_entry' => false] + $first);
+        config(['services.anthropic.api_key' => 'sk-test']);
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use',
+            'name' => 'check', 'input' => ['same' => false, 'question' => 'Hazal\'a borcunuz kapandı mı, yoksa yeni mi borçlandınız?']]], 'usage' => []])]);
+
+        $this->assertStringContainsString('borcunuz kapandı mı', $this->send('Hazal borcum ödendi 100.000'));
+        $again = $this->send('aslında 90 bin borçlandım');
+        $this->assertStringNotContainsString('borcunuz kapandı mı', $again, 'süzgeç taslak başına bir kez');
+        $this->assertStringContainsString('90.000', $again);
     }
 
     public function test_cross_check_agreeing_record_passes(): void
