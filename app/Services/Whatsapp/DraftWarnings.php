@@ -22,12 +22,14 @@ final class DraftWarnings
 
     private const EXPENSE_DUP_DAYS = 7;
 
-    /** Olağandışı: en az bu kadar geçmiş kayıt varsa ve tutar ortancanın bu katı / bu kesri ise. */
+    /**
+     * Olağandışı: en az bu kadar geçmiş kayıt varsa ve tutar ortancanın bu katı ve üstündeyse — yalnız FAZLADAN SIFIR.
+     * Düşük tutar uyarısı yok, eşik 4 kat → 8 kat (kullanıcı 20.10: "genelde ~200.000, bu 50.000 — doğru mu? bu da gereksiz";
+     * 200 binlik işe 50 bin ödemek olağan). Akkuş 25.113 (~15 kat) yine yakalanır.
+     */
     private const MIN_HISTORY = 3;
 
-    private const HIGH = 4.0;
-
-    private const LOW = 0.25;
+    private const HIGH = 8.0;
 
     /** @return list<string> */
     public static function for(array $d): array
@@ -116,12 +118,12 @@ final class DraftWarnings
             return null;
         }
         $median = self::median($history);
-        if ($median <= 0 || ($amount < $median * self::HIGH && $amount > $median * self::LOW)) {
+        if ($median <= 0 || $amount < $median * self::HIGH) {
             return null;
         }
 
         return '⚠️ ' . ucfirst($what) . ' genelde ~' . Money::format(round($median)) . ' ₺, bu ' . Money::format($amount)
-            . ' ₺ — doğru mu? (fazla/eksik sıfır olmasın)';
+            . ' ₺ — fazladan sıfır olmasın, doğru mu?';
     }
 
     private static function median(Collection $values): float

@@ -688,7 +688,7 @@ class ChatAssistant
             ],
             [
                 'name' => 'undo_last',
-                'description' => 'Kullanıcı KAYDEDİLMİŞ son işlemi silmek / geri almak ya da DÜZELTMEK istiyor ("son kaydı sil", "yanlış girdim", "bunu satış yap", "8000 değil 10000"). Düzeltmede `replacement` ile kaydın DOĞRU TAM hâlini ver; sistem eskisini ve yenisini gösterip tek onayla değiştirir.',
+                'description' => 'Kullanıcı KAYDEDİLMİŞ son işlemi silmek / geri almak ya da DÜZELTMEK istiyor ("geri al", "son kaydı sil", "yanlış girdim", "bunu satış yap", "8000 değil 10000"). Tek başına "geri al" = son kaydı geri al (iade DEĞİL). Düzeltmede `replacement` ile kaydın DOĞRU TAM hâlini ver; sistem eskisini ve yenisini gösterip tek onayla değiştirir.',
                 'input_schema' => [
                     'type' => 'object',
                     'properties' => [

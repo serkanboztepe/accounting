@@ -50,6 +50,13 @@ return [
             'parties' => ['Abdullah Uçar' => [], 'Sinan' => [], 'Ali Usta' => [], 'Kuşak Beton' => [], 'Serkan' => []],
             'categories' => ['Yakıt', 'Kira'],
         ],
+        // Firma 7 (Serkan'ın deneme firması, canlı ayarlarıyla): sade müteahhit + iki şantiye + doğal konuşma + hızlı kayıt.
+        'firma7' => [
+            'profile' => 'muteahhit', 'modules' => ['projects' => true, 'natural_voice' => true, 'fast_save' => true], 'sector' => 'construction',
+            'projects' => ['Deneme Fatih', 'Deneme Atatürk'],
+            'parties' => ['Kuşak Beton' => [], 'Ali Usta' => [], 'Kamuran Narçin' => []],
+            'categories' => ['Yakıt'],
+        ],
         'stok' => [
             'profile' => 'trade', 'modules' => [],
             'parties' => ['Ak Un' => [], 'Mehmet Kaya' => []],
@@ -171,6 +178,22 @@ return [
                 ['send' => 'Cumhuriyetin maliyeti', 'expect' => ['reply_has' => ['5.000', 'şu ana kadar'], 'reply_not' => ['Ekim', 'gidere dahil değil']]],
                 ['send' => 'toplam maliyetim ne']],
             'expect' => ['reply_has' => ['Toplam maliyet', 'Cumhuriyet'], 'reply_not' => ['gidere dahil değil'], 'saved' => ['expenses' => 1]]],
+
+        // Firma 7, 21.10 (kullanıcı: "yazmak zor 1/2 olsun", "soru yoksa kaydetsin, yanlışsa düzelt desin — pratik tak tak").
+        ['id' => 'f7-odeme-numarali-secim', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => 'Kuşak betona 100 bin verdim', 'expect' => ['reply_has' => ['*1*', '*2*'], 'saved' => ['ledger' => 0]]],
+                ['send' => '2']],
+            'expect' => ['saved' => ['ledger' => 1], 'balance' => ['Kuşak Beton' => 100000]]],
+        ['id' => 'f7-hizli-kayit-gider', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => 'fatih şantiyesine 3 bin mazot aldım']],
+            'expect' => ['reply_has' => ['Kaydedildi', 'geri al'], 'reply_not' => ['Kaydedeyim mi'], 'saved' => ['expenses' => 1]]],
+        ['id' => 'f7-alis-proje-numara-kayit', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => 'Kuşak betondan 30 m3 beton geldi 72 bin', 'expect' => ['reply_has' => ['Hangi proje'], 'reply_not' => ['Kaydedeyim mi']]],
+                ['send' => '2']],
+            'expect' => ['saved' => ['ledger' => 1], 'balance' => ['Kuşak Beton' => -72000]]],
+        ['id' => 'f7-hizli-kayit-geri-al', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => 'atatürk şantiyesine 5 bin yemek gideri', 'expect' => ['reply_has' => ['Kaydedildi']]], ['send' => 'geri al'], ['send' => 'evet']],
+            'expect' => ['saved' => ['expenses' => 0]]],
 
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',

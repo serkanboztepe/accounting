@@ -765,7 +765,7 @@ class ExpenseExtractor
             'recurring_frequency' => ['type' => ['string', 'null'], 'enum' => ['daily', 'weekly', 'monthly', null], 'description' => 'Only for recurring_expense'],
             'recurring_day' => ['type' => ['integer', 'null'], 'description' => 'Only for recurring_expense: weekly 1=Mon..7=Sun; monthly day of month'],
             'recurring_start' => ['type' => ['string', 'null'], 'description' => 'Only for recurring_expense: YYYY-MM-DD only if the user said when it starts'],
-            'is_service' => ['type' => ['boolean', 'null'], 'description' => 'Only for purchase/expense: true if what was paid for is a SERVICE or labour, not goods (nakliye, işçilik, tamir, usta, kira, danışmanlık, temizlik); false if goods; null if unclear'],
+            'is_service' => ['type' => ['boolean', 'null'], 'description' => 'For purchase/expense/payment: true if what was (or will be) paid for is a SERVICE or labour (nakliye, işçilik, tamir, usta, taşeron, boyacı, sıvacı, elektrikçi, kira, danışmanlık, temizlik); false if goods (beton, demir, tuğla, malzeme); null if unclear'],
         ];
     }
 
@@ -1181,7 +1181,7 @@ class ExpenseExtractor
             'items' => $kind === self::KIND_SALE || $tradeItems ? $items : [],
             'product_id' => $stockKind && ! empty($input['product_id']) ? (int) $input['product_id'] : null,
             'counted_quantity' => $kind === self::KIND_STOCK_COUNT && isset($input['counted_quantity']) ? (float) $input['counted_quantity'] : null,
-            'is_service' => in_array($kind, [self::KIND_PURCHASE, self::KIND_EXPENSE], true) && is_bool($input['is_service'] ?? null) ? $input['is_service'] : null,
+            'is_service' => in_array($kind, [self::KIND_PURCHASE, self::KIND_EXPENSE, self::KIND_PAYMENT], true) && is_bool($input['is_service'] ?? null) ? $input['is_service'] : null,
             'recurring_frequency' => $kind === self::KIND_RECURRING_EXPENSE && in_array($input['recurring_frequency'] ?? null, ['daily', 'weekly', 'monthly'], true) ? $input['recurring_frequency'] : null,
             'recurring_day' => $kind === self::KIND_RECURRING_EXPENSE && (int) ($input['recurring_day'] ?? 0) >= 1 && (int) $input['recurring_day'] <= 31 ? (int) $input['recurring_day'] : null,
             'recurring_start' => $kind === self::KIND_RECURRING_EXPENSE ? self::validDate($input['recurring_start'] ?? null) : null,

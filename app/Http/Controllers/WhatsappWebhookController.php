@@ -28,6 +28,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\IssuedChecks;
 use App\Services\Whatsapp\Understanding;
+use App\Services\Whatsapp\WorkChoice;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
 use App\Services\Whatsapp\DeferTurn;
@@ -603,6 +604,19 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
+            // Numaralı iş durumu sorusu ("*1* Mal geldi · *2* Bağlantı / peşin · *3* Eski borcu ödedim") → seçim kayda çevrilir. Eski
+            // "*1* iş/mal aldım, *2* avans" menüsünden ÖNCE (yoksa "2" orada yakalanıp kayıt yarım kalıyordu).
+            if (ctype_digit($body) && WorkChoice::shown($pending->extracted)) {
+                $data = WorkChoice::choose($pending->extracted, (int) $body);
+                if ($data !== null) {
+                    $this->inboundKind = 'quick';
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+
+                return $this->twiml('Listede o numara yok. ' . WorkChoice::question($pending->extracted));
+            }
+
             // Ödeme ama carinin açık borcu yok → "Ne için verdin?" sorusu bekleniyor. Serbest cevap
             // aşağıda AI düzeltmesiyle okunur (iş yaptırdım / avans / borç verdim). 1-2 eski menü
             // cevapları hâlâ geçerli.
@@ -744,7 +758,9 @@ class WhatsappWebhookController extends Controller
         if (! empty($pending->extracted['cross_question']) && ($pending->extracted['scale_question'] ?? null) === null) {
             return $this->saveDraft($pending, $phone, ['cross_question' => null, 'question' => null] + $pending->extracted);
         }
-        if (($ask = ($pending->extracted['scale_question'] ?? null) ?? Understanding::gap($pending->extracted)) !== null) {
+        if (($ask = ($pending->extracted['scale_question'] ?? null)
+            ?? (WorkChoice::shown($pending->extracted) ? ($pending->extracted['question'] ?? null) : null)
+            ?? Understanding::gap($pending->extracted)) !== null) {
             return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
         }
         // K8: hatırlatılmış ve AI'ın şüphe sorusu cevaplanmamış taslak tek "evet"le kaydolmaz — önce soru.
@@ -1063,6 +1079,44 @@ class WhatsappWebhookController extends Controller
      * Akkuş 15.10 22:13: kasa onay beklerken "toplam ciro?" soruldu, cevap bekleyen 51.517'yi anmadı (dahil sandı).
      * Soru cevabının sonuna "⏳ … onay bekliyor — kaydedeyim mi?" eklenir; taslak açık kalır, *evet* ona gider.
      */
+    /** Hızlı kayıt sırasında commitThenNext → saveDraft → fastSave döngüsü olmasın. */
+    private bool $fastSaving = false;
+
+    private const CONFIRM_FOOTER = 'Kaydedeyim mi? *evet*';
+
+    /**
+     * Hızlı kayıt (modül fast_save, kullanıcı 20.10: "başka soru yoksa özeti gösterip kaydetsin, yanlışlık varsa düzelt desin —
+     * pratik tak tak"): kart onaya hazırsa ve kartta soru (❓), uyarı (⚠️), kişi teyidi, proje menüsü YOKSA beklemeden kaydeder.
+     * Tutar sınırı yok (kullanıcı kararı); büyük tutarda "Yazıyla" satırı kartta kalır. Geri alma / düzeltme son kayıt üzerinde.
+     */
+    private function fastSave(string|array $out, string $phone): string|array
+    {
+        if (! is_string($out) || $this->fastSaving || ! config('modules.fast_save') || ! ChatAssistant::enabled()
+            || in_array($this->inboundKind, self::ANSWER_KINDS, true) || ! str_ends_with(rtrim($out), self::CONFIRM_FOOTER)
+            || str_contains($out, '❓') || str_contains($out, '⚠️')) {
+            return $out;
+        }
+        $draft = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first();
+        if (! $draft || trim((string) $draft->summary) === '' || ! str_contains($out, trim((string) $draft->summary))
+            || DraftGaps::reason($draft->extracted)['code'] !== DraftGaps::CONFIRM || ! empty($draft->extracted['party_check'])
+            || ProjectChoice::menuShown($draft->extracted)) {
+            return $out;
+        }
+        $this->fastSaving = true;
+        try {
+            $done = $this->commitThenNext($draft, $phone);
+        } finally {
+            $this->fastSaving = false;
+        }
+        if (! is_string($done) || $draft->fresh()?->status !== 'confirmed') {
+            return $done;
+        }
+        $card = rtrim(mb_substr(rtrim($out), 0, mb_strlen(rtrim($out)) - mb_strlen(self::CONFIRM_FOOTER)));
+        $rest = trim((string) preg_replace('/^✅[^\n]*\n?/u', '', $done)); // "✅ Kaydedildi. X: bakiye" kartta zaten var
+
+        return "✅ *Kaydedildi*\n" . $card . ($rest !== '' ? "\n\n" . $rest : '') . "\n\nYanlışsa düzeltmeyi yaz ya da *geri al*.";
+    }
+
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $out = $this->saveDraftInner($pending, $phone, $data, $mediaUrl);
@@ -1073,6 +1127,7 @@ class WhatsappWebhookController extends Controller
             && ($warnings = DraftWarnings::for($draftNow->extracted))) {
             $out = self::insertBeforeFooter($out, implode("\n", $warnings));
         }
+        $out = $this->fastSave($out, $phone);
         // Doğal konuşma (modül): taslak özetini AI insan gibi yazar; rakam güvenliği tutmazsa kalıp aynen gider.
         if (is_string($out) && NaturalVoice::enabled() && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
             && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
@@ -1146,7 +1201,8 @@ class WhatsappWebhookController extends Controller
         // "asansör bedeli" cevap değildir — soru tekrar (tahmin yok). Yalnız kişiyle para/borç kaydında, soru-cevap anında.
         if ($pending && ($pending->extracted['work_status_known'] ?? null) === false && ! empty($pending->extracted['question'])
             && ! empty($data['work_status_known']) && Understanding::applies($data) && empty($pending->extracted['party_asked'])
-            && ! Understanding::answerSettles((string) $pending->extracted['question'], $this->inboundBody)) {
+            && empty($data['work_chosen']) // numaralı seçim kesin cevaptır — ikinci göz gerekmez
+            && ! Understanding::answerSettles((string) ($pending->extracted['work_question'] ?? $pending->extracted['question']), $this->inboundBody)) {
             $data['work_status_known'] = false;
             $data['question'] = $pending->extracted['question'];
         }
@@ -1234,6 +1290,15 @@ class WhatsappWebhookController extends Controller
             $ask = $cross;
             $data['cross_asked'] = [...$crossDone, $crossSig];
             $data['cross_question'] = $cross;
+        }
+        // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
+        $data['work_choice'] = null;
+        if ($ask !== null && $ask !== ($data['scale_question'] ?? null) && $ask !== ($data['cross_question'] ?? null) && WorkChoice::applies($data)) {
+            // AI'ın asıl sorusu ("Asansör takıldı mı, yoksa peşin mi?") saklanır: serbest cevabı ("Takılmadı") ikinci göz onunla
+            // karşılaştırır — numaralı başlık ("— ne için?") cevabı anlamsız gösteriyordu (eval 21.10, soru döngüsü).
+            $data['work_question'] = str_contains($ask, '*1* ') ? ($pending?->extracted['work_question'] ?? $ask) : $ask;
+            $ask = WorkChoice::question($data);
+            $data['work_choice'] = true;
         }
         if ($ask !== null) {
             $data['question'] = $ask;
@@ -1399,7 +1464,7 @@ class WhatsappWebhookController extends Controller
             ! empty($data['settles_expense_id']) => "\n\n✅ Onaylamak için *evet*. Ayrı (yeni) bir gider ise *yeni* yaz, vazgeçmek için *iptal*.",
             // Proje menüsü sorudur: numara seçince kaydeder — ayrıca "Kaydedeyim mi?" fazlalık (kullanıcı 20.10).
             ChatAssistant::enabled() && ProjectChoice::menuShown($data) => '',
-            ChatAssistant::enabled() => "\n\nKaydedeyim mi? *evet*",
+            ChatAssistant::enabled() => "\n\n" . self::CONFIRM_FOOTER,
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
         };
 
@@ -1610,7 +1675,8 @@ class WhatsappWebhookController extends Controller
 
         $pending?->update(['status' => 'superseded']);
         $isSettle = collect($targets)->contains(fn ($t) => ($t[0] ?? null) === 'settle');
-        $summary = ($isSettle ? "↩️ *Şu ödemeyi geri alacağım (borç tekrar açılır):*\n" : "🗑️ *Şu kaydı sileceğim:*\n") . trim((string) $last->summary);
+        // Tek satır (kullanıcı 20.10 "cevaplar çok uzun"; hızlı kayıtta kart az önce gitti — tamamı tekrar gönderilmez).
+        $summary = ($isSettle ? "↩️ *Şu ödemeyi geri alayım mı?* (borç tekrar açılır)\n" : "🗑️ *Geri alayım mı?*\n") . DraftGaps::label((array) $last->extracted);
         if ($replacement !== null) {
             $summary .= "\n\n✏️ *Yerine yazacağım:*\n" . $this->shortLine($replacement);
         }
@@ -1621,11 +1687,7 @@ class WhatsappWebhookController extends Controller
             'status' => 'awaiting_confirmation',
         ]);
 
-        return $summary . match (true) {
-            $replacement !== null => "\n\nDüzelteyim mi? *evet* / *iptal*",
-            $isSettle => "\n\nGeri alayım mı? *evet* / *iptal*",
-            default => "\n\nSileyim mi? *evet* / *iptal*",
-        };
+        return $summary . ($replacement !== null ? "\n\nDüzelteyim mi? *evet* / *iptal*" : "\n*evet* / *iptal*");
     }
 
     /**
@@ -2481,10 +2543,6 @@ class WhatsappWebhookController extends Controller
             }
         }
 
-        // Kişisiz borç: soru değil ipucu (her "ödenmedi"de ek soru yormasın); ödemesi yine eşleştirilir.
-        if (! $this->isPaid($d) && ! $party && empty($d['party_name']) && empty($d['supplier_name'])) {
-            $lines[] = "💡 Kime borçlu olduğunu da yazarsan (ör. \"Ahmet Bey'e\") ödemeleri kişi bazında takip ederim.";
-        }
 
         // Sözleşmeli cariye gider: işin maliyeti zaten sözleşmede → çift maliyet riski.
         if ($party && $this->activeContracts($party)->isNotEmpty()) {

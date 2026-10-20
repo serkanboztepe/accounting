@@ -249,14 +249,16 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringNotContainsString('Borç ödemesi', $summary);
     }
 
-    public function test_unpaid_expense_without_party_shows_hint_not_question(): void
+    /** Kişisiz borçta ne soru ne ipucu satırı (kullanıcı 20.10 "cevaplar çok uzun"). */
+    public function test_unpaid_expense_without_party_has_no_question_or_hint(): void
     {
         $this->notFirstContact();
         $this->fakeAi($this->entry(['amount' => 20000, 'paid' => false, 'description' => 'Ev kirası']));
 
         $summary = $this->send('Borç olarak 20 bin ev kirası');
 
-        $this->assertStringContainsString('💡 Kime borçlu olduğunu da yazarsan', $summary);
+        $this->assertStringNotContainsString('💡', $summary);
+        $this->assertStringContainsString('ödenmedi (borç)', $summary);
         $this->assertStringContainsString('Onaylamak için *evet*', $summary);
     }
 

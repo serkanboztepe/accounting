@@ -63,6 +63,8 @@ class DraftWarningsTest extends TestCase
         $this->assertStringContainsString('genelde ~', $w[0]);
         $this->assertStringContainsString('244.830', $w[0]);
         $this->assertSame([], DraftWarnings::for($base + ['amount' => 27440]), 'normal kasa uyarısız');
+        $this->assertSame([], DraftWarnings::for($base + ['amount' => 5000]), 'düşük tutar uyarısız (kullanıcı 20.10)');
+        $this->assertSame([], DraftWarnings::for($base + ['amount' => 120000]), '~5 kat: uyarısız, yalnız fazladan sıfır');
     }
 
     public function test_warning_appears_before_footer_in_reply(): void

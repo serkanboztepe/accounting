@@ -46,7 +46,8 @@ final class NaturalVoice
     {
         // Giriş cümlesi yok (kullanıcı 20.10: "bu da gereksiz, direkt alıştan başlasın"): AI yalnız karttaki soruyu (❓)
         // sadeleştirir; soru yoksa hiç çağrılmaz — kart kodun kısa hâliyle gider (AI çağrısı ve bekleme de kalkar).
-        if (! self::enabled() || trim($summary) === '' || self::parts($summary)['questions'] === []) {
+        // Numaralı seçenekli soru ("*1* Mal geldi · *2* …") kodun kalıbıdır — AI yeniden yazmaz.
+        if (! self::enabled() || trim($summary) === '' || self::parts($summary)['questions'] === [] || preg_match('/^\*1\* /mu', $summary)) {
             return $summary;
         }
         $timeout = 6;

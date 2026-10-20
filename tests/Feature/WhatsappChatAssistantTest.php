@@ -281,6 +281,62 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertStringContainsString('Öneri Testi Atatürk', $line);
     }
 
+    /** Hızlı kayıt (kullanıcı 20.10 "pratik tak tak"): soru yoksa beklemeden kaydeder; soru / proje menüsü / uyarı varsa beklerr. */
+    public function test_fast_save_saves_when_nothing_to_ask(): void
+    {
+        config(['modules.fast_save' => true]);
+        $this->chat(['type' => 'entry', 'data' => $this->sale(7000, 'Hızlı Kayıt Ali'), 'text' => '']);
+
+        $reply = $this->send('Ali 7000');
+
+        $this->assertStringContainsString('✅ *Kaydedildi*', $reply);
+        $this->assertStringContainsString('Hızlı Kayıt Ali', $reply);
+        $this->assertStringContainsString('Yanlışsa düzeltmeyi yaz ya da *geri al*', $reply);
+        $this->assertStringNotContainsString('Kaydedeyim mi?', $reply);
+        $this->assertSame(1, $this->ledgerCount('Hızlı Kayıt Ali'));
+    }
+
+    public function test_fast_save_off_or_question_waits(): void
+    {
+        $this->chat(['type' => 'entry', 'data' => $this->sale(7000, 'Hızlı Kapalı Ali'), 'text' => '']);
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('Ali 7000'), 'modül kapalı → eskisi gibi');
+        $this->assertSame(0, $this->ledgerCount('Hızlı Kapalı Ali'));
+
+        config(['modules.fast_save' => true]);
+        $this->chat(['type' => 'entry', 'data' => ['question' => 'Peynir mi, kaşar mı?'] + $this->sale(5000, 'Hızlı Soru Veli'), 'text' => '']);
+        $this->assertStringContainsString('Peynir mi, kaşar mı?', $this->send('Veli 5000'));
+        $this->assertSame(0, $this->ledgerCount('Hızlı Soru Veli'), 'soru varken kaydetmez');
+    }
+
+    /** Numaralı iş durumu sorusu: "*1* Mal geldi · *2* Bağlantı / peşin · *3* Eski borcu ödedim"; "2" → önceden ödeme. */
+    public function test_work_choice_numbers(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Seçim Testi Beton']);
+        $this->chat(['type' => 'entry', 'data' => ['kind' => ExpenseExtractor::KIND_PAYMENT, 'party_id' => $party->id, 'party_name' => null,
+            'work_status' => null, 'work_status_known' => false, 'is_service' => false, 'question' => 'Beton geldi mi?'] + $this->sale(100000, 'x'), 'text' => '']);
+
+        $ask = $this->send('Kuşak betona 100 bin verdim');
+        $this->assertStringContainsString("Seçim Testi Beton'a 100.000,00 ₺ — ne için?", $ask);
+        $this->assertStringContainsString('*1* Mal geldi · *2* Bağlantı / peşin (mal sonra) · *3* Eski borcu ödedim', $ask);
+        $this->assertStringNotContainsString('Beton geldi mi?', $ask);
+
+        $card = $this->send('2');
+        $this->assertStringContainsString('· önceden ödeme (iş/mal sonra)', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->assertSame(0, PartyLedgerEntry::where('party_id', $party->id)->count());
+    }
+
+    public function test_work_choice_wrong_number_asks_again(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Seçim Testi Usta']);
+        $this->chat(['type' => 'entry', 'data' => ['kind' => ExpenseExtractor::KIND_PAYMENT, 'party_id' => $party->id, 'party_name' => null,
+            'work_status' => null, 'work_status_known' => false, 'is_service' => true] + $this->sale(50000, 'x'), 'text' => '']);
+
+        $this->assertStringContainsString('*1* Yaptığı işin parası · *2* İşe başlamadan, peşin · *3* Eski borcu ödedim', $this->send('Ustaya 50 bin verdim'));
+        $this->assertStringContainsString('Listede o numara yok', $this->send('7'));
+        $this->assertStringContainsString('· önceden ödeme (iş/mal sonra)', $this->send('2'));
+    }
+
     public function test_affirms_check_words(): void
     {
         foreach (['Dogru', 'doğru', 'Evet doğru', 'DOĞRU.', 'aynen'] as $yes) {
@@ -317,7 +373,7 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(1, $this->ledgerCount('Geri Al Yakup'));
 
         $reply = $this->send('son kaydı sil');
-        $this->assertStringContainsString('Şu kaydı sileceğim', $reply);
+        $this->assertStringContainsString('Geri alayım mı?', $reply);
         $this->assertStringContainsString('Geri Al Yakup', $reply);
         $this->assertSame(1, $this->ledgerCount('Geri Al Yakup'), 'onaysız silinmemeli');
 
@@ -337,7 +393,7 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(['2000.00', 'paid'], [$bill->fresh()->amount, $bill->fresh()->payment_status]);
         $this->assertTrue(\App\Models\Expense::where('description', 'like', 'Geri Al Elektrik (kalan)')->exists());
 
-        $this->assertStringContainsString('Şu ödemeyi geri alacağım', $this->send('son kaydı sil'));
+        $this->assertStringContainsString('Şu ödemeyi geri alayım mı?', $this->send('son kaydı sil'));
         $this->assertStringContainsString('Ödeme geri alındı', $this->send('evet'));
         $this->assertSame(['3500.00', 'unpaid'], [$bill->fresh()->amount, $bill->fresh()->payment_status]);
         $this->assertFalse(\App\Models\Expense::where('description', 'like', 'Geri Al Elektrik (kalan)')->exists());

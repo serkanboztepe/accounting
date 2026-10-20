@@ -74,10 +74,12 @@ class WhatsappUnderstandingTest extends TestCase
         $before = PartyLedgerEntry::count();
 
         $reply = $this->send('Osman asansöre 1.005.000 ödendi');
-        $this->assertStringContainsString('Asansör takıldı mı', $reply);
+        // İş durumu sorusu numaralı (kullanıcı 20.10): "*1* İş/mal geldi · *2* Peşin (iş/mal sonra) · *3* Eski borcu ödedim".
+        $this->assertStringContainsString("Anlama Testi Osman'a 1.005.000,00 ₺ — ne için?", $reply);
+        $this->assertStringContainsString('*2* Peşin (iş/mal sonra)', $reply);
         $this->assertStringNotContainsString('Kaydedeyim mi', $reply, 'tahminle onaya hazırlanmaz');
 
-        $this->assertStringContainsString('Asansör takıldı mı', $this->send('evet'), '"evet" soruyu geçemez');
+        $this->assertStringContainsString('— ne için?', $this->send('evet'), '"evet" soruyu geçemez');
         $this->assertSame($before, PartyLedgerEntry::count());
     }
 
@@ -96,7 +98,7 @@ class WhatsappUnderstandingTest extends TestCase
 
         $this->send('Osman asansöre 1.005.000 ödendi');
         $reply = $this->send('Asansör bedeli birmilyon beş bin');
-        $this->assertStringContainsString('Asansör takıldı mı', $reply);
+        $this->assertStringContainsString('— ne için?', $reply);
         $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
     }
 
@@ -253,7 +255,7 @@ class WhatsappUnderstandingTest extends TestCase
             'work_status' => 'old_debt', 'work_status_known' => true]));
 
         $reply = $this->send('ustaya 115.000 borcum var');
-        $this->assertStringContainsString('anlaştınız', $reply);
+        $this->assertStringContainsString('*1* İş bitti, parasını vermedim · *2* Anlaştık, iş başlamadı · *3* Borç para aldım', $reply);
         $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
     }
 

@@ -217,7 +217,7 @@ class WhatsappReturnTest extends TestCase
         $this->send('evet');
 
         $this->ai(['type' => 'undo', 'replacement' => null, 'find' => null]);
-        $this->assertStringContainsString('Şu kaydı sileceğim', $this->send('son kaydı sil'));
+        $this->assertStringContainsString('Geri alayım mı?', $this->send('son kaydı sil'));
         $this->send('evet');
         $this->assertSame(0, SaleReturn::where('sale_id', $sale->id)->count());
         $this->assertEqualsWithDelta(-10, $yem->fresh()->currentStock(), 0.01);

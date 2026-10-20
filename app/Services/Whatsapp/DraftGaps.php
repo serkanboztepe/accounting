@@ -66,6 +66,8 @@ final class DraftGaps
         }
         // Önce anla (16.10): kaydı değiştirecek tahmin varken onaya hazır değil — AI'ın sorusu.
         if (($ask = Understanding::gap($d)) !== null) {
+            $ask = WorkChoice::shown($d) && ! empty($d['question']) ? (string) $d['question'] : $ask; // numaralı soru aynen
+
             return ['code' => self::DETAIL, 'ask' => $ask, 'why' => 'Kaydetmeden önce sormak istedim: ' . $ask, 'party' => Understanding::partyUnclear($d)];
         }
         if (self::missingParty($d)) {
