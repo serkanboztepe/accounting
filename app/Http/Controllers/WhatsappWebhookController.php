@@ -200,6 +200,13 @@ class WhatsappWebhookController extends Controller
     }
 
     /** Özetin alt satırından ("Kaydedeyim mi?…", "Cevabını yaz…") hemen önce ekle; alt satır yoksa sona. */
+    /** Kartta "Doğru mu?" diye soran uyarı var mı (olağandışı tutar / çift kayıt / birim fiyat) — "Doğru" cevabı o zaman onaydır. */
+    private function asksDoğru(WhatsappPendingExpense $pending): bool
+    {
+        return $pending->status === 'awaiting_confirmation'
+            && (str_contains(mb_strtolower((string) $pending->summary, 'UTF-8'), 'doğru mu') || DraftWarnings::for((array) $pending->extracted) !== []);
+    }
+
     private static function insertBeforeFooter(string $out, string $lines): string
     {
         if (preg_match('/\n\n(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|✅ Onaylamak|\*evet\* \/)/u', $out, $m, PREG_OFFSET_CAPTURE)) {
@@ -953,6 +960,12 @@ class WhatsappWebhookController extends Controller
 
                 return $this->commitThenNext($pending, $phone);
             case 'ask_confirm':
+                // "Doğru mu?" (tutar uyarısı / kontrol sorusu) → "Doğru" teyittir (Oktay 20.10: iki kez "Dogru" yazdı, kart yeniden soruldu).
+                if ($pending && ChatAssistant::affirmsCheck($body) && $this->asksDoğru($pending)) {
+                    $this->inboundKind = 'quick';
+
+                    return $this->commitThenNext($pending, $phone);
+                }
                 $this->inboundKind = 'chat';
 
                 return $pending

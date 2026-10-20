@@ -344,6 +344,19 @@ class ChatAssistant
     /** Çok kelimeli onay ("Ödendi kayıt et" — Oktay 16.10: onay sayılmayıp bir daha sorulmuştu). */
     public const ASSENT_PHRASES = ['kayıt et', 'kayit et', 'kayda geç', 'kayda gec', 'işle', 'isle'];
 
+    /** "Doğru mu?" sorusuna teyit — yalnız kartta tutar uyarısı / kontrol sorusu varken onay sayılır (kontrolcü bakar). */
+    public const CHECK_ASSENT_WORDS = ['doğru', 'dogru', 'doğrudur', 'dogrudur', 'aynen', 'evet'];
+
+    public static function affirmsCheck(string $text): bool
+    {
+        $lower = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $words = preg_split('/[\s\p{P}]+/u', $lower, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        // Kısa teyit ("Dogru", "evet doğru"); "doğru değil" / uzun düzeltme cümlesi sayılmaz.
+        return $words !== [] && count($words) <= 3 && ! array_intersect($words, ['değil', 'degil', 'yanlış', 'yanlis', 'hayır', 'hayir'])
+            && array_intersect($words, self::CHECK_ASSENT_WORDS) !== [];
+    }
+
     /** Modelin cevabını geçmişe geri koyarken boş araç girdisi JSON'da {} olmalı ([] → API 400 "Input should be an object"). */
     private static function echoable(array $content): array
     {

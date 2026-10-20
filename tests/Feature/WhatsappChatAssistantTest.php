@@ -132,6 +132,48 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertSame(1, PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Doktor Test'))->count());
     }
 
+    /** Oktay 20.10: kart "doğru mu?" (olağandışı tutar) diye sordu, iki kez "Dogru" yazdı — kart yeniden soruldu, kayıt olmadı. */
+    public function test_dogru_answers_card_warning_and_saves(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Doğru Testi Ali']);
+        foreach ([1000, 1200, 900] as $i => $amt) {
+            PartyLedgerEntry::create(['party_id' => $party->id, 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => $amt,
+                'entry_date' => now()->subDays($i + 10)->toDateString(), 'description' => 'Eski satış']);
+        }
+        $this->chat(
+            ['type' => 'entry', 'data' => ['party_id' => $party->id, 'party_name' => null] + $this->sale(100000, 'Doğru Testi Ali'), 'text' => ''],
+            ['type' => 'ask_confirm'],
+        );
+
+        $this->assertStringContainsString('doğru mu?', $this->send('Ali 100000 satış'));
+        $this->send('Dogru');
+
+        $this->assertSame(4, PartyLedgerEntry::where('party_id', $party->id)->count());
+    }
+
+    /** Uyarı yokken "doğru" tek başına onay sayılmaz — eski davranış ("Kaydedeyim mi?"). */
+    public function test_dogru_without_card_warning_still_asks(): void
+    {
+        $this->chat(
+            ['type' => 'entry', 'data' => $this->sale(5000, 'Uyarısız Veli'), 'text' => ''],
+            ['type' => 'ask_confirm'],
+        );
+        $this->send('Veli 5000');
+
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('doğru'));
+        $this->assertSame(0, $this->ledgerCount('Uyarısız Veli'));
+    }
+
+    public function test_affirms_check_words(): void
+    {
+        foreach (['Dogru', 'doğru', 'Evet doğru', 'DOĞRU.', 'aynen'] as $yes) {
+            $this->assertTrue(ChatAssistant::affirmsCheck($yes), $yes);
+        }
+        foreach (['doğru değil', 'yanlış', 'hayır doğru değil', 'doğru ama tutar 10 bin olacak aslında', '10000'] as $no) {
+            $this->assertFalse(ChatAssistant::affirmsCheck($no), $no);
+        }
+    }
+
     public function test_assent_words_and_typos(): void
     {
         foreach (['Evet', 'Evert', 'evt', 'Tmam', 'tmm', 'ok', 'Evet gider yaz', 'Ödendi evet', 'olur'] as $yes) {
