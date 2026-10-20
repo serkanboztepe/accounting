@@ -5,7 +5,9 @@
             {{ $this->form }}
         </x-filament::section>
 
-        @php($project = $this->getSelectedProject())
+        @php
+            $project = $this->getSelectedProject();
+        @endphp
 
         @if (! $project)
             <x-filament::section>
@@ -14,9 +16,18 @@
                 </div>
             </x-filament::section>
         @else
-            @php($summary = $this->getSummaryStats())
+            @php
+                $summary = $this->getSummaryStats();
+            @endphp
 
-            @php($m = fn ($v) => '₺' . \App\Support\Money::format($v))
+            @php
+                $m = fn ($v) => '₺' . \App\Support\Money::format($v);
+            @endphp
+            @php
+                // Sözleşmesiz firma (sade müteahhit): maliyet = direkt gider + cari alış; sözleşme/fatura bölümleri gizli.
+                $withContracts = (bool) config('modules.contracts');
+                $withChecks = (bool) config('modules.checks');
+            @endphp
 
             {{-- Defter tablo özet — kendi style bloğuyla, Tailwind derlemesinden bağımsız --}}
             <style>
@@ -65,9 +76,27 @@
                         <div class="pr-eyebrow">Toplam Proje Maliyeti</div>
                         <div class="pr-hero tnum">{{ $m($summary['total_cost']) }}</div>
                     </div>
-                    <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b></div>
+                    <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Cari alış <b>{{ $m($summary['purchase_cost']) }}</b>@if ($withContracts) &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b>@endif</div>
                 </div>
 
+                @if (! $withContracts)
+                    <div class="pr-grid" @if (! $withChecks) style="grid-template-columns: 1fr;" @endif>
+                        <div class="pr-col">
+                            <div class="pr-colhead">Maliyet</div>
+                            <div class="pr-row"><span class="pr-k">Direkt gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }}</span></div>
+                            <div class="pr-row"><span class="pr-k">Cari alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }}</span></div>
+                            <div class="pr-row pr-hi"><span class="pr-k">Toplam</span><span class="pr-v tnum">{{ $m($summary['total_cost']) }}</span></div>
+                        </div>
+                        @if ($withChecks)
+                            <div class="pr-col">
+                                <div class="pr-colhead">Çek</div>
+                                <div class="pr-row pr-hi"><span class="pr-k">Bu projeye yazılan çek</span><span class="pr-v tnum pr-pend">{{ $m($summary['checks_total']) }}</span></div>
+                            </div>
+                        @endif
+                    </div>
+
+                    <div class="pr-foot tnum">Ödeme ve avans maliyete girmez (para çıkışıdır; maliyet iş/mal alındığında yazılır) · Alış iadesi düşülür</div>
+                @else
                 <div class="pr-grid">
                     <div class="pr-col">
                         <div class="pr-colhead">Sözleşme &amp; Ödeme</div>
@@ -87,10 +116,13 @@
                 </div>
 
                 <div class="pr-foot tnum">Ödenen = nakit/EFT + tahsil edilmiş çek · Toplam çek {{ $m($summary['checks_total']) }} · Sözleşme/Kalan çapraz proje hariç, Teslimat dahil</div>
+                @endif
             </div>
 
             {{-- Satış / Alacak — yalnız projenin satış sözleşmesi varsa. Maliyetle ASLA toplanmaz. --}}
-            @php($sales = $this->getSalesStats())
+            @php
+                $sales = $this->getSalesStats();
+            @endphp
             @if ($sales)
                 <div class="pr-summary">
                     <div class="pr-top">
@@ -125,7 +157,9 @@
 
             <div class="grid gap-6 xl:grid-cols-2">
                 <x-filament::section heading="Direkt Giderler">
-                    @php($expenseGroups = $this->getExpenseRows())
+                    @php
+                        $expenseGroups = $this->getExpenseRows();
+                    @endphp
                     <div class="space-y-3">
                         @forelse ($expenseGroups as $group)
                             <x-filament::section
@@ -171,6 +205,7 @@
                     </div>
                 </x-filament::section>
 
+                @if ($withChecks)
                 <x-filament::section heading="Çekler">
                     <div class="space-y-3">
                         <div class="hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 lg:grid lg:grid-cols-12 lg:gap-x-3">
@@ -216,10 +251,61 @@
                         @endforelse
                     </div>
                 </x-filament::section>
+                @endif
             </div>
 
+            <x-filament::section heading="Cari Alışları">
+                @php
+                    $purchaseGroups = $this->getPurchaseRows();
+                @endphp
+                <div class="space-y-3">
+                    @forelse ($purchaseGroups as $group)
+                        <x-filament::section
+                            :heading="$group['party']"
+                            :description="'₺' . \App\Support\Money::format($group['total']) . ' · ' . count($group['items']) . ' kayıt'"
+                            collapsible
+                            collapsed
+                            compact
+                        >
+                            <div class="divide-y divide-gray-100 dark:divide-white/5">
+                                @foreach ($group['items'] as $item)
+                                    <div class="flex items-center gap-2 py-3">
+                                        <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
+                                        <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
+                                            {{ $item['description'] }}
+                                            @if ($item['maybe_duplicate'])
+                                                <span class="text-xs font-medium text-orange-600 dark:text-orange-400">· ⚠️ aynı tutar sözleşme teslimatında da var, iki kez girilmiş olabilir</span>
+                                            @endif
+                                        </span>
+                                        <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
+                                            ₺{{ \App\Support\Money::format($item['amount']) }}
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </x-filament::section>
+                    @empty
+                        <div class="rounded-2xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 dark:border-white/10 dark:text-gray-400">
+                            Kayıt yok.
+                        </div>
+                    @endforelse
+
+                    @if (count($purchaseGroups) > 1)
+                        <div class="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-white/10 dark:bg-white/5">
+                            <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">Genel Toplam</span>
+                            <span class="text-sm font-bold text-gray-950 dark:text-white">
+                                ₺{{ \App\Support\Money::format(array_sum(array_column($purchaseGroups, 'total'))) }}
+                            </span>
+                        </div>
+                    @endif
+                </div>
+            </x-filament::section>
+
+            @if ($withContracts)
             <x-filament::section heading="Sözleşme Teslimatları">
-                @php($deliveryGroups = $this->getDeliveryRows())
+                @php
+                    $deliveryGroups = $this->getDeliveryRows();
+                @endphp
                 <div class="space-y-3">
                     @forelse ($deliveryGroups as $group)
                         <x-filament::section
@@ -365,6 +451,7 @@
                     @endforelse
                 </div>
             </x-filament::section>
+            @endif
         @endif
     </div>
 </x-filament-panels::page>

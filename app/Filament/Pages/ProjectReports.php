@@ -9,6 +9,7 @@ use App\Models\ContractDelivery;
 use App\Models\ContractPayment;
 use App\Models\Expense;
 use App\Models\Invoice;
+use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
@@ -145,15 +146,20 @@ class ProjectReports extends Page implements HasSchemas
             fn (Contract $c) => max(0, $c->reportableTotal() - $c->cashPaidAmount()),
         );
 
+        // Cariden alış (usta işi, malzeme) — sözleşmesiz müteahhitte maliyetin asıl kalemi. Ödeme/avans maliyet DEĞİL
+        // (para çıkışı); alış iadesi düşer. Avanstan düşülen iş de alış satırıdır, bir kez sayılır.
+        $purchaseCost = $this->purchaseCost($project->id);
+
         return [
             'direct_expenses' => $directExpenses,
+            'purchase_cost' => $purchaseCost,
             'contracts_total' => $contractsTotal,
             'paid_payments' => $paidPayments,
             'pending_checks' => $pendingChecks,
             'remaining_contract_balance' => $remainingBalance,
             'checks_total' => $checksTotal,
             'delivery_cost' => $deliveryCost,
-            'total_cost' => $directExpenses + $deliveryCost,
+            'total_cost' => $directExpenses + $deliveryCost + $purchaseCost,
             'invoiced_total' => $invoicedTotal,
             'uninvoiced_total' => $uninvoicedTotal,
         ];
@@ -234,6 +240,66 @@ class ProjectReports extends Page implements HasSchemas
                 'amount'      => (float) $expense->amount,
             ];
         }
+
+        return array_values($grouped);
+    }
+
+    private function purchaseCost(int $projectId): float
+    {
+        $sum = fn (string $type) => (float) PartyLedgerEntry::query()
+            ->where('project_id', $projectId)->where('type', $type)->sum('amount');
+
+        return $sum(PartyLedgerEntry::TYPE_PURCHASE) - $sum(PartyLedgerEntry::TYPE_PURCHASE_RETURN);
+    }
+
+    /**
+     * Projeye bağlı cari alışları, cari bazında. Sözleşmeli firmada aynı cari + aynı tutar teslimat olarak da girildiyse
+     * `maybe_duplicate` (aynı iş iki kez sayılmış olabilir — kayda dokunulmaz, yalnız uyarı).
+     */
+    public function getPurchaseRows(): array
+    {
+        $project = $this->getSelectedProject();
+
+        if (! $project) {
+            return [];
+        }
+
+        $entries = PartyLedgerEntry::query()
+            ->with('party')
+            ->where('project_id', $project->id)
+            ->whereIn('type', [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PURCHASE_RETURN])
+            ->orderBy('entry_date')
+            ->get();
+
+        $deliveryKeys = config('modules.contracts')
+            ? ContractDelivery::query()->with('contract')->where('project_id', $project->id)->get()
+                ->map(fn (ContractDelivery $d) => ($d->contract?->party_id ?? 0) . '|' . round((float) $d->amount, 2))
+                ->flip()->all()
+            : [];
+
+        $grouped = [];
+        foreach ($entries as $entry) {
+            $key = $entry->party_id ?? 0;
+            $sign = $entry->type === PartyLedgerEntry::TYPE_PURCHASE_RETURN ? -1 : 1;
+
+            if (! isset($grouped[$key])) {
+                $grouped[$key] = [
+                    'party' => $entry->party?->name ?? 'Carisiz',
+                    'total' => 0,
+                    'items' => [],
+                ];
+            }
+
+            $grouped[$key]['total'] += $sign * (float) $entry->amount;
+            $grouped[$key]['items'][] = [
+                'date'            => optional($entry->entry_date)->format('d.m.Y'),
+                'description'     => ($sign < 0 ? 'İade — ' : '') . ($entry->description ?: '—'),
+                'amount'          => $sign * (float) $entry->amount,
+                'maybe_duplicate' => $sign > 0 && isset($deliveryKeys[$key . '|' . round((float) $entry->amount, 2)]),
+            ];
+        }
+
+        uasort($grouped, fn ($a, $b) => $b['total'] <=> $a['total']);
 
         return array_values($grouped);
     }

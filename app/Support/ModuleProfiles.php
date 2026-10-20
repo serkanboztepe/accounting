@@ -6,7 +6,9 @@ namespace App\Support;
  * Kurulum modları (APP_PROFILE) — config/modules.php için hazır varsayılan setler.
  * Her set, o tipteki ilk canlı kurulumun gerçek ayarlarının kopyasıdır:
  *   mimar     = yildiz   (sadece Mimar grubu + basit cari Satış/Tahsilat)
- *   muteahhit = muhasebe (proje maliyeti: sözleşme, gider, çek, alış/ödeme)
+ *   muteahhit = sade müteahhit (20.10 kullanıcı kararı): alacak-verecek + projeler (şantiye) + proje raporu + çek;
+ *               sözleşme YOK — maliyet = projeli gider + projeli cari alışı. Eski sözleşmeli kurulum (Muhasebe, firma 2)
+ *               hub'da contracts / purchase_contracts / dashboard açık ezmesiyle aynen kalır.
  *   trade     = Stoklu satış (fırın, toptancı, lastikçi…): Satışlar + Alışlar tezgahı, stok, cari iki yön, gider
  *   alacak_verecek = esnaf defteri: sadece cari (iki yön: satış/tahsilat + alış/ödeme) + gider; proje YOK
  * Burada olmayan anahtar = açık (true). Tek tek MOD_* env satırı her zaman profili ezer.
@@ -30,14 +32,17 @@ class ModuleProfiles
             'report_sales'       => false,
         ],
         'muteahhit' => [
-            'land_share'      => false,
-            'property_tax'    => false,
-            'direct_sales'    => false,
-            'stock'           => false,
-            'sales_contracts' => false,
-            'quotes'          => false,
-            'report_stock'    => false,
-            'report_sales'    => false,
+            'land_share'         => false,
+            'property_tax'       => false,
+            'direct_sales'       => false,
+            'stock'              => false,
+            'purchase_contracts' => false,
+            'sales_contracts'    => false,
+            'quotes'             => false,
+            'contracts'          => false,
+            'dashboard'          => false,
+            'report_stock'       => false,
+            'report_sales'       => false,
         ],
         'alacak_verecek' => [
             'land_share'         => false,

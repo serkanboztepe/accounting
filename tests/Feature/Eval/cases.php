@@ -144,6 +144,20 @@ return [
             'steps' => [['send' => "Kuşak Beton'dan 50 bin beton aldım"]],
             'expect' => ['draft' => ['kind' => 'purchase'], 'reply_has' => ['Hangi proje']]],
 
+        // Sade müteahhit (20.10): proje maliyetin oluştuğu yerde (alış / gider) sorulur, paranın çıktığı yerde (ödeme / avans) sorulmaz.
+        ['id' => 'muteahhit-alis-proje-secer', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Kuşak betondan 30 m3 beton geldi 72 bin', 'expect' => ['reply_has' => ['Hangi proje']]],
+                ['send' => '1', 'expect' => ['draft' => ['kind' => 'purchase', 'project_id' => '@project:Cumhuriyet']]]]],
+        ['id' => 'muteahhit-odemede-proje-yok', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Kuşak betona 45 bin ödedim']],
+            'expect' => ['reply_not' => ['Hangi proje'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'muteahhit-avansta-proje-yok', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Ali ustaya 20 bin avans verdim']],
+            'expect' => ['draft' => ['kind' => 'payment'], 'reply_not' => ['Hangi proje']]],
+        ['id' => 'muteahhit-santiye-adli-gider', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'bahçelievler şantiyesine 3 bin mazot aldım']],
+            'expect' => ['draft' => ['kind' => 'expense', 'amount' => 3000, 'project_id' => '@project:Bahçelievler'], 'reply_not' => ['Hangi proje']]],
+
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Ak Un'dan 20 çuval un aldım 17000"]],

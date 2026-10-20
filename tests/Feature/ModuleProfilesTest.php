@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Support\ModuleProfiles;
+
 use App\Services\Whatsapp\ExpenseExtractor;
 use Tests\TestCase;
 
@@ -66,12 +68,27 @@ class ModuleProfilesTest extends TestCase
         ], $this->modulesFor(['APP_PROFILE' => 'mimar']));
     }
 
-    public function test_muteahhit_matches_muhasebe(): void
+    /** Sade müteahhit (20.10): sözleşme yok; projeler + proje raporu + çek + gider + cari iki yön açık. */
+    public function test_muteahhit_is_simple_contractor(): void
     {
         $this->assertOnlyDisabled([
-            'land_share', 'property_tax', 'direct_sales', 'stock', 'sales_contracts', 'quotes',
-            'report_stock', 'report_sales',
+            'land_share', 'property_tax', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
+            'contracts', 'dashboard', 'report_stock', 'report_sales',
         ], $this->modulesFor(['APP_PROFILE' => 'muteahhit']));
+    }
+
+    /** Muhasebe (firma 2) hub ezmesiyle eski sözleşmeli müteahhit seti aynen kalır. */
+    public function test_muhasebe_override_keeps_old_contractor_set(): void
+    {
+        $old = ['land_share', 'property_tax', 'direct_sales', 'stock', 'sales_contracts', 'quotes', 'report_stock', 'report_sales'];
+        $modules = ModuleProfiles::resolve('muteahhit', ['contracts' => true, 'purchase_contracts' => true, 'dashboard' => true]);
+
+        foreach (ModuleProfiles::KEYS as $key) {
+            if (in_array($key, ModuleProfiles::DEFAULT_OFF, true)) {
+                continue;
+            }
+            $this->assertSame(! in_array($key, $old, true), $modules[$key], $key);
+        }
     }
 
     public function test_legacy_toptanci_resolves_to_trade(): void
