@@ -136,6 +136,23 @@ final class DraftGaps
         return ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
     }
 
+    /**
+     * AI kimliği vermeyip yalnız adı yazdıysa adı BİREBİR tutan TEK cari (büyük/küçük harf, İ/ı farkı yok). Kayıt anında
+     * resolveParty zaten aynı ada yazıyor; burada önceden bağlanınca açık avans / bakiye taslakta görünür
+     * (firma 7, 20.10: az önce açılan "Asansörcü"ye 1 milyon avans → "500.000 iş yaptı" avansı göremedi, peşin alış sandı).
+     */
+    public static function exactParty(?string $name): ?Party
+    {
+        $key = fn (string $s) => mb_strtolower(strtr(trim($s), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        $want = $key((string) $name);
+        if ($want === '') {
+            return null;
+        }
+        $same = Party::get(['id', 'name'])->filter(fn (Party $p) => $key($p->name) === $want);
+
+        return $same->count() === 1 ? Party::find($same->first()->id) : null;
+    }
+
     public static function missingParty(array $d): bool
     {
         return in_array(self::kind($d), self::LEDGER_KINDS, true)

@@ -175,12 +175,15 @@ class ExpenseContext
         return implode("\n", $lines);
     }
 
-    /** Açık avans: " (açık avans: biz verdik 1.005.000 — iş/mal bekleniyor)" / " (peşin aldık 15.000 — mal/iş teslim edilecek)". */
+    /**
+     * Açık avans: " (önceden verdiğimiz para 1.005.000 — iş/mal bekleniyor)" / " (peşin aldık 15.000 — mal/iş teslim edilecek)".
+     * Günlük dil (kullanıcı 20.10): etiketteki "avans" kelimesi AI'ın müşteriye yazdığı cümleye geçiyordu.
+     */
     private static function advanceNote($party): string
     {
         $ours = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
         if ($ours > 0) {
-            return ' (açık avans: biz verdik ' . \App\Support\Money::format($ours) . ' — iş/mal bekleniyor)';
+            return ' (önceden verdiğimiz para ' . \App\Support\Money::format($ours) . ' — iş/mal bekleniyor)';
         }
         $theirs = AdvanceOffset::open($party, ExpenseExtractor::KIND_SALE);
 

@@ -188,7 +188,7 @@ class WhatsappDraftFollowUpTest extends TestCase
 
         $text = \App\Services\Whatsapp\DraftFollowUp::messageText($p);
 
-        $this->assertSame("⏳ Yarım kalan 1 kaydın var:\n• Alış — Boyacı Ahmet Test 20.000,00 ₺, Boyacı işi (avanstan düşülecek)\n"
+        $this->assertSame("⏳ Yarım kalan 1 kaydın var:\n• Alış — Boyacı Ahmet Test 20.000,00 ₺, Boyacı işi (önceki ödemeden düşülecek)\n"
             . "Kaydetmeden önce sormak istedim: Boyacı Ahmet Test'in işi mi?\n*evet* yaz, başka biriyse adını yaz, gerek yoksa *iptal*.", $text);
     }
 

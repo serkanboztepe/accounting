@@ -178,6 +178,38 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertStringContainsString('📊 Ad Testi Özkan', $this->send('ad testi özkan durum'));
     }
 
+    /** Firma 7, 20.10: az önce açılan "Asansörcü"ye 1 milyon avans → "500.000 iş yaptı" AI yalnız adı verdi → avans görülmedi. */
+    public function test_purchase_by_name_only_sees_advance_of_same_party(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Asansörcü Test']);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 1000000,
+            'entry_date' => now()->toDateString(), 'description' => 'Avans — Asansörcüye ödeme']);
+        $this->chat(['type' => 'entry', 'data' => ['kind' => ExpenseExtractor::KIND_PURCHASE, 'party_id' => null, 'party_name' => 'asansörcü test',
+            'paid' => true, 'description' => 'Asansör işi'] + $this->sale(500000, 'asansörcü test'), 'text' => '']);
+
+        $reply = $this->send('500.000 tl lik iş yaptı');
+
+        $this->assertStringContainsString('(önceki ödemeden düşüldü)', $reply);
+        $this->assertStringContainsString('Önceden yaptığın 500.000,00 ₺ ödemeden düşülür', $reply);
+        $this->assertStringNotContainsString('avans', mb_strtolower($reply));
+    }
+
+    /** Kontrol sorusunun cevabı ("Avanstan düşecek") onay sanılınca aynı soru kartla tekrar geliyordu — artık kart gelir. */
+    public function test_cross_question_answer_shows_card_not_same_question(): void
+    {
+        $q = 'Önceden yaptığınız ödemeden mi düşülsün, yoksa ayrıca ödeme mi yaptınız?';
+        $draft = $this->sale(500000, 'Döngü Testi');
+        \App\Models\WhatsappPendingExpense::create(['phone' => self::PHONE, 'status' => 'awaiting_confirmation', 'summary' => '❓ ' . $q,
+            'extracted' => ['cross_question' => $q, 'question' => $q, 'cross_asked' => ['x']] + $draft]);
+        $this->chat(['type' => 'ask_confirm']);
+
+        $reply = $this->send('Avanstan düşecek');
+
+        $this->assertStringNotContainsString($q, $reply);
+        $this->assertStringContainsString('Döngü Testi', $reply);
+        $this->assertSame(0, $this->ledgerCount('Döngü Testi'));
+    }
+
     public function test_affirms_check_words(): void
     {
         foreach (['Dogru', 'doğru', 'Evet doğru', 'DOĞRU.', 'aynen'] as $yes) {

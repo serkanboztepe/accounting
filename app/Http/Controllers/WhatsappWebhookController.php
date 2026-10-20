@@ -967,6 +967,11 @@ class WhatsappWebhookController extends Controller
                     return $this->commitThenNext($pending, $phone);
                 }
                 $this->inboundKind = 'chat';
+                // Kontrol sorusunun cevabı ("Avanstan düşecek") onay sanılınca aynı soru kartla tekrar geliyordu (firma 7, 20.10;
+                // Yeni Yapı 19.10 Boyacı Ahmet). Soru bir daha sorulmaz — kayıt kartı gösterilir, kullanıcı onaylar ya da düzeltir.
+                if ($pending && ! empty($pending->extracted['cross_question'])) {
+                    return $this->saveDraft($pending, $phone, ['cross_question' => null, 'question' => null] + $pending->extracted);
+                }
 
                 return $pending
                     ? "Kaydedeyim mi? *evet* / *tamam* / *ok* — değiştirmek istediğin bir şey varsa yaz.\n\n" . $pending->summary
@@ -1147,6 +1152,11 @@ class WhatsappWebhookController extends Controller
         // "Borçtan mı, yeni iş mi?" bir kez sorulur — cevap turunda aynı kişiyse tekrar sorulmaz.
         if ($pending && ! empty($pending->extracted['debt_asked']) && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
             $data['debt_asked'] = true;
+        }
+        // Adı birebir tutan cari varsa taslağa baştan bağlanır (kayıtta zaten ona yazılıyordu) — avans / bakiye görünsün.
+        if (in_array($this->kind($data), self::PARTY_KINDS, true) && empty($data['party_id'])
+            && ($same = DraftGaps::exactParty($data['party_name'] ?? null)) !== null) {
+            $data['party_id'] = $same->id;
         }
         // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
         $data = Understanding::apply($data);
@@ -2566,13 +2576,14 @@ class WhatsappWebhookController extends Controller
         } elseif ($kind === ExpenseExtractor::KIND_SALE) {
             $lines[] = '🧾 *Satış* → ' . $label . ': ' . Money::format($amount) . ' ₺'
                 . match (true) {
-                    $used >= $amount - 0.009 => ' (avanstan düşüldü)',
+                    $used >= $amount - 0.009 => ' (önceden aldığın paradan düşüldü)',
                     ! empty($d['paid']) => ' (parası alındı)',
                     default => ' (sana borçlandı)',
                 };
             if ($used > 0) {
                 $rest = $amount - $used;
-                $lines[] = '💰 Önceden aldığın ' . Money::format($used) . ' ₺ avanstan düşülür'
+                // Günlük dil (kullanıcı 20.10: "avans demesine gerek yok, yaptığın ödemeye diyebilir").
+                $lines[] = '💰 Önceden aldığın ' . Money::format($used) . ' ₺ bu işten düşülür'
                     . ($rest > 0.009 ? ', kalan ' . Money::format($rest) . ' ₺ ' . (! empty($d['paid']) ? 'tahsil edildi' : 'sana borç') : '')
                     . '. Ayrıca yeni para aldıysan *yeni para* yaz.';
             }
@@ -2588,13 +2599,13 @@ class WhatsappWebhookController extends Controller
         } elseif ($kind === ExpenseExtractor::KIND_PURCHASE) {
             $lines[] = '🛒 *Alış* ← ' . $label . ': ' . Money::format($amount) . ' ₺'
                 . match (true) {
-                    $used >= $amount - 0.009 => ' (avanstan düşüldü)',
+                    $used >= $amount - 0.009 => ' (önceki ödemeden düşüldü)',
                     ! empty($d['paid']) => ' (ödendi)',
                     default => ' (ona borçlandın)',
                 };
             if ($used > 0) {
                 $rest = $amount - $used;
-                $lines[] = '💸 Önceden verdiğin ' . Money::format($used) . ' ₺ avanstan düşülür'
+                $lines[] = '💸 Önceden yaptığın ' . Money::format($used) . ' ₺ ödemeden düşülür'
                     . ($rest > 0.009 ? ', kalan ' . Money::format($rest) . ' ₺ ' . (! empty($d['paid']) ? 'ödendi' : 'ona borç') : '')
                     . '. Ayrıca yeni ödeme yaptıysan *yeni para* yaz.';
             }
@@ -3005,17 +3016,7 @@ class WhatsappWebhookController extends Controller
      */
     private function queriedParty(array $d): ?Party
     {
-        if (($party = $this->existingParty($d)) !== null) {
-            return $party;
-        }
-        $key = fn (string $s) => mb_strtolower(strtr(trim($s), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
-        $name = $key((string) ($d['party_name'] ?? ''));
-        if ($name === '') {
-            return null;
-        }
-        $same = Party::get(['id', 'name'])->filter(fn (Party $p) => $key($p->name) === $name);
-
-        return $same->count() === 1 ? Party::find($same->first()->id) : null;
+        return $this->existingParty($d) ?? DraftGaps::exactParty($d['party_name'] ?? null);
     }
 
     private function resolveParty(array $d): Party

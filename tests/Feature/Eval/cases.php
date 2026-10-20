@@ -158,6 +158,13 @@ return [
             'steps' => [['send' => 'bahçelievler şantiyesine 3 bin mazot aldım']],
             'expect' => ['draft' => ['kind' => 'expense', 'amount' => 3000, 'project_id' => '@project:Bahçelievler'], 'reply_not' => ['Hangi proje']]],
 
+        // Firma 7, 20.10 (Serkan): yeni açılan cariye avans → "iş yaptı" avansı görmedi, kontrol sorusu döngüye girdi, proje sorulmadı.
+        ['id' => 'muteahhit-avans-sonra-is-proje', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Asansörcü ye 1 milyon lira ödedim'], ['send' => 'Takılmadı'], ['send' => 'Ok'],
+                ['send' => '500.000 tl lik iş yaptı', 'expect' => ['reply_has' => ['Hangi proje', 'ödemeden düşül'], 'reply_not' => ['ayrıca ödeme mi', 'avans']]],
+                ['send' => '1']],
+            'expect' => ['saved' => ['ledger' => 2], 'balance' => ['Asansörcü' => 500000]]],
+
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Ak Un'dan 20 çuval un aldım 17000"]],

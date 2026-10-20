@@ -165,7 +165,9 @@ final class DraftFollowUp
             $label .= ' (' . Carbon::parse($date)->locale('tr')->translatedFormat('j F') . ')';
         }
         if (AdvanceOffset::used($p->extracted ?? []) > 0) {
-            $label .= ' (avanstan düşülecek)';
+            $label .= ($p->extracted['kind'] ?? null) === ExpenseExtractor::KIND_SALE
+                ? ' (önceden aldığın paradan düşülecek)'
+                : ' (önceki ödemeden düşülecek)';
         }
 
         return $label;

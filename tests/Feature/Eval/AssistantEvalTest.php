@@ -153,6 +153,12 @@ class AssistantEvalTest extends TestCase
             if (getenv('EVAL_SHOW')) {
                 fwrite(STDERR, "\n> " . (isset($step['media']) ? '[📎 ' . $step['media'] . '] ' : '') . ($step['send'] ?? '') . "\n< " . end($replies) . "\n");
             }
+            // EVAL_DRAFT=1: her adımdan sonra son taslağın anlama alanları (neden soru sordu / sormadı).
+            if (getenv('EVAL_DRAFT') && ($dbg = WhatsappPendingExpense::where('phone', $this->phone)->latest('id')->first())) {
+                fwrite(STDERR, '  [taslak #' . $dbg->id . ' ' . $dbg->status . '] ' . json_encode(array_intersect_key((array) $dbg->extracted, array_flip(['kind',
+                    'amount', 'paid', 'party_id', 'party_name', 'project_id', 'project_needed', 'project_choice_done', 'work_status', 'work_status_known',
+                    'advance_used', 'question', 'cross_question', 'debt_asked'])), JSON_UNESCAPED_UNICODE) . "\n");
+            }
             // Adım beklentisi (ara cevap: "burada soru sormalıydı" gibi) — son cevap gibi puanlanır, hatalar birikir.
             if (isset($step['expect'])) {
                 $stepDraft = WhatsappPendingExpense::where('phone', $this->phone)->where('id', '>', $start['pending'])->latest('id')->first();

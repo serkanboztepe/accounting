@@ -51,6 +51,21 @@ class WhatsappUnderstandingTest extends TestCase
             ->assertOk()->getContent(), ENT_QUOTES | ENT_XML1);
     }
 
+    /** Süzgeç cümlesi önceki paradan düşmeyi söyler — "parası ödendi" deyip "yeni ödeme mi?" sorusuna yol açmaz (firma 7, 20.10). */
+    public function test_record_sentence_tells_offset_from_earlier_money(): void
+    {
+        $base = ['party_name' => 'Asansörcü', 'amount' => 500000, 'paid' => true, 'advance_used' => 500000];
+        $purchase = \App\Services\Whatsapp\Understanding::recordSentence(['kind' => ExpenseExtractor::KIND_PURCHASE] + $base);
+        $partial = \App\Services\Whatsapp\Understanding::recordSentence(['kind' => ExpenseExtractor::KIND_PURCHASE, 'advance_used' => 300000, 'paid' => false] + $base);
+        $sale = \App\Services\Whatsapp\Understanding::recordSentence(['kind' => ExpenseExtractor::KIND_SALE] + $base);
+
+        $this->assertStringContainsString("500.000,00 ₺'si önceden ona verilen paradan düşüldü, yeni para çıkmadı", $purchase);
+        $this->assertStringNotContainsString('parası ödendi', $purchase);
+        $this->assertStringContainsString('Kalan 200.000,00 ₺ borç kaldı.', $partial);
+        $this->assertStringContainsString('önceden ondan alınan paradan düşüldü, yeni para alınmadı', $sale);
+        $this->assertStringContainsString('parası ödendi', \App\Services\Whatsapp\Understanding::recordSentence(['kind' => ExpenseExtractor::KIND_PURCHASE, 'advance_used' => null] + $base));
+    }
+
     public function test_unknown_work_status_asks_and_yes_does_not_save(): void
     {
         $osman = Party::create(['name' => 'Anlama Testi Osman']);
