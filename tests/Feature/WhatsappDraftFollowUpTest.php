@@ -178,6 +178,20 @@ class WhatsappDraftFollowUpTest extends TestCase
     }
 
     /** Hatırlatılan taslak yeniden etkin: eksik tutar → "8500" ona bağlanır. */
+    /** Yeni Yapı 20.10: hatırlatmada kişi sorusu iki kez + AI'ın parantezli eki — tek kısa soru, avans notu, ne yazacağı. */
+    public function test_party_question_reminder_is_asked_once_and_short(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Boyacı Ahmet Test']);
+        $p = $this->draft(['kind' => ExpenseExtractor::KIND_PURCHASE, 'amount' => 20000, 'description' => 'Boyacı işi',
+            'party_id' => $party->id, 'party_certain' => false, 'work_status' => 'done', 'work_status_known' => true, 'advance_used' => 20000,
+            'question' => "Boyacı Ahmet Test'in işi mi? (Açık avansı 20.000 ₺ olan Boyacı Ahmet Test için yazıyorum, değilse adını söyle.)"]);
+
+        $text = \App\Services\Whatsapp\DraftFollowUp::messageText($p);
+
+        $this->assertSame("⏳ Yarım kalan 1 kaydın var:\n• Alış — Boyacı Ahmet Test 20.000,00 ₺, Boyacı işi (avanstan düşülecek)\n"
+            . "Kaydetmeden önce sormak istedim: Boyacı Ahmet Test'in işi mi?\n*evet* yaz, başka biriyse adını yaz, gerek yoksa *iptal*.", $text);
+    }
+
     public function test_reminded_amount_gap_says_why_and_reply_attaches(): void
     {
         $start = Carbon::parse('2026-10-14 14:00', 'Europe/Istanbul');

@@ -60,6 +60,7 @@ final class Understanding
       peşin mi ödüyorsunuz?"). Malın cinsi, ödeme şekli, toplam bedel gibi kaydı değiştirmeyenleri SORMA. Açık mesajda soru YOK.
     - Kişi: yazılan ad listedeki biriyle aynı değilse ve aynı kişi olduğu kesin değilse (ör. "Sinan usta" ↔ CARİLER'de "Sinan Sele")
       `party_certain`=false ve sor ("Sinan Sele mi, başka bir Sinan mı?"). Aynı ad ya da hafızadaki takma ad → true.
+      Kişi sorusu TEK kısa cümle; parantez, avans/bakiye açıklaması, "değilse adını söyle" ekleme (kod ekler).
       Listede benzeri olmayan YENİ kişi işiyle anılıyorsa ("boyacı usta", "kaynakçı") o adla yeni kişi aç (`party_name`), adını SORMA —
       kaydı değiştirmez; party_certain=true.
     - Bir kişiye (usta, firma, tedarikçi) yapılan ödeme/iş o kişinin hesabına yazılır (`party_name`); gider yalnız kişisiz harcamadır
@@ -210,7 +211,10 @@ final class Understanding
         $name = self::partyName($d);
         // Kişi eşleşmesi belirsiz: "Sinan usta" → "Sinan Sele" sessizce olmasın (AI söyler ya da unvan+yalnız ad kuralı).
         if (self::partyUnclear($d)) {
-            return self::question($d) ?? ('"' . ($d['party_said'] ?? $name) . '" dediğiniz ' . $name . ' mi, yoksa başka biri mi?');
+            // Kişi sorusu kısa kalır: AI'ın parantezli eki ("(Açık avansı 20.000 ₺ olan … için yazıyorum, değilse adını söyle.)") atılır (Yeni Yapı 20.10).
+            $q = ($q = self::question($d)) !== null ? trim(preg_replace('/\s*\([^)]*\)/u', '', $q)) : null;
+
+            return ($q ?: null) ?? ('"' . ($d['party_said'] ?? $name) . '" dediğiniz ' . $name . ' mi, yoksa başka biri mi?');
         }
         // Borç kaydında yalnız iş bitti / anlaşma / borç para anlamlı; "eski borç ödemesi" vb. → bilinmiyor say, sor.
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_DEBT_NOTE && ! empty($d['work_status'])

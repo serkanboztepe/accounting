@@ -164,15 +164,29 @@ final class DraftFollowUp
         if ($date && $date !== now(self::TIMEZONE)->toDateString()) {
             $label .= ' (' . Carbon::parse($date)->locale('tr')->translatedFormat('j F') . ')';
         }
+        if (AdvanceOffset::used($p->extracted ?? []) > 0) {
+            $label .= ' (avanstan düşülecek)';
+        }
 
         return $label;
     }
 
-    /** @param  array{code:string,ask:string,why:string}  $gap */
+    /**
+     * Soru "why" içinde zaten yazılıysa bir daha yazılmaz (Yeni Yapı 20.10: "Boyacı Ahmet'in işi mi?" iki kez çıktı) — yalnız ne yazacağı.
+     *
+     * @param  array{code:string,ask:string,why:string,party?:bool}  $gap
+     */
     private static function ask(array $gap): string
     {
-        return $gap['code'] === DraftGaps::CONFIRM
-            ? 'Kaydetmem için *evet*, gerek yoksa *iptal* yaz.'
-            : $gap['ask'] . ' Gerek yoksa *iptal* yaz.';
+        if ($gap['code'] === DraftGaps::CONFIRM) {
+            return 'Kaydetmem için *evet*, gerek yoksa *iptal* yaz.';
+        }
+        if (! str_contains($gap['why'], $gap['ask'])) {
+            return $gap['ask'] . ' Gerek yoksa *iptal* yaz.';
+        }
+
+        return ! empty($gap['party'])
+            ? '*evet* yaz, başka biriyse adını yaz, gerek yoksa *iptal*.'
+            : 'Cevabını yaz, gerek yoksa *iptal*.';
     }
 }

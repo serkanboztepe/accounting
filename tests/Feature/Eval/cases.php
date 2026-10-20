@@ -363,7 +363,7 @@ return [
         // Kişi belirsiz: "Sinan usta" (sıvacı) ≠ kayıtlı "Sinan Sele" (bağlantı yapılan tedarikçi) olabilir → sor (sistem sessizce Sinan Sele'ye yazdı)
         ['id' => 'U-kisi-belirsiz-sinan-usta', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Sinan usta sıvayı bitirdi 80 bin verdim']],
-            'expect' => ['asks' => true, 'reply_has' => ['Sinan Sele'], 'saved' => ['ledger' => 0]]],
+            'expect' => ['asks' => true, 'reply_has' => ['Sinan Sele'], 'reply_not' => ['değilse adını', 'için yazıyorum'], 'saved' => ['ledger' => 0]]],
         // ================================================================ FAZ 1 (17.10 müşteri taraması) — gerçek mesajlar
         // 1.1 Emre: 08:00 "Hikmet maaş günü" hatırlatması, 10:21 "Ödendi" → "anlayamadım" dedi (asistan 30 dk görüyordu)
         ['id' => 'F1-hatirlatmaya-gec-odendi', 'firm' => 'akkus', 'group' => 'understand', 'seed' => 'akkus-hikmet-hatirlatma',

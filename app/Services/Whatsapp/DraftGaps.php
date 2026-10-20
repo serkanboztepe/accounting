@@ -66,7 +66,7 @@ final class DraftGaps
         }
         // Önce anla (16.10): kaydı değiştirecek tahmin varken onaya hazır değil — AI'ın sorusu.
         if (($ask = Understanding::gap($d)) !== null) {
-            return ['code' => self::DETAIL, 'ask' => $ask, 'why' => 'Bir şeyi netleştirmeden kaydetmek istemedim: ' . $ask];
+            return ['code' => self::DETAIL, 'ask' => $ask, 'why' => 'Kaydetmeden önce sormak istedim: ' . $ask, 'party' => Understanding::partyUnclear($d)];
         }
         if (self::missingParty($d)) {
             return ['code' => self::PARTY, 'ask' => 'Kime/kimden olduğunu yazar mısın? (cari adı)',
