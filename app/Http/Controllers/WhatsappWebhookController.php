@@ -1236,7 +1236,7 @@ class WhatsappWebhookController extends Controller
         // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
         $data = Understanding::apply($data);
         // Çek bölme hesabı kodda; toplam ödemeyle tutmazsa soru (firma 7, 20.10 Yusuf Dündar 11 çek).
-        $data = CheckSplit::prepare($data, $pending?->extracted);
+        $data = CheckSplit::prepare($data, $pending?->extracted, $this->inboundBody);
         if (($checks = Understanding::checksNote($data)) && ! str_contains((string) ($data['description'] ?? ''), $checks)) {
             // Düzeltmede önceki çek notu açıklamada kalmışsa yenisiyle değişir (iki liste olmasın).
             $desc = preg_replace('/\s*—\s*\d+ çek: .*$/u', '', (string) ($data['description'] ?? ''));
@@ -1320,7 +1320,7 @@ class WhatsappWebhookController extends Controller
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
         $data['work_choice'] = null;
         if ($ask !== null && $ask !== ($data['scale_question'] ?? null) && $ask !== ($data['cross_question'] ?? null)
-            && ! CheckSplit::shown($data) && WorkChoice::applies($data)) {
+            && CheckSplit::question($data) === null && WorkChoice::applies($data)) {
             // AI'ın asıl sorusu ("Asansör takıldı mı, yoksa peşin mi?") saklanır: serbest cevabı ("Takılmadı") ikinci göz onunla
             // karşılaştırır — numaralı başlık ("— ne için?") cevabı anlamsız gösteriyordu (eval 21.10, soru döngüsü).
             $data['work_question'] = str_contains($ask, '*1* ') ? ($pending?->extracted['work_question'] ?? $ask) : $ask;

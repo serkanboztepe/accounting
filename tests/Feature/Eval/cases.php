@@ -212,6 +212,10 @@ return [
             'steps' => [['send' => "Yusuf Dündar'a 400 bin çek verdim, iş sonra yapılacak, 2 çek biri şubat diğeri mayıs ayın ortaları"]],
             'expect' => ['reply_has' => ['15.02.2027', '15.05.2027', '200.000'], 'reply_not' => ['nasıl böleyim']]],
 
+        ['id' => 'f7-cek-yilsiz-vade-gelecek-yil', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => "Yusuf Dündar'a 300 bin çek verdim, iş sonra yapılacak, vadesi şubat ortası"]],
+            'expect' => ['reply_has' => ['15.02.2027']]],
+
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Ak Un'dan 20 çuval un aldım 17000"]],

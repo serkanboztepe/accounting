@@ -58,7 +58,7 @@ final class CheckSplit
      * Plan → çek listesi. Tutar söylenmemiş ve eşit bölüm yuvarlak değilse seçenek sorusu hazırlanır (`check_choice` = split).
      * Plan yoksa yazılan çeklerin toplamı denetlenir (`check_choice` = sum).
      */
-    public static function prepare(array $d, ?array $previous = null): array
+    public static function prepare(array $d, ?array $previous = null, string $body = ''): array
     {
         $d['check_choice'] = null;
         $amount = (float) ($d['amount'] ?? 0);
@@ -83,9 +83,100 @@ final class CheckSplit
         }
         if (self::sumGap($d) !== null) {
             $d['check_choice'] = 'sum';
+
+            return $d;
+        }
+        // Vade yazıyla geldiyse ("şubat ortası", "15 mart") tarihe çevrilir; okunamayan vadeyle kayıt yapılmaz (çek vadesiz olamaz —
+        // Sonnet 21.10 "şubat ortası" yazdı, kayıt veritabanında düştü).
+        $checks = array_values(array_filter((array) ($d['checks'] ?? []), 'is_array'));
+        foreach ($checks as $i => $c) {
+            if (($text = self::dueText((string) ($c['due_date_text'] ?? ''))) !== null) {
+                $checks[$i]['due_date_text'] = $text;
+            }
+        }
+        if ($checks !== []) {
+            $d['checks'] = $checks;
+            if (array_filter($checks, fn ($c) => IssuedChecks::dueDate((string) ($c['due_date_text'] ?? ''))[0] === null) !== []) {
+                $d['check_choice'] = 'due';
+
+                return $d;
+            }
+        }
+        // Vadesi geçmiş çek: yeni başlayan eski çekini girebilir → engel yok, ama yıl yazılmadıysa sorulur (AI yanlış yıl seçebilir).
+        $dues = array_column(array_values(array_filter((array) ($d['checks'] ?? []), 'is_array')), 'due_date_text');
+        if (! empty($previous['past_ok']) && array_column((array) ($previous['checks'] ?? []), 'due_date_text') === $dues) {
+            $d['past_ok'] = true;
+        }
+        if (empty($d['past_ok']) && self::pastDues($d, $body) !== []) {
+            $d['check_choice'] = 'past';
         }
 
         return $d;
+    }
+
+    /**
+     * Bugünden önceki vadeler — yılı kullanıcı yazdıysa ("15.02.2026", "15/02/26") sayılmaz: bilerek eski çek giriyor.
+     *
+     * @return array<int, string> çek sırası => vade (Y-m-d)
+     */
+    public static function pastDues(array $d, string $body = ''): array
+    {
+        $out = [];
+        foreach (array_values(array_filter((array) ($d['checks'] ?? []), 'is_array')) as $i => $c) {
+            [$due] = IssuedChecks::dueDate((string) ($c['due_date_text'] ?? ''));
+            if ($due === null || $due >= now()->toDateString()) {
+                continue;
+            }
+            $year = substr($due, 0, 4);
+            if (preg_match('/\b' . $year . '\b|\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*' . substr($year, 2) . '\b/u', $body)) {
+                continue;
+            }
+            $out[$i] = $due;
+        }
+
+        return $out;
+    }
+
+    private const MONTHS = ['ocak' => 1, 'şubat' => 2, 'subat' => 2, 'mart' => 3, 'nisan' => 4, 'mayıs' => 5, 'mayis' => 5, 'haziran' => 6,
+        'temmuz' => 7, 'ağustos' => 8, 'agustos' => 8, 'eylül' => 9, 'eylul' => 9, 'ekim' => 10, 'kasım' => 11, 'kasim' => 11, 'aralık' => 12, 'aralik' => 12];
+
+    /**
+     * Yazıyla vade → "15.02.2027": "15 şubat (2027)", "şubat ortası" (15), "şubat başı" (1), "şubat sonu" / yalnız "şubat" (ay sonu).
+     * Yıl yoksa en yakın gelecek. Rakamla yazılmışsa (31-02-2027) ya da ay adı yoksa null — olduğu gibi kalır.
+     */
+    public static function dueText(string $text): ?string
+    {
+        $t = mb_strtolower(strtr(trim($text), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        if ($t === '' || preg_match('/\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2,4}/', $t)
+            || ! preg_match('/(' . implode('|', array_keys(self::MONTHS)) . ')/u', $t, $m)) {
+            return null;
+        }
+        $month = self::MONTHS[$m[1]];
+        $year = preg_match('/\b(20\d{2})\b/', $t, $y) ? (int) $y[1] : null;
+        $base = Carbon::create($year ?? now()->year, $month, 1)->startOfDay();
+        $day = match (true) {
+            (bool) preg_match('/(?<![\d.])(\d{1,2})\s*(?:' . $m[1] . ')/u', $t, $dm) => min((int) $dm[1], $base->daysInMonth),
+            str_contains($t, 'orta') => 15,
+            (bool) preg_match('/\bba[şs]/u', $t) => 1,
+            default => $base->daysInMonth,
+        };
+        $date = $base->setDay(max(1, $day));
+        while ($year === null && $date->lt(now()->startOfDay())) {
+            $date = $date->addYearNoOverflow();
+        }
+
+        return $date->format('d.m.Y');
+    }
+
+    /** Geçmiş vadeyi geleceğe taşı (gün/ay aynı, yıl ileri). */
+    private static function nextYear(string $due): string
+    {
+        $date = Carbon::parse($due);
+        while ($date->lt(now()->startOfDay())) {
+            $date->addYearNoOverflow();
+        }
+
+        return $date->format('d.m.Y');
     }
 
     /**
@@ -129,6 +220,20 @@ final class CheckSplit
             return 'Çeklerin toplamı ' . Money::format($sum) . ' ₺, ödeme ' . Money::format((float) $d['amount']) . ' ₺ — '
                 . Money::format(abs($diff)) . ' ₺ ' . ($diff > 0 ? 'eksik' : 'fazla') . ".\n" . implode(' · ', $opts);
         }
+        if (($d['check_choice'] ?? null) === 'due') {
+            return 'Çekin vadesini gün.ay.yıl olarak yazar mısın? (ör. 15.02.2027)';
+        }
+        if (($d['check_choice'] ?? null) === 'past') {
+            $past = self::pastDues($d, '');
+            if ($past === []) {
+                return null;
+            }
+            $first = Carbon::parse(reset($past))->format('d.m.Y');
+            $head = count($past) === 1 ? $first . ' vadesi geçmiş görünüyor.'
+                : count($past) . ' çekin vadesi geçmiş görünüyor (' . $first . ' …).';
+
+            return $head . "\n*1* Eski çek, öyle kalsın · *2* " . self::nextYear(reset($past)) . (count($past) > 1 ? ' … ' : ' ') . 'olsun';
+        }
         if (($d['check_choice'] ?? null) !== 'split' || ! is_array($plan = $d['check_plan'] ?? null)) {
             return null;
         }
@@ -159,6 +264,16 @@ final class CheckSplit
 
             return array_merge($d, ['check_plan' => $plan, 'checks' => self::build($amount, $plan), 'check_choice' => null, 'question' => null]);
         }
+        if (($d['check_choice'] ?? null) === 'past' && in_array($n, [1, 2], true)) {
+            $checks = $d['checks'];
+            if ($n === 2) {
+                foreach (self::pastDues($d, '') as $i => $due) {
+                    $checks[$i]['due_date_text'] = self::nextYear($due);
+                }
+            }
+
+            return array_merge($d, ['checks' => $checks, 'check_choice' => null, 'question' => null, 'past_ok' => true]);
+        }
         if (($d['check_choice'] ?? null) === 'sum' && ($gap = self::sumGap($d)) !== null) {
             [$sum, $last] = $gap;
             $hasLast = $last > 0;
@@ -178,7 +293,7 @@ final class CheckSplit
 
     public static function shown(array $d): bool
     {
-        return in_array($d['check_choice'] ?? null, ['split', 'sum'], true);
+        return in_array($d['check_choice'] ?? null, ['split', 'sum', 'past'], true);
     }
 
     /**

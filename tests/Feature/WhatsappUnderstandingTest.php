@@ -411,6 +411,57 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertSame(['28.02.2027', '31.05.2027', '31.08.2027', '30.11.2027'], array_column($every['checks'], 'due_date_text'));
     }
 
+    /** Kullanıcı 21.10: geçmiş çek engellenmez (yeni başlayan eski çekini girer) ama yıl yazılmadıysa sorulur. */
+    public function test_past_due_cheque_asks_unless_year_written(): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-21 12:00'));
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $draft = fn () => $this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 300000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'checks' => [['number' => null, 'due_date_text' => '15.02.2026', 'amount' => 300000]]]);
+
+        $this->ai($draft());
+        $q = $this->send('Yusufa 300 bin çek verdim şubat ortası');
+        $this->assertStringContainsString('15.02.2026 vadesi geçmiş görünüyor.', $q);
+        $this->assertStringContainsString('*1* Eski çek, öyle kalsın · *2* 15.02.2027 olsun', $q);
+        $this->assertStringContainsString('vade 15.02.2027', $this->send('2'));
+        $this->send('evet');
+        $this->assertSame('2027-02-15', \App\Models\Check::where('party_id', $yusuf->id)->first()->due_date->toDateString());
+
+        // Yılı kendisi yazdı → eski çek, sorulmaz.
+        $this->send('iptal');
+        $this->ai($draft());
+        $this->assertStringNotContainsString('vadesi geçmiş', $this->send('Yusufa 300 bin çek vermiştim vadesi 15.02.2026'));
+    }
+
+    /** Sonnet 21.10: vadeyi "şubat ortası" diye yazı olarak verdi → vadesiz çek kaydı veritabanında düştü. */
+    public function test_written_due_dates_are_parsed_or_asked(): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-21 12:00'));
+        $f = fn ($t) => \App\Services\Whatsapp\CheckSplit::dueText($t);
+        $this->assertSame('15.02.2027', $f('şubat ortası'));
+        $this->assertSame('28.02.2027', $f('Şubat sonu'));
+        $this->assertSame('28.02.2027', $f('şubat'));
+        $this->assertSame('10.03.2027', $f('10 mart'));
+        $this->assertSame('01.11.2026', $f('kasım başı'));
+        $this->assertSame('15.02.2026', $f('15 şubat 2026'), 'yıl yazıldıysa aynen');
+        $this->assertNull($f('31-02-2027'));
+
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 300000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'checks' => [['number' => null, 'due_date_text' => 'şubat ortası', 'amount' => 300000]]]));
+        $this->assertStringContainsString('vade 15.02.2027', $this->send('Yusufa 300 bin çek verdim vadesi şubat ortası'));
+
+        $this->send('iptal');
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 300000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'checks' => [['number' => null, 'due_date_text' => 'sonra', 'amount' => 300000]]]));
+        $this->assertStringContainsString('Çekin vadesini gün.ay.yıl olarak yazar mısın?', $this->send('Yusufa 300 bin çek verdim'));
+        $this->assertStringContainsString('❓', $this->send('evet'));
+        $this->assertSame(0, \App\Models\Check::where('party_id', $yusuf->id)->count());
+    }
+
     public function test_cheque_split_options(): void
     {
         $this->assertCount(1, \App\Services\Whatsapp\CheckSplit::options(900000, 3), 'eşit ve yuvarlak → sorulmaz');
