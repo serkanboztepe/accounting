@@ -516,11 +516,11 @@ class WhatsappUnderstandingTest extends TestCase
 
     public function test_missing_understanding_fields_keep_old_behaviour(): void
     {
-        // Alan yoksa (eski taslak) kapı devreye girmez — eski "Ne için verdin?" akışı sürer.
+        // Alan yoksa (eski taslak) kapı devreye girmez — açık borcu olmayan cariye ödemede "ne için?" numaralı sorulur (21.10).
         $ali = Party::create(['name' => 'Anlama Testi Ali']);
         $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 5000, 'party_id' => $ali->id]));
 
-        $this->assertStringContainsString('Ne için verdin', $this->send('Aliye 5000 ödedim'));
+        $this->assertStringContainsString('— ne için?', $this->send('Aliye 5000 ödedim'));
     }
 
     /** Review 3 (18.10): "usta işi geçen hafta bitirmişti, bugün parasını verdim" — işin borcu kayıtlıyken yeni alış açılmaz. */

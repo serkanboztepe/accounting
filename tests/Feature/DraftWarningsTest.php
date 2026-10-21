@@ -84,6 +84,6 @@ class DraftWarningsTest extends TestCase
         $reply = html_entity_decode($this->post('/whatsapp/webhook', ['From' => 'whatsapp:+905558880012', 'Body' => 'Recepe 8000 ödedim', 'NumMedia' => 0])
             ->getContent(), ENT_QUOTES | ENT_XML1);
 
-        $this->assertMatchesRegularExpression('/⚠️ Aynı tutarda[^\n]*\n\n(Kısaca yaz|Kaydedeyim mi)/u', $reply);
+        $this->assertMatchesRegularExpression('/⚠️ Aynı tutarda[^\n]*\n(\n?Kısaca yaz|\n?Kaydedeyim mi|Vazgeçmek için)/u', $reply);
     }
 }

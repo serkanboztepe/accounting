@@ -111,13 +111,14 @@ class WhatsappLedgerFlowTest extends TestCase
         ]));
 
         $reply = $this->send("Mehmet'e 20 bin verdim");
-        $this->assertStringContainsString('açık borcun görünmüyor', $reply);
+        $this->assertStringContainsString('*2* Peşin (iş/mal sonra)', $reply); // 21.10: numaralı soru
 
         // "evet" seçim yerine geçmez
-        $this->assertStringContainsString('Önce seç', $this->send('evet'));
+        $this->assertStringContainsString('❓', $this->send('evet'));
         $this->assertSame(0, PartyLedgerEntry::where('party_id', $party->id)->count());
 
-        $this->send('2');
+        $this->assertStringContainsString('önceden ödeme', $this->send('2')); // kart (hızlı kayıt kapalı) → evet
+        $this->send('evet');
 
         $entry = PartyLedgerEntry::where('party_id', $party->id)->sole();
         $this->assertStringStartsWith('Avans', (string) $entry->description);
@@ -135,8 +136,8 @@ class WhatsappLedgerFlowTest extends TestCase
         ]));
 
         $this->send("Ali'ye 5 bin verdim");
-        $this->assertStringContainsString('Ne için ödedin?', $this->send('1'));
-        $this->send('evet'); // amacı atla
+        $this->send('1');
+        $this->send('evet');
 
         $this->assertSame(0, Expense::where('party_id', $party->id)->count());
         $this->assertEqualsCanonicalizing([PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT],

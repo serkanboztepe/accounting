@@ -134,8 +134,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->fakeAi($this->entry($payment), $this->entry($payment + ['payment_purpose' => 'loan']));
 
         $question = $this->send("Arda Test Ahmet'e 8 bin verdim");
-        $this->assertStringContainsString('Ne için verdin?', $question);
-        $this->assertStringNotContainsString('1)', $question);
+        $this->assertStringContainsString('*4* Borç verdim (geri alacağım)', $question); // 21.10: eski "Ne için verdin?" → numaralı
 
         $summary = $this->send('geri alacağım');
         $this->assertStringContainsString('· borç verdin (geri alacaksın)', $summary);

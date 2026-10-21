@@ -88,8 +88,10 @@ final class CheckSplit
             return $d;
         }
         // Fotoğraf çek ama hiçbir çek okunmadıysa çeksiz ödeme yazılmaz (firma 7, 21.10 09:15: 4 çeklik sayfa → ödeme kaydedildi, çek yok).
+        // Soru bir kez sorulduysa açıklamada "çek" kalmasa da çek gelene kadar sürer (21.10: düzeltme turunda açıklama değişti).
         if (! empty($d['from_document']) && ($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && empty($d['checks'])
-            && (($d['payment_type'] ?? null) === 'check' || preg_match('/\bçek/iu', (string) ($d['description'] ?? '')))) {
+            && (($d['payment_type'] ?? null) === 'check' || preg_match('/\bçek/iu', (string) ($d['description'] ?? ''))
+                || ($previous['check_choice'] ?? null) === 'unread')) {
             $d['check_choice'] = 'unread';
 
             return $d;

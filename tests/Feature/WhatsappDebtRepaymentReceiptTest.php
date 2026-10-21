@@ -339,4 +339,33 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $this->assertSame(1, \App\Models\WhatsappMessage::where('phone', \App\Support\Phone::normalize(self::PHONE))
             ->where('direction', 'in')->where('created_at', '>=', now()->subMinute())->count(), 'gelen mesaj bir kez kaydedilir');
     }
+
+    /** 21.10 (2. deneme): sıradaki fotoğraf açık kartın cevabı beklenirken işlenip ona karışmıştı — kart kapanınca işlenir. */
+    public function test_queued_photo_waits_for_open_draft(): void
+    {
+        config(['services.whatsapp.from' => '+14786665916']);
+        $this->fakeAi(
+            $this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 300, 'description' => 'Birinci fiş', 'paid' => true]),
+            $this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 450, 'description' => 'İkinci fiş', 'paid' => true]),
+        );
+        $this->sendPdf(); // birinci fiş: kart açık, "evet" bekliyor
+        $this->assertSame('Birinci fiş', WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->sole()->extracted['description']);
+
+        $lockName = \App\Tenancy\Tenancy::key('wa-msg:' . \App\Support\Phone::normalize(self::PHONE));
+        \Illuminate\Support\Facades\Cache::lock($lockName, 1)->get();
+        \App\Http\Controllers\WhatsappWebhookController::$lockWait = 0;
+        try {
+            $this->assertStringContainsString('açık kaydı bitirince', $this->sendPdf());
+        } finally {
+            \App\Http\Controllers\WhatsappWebhookController::$lockWait = 12;
+        }
+        // Açık kart varken sıradaki işlenmedi, açık kart değişmedi.
+        $open = WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->get();
+        $this->assertSame(['Birinci fiş'], $open->map(fn ($p) => $p->extracted['description'])->all());
+
+        $this->send('evet'); // birinci kaydedildi → sıradaki işlenir
+        $this->assertSame('İkinci fiş', WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->sole()->extracted['description']);
+        Http::assertSent(fn ($r) => str_contains((string) ($r['Body'] ?? ''), 'Sıradaki fotoğraf'));
+        $this->assertSame(1, Expense::where('description', 'Birinci fiş')->count());
+    }
 }

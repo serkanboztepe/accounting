@@ -14,6 +14,7 @@ use App\Support\Money;
  *  - Ödeme, belirsiz   : 1 İş/mal geldi · 2 Peşin (iş/mal sonra) · 3 Eski borcu ödedim
  *  - Alış              : 1 İş yapıldı / mal geldi · 2 Önceden ödüyorum (iş/mal sonra)
  *  - "Borcum var"      : 1 İş bitti, parasını vermedim · 2 Anlaştık, iş başlamadı · 3 Borç para aldım
+ *  - Açık borcu olmayan cariye ödeme (eski "Ne için verdin?" menüsü): ödeme seçeneklerine + 4 Borç verdim (geri alacağım)
  */
 final class WorkChoice
 {
@@ -45,11 +46,11 @@ final class WorkChoice
         return match ($d['kind'] ?? null) {
             ExpenseExtractor::KIND_DEBT_NOTE => ['İş bitti, parasını vermedim', 'Anlaştık, iş başlamadı', 'Borç para aldım'],
             ExpenseExtractor::KIND_PURCHASE => ['İş yapıldı / mal geldi', 'Önceden ödüyorum (iş/mal sonra)'],
-            default => match ($d['is_service'] ?? null) {
+            default => [...match ($d['is_service'] ?? null) {
                 true => ['Yaptığı işin parası', 'İşe başlamadan, peşin', 'Eski borcu ödedim'],
                 false => ['Mal geldi', 'Bağlantı / peşin (mal sonra)', 'Eski borcu ödedim'],
                 default => ['İş/mal geldi', 'Peşin (iş/mal sonra)', 'Eski borcu ödedim'],
-            },
+            }, ...(! empty($d['work_loan_option']) ? ['Borç verdim (geri alacağım)'] : [])],
         };
     }
 
@@ -123,7 +124,7 @@ final class WorkChoice
         $status = match (true) {
             $kind === ExpenseExtractor::KIND_DEBT_NOTE => [1 => Understanding::DONE, 2 => Understanding::AGREEMENT, 3 => Understanding::NO_WORK][$n],
             $kind === ExpenseExtractor::KIND_PURCHASE => [1 => Understanding::DONE, 2 => Understanding::NOT_YET][$n],
-            default => [1 => Understanding::DONE, 2 => Understanding::NOT_YET, 3 => Understanding::OLD_DEBT][$n],
+            default => [1 => Understanding::DONE, 2 => Understanding::NOT_YET, 3 => Understanding::OLD_DEBT, 4 => Understanding::NO_WORK][$n],
         };
         $extra = $kind === ExpenseExtractor::KIND_PURCHASE && $status === Understanding::NOT_YET ? ['paid' => true] : [];
 

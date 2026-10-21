@@ -122,8 +122,9 @@ class WhatsappWebhookController extends Controller
             // Fotoğraf sıraya alınır (firma 7, 21.10: 3 çek sayfası birden atıldı → ikisine "tekrar gönder" dendi): önceki iş bitince
             // aynı istek arka planda işlenir, cevap ayrı mesaj gider. Yazı mesajı eskisi gibi (tekrar gönder) — sırası önemli olabilir.
             if ($numMedia > 0 && ! $request->attributes->get('queued')) {
-                $this->queueAfterBusy($request, $phone);
-                $busy = '📷 Fotoğrafı aldım — öncekini bitirince buna bakıyorum.';
+                $this->enqueuePhoto($request, $phone);
+                $this->scheduleDrain($phone);
+                $busy = '📷 Fotoğrafı aldım — açık kaydı bitirince sırayla bakacağım.';
                 $this->logMessage($phone, 'out', $busy, false); // gelen mesaj sırası gelince kaydedilir
 
                 return $this->twiml($busy);
@@ -197,6 +198,10 @@ class WhatsappWebhookController extends Controller
                 $this->runAfterResponse($phone, $incoming, $lock->owner());
                 $deferred = true;
             }
+            // Sırada fotoğraf varsa (meşgulken gelmişti) açık kart kapanınca işlenir.
+            if (! $request->attributes->get('queued') && $this->photoQueue($phone) !== []) {
+                $this->scheduleDrain($phone);
+            }
 
             return $response;
         } finally {
@@ -223,6 +228,10 @@ class WhatsappWebhookController extends Controller
     private static function insertBeforeFooter(string $out, string $lines): string
     {
         if (preg_match('/\n\n(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|✅ Onaylamak|\*evet\* \/)/u', $out, $m, PREG_OFFSET_CAPTURE)) {
+            return substr($out, 0, $m[0][1]) . "\n" . $lines . substr($out, $m[0][1]);
+        }
+        // Soru kartı: uyarı soru ile "Vazgeçmek için *iptal*." arasına.
+        if (preg_match('/\nVazgeçmek için \*iptal\*\.$/u', $out, $m, PREG_OFFSET_CAPTURE)) {
             return substr($out, 0, $m[0][1]) . "\n" . $lines . substr($out, $m[0][1]);
         }
 
@@ -290,27 +299,73 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
-     * Meşgulken gelen fotoğraf: istek kapandıktan sonra önceki iş bitene kadar (en çok 5 dk) bekler, aynı mesajı baştan işler
-     * (kilit, çift mesaj koruması dahil), cevabı WhatsApp API ile gönderir. Gelen mesaj kaydı zaten yazıldı (meşgul yolunda).
+     * Fotoğraf sırası (firma 7, 21.10: 3 çek sayfası birden). Meşgulken gelen fotoğraf sıraya girer; açık kart (son 30 dk'da
+     * onay/cevap bekleyen) kapanınca sıradaki işlenir — ekranda hep tek soru olsun (sıradaki fotoğraf açık kartın devamı sanılıp
+     * tutarı/çekleri karışmıştı). İstek kapandıktan sonra çalışır, cevap ayrı mesaj gider.
      */
-    private function queueAfterBusy(Request $request, string $phone): void
+    private function photoQueueKey(string $phone): string
     {
+        return Tenancy::key('wa-photo-queue:' . Phone::normalize($phone));
+    }
+
+    /** @return list<array<string, mixed>> sıradaki fotoğrafların Twilio alanları */
+    private function photoQueue(string $phone): array
+    {
+        return (array) Cache::get($this->photoQueueKey($phone), []);
+    }
+
+    private function enqueuePhoto(Request $request, string $phone): void
+    {
+        Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, function () use ($request, $phone) {
+            Cache::put($this->photoQueueKey($phone), [...$this->photoQueue($phone), $request->all()], now()->addDay());
+        });
+    }
+
+    private function popPhoto(string $phone): ?array
+    {
+        return Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, function () use ($phone) {
+            $queue = $this->photoQueue($phone);
+            $next = array_shift($queue);
+            $queue === [] ? Cache::forget($this->photoQueueKey($phone)) : Cache::put($this->photoQueueKey($phone), $queue, now()->addDay());
+
+            return $next;
+        });
+    }
+
+    private bool $drainScheduled = false;
+
+    private function scheduleDrain(string $phone): void
+    {
+        if ($this->drainScheduled) {
+            return;
+        }
+        $this->drainScheduled = true;
         $firm = Tenancy::current();
         $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
-        app()->terminating(function () use ($request, $phone, $firm, $lockName) {
-            $work = function () use ($request, $phone, $lockName) {
-                try {
-                    Cache::lock($lockName, 360)->block(300, fn () => true); // sıra gelene kadar bekle, sonra bırak
-                } catch (LockTimeoutException) {
-                    $this->deliver($phone, '⏳ Fotoğrafa sıra gelmedi — birkaç dakika sonra tekrar gönderir misin?');
-
-                    return;
-                }
-                $request->attributes->set('queued', true);
-                $controller = app(self::class);
-                app()->call([$controller, '__invoke'], ['request' => $request]);
-                foreach ($controller->replies as $reply) {
-                    $this->deliver($phone, $reply, log: false); // konuşma kaydını iç işlem yazdı
+        app()->terminating(function () use ($phone, $firm, $lockName) {
+            $work = function () use ($phone, $lockName) {
+                for ($i = 0; $i < 20; $i++) {
+                    try {
+                        $item = Cache::lock($lockName, 360)->block(300, fn () => WhatsappPendingExpense::where('phone', $phone)
+                            ->where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))->exists()
+                            ? null : $this->popPhoto($phone));
+                    } catch (LockTimeoutException) {
+                        return;
+                    }
+                    if ($item === null) {
+                        return; // açık kart var (cevabı gelince yeniden denenir) ya da sıra boş
+                    }
+                    $request = Request::create('/whatsapp/webhook', 'POST', $item);
+                    $request->attributes->set('via_hub', true); // telefon/imza ilk gelişte denetlendi
+                    $request->attributes->set('queued', true);
+                    $controller = app()->make(self::class);
+                    app()->call([$controller, '__invoke'], ['request' => $request]);
+                    foreach ($controller->replies as $n => $reply) {
+                        if ($n === 0) {
+                            $reply = is_array($reply) ? ['📷 *Sıradaki fotoğraf*' . "\n" . $reply[0], $reply[1] ?? null] : '📷 *Sıradaki fotoğraf*' . "\n" . $reply;
+                        }
+                        $this->deliver($phone, $reply, log: false); // konuşma kaydını iç işlem yazdı
+                    }
                 }
             };
             try {
@@ -656,6 +711,10 @@ class WhatsappWebhookController extends Controller
 
             // Numaralı iş durumu sorusu ("*1* Mal geldi · *2* Bağlantı / peşin · *3* Eski borcu ödedim") → seçim kayda çevrilir. Eski
             // "*1* iş/mal aldım, *2* avans" menüsünden ÖNCE (yoksa "2" orada yakalanıp kayıt yarım kalıyordu).
+            // Çek okunamadı / tekrar çek / vade yok: numara bu sorunun cevabı değil (21.10: "2" iş durumu sanıldı, çeksiz kaydetti).
+            if (in_array($pending->extracted['check_choice'] ?? null, ['unread', 'dup', 'due'], true) && ctype_digit($body)) {
+                return $this->twiml('❓ ' . CheckSplit::question($pending->extracted) . "\nVazgeçmek için *iptal*.");
+            }
             // Çek bölme / toplam sorusu ("*1* 10 × 100.000 + son çek 187.000 · …") → kod çekleri yazar.
             if (ctype_digit($body) && CheckSplit::shown($pending->extracted)) {
                 $data = CheckSplit::choose($pending->extracted, (int) $body);
@@ -1366,6 +1425,14 @@ class WhatsappWebhookController extends Controller
             $ask = $cross;
             $data['cross_asked'] = [...$crossDone, $crossSig];
             $data['cross_question'] = $cross;
+        }
+        // Açık borcu olmayan cariye ödeme: eski serbest "Ne için verdin?" menüsü yerine aynı numaralı soru (21.10).
+        // Personel ödemesi eski soruda kalır ("Maaş mı, avans mı?").
+        if ($ask === null && DraftGaps::needsPaymentChoice($data) && empty($data['work_chosen']) && empty($data['party_check'])
+            && ! self::isStaff($data, DraftGaps::party($data)) && WorkChoice::applies(['work_status_known' => false] + $data)) {
+            $data['work_status_known'] = false;
+            $data['work_loan_option'] = true;
+            $ask = 'Bu ödeme ne için: iş/mal geldi mi, önceden mi ödüyorsun, yoksa eski bir borç mu?';
         }
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
         $data['work_choice'] = null;
