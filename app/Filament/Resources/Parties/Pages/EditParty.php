@@ -13,12 +13,16 @@ use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\Purchase;
 use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Filament\Resources\Sales\Schemas\SaleForm;
 use App\Filament\Resources\Sales\Schemas\SaleReturnForm;
+use App\Support\Forms\TradeLines;
 use App\Support\Money;
 use App\Support\PartyStatement;
+use App\Support\TradeDesk;
+use Illuminate\Validation\ValidationException;
 use Filament\Notifications\Notification;
 use App\Support\Forms\MoneyInput;
 use Filament\Actions\Action;
@@ -290,6 +294,56 @@ class EditParty extends EditRecord
                             'status'                => 'portfolio',
                         ]);
                     }
+                }
+            });
+    }
+
+    /**
+     * Stoklu alış — Cari Ekstresi içinden. Alışlar ekranı (purchases) açıkken "Alım Yaptım" buna bağlanır (satışın aynası;
+     * Akkuş 21.10: caride basit alış açılıyordu, un stoğa girmiyordu). Kayıt Alışlar tezgahıyla aynı yoldan (TradeDesk):
+     * ürünler stoğa girer, ürünsüz tutar da yazılabilir (nakliye, usta); peşinse alış + ödeme birlikte, bakiye değişmez.
+     */
+    public function newPurchaseAction(): Action
+    {
+        return Action::make('newPurchase')
+            ->modalHeading(fn (): string => 'Alım Yaptım · ' . $this->record->name)
+            ->modalSubmitActionLabel('Kaydet')
+            ->modalWidth('4xl')
+            ->schema([
+                DatePicker::make('purchase_date')->label('Tarih')->default(now())->required(),
+                Toggle::make('paid')
+                    ->label('Peşin (parası verildi)')
+                    ->helperText('Açıksa alış + ödeme birlikte yazılır, bakiye değişmez; kapalıysa sen borçlanırsın.')
+                    ->default(false)
+                    ->live(),
+                Select::make('payment_type')
+                    ->label('Ödeme')
+                    ->options(Purchase::PAYMENT_TYPES)
+                    ->default('cash')
+                    ->visible(fn (Get $get) => (bool) $get('paid')),
+                // Şube/proje yalnız ürünsüz alışta kullanılır (tezgahtaki kural: ürünlü alış işletme geneli).
+                Select::make('project_id')
+                    ->label(fn () => Labels::project())
+                    ->options(fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
+                    ->placeholder('Genel')
+                    ->helperText('Yalnız ürünsüz alışta kullanılır; ürünlü (stoğa giren) alış işletme geneline yazılır.')
+                    ->visible(fn () => (bool) config('modules.projects')),
+                TradeLines::repeater('in'),
+                MoneyInput::make('manual_amount', 'Ürünsüz tutar')
+                    ->required(false)
+                    ->helperText('Ürün seçmeden alış (ör. nakliye, usta, stok tutmadığın bir malzeme).'),
+                TextInput::make('notes')->label('Açıklama')->maxLength(255),
+            ])
+            ->action(function (array $data, Action $action): void {
+                try {
+                    TradeDesk::savePurchase([
+                        ...$data,
+                        'mode'     => ! empty($data['paid']) ? 'cash' : 'party',
+                        'party_id' => $this->record->id,
+                    ]);
+                } catch (ValidationException $e) {
+                    Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+                    $action->halt();
                 }
             });
     }

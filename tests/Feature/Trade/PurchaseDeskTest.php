@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Trade;
 
+use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Filament\Resources\Purchases\Pages\ListPurchases;
 use App\Filament\Resources\Purchases\PurchaseResource;
 use App\Models\Party;
@@ -134,5 +135,71 @@ class PurchaseDeskTest extends TestCase
     {
         config(['modules.purchases' => false]);
         $this->assertFalse(PurchaseResource::canAccess());
+    }
+
+    // Cari sayfasındaki "Alım Yaptım" stoklu firmada stoklu alışı açar (Akkuş 21.10: basit alış açılıyordu, un stoğa girmiyordu).
+    public function test_party_page_purchase_button_is_stocked_when_module_on(): void
+    {
+        $this->actingAs(User::factory()->create());
+        config(['modules.cari_supplier' => true]);
+        $party = Party::create(['name' => 'Uncu Test']);
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->assertSeeHtml("mountAction('newPurchase')")
+            ->assertDontSeeHtml("mountAction('newLedgerEntry', { type: 'alis' })");
+
+        config(['modules.purchases' => false]);
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->assertSeeHtml("mountAction('newLedgerEntry', { type: 'alis' })")
+            ->assertDontSeeHtml("mountAction('newPurchase')");
+    }
+
+    public function test_party_page_cash_purchase_adds_stock_balance_unchanged(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $p = $this->flour();
+        $party = Party::create(['name' => 'Uncu Test']);
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->mountAction('newPurchase')
+            ->fillForm([
+                'purchase_date' => '2026-10-20', 'paid' => true, 'payment_type' => 'cash',
+                'lines' => [['product_id' => $p->id, 'quantity' => 20, 'unit_price' => '1.250,00', 'amount' => '25.000,00']],
+            ])
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+
+        $this->assertSame(20.0, $p->fresh()->currentStock());
+        $types = PartyLedgerEntry::where('party_id', $party->id)->pluck('type')->sort()->values()->all();
+        $this->assertSame([PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT], $types);
+        $this->assertSame(0.0, PartyStatement::build($party)['balance']);
+    }
+
+    public function test_party_page_purchase_without_products_writes_debt(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $party = Party::create(['name' => 'Nakliyeci Test']);
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->mountAction('newPurchase')
+            ->fillForm(['purchase_date' => '2026-10-20', 'manual_amount' => '3.000,00', 'notes' => 'Nakliye'])
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+
+        $this->assertSame(-3000.0, PartyStatement::build($party)['balance'], 'Veresiye: biz borçlanırız');
+    }
+
+    public function test_party_page_purchase_empty_is_not_saved(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $party = Party::create(['name' => 'Boş Test']);
+        $before = PartyLedgerEntry::count();
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->mountAction('newPurchase')
+            ->fillForm(['purchase_date' => '2026-10-20'])
+            ->callMountedAction();
+
+        $this->assertSame($before, PartyLedgerEntry::count());
     }
 }

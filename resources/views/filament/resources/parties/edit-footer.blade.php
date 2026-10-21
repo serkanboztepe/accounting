@@ -38,11 +38,19 @@
                     İade Al
                 </x-filament::button>
             @endif
-            @if (config('modules.cari_supplier'))
+            @if (config('modules.purchases'))
+                {{-- Stoklu: ürünler stoğa girer (ürünsüz tutar da yazılabilir) — Alışlar tezgahıyla aynı kayıt --}}
+                <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
+                    wire:click="mountAction('newPurchase')">
+                    Alım Yaptım
+                </x-filament::button>
+            @elseif (config('modules.cari_supplier'))
                 <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
                     wire:click="mountAction('newLedgerEntry', { type: 'alis' })">
                     Alım Yaptım
                 </x-filament::button>
+            @endif
+            @if (config('modules.cari_supplier'))
                 <x-filament::button color="danger" icon="heroicon-o-arrow-up-circle"
                     wire:click="mountAction('newLedgerEntry', { type: 'odeme' })">
                     Ödeme Yaptım
