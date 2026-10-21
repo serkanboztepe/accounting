@@ -83,4 +83,42 @@ class PartyDeletionTest extends TestCase
             $this->assertFalse(PartyDeletion::confirmed($typed), $typed);
         }
     }
+
+    // 21.10: stoklu alış/satışı olan cari silinince veritabanı hata veriyordu (500) — artık silinmez, nedeni söylenir.
+    public function test_party_with_stocked_purchase_is_not_deleted_and_reason_is_told(): void
+    {
+        $this->actingAs(User::factory()->create());
+        config(['modules.stock' => true, 'modules.purchases' => true]);
+        $party = Party::create(['name' => 'Silme Test Uncu']);
+        $flour = \App\Models\Product::create(['name' => 'Silme Test Un', 'type' => \App\Models\Product::TYPE_PRODUCT]);
+        \App\Support\TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $party->id,
+            'lines' => [['product_id' => $flour->id, 'quantity' => 20, 'amount' => '25.000,00']]]);
+
+        $this->assertSame(['1 stoklu alış'], PartyDeletion::blockers($party));
+        $this->assertStringContainsString('Alışlar ekranından', PartyDeletion::description($party));
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->callAction(DeleteAction::class)
+            ->assertNotified('Cari silinemedi');
+
+        $this->assertNotNull($party->fresh());
+        $this->assertSame(20.0, $flour->currentStock(), 'stok bozulmadı');
+    }
+
+    // Veritabanı yine de reddederse: ekran hata vermez, cari ve işlem geçmişi olduğu gibi kalır (yarım "silindi" satırı yok).
+    public function test_database_refusal_is_reported_not_crashed(): void
+    {
+        $this->actingAs(User::factory()->create());
+        config(['modules.stock' => true, 'modules.purchases' => true]);
+        $party = Party::create(['name' => 'Silme Test Red']);
+        $flour = \App\Models\Product::create(['name' => 'Silme Test Red Un', 'type' => \App\Models\Product::TYPE_PRODUCT]);
+        \App\Support\TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $party->id,
+            'lines' => [['product_id' => $flour->id, 'quantity' => 5, 'amount' => '500,00']]]);
+        $logsBefore = \App\Models\ActivityLog::count();
+
+        $this->assertFalse(PartyDeletion::delete($party), 'engel atlansa da veritabanı reddeder (pgsql)');
+
+        $this->assertNotNull($party->fresh());
+        $this->assertSame($logsBefore, \App\Models\ActivityLog::count(), 'silinmeyen cari için "silindi" yazılmadı');
+    }
 }

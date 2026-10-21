@@ -80,6 +80,8 @@ class EditParty extends EditRecord
                 // Tek tıkla carinin tüm hareketleri gitmesin (kullanıcı 21.10): "Eminim Sil" yazılmadan silinmez.
                 ->schema(fn (Party $record) => PartyDeletion::blockers($record) ? [] : [PartyDeletion::confirmField()])
                 ->modalSubmitActionLabel('Cariyi sil')
+                // Veritabanı reddederse 500 değil, nedeni söylenir (PartyDeletion::delete).
+                ->using(fn (Party $record): bool => PartyDeletion::delete($record))
                 ->before(function (Party $record, DeleteAction $action) {
                     if (PartyDeletion::blockers($record)) {
                         Notification::make()->danger()->title('Cari silinemedi')->body(PartyDeletion::description($record))->send();

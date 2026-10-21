@@ -9,6 +9,9 @@ use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Quote;
 use App\Models\Sale;
+use Filament\Notifications\Notification;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Cari silinmeden önce ne olacağını söyle. Veritabanı kuralları: cari hareketleri ve direkt satışlar
@@ -25,13 +28,39 @@ class PartyDeletion
             self::count(Check::where('party_id', $party->id)->count(), 'çek'),
             self::count(Contract::withoutGlobalScopes()->where('party_id', $party->id)->count(), 'sözleşme'),
             class_exists(Quote::class) ? self::count(Quote::where('party_id', $party->id)->count(), 'teklif') : null,
+            // Stoğa giren/çıkan belge: cari silinince veritabanı belgeyi ve stok satırlarını aynı anda silmeye çalışıp hata
+            // veriyordu (21.10 testte) — stok da bozulurdu. Önce belge Satışlar/Alışlar'dan silinir (stok geri döner).
+            self::count(Sale::where('party_id', $party->id)->whereHas('lines')->count(), 'stoklu satış'),
+            self::count(\App\Models\Purchase::where('party_id', $party->id)->whereHas('lines')->count(), 'stoklu alış'),
         ]));
+    }
+
+    /**
+     * Cariyi sil — veritabanı yine de reddederse ekran hata vermez, kullanıcıya nedeni söylenir; işlem geçmişine yazılan
+     * "silindi" satırları da geri alınır (aynı işlem). true: silindi.
+     */
+    public static function delete(Party $party): bool
+    {
+        try {
+            DB::transaction(fn () => $party->delete());
+
+            return true;
+        } catch (QueryException $e) {
+            report($e);
+            Notification::make()->danger()->title('Cari silinemedi')
+                ->body('Bu cariye bağlı kayıtlar silinmeyi engelliyor. Önce carinin satış/alış belgelerini ve çeklerini silmen gerekir; '
+                    . 'hiçbir şey silinmedi.')
+                ->persistent()->send();
+
+            return false;
+        }
     }
 
     public static function description(Party $party): string
     {
         if ($blockers = self::blockers($party)) {
-            return 'Bu cari silinemez: ' . implode(', ', $blockers) . ' bağlı. Önce onları silmen ya da başka cariye taşıman gerekir.';
+            return 'Bu cari silinemez: ' . implode(', ', $blockers) . ' bağlı. Önce onları silmen ya da başka cariye taşıman gerekir'
+                . (preg_grep('/stoklu/', $blockers) ? ' (stoklu satış/alış Satışlar ya da Alışlar ekranından silinir, stok geri döner).' : '.');
         }
 
         $deleted = array_values(array_filter([
