@@ -68,6 +68,11 @@ class PartyLedgerEntry extends Model
                 $entry->direction = self::TYPES[$entry->type]['direction'];
             }
         });
+        // Çekle yapılan ödeme/tahsilat silinince (cari sayfası, "geri al") çekleri de gider — vadesiz kalıp Çekler'de, hatırlatmada
+        // görünmesin (firma 7, 21.10: Seramikpark ödemeleri silindi, 7 çek kaldı). Sözleşme ödemesi de çeklerini böyle siler.
+        static::deleting(function (self $entry): void {
+            Check::where('party_ledger_entry_id', $entry->id)->delete();
+        });
     }
 
     /**

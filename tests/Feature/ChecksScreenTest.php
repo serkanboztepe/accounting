@@ -121,6 +121,26 @@ class ChecksScreenTest extends TestCase
         $this->assertEqualsWithDelta(0, \App\Support\PartyStatement::build($party)['balance'], 0.01, 'cari etkisiz');
     }
 
+    /** Firma 7, 21.10: cari sayfasından çekli ödeme silindi, çekler Çekler ekranında kaldı. */
+    public function test_deleting_payment_deletes_its_cheques(): void
+    {
+        $party = Party::create(['name' => 'Çek Ekranı Silme']);
+        $entry = \App\Models\PartyLedgerEntry::create(['party_id' => $party->id, 'type' => \App\Models\PartyLedgerEntry::TYPE_PAYMENT,
+            'payment_type' => 'check', 'amount' => 200000, 'entry_date' => now()->toDateString(), 'description' => 'Avans — 2 çek']);
+        foreach (['2027-02-28', '2027-03-31'] as $i => $due) {
+            Check::create(['party_id' => $party->id, 'party_ledger_entry_id' => $entry->id, 'check_number' => 'SIL' . $i,
+                'issue_date' => now(), 'due_date' => $due, 'amount' => 100000, 'status' => 'issued']);
+        }
+        $other = Check::create(['party_id' => $party->id, 'check_number' => 'KALIR', 'issue_date' => now(), 'due_date' => '2027-04-30',
+            'amount' => 5000, 'status' => 'issued']);
+
+        $entry->delete();
+
+        $this->assertSame(0, Check::whereIn('check_number', ['SIL0', 'SIL1'])->count());
+        $this->assertTrue($other->exists(), 'bağsız çek kalır');
+        $this->assertSame(1, Check::where('party_id', $party->id)->count());
+    }
+
     public function test_form_offers_only_two_states_per_direction(): void
     {
         Livewire::test(CreateCheck::class)
