@@ -189,6 +189,15 @@ class WhatsappWebhookController extends Controller
             }
 
             $incoming?->update(['kind' => $this->inboundKind]);
+            // Sırada fotoğraf varken açık kartın altına (21.10: kullanıcı diğer fotoğrafları bekledi, sıranın cevabını beklediğini anlamadı).
+            if ($this->replies !== [] && ($waiting = count($this->photoQueue($phone))) > 0
+                && WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->exists()) {
+                $last = array_key_last($this->replies);
+                $line = "\n📷 Sırada {$waiting} fotoğraf var — bunu bitirince geçeceğim.";
+                $this->replies[$last] = is_array($this->replies[$last]) ? [$this->replies[$last][0] . $line, $this->replies[$last][1] ?? null]
+                    : $this->replies[$last] . $line;
+                $response = $this->twimlMany($this->replies);
+            }
             foreach ($this->replies as $reply) {
                 // [metin, PDF linki] → ek olduğu kayda geçsin (analiz "hareketler gösterilmedi" sanmasın).
                 $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply, is_array($reply));
@@ -202,6 +211,17 @@ class WhatsappWebhookController extends Controller
             // Sırada fotoğraf varsa (meşgulken gelmişti) açık kart kapanınca işlenir.
             if (! $request->attributes->get('queued') && $this->photoQueue($phone) !== []) {
                 $this->scheduleDrain($phone);
+            }
+            // Twilio cevabı ~15 sn bekler; geç kalan cevap (fotoğraf okuma + kontroller) düşüyordu (21.10 10:54: soru kartı hiç gitmedi) →
+            // süre aşıldıysa cevap WhatsApp API ile gönderilir, Twilio'ya boş cevap.
+            if (! $deferred && ! $request->attributes->get('queued') && $this->replies !== []
+                && microtime(true) - (float) ($request->server('REQUEST_TIME_FLOAT') ?: microtime(true)) > self::LATE_SECONDS) {
+                foreach ($this->replies as $reply) {
+                    $this->deliver($phone, $reply, log: false);
+                }
+                Log::info('WhatsApp cevabı geç kaldı — API ile gönderildi', ['phone' => Phone::normalize($phone)]);
+
+                return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
             }
 
             return $response;
@@ -242,6 +262,9 @@ class WhatsappWebhookController extends Controller
     /** Stoklu firmada ürünsüz alışın kartında (soru değil; cevapsız da kaydedilir). */
     // Mal mı hizmet mi AI her zaman doğru işaretlemiyor (Haiku, Yeni Yapı 19.10 "Boyacı Ahmet'e 50 bin") — satır ikisine de uyar.
     private const WHAT_BOUGHT = '📦 Mal aldıysan ne aldığını yaz (ör. *susam 50 kg*), stoğa girsin. Hizmetse (nakliye, usta…) gerek yok, *evet* yeter.';
+
+    /** Bu süreden sonra hazırlanan cevap TwiML yerine API ile gider (Twilio ~15 sn bekler). */
+    private const LATE_SECONDS = 13;
 
     /** Meşgul numarada sıradaki mesajın kilidi bekleme süresi (sn); testte kısaltılır. */
     public static int $lockWait = 12;

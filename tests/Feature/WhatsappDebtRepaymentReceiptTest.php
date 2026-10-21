@@ -403,4 +403,18 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         Http::assertSent(fn ($r) => str_contains((string) ($r['Body'] ?? ''), 'Fotoğraftaki çekleri okuyamadım'));
         $this->assertSame(0, \App\Models\PartyLedgerEntry::where('party_id', $party->id)->count());
     }
+
+    /** 21.10 10:54: fotoğraf okuma 15 sn'yi aşınca Twilio cevabı bekleyemedi, soru kartı hiç gitmedi → geç cevap API ile gider. */
+    public function test_late_reply_is_sent_via_api(): void
+    {
+        config(['services.whatsapp.from' => '+14786665916']);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 640, 'description' => 'Geç fiş', 'paid' => true]));
+
+        $body = $this->withServerVariables(['REQUEST_TIME_FLOAT' => microtime(true) - 20])
+            ->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '', 'NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/ME1',
+                'MediaContentType0' => 'application/pdf'])->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('<Message>', $body, 'Twilio\'ya boş cevap');
+        Http::assertSent(fn ($r) => str_contains($r->url(), 'Messages.json') && str_contains((string) ($r['Body'] ?? ''), 'Geç fiş'));
+    }
 }
