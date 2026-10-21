@@ -26,6 +26,10 @@ use Tests\TestCase;
  *   php artisan test --group=eval --exclude-group=eval-capability   bozulma seti (hep geçmeli)
  *   php artisan test --group=eval --filter=test_capability          yetenek seti (Faz 1–5 hedefleri)
  *   EVAL_ONLY=akkus-kasa-sube php artisan test --group=eval           tek vaka
+ *   EVAL_PHOTO=1 php artisan test --group=eval                         fotoğraflı vakalar dahil (Opus — yalnız fotoğraf kodu değişince)
+ *
+ * Maliyet (21.10): yerelde sohbet + süzgeç Haiku (.env ANTHROPIC_CHECK_MODEL); düşen vaka Sonnet'le bir kez:
+ *   ANTHROPIC_MODEL=claude-sonnet-5 ANTHROPIC_CHAT_MODEL=claude-sonnet-5 ANTHROPIC_CHECK_MODEL=claude-sonnet-5 EVAL_ONLY=… php artisan test --group=eval
  *
  * Her vaka kendi işlemi içinde çalışır ve geri alınır (yerel DB'de iz kalmaz). Sonuç: storage/app/eval/son.json.
  */
@@ -48,9 +52,12 @@ class AssistantEvalTest extends TestCase
     private static function provide(string $group): array
     {
         $only = getenv('EVAL_ONLY') ?: null;
+        // Fotoğraflı vakalar (Opus, ~0,11 $/okuma) yalnız EVAL_PHOTO=1 ya da EVAL_ONLY ile — tam sette her seferinde okunmaz (21.10 maliyet).
+        $photo = (bool) getenv('EVAL_PHOTO');
         $out = [];
         foreach (self::data()['cases'] as $case) {
-            if ($case['group'] === $group && (! $only || $case['id'] === $only)) {
+            $hasMedia = collect($case['steps'] ?? [])->contains(fn ($s) => isset($s['media']));
+            if ($case['group'] === $group && (! $only || $case['id'] === $only) && ($only || $photo || ! $hasMedia)) {
                 $out[$case['id']] = [$case];
             }
         }

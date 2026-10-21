@@ -404,7 +404,14 @@ class ExpenseExtractor
                 . ($m->direction === 'in' ? 'Kullanıcı' : 'Asistan') . ': ' . mb_substr(str_replace("\n", ' / ', (string) $m->body), 0, 200))->implode("\n") . "\n";
     }
 
-    private function systemPrompt(?array $previous = null, ?array $lastParty = null, ?string $phone = null): string
+    /**
+     * Sistem talimatı üç blok (21.10 maliyet: fotoğraf çağrısı ~22.700 girdi tokeni, ~20.000'i sabit talimat): sabit kurallar ve firma
+     * bağlamı önbellekte (5 dk içinde ikinci fotoğraf / ikinci okuma talimatı %10 fiyata okur); bugünün saati, önceki taslak ve son
+     * konuşma her istekte değişir → en sonda, önbelleksiz.
+     *
+     * @return list<array{type:string,text:string,cache_control?:array}>
+     */
+    private function systemPrompt(?array $previous = null, ?array $lastParty = null, ?string $phone = null): array
     {
         $now = now(self::TIMEZONE)->locale('tr');
         $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ', İstanbul)';
@@ -501,14 +508,13 @@ class ExpenseExtractor
         $lastPartyBlock .= $phone !== null ? self::recentConversation($phone) : '';
         $understand = Understanding::RULES;
 
-        return <<<PROMPT
+        $rules = <<<PROMPT
         {$intro} Kullanıcı sana
         yazarak veya belge (fiş, fatura, dekont) fotoğrafı atarak bir işlem bildirir. Görevin
         `save_entry` aracını çağırarak işlemi çıkarmak. Kullanıcı günlük konuşma diliyle, yazım hatalı
         yazabilir ("Parası ni", "15binlira", "25,kilo") — anlamı oku, yazıma takılma.
 
-        Bugünün tarihi: {$today}. Tarih belirtilmemişse `date` alanına bugünü koy.
-        {$refine}{$lastPartyBlock}
+        Bugünün tarihi en altta (BUGÜN). Tarih belirtilmemişse `date` alanına bugünü koy.
         {$understand}
 
         İŞLEM TÜRÜ (`kind`) — önce bunu belirle. YÖN çok önemli, fiilin öznesine dikkat et:
@@ -608,9 +614,13 @@ class ExpenseExtractor
         - ÖNEMLİ: `date` (harcamanın/giderin OLUŞTUĞU tarih) ile `due_date` (ödeme VADESİ) farklıdır.
           Ödeme ileride yapılacaksa gider tarihi bugündür (`date`=bugün) ve verilen tarih `due_date`'tir.
           Geçmişte "aldım/harcadım/ödedim" denen bir tarih ise o `date`'tir, `due_date`=null.
-
-        {$context}
         PROMPT;
+
+        return array_values(array_filter([
+            ['type' => 'text', 'text' => $rules, 'cache_control' => ['type' => 'ephemeral']],
+            trim($context) !== '' ? ['type' => 'text', 'text' => trim($context), 'cache_control' => ['type' => 'ephemeral']] : null,
+            ['type' => 'text', 'text' => trim("BUGÜN: {$today}.\n{$refine}{$lastPartyBlock}")],
+        ]));
     }
 
     /**
