@@ -40,7 +40,7 @@ class StockAndReturnUiTest extends TestCase
     {
         [$sale, $product] = $this->saleWith(200, 50);
         $saleLine = $sale->lines()->first();               // sale_id dolu (kilitli)
-        $manual = StockMovement::where('reason', 'purchase')->first(); // elle giriş
+        $manual = StockMovement::where('reason', 'purchase')->where('product_id', $product->id)->first(); // elle giriş (bu testin ürünü — yerel veride başka alış olabilir)
 
         Livewire::test(ListStockMovements::class)
             ->assertTableActionHidden('edit', $saleLine)

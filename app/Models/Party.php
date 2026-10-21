@@ -126,6 +126,11 @@ class Party extends Model
         return $this->hasMany(Check::class);
     }
 
+    public function agreements(): HasMany
+    {
+        return $this->hasMany(Agreement::class);
+    }
+
     public function ledgerEntries(): HasMany
     {
         return $this->hasMany(PartyLedgerEntry::class);

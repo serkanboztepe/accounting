@@ -131,6 +131,13 @@ class ExpenseContext
             : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name) . self::employeeNote($c)
                 . (! $c->is_employee && $withAdvance->has($c->id) ? self::advanceNote($c) : ''))->implode("\n");
 
+        // Açık anlaşma kalemleri (21.10): "beton geldi" hangi kaleme düşer — anlamdan AI seçer (agreement_delivery).
+        if (config('modules.agreements') && ($open = AgreementDeliveryDraft::contextLines()) !== []) {
+            $lines[] = '';
+            $lines[] = 'AÇIK ANLAŞMALAR (kalem id: cari — anlaşma — kalem — kalan × fiyat; mal geldi / iş yapıldı / teslim edildi → agreement_delivery):';
+            array_push($lines, ...$open);
+        }
+
         $lines[] = '';
         $lines[] = 'GİDER KATEGORİLERİ (id: isim):';
         $lines[] = $categories->isEmpty()

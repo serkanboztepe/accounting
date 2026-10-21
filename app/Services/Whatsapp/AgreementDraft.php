@@ -1,0 +1,274 @@
+<?php
+
+namespace App\Services\Whatsapp;
+
+use App\Models\Agreement;
+use App\Models\Party;
+use App\Models\Product;
+use App\Support\AgreementDesk;
+use App\Support\Forms\AgreementForm;
+use App\Support\Money;
+use Carbon\Carbon;
+
+/**
+ * WhatsApp'tan anlaşma (Faz 6, 21.10): "Ali Usta'yla tesisatı 1 milyona anlaştık" ya da sözleşme / sipariş / fiyat listesi fotoğrafı
+ * → kalem kalem anlaşma + ödeme planı. Borç yazmaz; ödemeler cariye normal ödeme olarak (çek/senet vadeli).
+ * Kullanıcı kuralları (21.10): okunamayan yer TAHMİN EDİLMEZ, sorulur ("şurayı tam okuyamadım"); devir/takas nakit ödeme sayılır.
+ * Ürün kartı ve yeni cari onaydan SONRA açılır (taslakta yalnız ad).
+ */
+class AgreementDraft
+{
+    /** "geç" — okunamayan yeri boş ver (sorulan yer önemli değil). */
+    public const SKIP_WORDS = ['geç', 'gec', 'geç onu', 'boşver', 'boş ver', 'önemli değil', 'onemli degil', 'atla'];
+
+    private const METHODS = ['cash' => 'nakit', 'eft' => 'EFT', 'check' => 'çek', 'promissory_note' => 'senet'];
+
+    private const MAX_CARD_ITEMS = 6;
+
+    public static function handles(array $d): bool
+    {
+        return ($d['kind'] ?? null) === ExpenseExtractor::KIND_AGREEMENT;
+    }
+
+    /** AI çıktısı → güvenli alanlar (normalizeRaw'dan çağrılır). */
+    public static function sanitize(array $input): array
+    {
+        $items = [];
+        foreach ((array) ($input['agreement_items'] ?? []) as $row) {
+            $name = trim((string) ($row['description'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $num = fn ($v) => is_numeric($v) && (float) $v > 0 ? round((float) $v, 2) : null;
+            $items[] = [
+                'description' => mb_substr($name, 0, 120),
+                'product_id'  => ! empty($row['product_id']) ? (int) $row['product_id'] : null,
+                'quantity'    => $num($row['quantity'] ?? null),
+                'unit'        => is_string($row['unit'] ?? null) && trim($row['unit']) !== '' ? mb_substr(trim($row['unit']), 0, 20) : null,
+                'unit_price'  => $num($row['unit_price'] ?? null),
+                'amount'      => $num($row['amount'] ?? null),
+                'free'        => ! empty($row['free']),
+            ];
+        }
+
+        $payments = [];
+        foreach ((array) ($input['agreement_payments'] ?? []) as $row) {
+            $amount = (float) ($row['amount'] ?? 0);
+            if ($amount <= 0) {
+                continue;
+            }
+            $payments[] = [
+                'method'       => array_key_exists($row['method'] ?? '', self::METHODS) ? $row['method'] : 'cash',
+                'amount'       => round($amount, 2),
+                'paid_date'    => self::date($row['paid_date'] ?? null),
+                'due_date'     => self::date($row['due_date'] ?? null),
+                'check_number' => is_string($row['check_number'] ?? null) && trim($row['check_number']) !== '' ? mb_substr(trim($row['check_number']), 0, 50) : null,
+            ];
+        }
+
+        return [
+            'agreement_direction' => ($input['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE,
+            'agreement_items'     => $items,
+            'agreement_payments'  => $payments,
+            // En fazla 3 soru (kullanıcı 21.10: "o kadar ayrıntıya giremeyiz") — AI en önemlisini önce yazar.
+            'unreadable'          => array_slice(array_values(array_filter(array_map(fn ($u) => is_string($u) ? mb_substr(trim($u), 0, 200) : '',
+                (array) ($input['unreadable'] ?? [])))), 0, 3),
+        ];
+    }
+
+    /** Kaydetmeden önce sorulacak (kişi, kalem, fiyatı eksik kalem, okunamayan yer). null = kart onaya hazır. */
+    public static function question(array $d): ?string
+    {
+        if (empty($d['party_id']) && trim((string) ($d['party_name'] ?? '')) === '') {
+            return 'Kiminle anlaştın? Kişinin ya da firmanın adını yaz.';
+        }
+        $items = $d['agreement_items'] ?? [];
+        if ($items === []) {
+            return 'Ne için anlaştınız? Kalemleri fiyatıyla yaz (ör. "500 m³ beton 3.800\'den", "tesisat götürü 1 milyon").';
+        }
+        foreach ($items as $item) {
+            if (! $item['free'] && $item['unit_price'] === null && $item['amount'] === null) {
+                return '"' . $item['description'] . '" için fiyat ya da tutar ne? Yazar mısın?';
+            }
+        }
+        if (! empty($d['unreadable'])) {
+            return "Şurayı tam okuyamadım:\n• " . implode("\n• ", $d['unreadable'])
+                . "\nDoğrusunu yazar mısın? Önemli değilse *geç* yaz.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Düzeltme turu: AI yalnız değişen kalemi döndürebilir ("çimento torba") — tam liste değilse öncekiler korunur, aynı adlı kalem
+     * güncellenir, yenisi eklenir. Tam liste (en az önceki kadar) gelirse o geçerli.
+     */
+    public static function mergeItems(array $previous, array $new): array
+    {
+        if ($new === [] || count($new) >= count($previous)) {
+            return $new === [] ? $previous : $new;
+        }
+        $key = fn (array $i) => mb_strtolower(trim($i['description']));
+        $merged = [];
+        foreach ($previous as $item) {
+            $merged[$key($item)] = $item;
+        }
+        foreach ($new as $item) {
+            // Yalnız söylenen alan değişir ("çimento torba" → birim; fiyat önceki gibi kalır).
+            $prev = $merged[$key($item)] ?? null;
+            $changes = array_filter($item, fn ($v) => $v !== null);
+            if ($prev !== null) {
+                unset($changes['description']); // belgedeki yazılış kalsın ("Çimento", "çimento" değil)
+            }
+            $merged[$key($item)] = array_merge($prev ?? [], $changes);
+        }
+
+        return array_values($merged);
+    }
+
+    /** "geç" cevabı: okunamayan yerler boş verilir, kart onaya gelir. */
+    public static function skipUnreadable(array $d): array
+    {
+        $d['unreadable'] = [];
+        $d['question'] = null;
+
+        return $d;
+    }
+
+    /** Kısa kart (kalemler en çok 6 satır, kalanı "+N kalem"). */
+    public static function summary(array $d): string
+    {
+        $isSale = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
+        $party = self::partyName($d);
+        $lines = ['🤝 *Anlaşma* — ' . $party . ($isSale ? ' (satış)' : '')];
+
+        $items = $d['agreement_items'] ?? [];
+        foreach (array_slice($items, 0, self::MAX_CARD_ITEMS) as $item) {
+            $lines[] = '• ' . self::itemLine($item);
+        }
+        if (count($items) > self::MAX_CARD_ITEMS) {
+            $lines[] = '• +' . (count($items) - self::MAX_CARD_ITEMS) . ' kalem daha';
+        }
+
+        $total = self::agreedTotal($items);
+        if ($total > 0) {
+            $lines[] = 'Anlaşılan: *' . Money::format($total) . ' ₺*';
+        }
+        if ($pay = self::paymentsLine($d['agreement_payments'] ?? [], $isSale)) {
+            $lines[] = $pay;
+        }
+        $lines[] = 'Borç yazılmaz; ' . ($isSale ? 'teslim ettikçe' : 'mal/iş geldikçe') . ' anlaşmadan düşülür.';
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Onay: cari (yoksa açılır) → ürün kartları (yoksa açılır) → AgreementDesk::create → ödemeler.
+     *
+     * @return array{0:string, 1:Agreement}
+     */
+    public static function commit(array $d): array
+    {
+        $party = ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+        $party ??= DraftGaps::exactParty($d['party_name'] ?? null) ?? Party::create(['name' => trim((string) $d['party_name'])]);
+        $isSale = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
+
+        $lines = [];
+        foreach ($d['agreement_items'] ?? [] as $item) {
+            $productId = ! empty($item['product_id']) && Product::whereKey($item['product_id'])->exists()
+                ? (int) $item['product_id']
+                : AgreementForm::quickProduct($item['description'], ['unit_name' => $item['unit']], ! $isSale);
+            $lines[] = match (true) {
+                $item['free']                                      => ['product_id' => $productId, 'quantity' => $item['quantity'] ?? 1, 'free' => true],
+                $item['quantity'] !== null && $item['unit_price'] !== null => ['product_id' => $productId, 'quantity' => $item['quantity'], 'unit_price' => $item['unit_price']],
+                $item['quantity'] !== null                         => ['product_id' => $productId, 'quantity' => $item['quantity'], 'amount' => $item['amount']],
+                $item['unit_price'] !== null && $item['amount'] === null => ['product_id' => $productId, 'unit_price' => $item['unit_price']],
+                default                                            => ['product_id' => $productId, 'amount' => $item['amount'] ?? $item['unit_price']],
+            };
+        }
+
+        $agreement = AgreementDesk::create($party, [
+            'direction'      => $isSale ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE,
+            'agreement_date' => self::date($d['date'] ?? null) ?? now()->toDateString(),
+            'project_id'     => $d['project_id'] ?? null,
+            'title'          => self::title($d),
+            'lines'          => $lines,
+        ]);
+        AgreementDesk::recordPayments($agreement, $d['agreement_payments'] ?? []);
+
+        $paid = array_sum(array_column($d['agreement_payments'] ?? [], 'amount'));
+        $text = '✅ Anlaşma kaydedildi: *' . $agreement->title . '*'
+            . ($paid > 0 ? "\n💸 " . Money::format($paid) . ' ₺ ödeme ' . $party->name . ($isSale ? ' hesabından düşüldü.' : ' hesabına yazıldı.') : '')
+            . "\nPanelde carinin sayfasında kalem kalem görünür.";
+
+        return [$text, $agreement];
+    }
+
+    /** Anlaşılan toplam: miktarlı + götürü (fiyat listesi ve bedelsiz girmez). */
+    public static function agreedTotal(array $items): float
+    {
+        return round(array_sum(array_map(fn ($i) => match (true) {
+            $i['free'] => 0,
+            $i['quantity'] !== null && $i['unit_price'] !== null => $i['quantity'] * $i['unit_price'],
+            $i['quantity'] === null && $i['amount'] === null => 0, // fiyat listesi
+            default => (float) $i['amount'],
+        }, $items)), 2);
+    }
+
+    private static function itemLine(array $i): string
+    {
+        $unit = $i['unit'] ? ' ' . $i['unit'] : '';
+        $qty = fn () => rtrim(rtrim(number_format((float) $i['quantity'], 2, ',', '.'), '0'), ',');
+
+        return match (true) {
+            $i['free'] => $i['description'] . ($i['quantity'] !== null ? ' ' . $qty() . $unit : '') . ' — bedelsiz',
+            $i['quantity'] !== null && $i['unit_price'] !== null => $i['description'] . ' ' . $qty() . $unit . ' × ' . Money::format($i['unit_price'])
+                . ' = ' . Money::format($i['quantity'] * $i['unit_price']),
+            $i['quantity'] === null && $i['unit_price'] !== null && $i['amount'] === null => $i['description'] . ' · ' . Money::format($i['unit_price']) . ' ₺'
+                . ($i['unit'] ? '/' . $i['unit'] : '') . ' (fiyat listesi)',
+            default => $i['description'] . ($i['quantity'] !== null ? ' ' . $qty() . $unit : ' · götürü') . ' ' . Money::format((float) ($i['amount'] ?? $i['unit_price'])) . ' ₺',
+        };
+    }
+
+    /** "💸 Ödeme: 160.000 nakit · 3 senet 600.000 (30.07 · 30.10 · 30.12)". */
+    private static function paymentsLine(array $payments, bool $isSale): ?string
+    {
+        if ($payments === []) {
+            return null;
+        }
+        $groups = [];
+        foreach ($payments as $p) {
+            $groups[$p['method']][] = $p;
+        }
+        $parts = [];
+        foreach ($groups as $method => $rows) {
+            $sum = Money::format(array_sum(array_column($rows, 'amount')));
+            $dates = array_filter(array_map(fn ($r) => $r['due_date'] ? Carbon::parse($r['due_date'])->format('d.m.Y') : null, $rows));
+            $parts[] = (count($rows) > 1 ? count($rows) . ' ' : '') . self::METHODS[$method] . ' ' . $sum . ($dates ? ' (vade ' . implode(' · ', $dates) . ')' : '');
+        }
+
+        return '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': ' . implode(' · ', $parts);
+    }
+
+    private static function partyName(array $d): string
+    {
+        if (! empty($d['party_id']) && ($p = Party::find($d['party_id']))) {
+            return $p->name;
+        }
+
+        return trim((string) ($d['party_name'] ?? '')) . ' (yeni cari)';
+    }
+
+    private static function title(array $d): ?string
+    {
+        $desc = trim((string) ($d['description'] ?? ''));
+
+        return $desc !== '' ? mb_substr($desc, 0, 80) : null; // boşsa AgreementDesk kalemlerden ad koyar
+    }
+
+    private static function date(mixed $v): ?string
+    {
+        return is_string($v) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) && checkdate((int) substr($v, 5, 2), (int) substr($v, 8, 2), (int) substr($v, 0, 4))
+            ? $v : null;
+    }
+}

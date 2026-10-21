@@ -252,6 +252,8 @@ class Sale extends Model
         $this->activityRemember(); // işlem geçmişi: düzenlemeden önceki hal (kalemler silinmeden)
 
         // Eski kalemleri temizle (stoğu geri verir; net etkiyi baştan kurarız).
+        // Düzenleme formu anlaşma bağını taşımaz: aynı ürünün eski bağı korunur (teslimat anlaşmadan kopmasın).
+        $agreementLinks = $this->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id', 'product_id');
         $this->lines()->delete();
 
         $total = 0.0;
@@ -280,6 +282,7 @@ class Sale extends Model
                 'party_id'      => $this->party_id,
                 'project_id'    => $this->project_id,
                 'movement_date' => $this->sale_date,
+                'agreement_item_id' => $line['agreement_item_id'] ?? $agreementLinks[$productId] ?? null, // anlaşma teslimatı
             ]);
 
             $total += (float) ($amount ?? 0);
@@ -389,6 +392,7 @@ class Sale extends Model
                 'project_id'     => $this->project_id,
                 'movement_date'  => $date,
                 'notes'          => $notes,
+                'agreement_item_id' => $this->lines()->where('product_id', $p['productId'])->value('agreement_item_id'), // iade anlaşmadan da düşer
             ]);
         }
 

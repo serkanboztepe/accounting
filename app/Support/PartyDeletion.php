@@ -27,6 +27,7 @@ class PartyDeletion
         return array_values(array_filter([
             self::count(Check::where('party_id', $party->id)->count(), 'çek'),
             self::count(Contract::withoutGlobalScopes()->where('party_id', $party->id)->count(), 'sözleşme'),
+            self::count(\App\Models\Agreement::where('party_id', $party->id)->count(), 'anlaşma'),
             class_exists(Quote::class) ? self::count(Quote::where('party_id', $party->id)->count(), 'teklif') : null,
             // Stoğa giren/çıkan belge: cari silinince veritabanı belgeyi ve stok satırlarını aynı anda silmeye çalışıp hata
             // veriyordu (21.10 testte) — stok da bozulurdu. Önce belge Satışlar/Alışlar'dan silinir (stok geri döner).

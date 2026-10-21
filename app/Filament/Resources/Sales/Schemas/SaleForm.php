@@ -14,6 +14,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use App\Support\Forms\AgreementForm;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
@@ -74,7 +75,8 @@ class SaleForm
                 ->columns(4)
                 ->columnSpanFull()
                 // Satışlar tezgahı açıkken ürünsüz satış olabilir (toplu ciro).
-                ->minItems(fn () => config('modules.sales_desk') ? 0 : 1)
+                // "Anlaşmadan" sekmesinde kalem işaretliyse (cari Satış Yaptım) kalemsiz de kaydedilir.
+                ->minItems(fn (Get $get) => config('modules.sales_desk') || AgreementForm::anyTaken($get) ? 0 : 1)
                 ->schema([
                     Select::make('product_id')
                         ->label('Ürün')
@@ -84,7 +86,7 @@ class SaleForm
                             ->pluck('name', 'id'))
                         ->searchable()
                         ->preload()
-                        ->required()
+                        ->required(fn (Get $get) => ! AgreementForm::anyTaken($get, '../../agreement_lines'))
                         ->live()
                         ->afterStateUpdated(function (Get $get, Set $set, $state) {
                             $product = $state ? Product::find($state) : null;
@@ -103,7 +105,7 @@ class SaleForm
                         ->numeric()
                         ->step(0.01)
                         ->minValue(0.01)
-                        ->required()
+                        ->required(fn (Get $get) => ! AgreementForm::anyTaken($get, '../../agreement_lines'))
                         ->live(debounce: 400)
                         ->afterStateUpdated(function (Get $get, Set $set, $state) {
                             $price = Money::parse($get('unit_price'));

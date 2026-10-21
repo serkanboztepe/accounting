@@ -85,6 +85,15 @@ class ExpenseExtractor
 
     public const KIND_PRODUCT_ADD = 'product_add';       // "un, maya, tuz kullanıyorum" → ürün kartı açılır (onayla)
 
+    /** Anlaşma (Faz 6, 21.10): cariyle kalem kalem anlaşma + ödeme planı — borç yazmaz (AgreementDraft). Yalnız anlaşma modülü açık firmada. */
+    public const KIND_AGREEMENT = 'agreement';
+
+    /** Anlaşmadan teslim (21.10): "Kuşaktan 44,5 m³ beton geldi" → açık anlaşma kalemine bağlı alış/satış (AgreementDeliveryDraft). */
+    public const KIND_AGREEMENT_DELIVERY = 'agreement_delivery';
+
+    /** Anlaşma sorusu (21.10): "fayansta ne kaldı", "Ali Usta'yla ne durumdayız" — kayıt yok, kod cevaplar (AgreementQuery). */
+    public const KIND_AGREEMENT_QUERY = 'agreement_query';
+
     /** Birleşik stok kartı (kodun iç türü, AI seçmez): stock_count / stock_setting / product_add + `stock_items` → StockCard. */
     public const KIND_STOCK_UPDATE = 'stock_update';
 
@@ -94,6 +103,37 @@ class ExpenseExtractor
         self::KIND_PRODUCT_RENAME, self::KIND_PRODUCTION, self::KIND_STOCK_UPDATE];
 
     private const KIND_HINTS = [
+        self::KIND_AGREEMENT_QUERY => '- "agreement_query": anlaşmanın durumu SORULUYOR, kayıt yok ("fayansta ne kaldı", "kuşaktan ne kadar beton gelecek", '
+            . '"Ali Usta\'yla ne durumdayız", "anlaşmalarım"). Bir kalem/mal soruluyorsa `query_item_ids` = AÇIK ANLAŞMALAR\'daki ilgili '
+            . 'kalemlerin id\'leri; bir kişi soruluyorsa party_id; ikisi de yoksa (tüm anlaşmalar) boş. amount=0.',
+        self::KIND_AGREEMENT_DELIVERY => '- "agreement_delivery": AÇIK ANLAŞMALAR listesindeki bir cariden o kalemin malı GELDİ / işi YAPILDI (alış) ya da '
+            . 'ona TESLİM EDİLDİ (satış): "Kuşaktan 44,5 m³ beton geldi", "Ali Usta tesisatın yarısını bitirdi", "5 bin tuğla geldi". Her gelen '
+            . 'kalem için `delivery_lines`: agreement_item_id (listeden), quantity (miktarlı / fiyat listesi kalemde gelen miktar), amount (YALNIZ '
+            . 'götürü kalemde: yapılan kısmın TL karşılığı — "yarısı" → toplamın yarısı, "300 binlik kısmı" → 300000), unit_price (YALNIZ '
+            . 'kullanıcı fiyat söylediyse; miktarla birlikte TOPLAM tutar söylendiyse "10 m³ beton 40 bin" → unit_price = tutar ÷ miktar = 4000). '
+            . 'Parası o an ödendiyse ("peşin ödedim", "parasını verdim") `paid`=true (satışta: parası alındıysa). Aynı mal birden çok açık kalemde varsa ve proje/fiyat/anlaşma adından hangisi olduğu anlaşılmıyorsa '
+            . 'agreement_item_id null + `delivery_candidates` o kalemlerin id\'leri (sistem sorar — tahmin etme). Miktar söylenmediyse quantity '
+            . 'null (sistem sorar). Mesajda proje adı geçiyorsa project_id. Anlaşmada olmayan ek kalem (nakliye vb.) next_items\'a. Gelen '
+            . 'mal listedeki hiçbir kaleme uymuyorsa normal alış/satış türünü seç.',
+        self::KIND_AGREEMENT => '- "agreement": ANLAŞMA / SÖZLEŞME — karşı tarafla ileride gelecek mal ya da yapılacak iş için FİYAT (ve çoğu zaman miktar) '
+            . 'kararlaştırıldı; mal/iş henüz gelmedi ya da parça parça gelecek. Yazıyla ("Ali Usta\'yla tesisatı 1 milyona anlaştık", "Kuşakla 500 m³ '
+            . 'betonu 3800\'den anlaştık") ya da belge fotoğrafıyla (sözleşme, sipariş/proforma dökümü, el yazısı fiyat listesi, senetli satış '
+            . 'sözleşmesi). Mal GELDİ / iş YAPILDI deniyorsa agreement DEĞİL (alış/satış). Borç yazılmaz. Doldur: `agreement_direction` '
+            . '(purchase: biz alıyoruz / biz ödüyoruz · sale: biz satıyoruz / bize ödenecek); karşı taraf party_id/party_name — BİZİM FİRMA '
+            . 'karşı taraf OLAMAZ ("BİZ" satırına bak — sözleşmede "İşveren" ya da "Alıcı" biz olabiliriz; şablondan kalma matbu ad yanlış olabilir: imza ve el yazısı düzeltme esastır; '
+            . 'taraf belirsizse `unreadable`\'a yaz); `agreement_items` her kalem: miktar + birim fiyat (miktarlı) · yalnız toplam tutar (götürü '
+            . 'iş: "tesisatı 1 milyona") · yalnız birim fiyat, miktar yok (fiyat listesi: "tuğla adedi 8,5"); ücretsiz/bedelsiz kalem `free`=true; '
+            . '`agreement_payments` belgede/mesajda geçen her ödeme: method cash|eft|check|promissory_note (senet), amount, paid_date (verildiği '
+            . 'gün), due_date (çek/senet vadesi). Başkasından devir/takas/mahsup ("X\'ten devraldı") → method cash (nakit sayılır). ÜSTÜ ÇİZİLİ '
+            . 'satırları ve tutarları YOK SAY. Eski muhasebe programı çıktılarında tutarlar 6 fazla sıfırlı basılır (450,000,000 = 450 TL; toplamla '
+            . 'karşılaştırıp doğrula). PARA, MİKTAR, FİYAT ya da KİŞİYİ etkileyen ve okuyamadığın / iki anlama gelen yeri TAHMİN ETME: `unreadable`\'a kısa Türkçe '
+            . 'yaz ("ödeme tablosunda 124.000\'in yanındaki not", "çek tarihleri verildiği gün mü vade mi", "çimentonun birimi") — sistem sorar. '
+            . 'EN FAZLA 3 madde, en önemlisi önce. SORMA (kullanıcı ayrıntı istemiyor): devrin/mahsubun kimden olduğu; ödeme toplamı ile '
+            . 'anlaşma toplamı arasındaki %1\'den küçük (yuvarlama) fark; malın gelip gelmediği (anlaşma zaten ileride gelecek demek); üstü '
+            . 'çizilip yeniden yazılmış ad/tutar (düzeltilmiş hâli geçerli); parayı etkilemeyen kenar notları; fiyatı ~0/1 basılmış kalemin '
+            . 'bedelsiz olduğu (free=true yaz). '
+            . 'amount = anlaşılan toplam (miktarlı + götürü; fiyat listesi 0). description = kısa ad ("Seramik ve vitrifiye", "Mermer işçiliği"). '
+            . 'date = anlaşma/belge tarihi.',
         self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
         self::KIND_RECURRING_EXPENSE => '- "recurring_expense": DÜZENLİ GİDER — her gün / her hafta / her ay KENDİLİĞİNDEN yazılacak aynı gider ("çobanlar günde 2 ekmek yiyor 17,30 TL her gün gider olarak ekle", "her ayın 1\'i kira 20 bin", "her pazartesi pazar 500"). `amount` = HER SEFERİNDEKİ tutar (miktar × birim fiyat: 2 × 17,30 = 34,60; "17:30 TL" saat değil 17,30 TL), `description` kısa ("Çobanlar ekmek"), `category_id`/`category_name`, `recurring_frequency` daily|weekly|monthly, `recurring_day` (haftalık: 1=pazartesi … 7=pazar; aylık: ayın kaçı), `recurring_start` (YYYY-MM-DD, yalnız "bugünden / yarından / 1 Kasım\'dan" denirse). Bugün bir kez yapılan harcama bu DEĞİL → "expense". Hafızaya yazma.',
         self::KIND_RECURRING_LIST => '- "recurring_list": "düzenli giderlerim", "her gün ne yazılıyor" — kayıt yok. amount=0.',
@@ -173,6 +213,9 @@ class ExpenseExtractor
             self::tradeStock() ? self::KIND_PRODUCT_RENAME : null,
             self::tradeStock() ? self::KIND_PRODUCTION : null,
             config('modules.report_monthly') ? self::KIND_MONTH_RESULT : null,
+            config('modules.agreements') ? self::KIND_AGREEMENT : null,
+            config('modules.agreements') ? self::KIND_AGREEMENT_DELIVERY : null,
+            config('modules.agreements') ? self::KIND_AGREEMENT_QUERY : null,
         ]));
     }
 
@@ -352,7 +395,8 @@ class ExpenseExtractor
                 ->retry(2, 300, fn ($e) => $e instanceof \Illuminate\Http\Client\ConnectionException, throw: false)
                 ->timeout(90)->post(self::ENDPOINT, [
                 'model' => $model,
-                'max_tokens' => 1024,
+                // Belgede (sözleşme: 12 kalem + ödeme planı) 1024 yetmiyor; yalnız kullanılan kadar ödenir.
+                'max_tokens' => $image !== null ? 3000 : 1024,
                 'system' => $system,
                 'tools' => [$this->tool()],
                 'tool_choice' => $forced ? ['type' => 'tool', 'name' => 'save_entry'] : ['type' => 'auto'],
@@ -671,7 +715,7 @@ class ExpenseExtractor
             'description' => 'Çıkarılan işlem bilgisini yapılandırılmış olarak döndürür.',
             'input_schema' => [
                 'type' => 'object',
-                'properties' => self::tradeProperties() + self::recurringProperties() + Understanding::schema() + [
+                'properties' => self::tradeProperties() + self::recurringProperties() + self::agreementProperties() + Understanding::schema() + [
                     'kind' => ['type' => 'string', 'enum' => self::aiKinds(), 'description' => 'Entry kind; see system prompt'],
                     'items' => self::itemsSchema(),
                     'totals_side' => ['type' => ['string', 'null'], 'enum' => ['receivable', 'payable', 'both', null], 'description' => 'Only for kind=totals_query: which side was asked'],
@@ -718,6 +762,71 @@ class ExpenseExtractor
                 // work_status_known zorunlu: kişiyle para/borç kaydında AI "biliyor muyum" demek ZORUNDA (önce anla).
                 'required' => ['kind', 'amount', 'description', 'paid', 'confidence', 'work_status_known'],
             ],
+        ];
+    }
+
+    /** Anlaşma alanları (yalnız anlaşma modülü açıkken şemaya eklenir — diğer firmalarda şema değişmez). */
+    private static function agreementProperties(): array
+    {
+        if (! config('modules.agreements')) {
+            return [];
+        }
+
+        return [
+            'agreement_direction' => ['type' => ['string', 'null'], 'enum' => ['purchase', 'sale', null],
+                'description' => 'Only for kind=agreement: purchase = we buy / we pay; sale = we sell / they pay us'],
+            'agreement_items' => [
+                'type' => 'array',
+                'description' => 'Only for kind=agreement: one row per agreed item, in document order',
+                'items' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'description' => ['type' => 'string', 'description' => 'item name as written (short)'],
+                        'product_id' => ['type' => ['integer', 'null'], 'description' => 'matched product id from ÜRÜNLER if listed, else null'],
+                        'quantity' => ['type' => ['number', 'null'], 'description' => 'agreed quantity; null for a price list (no quantity) or a lump-sum job'],
+                        'unit' => ['type' => ['string', 'null'], 'description' => 'm², m³, mt, ton, adet, torba… as written; null if not stated'],
+                        'unit_price' => ['type' => ['number', 'null'], 'description' => 'price per unit (TL); null for a lump-sum job'],
+                        'amount' => ['type' => ['number', 'null'], 'description' => 'line total (TL); for a lump-sum job the agreed total'],
+                        'free' => ['type' => ['boolean', 'null'], 'description' => 'true if the item is given free of charge (bedelsiz)'],
+                    ],
+                    'required' => ['description'],
+                ],
+            ],
+            'agreement_payments' => [
+                'type' => 'array',
+                'description' => 'Only for kind=agreement: every payment written in the message/document (not struck through)',
+                'items' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'method' => ['type' => 'string', 'enum' => ['cash', 'eft', 'check', 'promissory_note']],
+                        'amount' => ['type' => 'number'],
+                        'paid_date' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD the money/check/note was given; null if not written'],
+                        'due_date' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD maturity of a check / promissory note; null otherwise'],
+                        'check_number' => ['type' => ['string', 'null']],
+                    ],
+                    'required' => ['method', 'amount'],
+                ],
+            ],
+            'delivery_lines' => [
+                'type' => 'array',
+                'description' => 'Only for kind=agreement_delivery: one row per delivered agreement item',
+                'items' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'agreement_item_id' => ['type' => ['integer', 'null'], 'description' => 'item id from AÇIK ANLAŞMALAR; null if ambiguous (fill delivery_candidates)'],
+                        'quantity' => ['type' => ['number', 'null'], 'description' => 'delivered quantity; null if not said or lump-sum item'],
+                        'amount' => ['type' => ['number', 'null'], 'description' => 'ONLY for a lump-sum (götürü) item: TL value of the part done'],
+                        'unit_price' => ['type' => ['number', 'null'], 'description' => 'ONLY if the user said a price'],
+                        'description' => ['type' => ['string', 'null'], 'description' => 'what came, as the user said ("beton")'],
+                    ],
+                ],
+            ],
+            'delivery_candidates' => ['type' => 'array', 'items' => ['type' => 'integer'],
+                'description' => 'Only for kind=agreement_delivery when the item is ambiguous: ids of the matching open items (system asks which)'],
+            'query_item_ids' => ['type' => 'array', 'items' => ['type' => 'integer'],
+                'description' => 'Only for kind=agreement_query: ids from AÇIK ANLAŞMALAR of the item(s) asked about; empty if a person or all agreements are asked'],
+            'unreadable' => ['type' => 'array', 'items' => ['type' => 'string'],
+                'description' => 'Only for kind=agreement: short Turkish notes for every part you could not read or that has two meanings (the user is asked); empty if all clear'],
         ];
     }
 
@@ -1116,6 +1225,11 @@ class ExpenseExtractor
                 . 'peşin mi veresiye mi, gider mi cari mi olacağına sistem karar verir ve ne alındığını sorar. Mazot, kira, fatura gibi firma adı '
                 . 'geçmeyen harcamada seller_name boş.';
         }
+        if (config('modules.agreements')) {
+            // Anlaşmalar açıkken "X'le Y'yi Z'ye anlaştık" kayıttır (kart, kalan), hafıza notu değil (21.10).
+            $guide .= "\n" . '- ANLAŞMA ÖNCELİĞİ: cariyle ileride gelecek mal/iş için fiyat ya da tutar kararlaştırıldıysa ("…\'ye anlaştık", '
+                . '"…den anlaştık", sözleşme / sipariş belgesi) kind "agreement" — "remember" DEĞİL. remember yalnız para/mal kararı olmayan bilgi için.';
+        }
         if (config('modules.cari_supplier')) {
             // Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" sorulmadan alış sayıldı, satıştı.
             $guide .= "\n" . '- YÖN BELİRSİZSE (sale mi purchase mı): malın ona mı gittiği, ondan mı geldiği cümleden anlaşılmıyorsa '
@@ -1268,6 +1382,11 @@ class ExpenseExtractor
                 ? (in_array($input['debt_side'] ?? null, ['receivable', 'payable'], true) ? $input['debt_side'] : 'unclear')
                 : null,
             'reply' => $kind === self::KIND_HELP && ! empty($input['reply']) ? trim((string) $input['reply']) : null,
-        ];
+        ] + match ($kind) {
+            self::KIND_AGREEMENT => AgreementDraft::sanitize($input),
+            self::KIND_AGREEMENT_DELIVERY => AgreementDeliveryDraft::sanitize($input),
+            self::KIND_AGREEMENT_QUERY => ['query_item_ids' => array_values(array_map('intval', array_filter((array) ($input['query_item_ids'] ?? []), 'is_numeric')))],
+            default => [],
+        };
     }
 }

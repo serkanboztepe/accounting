@@ -52,7 +52,7 @@ class TradeDesk
 
     /**
      * @param  array{mode?:string, party_id?:int|null, purchase_date?:string, lines?:array, manual_amount?:mixed,
-     *               payment_type?:string|null, notes?:string|null}  $data
+     *               payment_type?:string|null, notes?:string|null, project_id?:int|null, keep_project?:bool}  $data
      */
     public static function savePurchase(array $data): Purchase
     {
@@ -71,7 +71,9 @@ class TradeDesk
             $purchase = Purchase::create([
                 'party_id'      => $partyId,
                 // Ürünlü (stoğa giren) alış şubesiz: stok işletme geneli, maliyet şubeye bölünmez (Serkan 16.10).
-                'project_id'    => Forms\TradeLines::hasLines($data['lines'] ?? []) ? null : ($data['project_id'] ?? null),
+                // İstisna: anlaşma teslimatı (keep_project) — maliyet teslimatın projesine yazılır.
+                'project_id'    => Forms\TradeLines::hasLines($data['lines'] ?? []) && empty($data['keep_project'])
+                    ? null : ($data['project_id'] ?? null),
                 'purchase_date' => $data['purchase_date'] ?? now()->toDateString(),
                 'manual_amount' => $manual > 0 ? $manual : null,
                 'paid'          => $isCash,

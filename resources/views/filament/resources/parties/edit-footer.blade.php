@@ -1,5 +1,10 @@
 <div class="space-y-6 -mt-[30px]">
 
+    {{-- Anlaşmalar — modül açık ve bu caride anlaşma varsa; ekstrenin üstünde (kalanı tek bakışta) --}}
+    @if (config('modules.agreements') && ($agreements['open']->isNotEmpty() || $agreements['finished']->isNotEmpty()))
+        @include('filament.resources.parties.agreements')
+    @endif
+
     {{-- Cari Ekstresi --}}
     @php
         $projectFiltered = filled($statementProjectId);
@@ -54,6 +59,12 @@
                 <x-filament::button color="danger" icon="heroicon-o-arrow-up-circle"
                     wire:click="mountAction('newLedgerEntry', { type: 'odeme' })">
                     Ödeme Yaptım
+                </x-filament::button>
+            @endif
+            @if (config('modules.agreements'))
+                <x-filament::button color="gray" icon="heroicon-o-hand-raised"
+                    wire:click="mountAction('newAgreement')">
+                    🤝 Anlaşma yap
                 </x-filament::button>
             @endif
         </div>

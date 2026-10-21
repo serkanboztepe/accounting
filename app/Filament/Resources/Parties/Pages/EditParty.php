@@ -5,6 +5,8 @@ namespace App\Filament\Resources\Parties\Pages;
 use App\Services\Whatsapp\EmployeeDraft;
 use App\Support\Labels;
 use App\Filament\Resources\Parties\PartyResource;
+use App\Models\Agreement;
+use App\Models\AgreementItem;
 use App\Models\Check;
 use App\Models\Contract;
 use App\Models\ContractDelivery;
@@ -18,6 +20,8 @@ use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Filament\Resources\Sales\Schemas\SaleForm;
 use App\Filament\Resources\Sales\Schemas\SaleReturnForm;
+use App\Support\AgreementDesk;
+use App\Support\Forms\AgreementForm;
 use App\Support\Forms\TradeLines;
 use App\Support\Money;
 use App\Support\PartyStatement;
@@ -139,7 +143,8 @@ class EditParty extends EditRecord
                 default => null,
             },
 
-            MoneyInput::make('amount', 'Tutar'),
+            // "Anlaşmadan" sekmesinde kalem işaretlendiyse anlaşma dışı tutar boş bırakılabilir.
+            MoneyInput::make('amount', 'Tutar')->required(fn (Get $get) => ! AgreementForm::anyTaken($get)),
 
             Select::make('project_id')
                 ->label(Labels::project() . ' (opsiyonel)')
@@ -196,11 +201,18 @@ class EditParty extends EditRecord
                 default    => 'Yeni Hareket',
             })
             ->modalSubmitActionLabel('Kaydet')
-            ->schema(fn (array $arguments): array => [
+            ->schema(fn (array $arguments): array => $this->withAgreementTabs(self::AGREEMENT_TYPES[$arguments['type'] ?? ''] ?? null, [
                 ...$this->ledgerFormSchema($arguments['type'] ?? null),
                 ...(($arguments['type'] ?? null) === PartyLedgerEntry::TYPE_PAYMENT ? $this->paymentMethodSchema() : []),
-            ])
+            ], keep: ['entry_date']))
             ->action(function (array $data, array $arguments, Action $action): void {
+                // "Anlaşmadan" sekmesinde işaretlenenler (Alım/Satış Yaptım) önce; anlaşma dışı tutar boşsa başka kayıt yok.
+                [$agreementLines, $agreementProject, $priceToRest, $data] = AgreementForm::extract($data);
+                $delivered = $this->deliverFromWindow($agreementLines, $agreementProject, $priceToRest,
+                    self::AGREEMENT_TYPES[$arguments['type'] ?? ''] ?? '', $data['entry_date'], $action);
+                if ($delivered && Money::parse($data['amount'] ?? null) <= 0) {
+                    return;
+                }
                 $cheques = array_values(array_filter((array) ($data['cheques'] ?? []), fn ($c) => ! empty($c['due_date'])));
                 unset($data['cheques']);
                 // Çekle ödeme (Faz 2.3): çeklerin toplamı ödeme tutarını tutmalı — tutmazsa kaydetmeden uyar.
@@ -239,8 +251,8 @@ class EditParty extends EditRecord
         return Action::make('newSale')
             ->modalHeading(fn (): string => 'Satış Yaptım · ' . $this->record->name . ' borçlanır')
             ->modalSubmitActionLabel('Kaydet')
-            ->schema(array_merge(
-                SaleForm::components(withParty: false, dehydrateLines: true),
+            ->schema(fn (): array => array_merge(
+                $this->withAgreementTabs(Agreement::DIRECTION_SALE, SaleForm::components(withParty: false, dehydrateLines: true), keep: ['sale_date']),
                 [
                     // Faz 2 — peşin: işaretlenirse satış toplamı kadar tahsilat (alacak) aynı anda düşer.
                     Toggle::make('collected_now')->label('Tahsil edildi (peşin)')->default(false)->live(),
@@ -264,7 +276,18 @@ class EditParty extends EditRecord
                         ->required(fn (Get $get) => $get('collected_now') && $get('payment_type') === 'check'),
                 ]
             ))
-            ->action(function (array $data): void {
+            ->action(function (array $data, Action $action): void {
+                [$agreementLines, $agreementProject, $priceToRest, $data] = AgreementForm::extract($data);
+                $delivered = $this->deliverFromWindow($agreementLines, $agreementProject, $priceToRest, Agreement::DIRECTION_SALE,
+                    $data['sale_date'], $action);
+                // Peşin: anlaşmadan teslim edilenin tahsilatı da (satış penceresiyle aynı kural).
+                if ($delivered && ! empty($data['collected_now'])) {
+                    $this->collectNow($delivered['documents']->sum(fn ($d) => (float) $d->total_amount), $data, $data['sale_date'],
+                        'Peşin tahsilat — anlaşma teslimatı');
+                }
+                if ($delivered && ! TradeLines::hasLines($data['lines'] ?? []) && Money::parse($data['manual_amount'] ?? null) <= 0) {
+                    return; // yalnız anlaşma teslimatı
+                }
                 $sale = Sale::create([
                     'party_id'      => $this->record->id,
                     'project_id'    => $data['project_id'] ?? null,
@@ -278,29 +301,38 @@ class EditParty extends EditRecord
 
                 // Peşin: satış toplamı kadar tahsilat (net bakiye 0). Çekse portföye ekle.
                 if (! empty($data['collected_now']) && (float) $sale->total_amount > 0) {
-                    $entry = $this->record->ledgerEntries()->create([
-                        'entry_date'   => $data['sale_date'],
-                        'amount'       => $sale->total_amount,
-                        'project_id'   => $data['project_id'] ?? null,
-                        'description'  => 'Peşin tahsilat — Satış #' . $sale->id,
-                        'type'         => PartyLedgerEntry::TYPE_COLLECTION,
-                        'payment_type' => $data['payment_type'] ?? 'cash',
-                    ]);
-
-                    if (($data['payment_type'] ?? null) === 'check') {
-                        Check::create([
-                            'party_id'              => $this->record->id,
-                            'project_id'            => $data['project_id'] ?? null,
-                            'party_ledger_entry_id' => $entry->id,
-                            'check_number'          => $data['check_number'] ?? null,
-                            'bank_name'             => $data['bank_name'] ?? null,
-                            'due_date'              => $data['due_date'] ?? $data['sale_date'],
-                            'amount'                => $sale->total_amount,
-                            'status'                => 'portfolio',
-                        ]);
-                    }
+                    $this->collectNow((float) $sale->total_amount, $data, $data['sale_date'], 'Peşin tahsilat — Satış #' . $sale->id);
                 }
             });
+    }
+
+    /** Peşin tahsilat satırı (+ çekse portföye) — Satış Yaptım'ın "Tahsil edildi" seçeneği. */
+    private function collectNow(float $amount, array $data, string $date, string $description): void
+    {
+        if ($amount <= 0) {
+            return;
+        }
+        $entry = $this->record->ledgerEntries()->create([
+            'entry_date'   => $date,
+            'amount'       => $amount,
+            'project_id'   => $data['project_id'] ?? null,
+            'description'  => $description,
+            'type'         => PartyLedgerEntry::TYPE_COLLECTION,
+            'payment_type' => $data['payment_type'] ?? 'cash',
+        ]);
+
+        if (($data['payment_type'] ?? null) === 'check') {
+            Check::create([
+                'party_id'              => $this->record->id,
+                'project_id'            => $data['project_id'] ?? null,
+                'party_ledger_entry_id' => $entry->id,
+                'check_number'          => $data['check_number'] ?? null,
+                'bank_name'             => $data['bank_name'] ?? null,
+                'due_date'              => $data['due_date'] ?? $date,
+                'amount'                => $amount,
+                'status'                => 'portfolio',
+            ]);
+        }
     }
 
     /**
@@ -314,7 +346,7 @@ class EditParty extends EditRecord
             ->modalHeading(fn (): string => 'Alım Yaptım · ' . $this->record->name)
             ->modalSubmitActionLabel('Kaydet')
             ->modalWidth('4xl')
-            ->schema([
+            ->schema(fn (): array => $this->withAgreementTabs(Agreement::DIRECTION_PURCHASE, [
                 DatePicker::make('purchase_date')->label('Tarih')->default(now())->required(),
                 Toggle::make('paid')
                     ->label('Peşin (parası verildi)')
@@ -339,8 +371,14 @@ class EditParty extends EditRecord
                     ->required(false)
                     ->helperText('Ürün seçmeden alış (ör. nakliye, usta, stok tutmadığın bir malzeme).'),
                 TextInput::make('notes')->label('Açıklama')->maxLength(255),
-            ])
+            ], keep: ['purchase_date', 'paid', 'payment_type']))
             ->action(function (array $data, Action $action): void {
+                [$agreementLines, $agreementProject, $priceToRest, $data] = AgreementForm::extract($data);
+                $delivered = $this->deliverFromWindow($agreementLines, $agreementProject, $priceToRest, Agreement::DIRECTION_PURCHASE,
+                    $data['purchase_date'], $action, ! empty($data['paid']), $data['payment_type'] ?? null);
+                if ($delivered && ! TradeLines::hasLines($data['lines'] ?? []) && Money::parse($data['manual_amount'] ?? null) <= 0) {
+                    return; // yalnız anlaşma teslimatı
+                }
                 try {
                     TradeDesk::savePurchase([
                         ...$data,
@@ -352,6 +390,195 @@ class EditParty extends EditRecord
                     $action->halt();
                 }
             });
+    }
+
+    // ── Anlaşmalar (Faz 6, 21.10) ─────────────────────────────────────────────────────────────────────────────
+    // 🤝 Anlaşma yap → kart (Anlaşılan / Gelen / Kalan) → Teslim aldım / Teslim ettim. İş mantığı AgreementDesk'te.
+
+    /** 🤝 Anlaşma yap — yön pencerede seçilir (bu cariyle son anlaşmanın yönü seçili gelir). */
+    public function newAgreementAction(): Action
+    {
+        return Action::make('newAgreement')
+            ->modalHeading(fn (): string => 'Yeni anlaşma · ' . $this->record->name)
+            ->modalSubmitActionLabel('Kaydet')
+            ->slideOver()
+            ->modalWidth('3xl')
+            ->fillForm(fn (): array => [
+                'direction'            => AgreementForm::lastDirection($this->record->id),
+                'agreement_date'       => now()->toDateString(),
+                'advance_payment_type' => 'cash',
+                'lines'                => [[]],
+            ])
+            ->schema(AgreementForm::createSchema())
+            ->extraModalFooterActions(fn (Action $action): array => [
+                $action->makeModalSubmitAction('saveAnother', arguments: ['another' => true])->label('Kaydet ve yeni'),
+            ])
+            ->action(function (array $data, array $arguments, Schema $schema, Action $action): void {
+                try {
+                    $agreement = AgreementDesk::create($this->record, $data);
+                } catch (ValidationException $e) {
+                    Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+                    $action->halt();
+                }
+                Notification::make()->success()->title('Anlaşma kaydedildi: ' . $agreement->title)->send();
+                if ($arguments['another'] ?? false) {
+                    $schema->fill(['direction' => $data['direction'], 'agreement_date' => $data['agreement_date'],
+                        'project_id' => $data['project_id'] ?? null, 'advance_payment_type' => 'cash', 'lines' => [[]]]);
+                    $action->halt();
+                }
+            });
+    }
+
+    /** + Kalem ekle (anlaşma kartında). */
+    public function addAgreementItemsAction(): Action
+    {
+        return Action::make('addAgreementItems')
+            ->modalHeading(fn (array $arguments): string => 'Kalem ekle · ' . ($this->agreementArg($arguments)?->title ?? ''))
+            ->modalSubmitActionLabel('Ekle')
+            ->modalWidth('3xl')
+            ->fillForm(fn (array $arguments): array => ['direction' => $this->agreementArg($arguments)?->direction, 'lines' => [[]]])
+            ->schema([Hidden::make('direction'), ...AgreementForm::addItemsSchema()])
+            ->action(function (array $data, array $arguments, Action $action): void {
+                $agreement = $this->agreementArg($arguments);
+                try {
+                    AgreementDesk::addItems($agreement, $data['lines'] ?? []);
+                } catch (ValidationException $e) {
+                    Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+                    $action->halt();
+                }
+            });
+    }
+
+    /** Fiyatı değiştir (zam): geçmiş teslimat eski fiyatta kalır, kalan yeni fiyattan. */
+    public function changeAgreementPriceAction(): Action
+    {
+        return Action::make('changeAgreementPrice')
+            ->modalHeading(fn (array $arguments): string => 'Fiyatı değiştir · ' . ($this->agreementItemArg($arguments)?->name() ?? ''))
+            ->modalDescription(fn (array $arguments): ?string => ($item = $this->agreementItemArg($arguments))
+                ? 'Şu anki fiyat ' . Money::format((float) $item->unit_price) . ' ₺. Gelmiş olanlar eski fiyatta kalır; kalanlar yeni fiyattan.'
+                : null)
+            ->modalSubmitActionLabel('Değiştir')
+            ->modalWidth('md')
+            ->schema([MoneyInput::make('unit_price', 'Yeni fiyat')])
+            ->action(function (array $data, array $arguments): void {
+                if ($item = $this->agreementItemArg($arguments)) {
+                    AgreementDesk::changePrice($item, Money::parse($data['unit_price']));
+                }
+            });
+    }
+
+    /** Teslimatı olmayan kalemi sil. */
+    public function deleteAgreementItemAction(): Action
+    {
+        return Action::make('deleteAgreementItem')
+            ->requiresConfirmation()
+            ->modalHeading(fn (array $arguments): string => 'Kalemi sil · ' . ($this->agreementItemArg($arguments)?->name() ?? ''))
+            ->modalSubmitActionLabel('Sil')
+            ->color('danger')
+            ->action(function (array $arguments, Action $action): void {
+                try {
+                    AgreementDesk::deleteItem($this->agreementItemArg($arguments));
+                } catch (ValidationException $e) {
+                    Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+                    $action->halt();
+                }
+            });
+    }
+
+    /** Anlaşmayı kapat (kalan borç doğurmaz) / yeniden aç. */
+    public function toggleAgreementAction(): Action
+    {
+        return Action::make('toggleAgreement')
+            ->requiresConfirmation()
+            ->modalHeading(fn (array $arguments): string => ($this->agreementArg($arguments)?->status === Agreement::STATUS_CLOSED
+                ? 'Anlaşmayı yeniden aç' : 'Anlaşmayı kapat') . ' · ' . ($this->agreementArg($arguments)?->title ?? ''))
+            ->modalDescription(fn (array $arguments): string => $this->agreementArg($arguments)?->status === Agreement::STATUS_CLOSED
+                ? 'Kalan kalemler yeniden teslim bekler.'
+                : 'Kalan kalemler artık beklenmez. Borç yazılmaz; gelen teslimatlar olduğu gibi kalır.')
+            ->modalSubmitActionLabel(fn (array $arguments): string => $this->agreementArg($arguments)?->status === Agreement::STATUS_CLOSED ? 'Aç' : 'Kapat')
+            ->action(function (array $arguments): void {
+                $agreement = $this->agreementArg($arguments);
+                $agreement->status === Agreement::STATUS_CLOSED ? AgreementDesk::reopen($agreement) : AgreementDesk::close($agreement);
+            });
+    }
+
+    /** Anlaşmayı sil (yalnız teslimatı yoksa). */
+    public function deleteAgreementAction(): Action
+    {
+        return Action::make('deleteAgreement')
+            ->requiresConfirmation()
+            ->modalHeading(fn (array $arguments): string => 'Anlaşmayı sil · ' . ($this->agreementArg($arguments)?->title ?? ''))
+            ->modalDescription('Teslimatı olmayan anlaşma silinir. Peşinat yazdıysan o cari ekstresinde kalır.')
+            ->modalSubmitActionLabel('Sil')
+            ->color('danger')
+            ->action(function (array $arguments, Action $action): void {
+                try {
+                    AgreementDesk::delete($this->agreementArg($arguments));
+                } catch (ValidationException $e) {
+                    Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+                    $action->halt();
+                }
+            });
+    }
+
+    /** Basit cari hareketi tipi → anlaşma yönü (yalnız Alım Yaptım / Satış Yaptım pencerelerinde bölüm var). */
+    private const AGREEMENT_TYPES = [PartyLedgerEntry::TYPE_PURCHASE => Agreement::DIRECTION_PURCHASE, PartyLedgerEntry::TYPE_SALE => Agreement::DIRECTION_SALE];
+
+    /** Alım/Satış Yaptım: açık anlaşma kalemi varsa "Anlaşmadan | Anlaşma dışı" sekmeleri; yoksa pencere aynen. */
+    private function withAgreementTabs(?string $direction, array $components, array $keep = []): array
+    {
+        return $direction ? AgreementForm::withAgreementTabs($components, $direction, $this->record, $keep) : $components;
+    }
+
+    /**
+     * Pencerede işaretlenen anlaşma kalemlerini kaydet (proje başına alış/satış belgesi). Hiç işaret yoksa null.
+     * Hata → bildirim + pencere açık kalır; anlaşmadan fazla gelen → uyarı.
+     */
+    private function deliverFromWindow(array $lines, mixed $project, bool $priceToRest, string $direction, string $date, Action $action,
+        bool $paid = false, ?string $paymentType = null): ?array
+    {
+        if ($lines === [] || $direction === '') {
+            return null;
+        }
+        try {
+            $result = AgreementDesk::deliver($this->record, $direction, $lines, $date, $project, $priceToRest, null, $paid, $paymentType);
+        } catch (ValidationException $e) {
+            Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+            $action->halt();
+        }
+        if ($result['over']) {
+            Notification::make()->warning()->title('Anlaşmadan fazla')->body('⚠ ' . implode("\n", $result['over']))->persistent()->send();
+        }
+
+        return $result;
+    }
+
+    /** Argümandaki anlaşma — yalnız bu carinin (başka carinin anlaşmasına buradan dokunulmaz). */
+    private function agreementArg(array $arguments): ?Agreement
+    {
+        return empty($arguments['agreement']) ? null
+            : Agreement::where('party_id', $this->record->id)->find($arguments['agreement']);
+    }
+
+    private function agreementItemArg(array $arguments): ?AgreementItem
+    {
+        return empty($arguments['item']) ? null
+            : AgreementItem::with('product.unit', 'agreement')->whereHas('agreement', fn ($q) => $q->where('party_id', $this->record->id))
+                ->find($arguments['item']);
+    }
+
+    /** Cari sayfasındaki kartlar: açıklar üstte, bitenler/kapatılanlar ayrı. */
+    private function getAgreementCards(): array
+    {
+        if (! config('modules.agreements')) {
+            return ['open' => collect(), 'finished' => collect()];
+        }
+        $all = Agreement::where('party_id', $this->record->id)->orderByDesc('agreement_date')->orderByDesc('id')->get()
+            ->each(fn (Agreement $a) => $a->loadForCard());
+        return [
+            'open'     => $all->where('status', Agreement::STATUS_OPEN)->values(),
+            'finished' => $all->where('status', '!=', Agreement::STATUS_OPEN)->values(),
+        ];
     }
 
     /**
@@ -640,6 +867,7 @@ class EditParty extends EditRecord
             'invoices'         => $this->getInvoiceRows(),
             'expenses'         => $this->getExpenseRows(),
             'checks'           => $this->getCheckRows(),
+            'agreements'       => $this->getAgreementCards(),
         ]);
     }
 

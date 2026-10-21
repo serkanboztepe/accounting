@@ -94,6 +94,7 @@ class StockMovement extends Model
         'sale_return_id',
         'purchase_id',
         'purchase_return_id',
+        'agreement_item_id',
         'movement_date',
         'related_movement_id',
         'notes',
@@ -129,6 +130,12 @@ class StockMovement extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /** Anlaşma kalemi (teslim satırı ya da onun iadesi). */
+    public function agreementItem(): BelongsTo
+    {
+        return $this->belongsTo(AgreementItem::class);
     }
 
     public function contract(): BelongsTo

@@ -75,6 +75,8 @@ class StockMovementsTable
                     ->limit(30)
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            // Süzgeç seçilince hemen uygulansın (Filament 4 varsayılanı "Uygula" düğmesini bekliyor — kullanıcı 21.10: "Yön, Sebep çalışmıyor").
+            ->deferFilters(false)
             ->filters([
                 SelectFilter::make('direction')
                     ->label('Yön')

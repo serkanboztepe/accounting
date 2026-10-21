@@ -479,6 +479,8 @@ class ChatAssistant
                 'purchase_price', 'product_name', 'unit', 'next_items',
                 // Önce anla: sorulan soru ve anlaşılanlar (cevap gelince aynı kayıt tamamlanır).
                 'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks', 'check_plan', 'stock_items',
+                // Anlaşma taslağı (sözleşme fotoğrafı): düzeltmede kalemler/ödemeler görünsün.
+                'agreement_direction', 'agreement_items', 'agreement_payments', 'unreadable', 'delivery_lines', 'delivery_candidates',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];
@@ -500,6 +502,17 @@ class ChatAssistant
         // Kartı olmayan mal alışında stok sorusunu KOD sorar (StockChoice, 21.10 Akkuş "börek unu ödemesi" stoğa girmedi).
         if ($stock && config('modules.purchases')) {
             $modules[] = '- Alış ya da ödeme TEK bir mal içinse (un, yağ, susam, şeker, lastik…) `goods_name` alanına malın adını yaz — adet/fiyat söylenmese de, cari olsun olmasın, gider olarak yazsan bile ("25.000 börek unu ödemesi yapıldı" → "Börek unu"; "3000 tl susam aldım nakit" → "Susam"; "Tokgöz\'e yağ parası verdim" → "Yağ"). Hizmet, işçilik, nakliye, kira, fatura, yakıt, yemek ve karışık market/toptancı alışverişinde null. Malın nerede olduğunu ya da kaç tane geldiğini SEN sorma — kod numaralı soruyla sorar.';
+        }
+        if (config('modules.agreements')) {
+            // 21.10: anlaşma kayıttır (kart, kalan); hafızadaki "X'le Y'den anlaştık → remember" kuralını bu hesapta ezer.
+            $modules[] = '- ANLAŞMALAR AÇIK: cariyle ileride gelecek mal / yapılacak iş için fiyat ya da tutar kararlaştırıldıysa ("Ali Usta\'yla '
+                . 'tesisatı 1 milyona anlaştık", "Kuşakla 500 m³ betonu 3800\'den anlaştık", "tuğlanın adedini 8,5\'ten anlaştık") → propose_entry '
+                . 'kind "agreement" (remember DEĞİL): agreement_items + anlaşmayla birlikte verilen peşinat/çek/senet agreement_payments. Mal geldi / '
+                . 'iş yapıldı deniyorsa agreement değil. Anlaşma taslağında okunamayan yer soruldu ve kullanıcı cevapladıysa düzeltilmiş taslağı '
+                . 'öner (değişen kalemi yaz, `unreadable`\'dan çıkar). Bağlamdaki AÇIK ANLAŞMALAR\'dan mal geldi / iş yapıldı / teslim '
+                . 'edildi → kind "agreement_delivery" (delivery_lines); soruya cevap ("44,5", "yarısı") gelince aynı teslimatı miktarıyla öner. '
+                . 'Anlaşmanın durumu sorulursa ("fayansta ne kaldı", "Ali Usta\'yla ne durumdayız") → propose_entry kind "agreement_query" '
+                . '(rakamları sen hesaplama, sistem cevaplar).';
         }
         $modules[] = '- Listede olmayan kişi için yeni cari SEN açabilirsin: `party_name` yaz, onayla birlikte açılır. "Cariye ekle" bunu ister — "panelden ekle" deme.';
         $cannot = $stock ? 'hayvan sayımı, hayvan listesi' : 'hayvan sayımı, stok listesi';

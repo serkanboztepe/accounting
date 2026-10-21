@@ -19,6 +19,9 @@ use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\AdvanceOffset;
+use App\Services\Whatsapp\AgreementDeliveryDraft;
+use App\Services\Whatsapp\AgreementDraft;
+use App\Services\Whatsapp\AgreementQuery;
 use App\Services\Whatsapp\BundleDraft;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\CheckSplit;
@@ -612,6 +615,38 @@ class WhatsappWebhookController extends Controller
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
+        }
+
+        // Anlaşma belgesinde okunamayan yer soruldu → "geç": önemli değil, kart onaya gelir (AI'sız).
+        if ($pending && $image === null && AgreementDraft::handles($pending->extracted) && ! empty($pending->extracted['unreadable'])
+            && in_array($this->word($body), AgreementDraft::SKIP_WORDS, true)) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::skipUnreadable($pending->extracted)));
+        }
+
+        // Anlaşmadan teslim: "hangi anlaşma?" / fiyat farkı sorusuna numara (AI'sız).
+        if ($pending && $image === null && ctype_digit($body) && AgreementDeliveryDraft::handles($pending->extracted)
+            && AgreementDeliveryDraft::awaitsNumber($pending->extracted)) {
+            $this->inboundKind = 'quick';
+            $chosen = AgreementDeliveryDraft::choose($pending->extracted, (int) $body);
+            if ($chosen === null) {
+                return $this->twiml('Listede o numara yok. ' . AgreementDeliveryDraft::question($pending->extracted));
+            }
+            if (isset($chosen['cancel'])) {
+                $pending->update(['status' => 'cancelled']);
+
+                return $this->twiml($chosen['cancel']);
+            }
+
+            return $this->twiml($this->saveDraft($pending, $phone, $chosen));
+        }
+        // "Kaç m³ geldi?" → yalnız sayı: miktar (tutar sanılmasın — eski "tutarı eksik taslak" kuralı buraya gelmesin).
+        if ($pending && $image === null && AgreementDeliveryDraft::handles($pending->extracted)
+            && ($typed = $this->typedAmount($body)) !== null && ($filled = AgreementDeliveryDraft::fillNumber($pending->extracted, $typed)) !== null) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, $filled));
         }
 
         // Eşleşen çek o değilse ("başka") → eski soru: kime yazılmıştı (AI'sız).
@@ -1345,6 +1380,16 @@ class WhatsappWebhookController extends Controller
     {
         // Kaydı başlatan mesaj — sıradaki kalem "evet" turunda işlenirken emniyetler bunu görür (review 8b).
         $data['source_text'] = $pending?->extracted['source_text'] ?? ($data['source_text'] ?? null) ?? ($this->inboundBody !== '' ? mb_substr($this->inboundBody, 0, 1000) : null);
+        // Anlaşma (sözleşme fotoğrafı / "…'ye anlaştık"): kendi yolu — alış/ödeme emniyetleri (çek bölme, iş durumu) ona uygulanmaz.
+        if (AgreementDraft::handles($data)) {
+            return $this->saveAgreementDraft($pending, $phone, $data);
+        }
+        if (AgreementDeliveryDraft::handles($data)) {
+            return $this->saveAgreementDeliveryDraft($pending, $phone, $data);
+        }
+        if (AgreementQuery::handles($data)) {
+            return AgreementQuery::answer($data); // soru — taslak yok, bekleyen kayda dokunulmaz
+        }
         // Peşin ödenip gidere yazılan firma (kişisiz) düzeltme turunda kaybolmasın — "ödenmedi" denirse cariye döner.
         if ($pending && ! empty($pending->extracted['supplier_name']) && empty($data['party_id']) && empty($data['party_name'])) {
             $data['supplier_name'] = $pending->extracted['supplier_name'];
@@ -1540,6 +1585,12 @@ class WhatsappWebhookController extends Controller
 
         if ($this->kind($data) === ExpenseExtractor::KIND_HELP) {
             // Anlaşılamayan mesaj: zorla en yakın türe sokmak yerine yönlendir. Bekleyen taslağa dokunma.
+            // Fotoğraf/belge geldiyse menü değil: ne olduğunu sor (21.10: sözleşme fotoğrafına yardım menüsü gitti).
+            if (empty($data['reply']) && ! empty($data['from_document'])) {
+                return "📄 Belgeyi aldım ama ne olduğunu tam anlayamadım. Ne yapayım?\n"
+                    . 'Ör. "bu bir fiş, gider yaz", "bu sözleşme, anlaşma olarak kaydet", "bu dekont, ödeme".';
+            }
+
             return $data['reply'] ?: $this->guideText();
         }
         // Personel bilgisi / maaş (her firmada).
@@ -2145,6 +2196,27 @@ class WhatsappWebhookController extends Controller
         if (($pending->extracted['kind'] ?? null) === BundleDraft::KIND) {
             return BundleDraft::commit($pending);
         }
+        if (AgreementDeliveryDraft::handles($pending->extracted)) {
+            if ($question = AgreementDeliveryDraft::question($pending->extracted)) {
+                return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
+            }
+            [$text] = AgreementDeliveryDraft::commit($pending->extracted);
+            $this->touchedPartyId = $this->committedPartyId = (int) $pending->extracted['party_id'];
+            $pending->update(['status' => 'confirmed']);
+
+            return $text;
+        }
+        if (AgreementDraft::handles($pending->extracted)) {
+            if ($question = AgreementDraft::question($pending->extracted)) {
+                return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
+            }
+            [$text, $agreement] = AgreementDraft::commit($pending->extracted);
+            $this->touchedPartyId = $agreement->party_id;
+            $this->committedPartyId = $agreement->party_id;
+            $pending->update(['status' => 'confirmed']);
+
+            return $text;
+        }
         // Taslak ile onay arasında silinen proje/cari/kategori (review H) — kayıt hatası yerine boşalır, eksikse sorulur.
         $d = ExpenseExtractor::fitToModules(ExpenseExtractor::dropUnknownIds($pending->extracted));
         if ($d !== $pending->extracted) {
@@ -2483,6 +2555,79 @@ class WhatsappWebhookController extends Controller
         }
 
         return $text . $footer;
+    }
+
+    /**
+     * Anlaşma taslağı: kart + (varsa) soru. Soru varken de saklanır — cevap ("çimento torba", "geç") aynı taslağa bağlansın.
+     * Düzeltme turunda AI kalemleri/ödemeleri tekrarlamazsa öncekiler korunur (12 kalemli belge her turda yeniden yazılmasın).
+     */
+    private function saveAgreementDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
+    {
+        if ($pending && AgreementDraft::handles($pending->extracted)) {
+            $data['agreement_items'] = AgreementDraft::mergeItems($pending->extracted['agreement_items'] ?? [], $data['agreement_items'] ?? []);
+            if (empty($data['agreement_payments']) && ! empty($pending->extracted['agreement_payments'])) {
+                $data['agreement_payments'] = $pending->extracted['agreement_payments'];
+            }
+            $data['party_id'] = $data['party_id'] ?? $pending->extracted['party_id'] ?? null;
+            $data['party_name'] = $data['party_name'] ?? (empty($data['party_id']) ? ($pending->extracted['party_name'] ?? null) : null);
+            $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
+        }
+        $question = AgreementDraft::question($data);
+        $data['question'] = $question;
+        $card = AgreementDraft::summary($data);
+        // Kişi bilinmiyorsa kart anlamsız — yalnız soru.
+        $summary = empty($data['party_id']) && trim((string) ($data['party_name'] ?? '')) === '' ? '❓ ' . $question
+            : $card . ($question !== null ? "\n\n❓ " . $question : '');
+        $footer = $question !== null ? "\n\nVazgeçmek için *iptal*." : "\n\nKaydedeyim mi? *evet* / *iptal*";
+
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $summary]);
+        } else {
+            WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+        }
+
+        return $summary . $footer;
+    }
+
+    /**
+     * Anlaşmadan teslim taslağı: kart + (varsa) soru (hangi kalem / miktar / fiyat farkı). Düzeltme turunda AI kalemi tekrarlamazsa
+     * önceki satırlar korunur, söylenen miktar/fiyat aynı kaleme işlenir.
+     */
+    private function saveAgreementDeliveryDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
+    {
+        if ($pending && AgreementDeliveryDraft::handles($pending->extracted)) {
+            $prev = $pending->extracted['delivery_lines'] ?? [];
+            $new = $data['delivery_lines'] ?? [];
+            if ($new === []) {
+                $data['delivery_lines'] = $prev;
+                $data['delivery_candidates'] = $data['delivery_candidates'] ?: ($pending->extracted['delivery_candidates'] ?? []);
+            } elseif (count($new) < count($prev)) {
+                $byId = collect($new)->keyBy('agreement_item_id');
+                $data['delivery_lines'] = array_map(fn ($l) => $byId->has($l['agreement_item_id'])
+                    ? array_merge($l, array_filter($byId[$l['agreement_item_id']], fn ($v) => $v !== null)) : $l, $prev);
+            }
+            $data['project_id'] = $data['project_id'] ?? $pending->extracted['project_id'] ?? null;
+        }
+        $data = AgreementDeliveryDraft::prepare($data);
+        if (($data['delivery_lines'] ?? []) === []) {
+            // Listede olmayan kalem: tahmin yok — kullanıcıya anlaşmayı sor (taslak açılmaz).
+            return 'Bu teslimatı hangi anlaşmaya yazacağımı bulamadım. Kimden ne geldiğini anlaşmadaki adıyla yazar mısın? '
+                . '(Anlaşma dışıysa tutarıyla: "Kuşaktan 20 m³ beton aldım 80 bin")';
+        }
+        $question = AgreementDeliveryDraft::question($data);
+        $data['question'] = $question;
+        $summary = ! empty(array_filter(array_column($data['delivery_lines'], 'agreement_item_id')))
+            ? AgreementDeliveryDraft::summary($data) . ($question !== null ? "\n\n❓ " . $question : '')
+            : '❓ ' . $question;
+        $footer = $question !== null ? "\n\nVazgeçmek için *iptal*." : "\n\nKaydedeyim mi? *evet* / *iptal*";
+
+        if ($pending) {
+            $pending->update(['extracted' => $data, 'summary' => $summary]);
+        } else {
+            WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+        }
+
+        return $summary . $footer;
     }
 
     /** Personel ayarı / maaş taslağı: özet + teyit (eksikse soru). */
