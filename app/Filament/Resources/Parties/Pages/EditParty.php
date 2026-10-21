@@ -77,6 +77,9 @@ class EditParty extends EditRecord
 
             DeleteAction::make()
                 ->modalDescription(fn (Party $record) => PartyDeletion::description($record))
+                // Tek tıkla carinin tüm hareketleri gitmesin (kullanıcı 21.10): "Eminim Sil" yazılmadan silinmez.
+                ->schema(fn (Party $record) => PartyDeletion::blockers($record) ? [] : [PartyDeletion::confirmField()])
+                ->modalSubmitActionLabel('Cariyi sil')
                 ->before(function (Party $record, DeleteAction $action) {
                     if (PartyDeletion::blockers($record)) {
                         Notification::make()->danger()->title('Cari silinemedi')->body(PartyDeletion::description($record))->send();
@@ -630,7 +633,7 @@ class EditParty extends EditRecord
             'statementDateFrom' => $this->statementDateFrom,
             'statementDateTo'   => $this->statementDateTo,
             'statementProjectId' => $this->statementProjectId,
-            'timeline'         => $this->getTimelineEvents(),
+            'activityLogs'     => $this->getActivityLogs(),
             'contracts'        => $this->getContractRows(),
             'invoices'         => $this->getInvoiceRows(),
             'expenses'         => $this->getExpenseRows(),
@@ -667,114 +670,14 @@ class EditParty extends EditRecord
             ->all();
     }
 
-    private function getTimelineEvents(): array
+    /**
+     * İşlem geçmişi (kullanıcı 21.10: "log gibi çalışsın, silinse de güncellense de görünsün"): bu carinin defter satırları,
+     * yeniden eskiye. Eski "Aktivite Zaman Çizgisi" o an var olan kayıtlardan çiziliyordu — silinen kayıt kayboluyordu.
+     */
+    private function getActivityLogs(): \Illuminate\Support\Collection
     {
-        $party = $this->record;
-        $events = [];
-
-        foreach (Contract::query()->where('party_id', $party->id)->with(['project', 'items'])->get() as $contract) {
-            $date = $contract->contract_date ?? $contract->created_at;
-            $events[] = [
-                'sort'     => $date,
-                'date'     => optional($date)->format('d.m.Y') ?? '-',
-                'type'     => 'contract',
-                'label'    => 'Sözleşme',
-                'color'    => 'gray',
-                'title'    => $contract->title,
-                'subtitle' => $contract->project?->name,
-                'amount'   => $contract->reportableTotal(),
-            ];
-        }
-
-        foreach (ContractDelivery::query()
-            ->whereHas('contract', fn ($q) => $q->where('party_id', $party->id))
-            ->with(['contract', 'project'])
-            ->get() as $delivery) {
-            $isSub = $delivery->contract?->isSubcontract();
-            $events[] = [
-                'sort'     => $delivery->delivery_date,
-                'date'     => optional($delivery->delivery_date)->format('d.m.Y') ?? '-',
-                'type'     => $isSub ? 'progress' : 'delivery',
-                'label'    => $isSub ? 'Hakediş' : 'Teslimat',
-                'color'    => 'info',
-                'title'    => $delivery->contract?->title,
-                'subtitle' => $delivery->project?->name,
-                'amount'   => (float) $delivery->amount,
-            ];
-        }
-
-        foreach (Invoice::query()
-            ->whereHas('contract', fn ($q) => $q->where('party_id', $party->id))
-            ->with('contract')
-            ->get() as $invoice) {
-            $events[] = [
-                'sort'     => $invoice->invoice_date,
-                'date'     => optional($invoice->invoice_date)->format('d.m.Y') ?? '-',
-                'type'     => 'invoice',
-                'label'    => 'Fatura',
-                'color'    => 'warning',
-                'title'    => $invoice->invoice_number ? 'No: ' . $invoice->invoice_number : 'Fatura',
-                'subtitle' => $invoice->contract?->title,
-                'amount'   => (float) $invoice->total_amount,
-            ];
-        }
-
-        foreach (ContractPayment::query()
-            ->whereHas('contract', fn ($q) => $q->where('party_id', $party->id))
-            ->with('contract')
-            ->get() as $payment) {
-            $date = $payment->payment_date ?? $payment->created_at;
-            $events[] = [
-                'sort'     => $date,
-                'date'     => optional($date)->format('d.m.Y') ?? '-',
-                'type'     => 'payment',
-                'label'    => 'Ödeme',
-                'color'    => 'success',
-                'title'    => $payment->description ?: 'Sözleşme ödemesi',
-                'subtitle' => $payment->contract?->title,
-                'amount'   => (float) $payment->amount,
-            ];
-        }
-
-        foreach (Check::query()->where('party_id', $party->id)->get() as $check) {
-            $date = $check->issue_date ?? $check->due_date;
-            $events[] = [
-                'sort'     => $date,
-                'date'     => optional($date)->format('d.m.Y') ?? '-',
-                'type'     => 'check',
-                'label'    => 'Çek',
-                'color'    => 'amber',
-                'title'    => $check->check_number ? 'Çek No: ' . $check->check_number : 'Çek',
-                'subtitle' => 'Vade: ' . (optional($check->due_date)->format('d.m.Y') ?? '-'),
-                'amount'   => (float) $check->amount,
-            ];
-        }
-
-        foreach (Expense::query()->where('party_id', $party->id)->with(['project', 'category'])->get() as $expense) {
-            $events[] = [
-                'sort'     => $expense->expense_date,
-                'date'     => optional($expense->expense_date)->format('d.m.Y') ?? '-',
-                'type'     => 'expense',
-                'label'    => 'Direkt Gider',
-                'color'    => 'rose',
-                'title'    => $expense->description ?: ($expense->category?->name ?? 'Gider'),
-                'subtitle' => $expense->project?->name,
-                'amount'   => (float) $expense->amount,
-            ];
-        }
-
-        usort($events, function ($a, $b) {
-            $ax = $a['sort']?->timestamp ?? 0;
-            $bx = $b['sort']?->timestamp ?? 0;
-
-            return $bx <=> $ax;
-        });
-
-        return array_map(function ($event) {
-            unset($event['sort']);
-
-            return $event;
-        }, $events);
+        return \App\Models\ActivityLog::where('party_id', $this->record->id)
+            ->orderByDesc('happened_at')->orderByDesc('id')->limit(500)->get();
     }
 
     private function getContractRows(): array

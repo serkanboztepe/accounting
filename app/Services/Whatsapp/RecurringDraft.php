@@ -120,7 +120,7 @@ final class RecurringDraft
     {
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_RECURRING_STOP) {
             $rows = self::matches($d);
-            Reminder::whereKey($rows->pluck('id'))->update(['status' => 'cancelled', 'next_fire_at' => null]);
+            \App\Models\ActivityLog::updateQuery(Reminder::whereKey($rows->pluck('id')), ['status' => 'cancelled', 'next_fire_at' => null]);
 
             return ['🛑 Durdurdum: ' . $rows->pluck('text')->implode(', ') . '. Bundan sonra yazılmaz; eskileri yerinde.', null];
         }

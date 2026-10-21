@@ -17,6 +17,43 @@ use Illuminate\Support\Carbon;
  */
 class Reminder extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Hatırlatma';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return $this->amount !== null ? (float) $this->amount : null;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->text;
+    }
+
+    /** Teknik alanlar (next_fire_at, attempts, last_sent_at, gönderim sırasındaki 'sending') yok — gönderim satır yazdırmaz. */
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Metin'         => $this->text,
+            'Tarih'         => \App\Models\ActivityLog::date($this->event_date),
+            'Saat'          => $this->event_time ? substr((string) $this->event_time, 0, 5) : null,
+            'Ne kadar önce' => $this->lead_minutes ? $this->lead_minutes . ' dk' : null,
+            'Tekrar'        => ['daily' => 'Her gün', 'weekly' => 'Her hafta', 'monthly' => 'Her ay', 'yearly' => 'Her yıl'][$this->repeat] ?? null,
+            'Ayın günü'     => $this->anchor_day,
+            'Alarm'         => $this->is_alarm ? 'Evet' : null,
+            'Tutar'         => \App\Models\ActivityLog::money($this->amount),
+            'Kategori'      => \App\Models\ActivityLog::name(ExpenseCategory::class, $this->expense_category_id),
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Durum'         => ['active' => 'Aktif', 'sending' => 'Aktif', 'done' => 'Tamamlandı', 'cancelled' => 'İptal'][$this->status] ?? $this->status,
+            'Cevap'         => $this->acknowledged_at ? 'Cevaplandı ' . \App\Models\ActivityLog::date($this->acknowledged_at) : null,
+            'Numara'        => $this->phone ? \App\Support\Phone::display($this->phone) : null,
+        ]);
+    }
+
     public const TIMEZONE = 'Europe/Istanbul';
 
     public const DEFAULT_HOUR = 8;

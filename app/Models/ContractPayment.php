@@ -9,6 +9,48 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ContractPayment extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityPartyId(): ?int
+    {
+        $id = Contract::withoutGlobalScopes()->whereKey($this->contract_id)->value('party_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    public function activityAction(): string
+    {
+        return 'Sözleşme ödemesi';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return \App\Models\ActivityLog::name(Contract::class, $this->contract_id, 'title');
+    }
+
+    public function activityDetails(): array
+    {
+        $checks = $this->id ? Check::where('contract_payment_id', $this->id)->get()
+            ->map(fn (Check $c) => trim(($c->check_number ? 'No ' . $c->check_number . ' · ' : '') . 'vade ' . \App\Models\ActivityLog::date($c->due_date) . ' · ' . \App\Models\ActivityLog::money($c->amount)))
+            ->implode("\n") : '';
+
+        return \App\Models\ActivityLog::compact([
+            'Sözleşme'      => \App\Models\ActivityLog::name(Contract::class, $this->contract_id, 'title'),
+            'Tarih'         => \App\Models\ActivityLog::date($this->payment_date),
+            'Tutar'         => \App\Models\ActivityLog::money($this->amount),
+            'Ödeme yöntemi' => self::PAYMENT_TYPES[$this->payment_type] ?? $this->payment_type,
+            'Durum'         => self::STATUSES[$this->status] ?? $this->status,
+            'Vade'          => \App\Models\ActivityLog::date($this->due_date),
+            'Çekler'        => $checks,
+            'Not'           => $this->notes,
+        ]);
+    }
+
     use HasFactory;
 
     // Sadeleştirilmiş yöntemler: Nakit / Havale-EFT / Çek (senet + diğer kaldırıldı).
@@ -44,7 +86,7 @@ class ContractPayment extends Model
     {
         // Ödeme silinince bağlı çek(ler) de temizlensin (öksüz çek kalmasın).
         static::deleting(function (self $payment): void {
-            $payment->checks()->delete();
+            \App\Models\ActivityLog::deleteQuery($payment->checks(), 'Bağlı sözleşme ödemesi silindiği için');
         });
     }
 
@@ -66,7 +108,7 @@ class ContractPayment extends Model
     public function syncCheck(?string $dueDate = null): void
     {
         if ($this->payment_type !== 'check') {
-            $this->checks()->delete();
+            \App\Models\ActivityLog::deleteQuery($this->checks(), 'Ödeme çekle değil');
 
             return;
         }

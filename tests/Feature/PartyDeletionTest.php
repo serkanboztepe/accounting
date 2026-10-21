@@ -53,8 +53,34 @@ class PartyDeletionTest extends TestCase
         $this->actingAs(User::factory()->create());
         $party = Party::create(['name' => 'Silme Test Serbest']);
 
-        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])->callAction(DeleteAction::class);
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->callAction(DeleteAction::class, data: ['confirm_phrase' => 'Eminim Sil']);
 
         $this->assertNull($party->fresh());
+    }
+
+    // Kullanıcı 21.10: tek tıkla carinin tüm hareketleri gitmesin — "Eminim Sil" yazılmadan silinmez.
+    public function test_party_is_not_deleted_without_typed_confirmation(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $party = Party::create(['name' => 'Silme Test Onaysız']);
+
+        foreach ([null, 'sil', 'eminim', 'Eminim Sill'] as $typed) {
+            Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+                ->callAction(DeleteAction::class, data: ['confirm_phrase' => $typed])
+                ->assertHasActionErrors(['confirm_phrase']);
+            $this->assertNotNull($party->fresh(), "'{$typed}' ile silinmemeli");
+        }
+    }
+
+    // Telefon klavyesi baş harfi büyütür, Türkçe I/İ: hepsi kabul.
+    public function test_confirmation_phrase_ignores_case_and_turkish_i(): void
+    {
+        foreach (['Eminim Sil', 'eminim sil', 'EMİNİM SİL', 'EMINIM SIL', '  eminim   sil ', 'Eminim sil'] as $typed) {
+            $this->assertTrue(PartyDeletion::confirmed($typed), $typed);
+        }
+        foreach (['', 'eminim', 'sil', 'emin sil'] as $typed) {
+            $this->assertFalse(PartyDeletion::confirmed($typed), $typed);
+        }
     }
 }

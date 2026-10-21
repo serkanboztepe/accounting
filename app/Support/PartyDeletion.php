@@ -14,7 +14,7 @@ use App\Models\Sale;
  * Cari silinmeden önce ne olacağını söyle. Veritabanı kuralları: cari hareketleri ve direkt satışlar
  * BİRLİKTE silinir; giderler carisiz kalır; çek / sözleşme / teklif varsa silinemez (önceden
  * veritabanı hatası veriyordu). Ferhat Bey vakası: "Sil" yalnız "Emin misiniz?" diyordu, 20.000 ₺'lik
- * tahsilat cariyle birlikte uyarısız gitti.
+ * tahsilat cariyle birlikte uyarısız gitti. 21.10: silmek için "Eminim Sil" yazılır; silinen her şey İşlem Geçmişi'nde ayrıntısıyla kalır.
  */
 class PartyDeletion
 {
@@ -54,6 +54,36 @@ class PartyDeletion
         }
 
         return $text;
+    }
+
+    /** Cari silmede yazılması gereken söz (kullanıcı 21.10: tek tıkla carinin tüm hareketleri gitmesin). */
+    public const CONFIRM_PHRASE = 'Eminim Sil';
+
+    /**
+     * "Eminim Sil" yazıldı mı — büyük/küçük harf, Türkçe I/İ/ı ve fazla boşluk fark etmez (telefon klavyesi baş harfi büyütür,
+     * "EMINIM SIL" da kabul).
+     */
+    public static function confirmed(?string $typed): bool
+    {
+        $norm = fn (string $t) => preg_replace('/\s+/u', ' ', trim(str_replace('ı', 'i', mb_strtolower(str_replace(['İ', 'I'], 'i', $t)))));
+
+        return $norm((string) $typed) === $norm(self::CONFIRM_PHRASE);
+    }
+
+    /** Silme penceresindeki onay kutusu — iki silme yerinde (liste satırı + cari sayfası) aynı. */
+    public static function confirmField(): \Filament\Forms\Components\TextInput
+    {
+        return \Filament\Forms\Components\TextInput::make('confirm_phrase')
+            ->label('Silmek için "' . self::CONFIRM_PHRASE . '" yaz')
+            ->placeholder(self::CONFIRM_PHRASE)
+            ->autocomplete(false)
+            ->required()
+            ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                if (! self::confirmed($value)) {
+                    $fail('Silmek için tam olarak "' . self::CONFIRM_PHRASE . '" yazmalısın.');
+                }
+            })
+            ->validationMessages(['required' => 'Silmek için "' . self::CONFIRM_PHRASE . '" yazmalısın.']);
     }
 
     private static function count(int $n, string $label): ?string

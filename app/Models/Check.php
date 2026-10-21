@@ -8,6 +8,40 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Check extends Model
 {
+    use Concerns\LogsActivity;
+
+    public const STATUS_LABELS = ['portfolio' => 'Portföyde', 'issued' => 'Verildi', 'collected' => 'Tahsil edildi', 'paid' => 'Ödendi',
+        'cancelled' => 'İptal', 'bounced' => 'Karşılıksız'];
+
+    public function activityAction(): string
+    {
+        return 'Çek';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return trim(($this->check_number ? 'No ' . $this->check_number . ' · ' : '') . 'vade ' . \App\Models\ActivityLog::date($this->due_date));
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Çek no'   => $this->check_number,
+            'Banka'    => $this->bank_name,
+            'Tutar'    => \App\Models\ActivityLog::money($this->amount),
+            'Keşide'   => \App\Models\ActivityLog::date($this->issue_date),
+            'Vade'     => \App\Models\ActivityLog::date($this->due_date),
+            'Durum'    => self::STATUS_LABELS[$this->status] ?? $this->status,
+            'Açıklama' => $this->description,
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+        ]);
+    }
+
     use HasFactory;
 
     protected $fillable = [

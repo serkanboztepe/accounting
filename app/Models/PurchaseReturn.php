@@ -10,6 +10,45 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 /** Alış iadesi (SaleReturn'ün aynası): tedarikçiye geri verilen mal. Silinince stok çıkışı + cari satırı birlikte gider. */
 class PurchaseReturn extends Model
 {
+    use Concerns\LogsActivity;
+
+    /** İşlem geçmişi: iade processReturn sonunda (kalemler kurulunca) yazılır; silme kendiliğinden. */
+    public function activityAuto(): bool
+    {
+        return false;
+    }
+
+    public function activityAction(): string
+    {
+        return 'İade verdi';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return 'Alış #' . $this->purchase_id . ' iadesi';
+    }
+
+    public function activityDetails(): array
+    {
+        $lines = $this->id ? StockMovement::where('purchase_return_id', $this->id)->with('product.unit')->get()
+            ->map(fn (StockMovement $m) => \App\Support\StockUsage::quantity((float) $m->quantity) . ' ' . ($m->product?->unit?->name ? $m->product->unit->name . ' ' : '')
+                . ($m->product?->name ?? 'Ürün') . ($m->amount !== null ? ' · ' . \App\Models\ActivityLog::money($m->amount) : ''))->implode("\n") : '';
+
+        return \App\Models\ActivityLog::compact([
+            'Belge'   => 'Alış #' . $this->purchase_id,
+            'Tarih'   => \App\Models\ActivityLog::date($this->return_date),
+            'Cari'    => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Ürünler' => $lines,
+            'Toplam'  => \App\Models\ActivityLog::money($this->total_amount),
+            'Not'     => $this->notes,
+        ]);
+    }
+
     protected $fillable = [
         'purchase_id',
         'party_id',

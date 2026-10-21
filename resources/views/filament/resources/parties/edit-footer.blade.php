@@ -190,60 +190,18 @@
         </div>
     </x-filament::section>
 
-    {{-- Aktivite Zaman Çizgisi --}}
-    @if (count($timeline) > 0)
-        @php
-            $colorMap = [
-                'gray'    => ['bg' => '#f3f4f6', 'fg' => '#4b5563', 'dot' => '#6b7280'],
-                'info'    => ['bg' => '#dbeafe', 'fg' => '#1d4ed8', 'dot' => '#3b82f6'],
-                'warning' => ['bg' => '#fef3c7', 'fg' => '#b45309', 'dot' => '#f59e0b'],
-                'success' => ['bg' => '#dcfce7', 'fg' => '#15803d', 'dot' => '#10b981'],
-                'amber'   => ['bg' => '#fef3c7', 'fg' => '#b45309', 'dot' => '#d97706'],
-                'rose'    => ['bg' => '#ffe4e6', 'fg' => '#be123c', 'dot' => '#f43f5e'],
-            ];
-        @endphp
+    {{-- İşlem Geçmişi: bu cariyle ilgili her iş (eklendi / düzenlendi / silindi), kanalıyla — silinen kaydın ayrıntısı da burada --}}
+    @if ($activityLogs->isNotEmpty())
         <x-filament::section
-            heading="Aktivite Zaman Çizgisi"
-            :description="count($timeline) . ' kayıt'"
+            heading="İşlem Geçmişi"
+            :description="$activityLogs->count() . ' işlem · silinen ve düzenlenen kayıtlar da burada kalır'"
             collapsible
             collapsed
             compact
         >
             <div class="space-y-2">
-                @foreach ($timeline as $event)
-                    @php $c = $colorMap[$event['color']] ?? $colorMap['gray']; @endphp
-                    <div class="rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm dark:border-white/10 dark:bg-white/5"
-                         style="border-left: 3px solid {{ $c['dot'] }};">
-                        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 md:flex-nowrap">
-                            <div class="w-20 shrink-0 text-xs text-gray-500 dark:text-gray-400">
-                                {{ $event['date'] }}
-                            </div>
-
-                            <span class="inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
-                                  style="background:{{ $c['bg'] }};color:{{ $c['fg'] }};">
-                                {{ $event['label'] }}
-                            </span>
-
-                            <div class="min-w-0 flex-1">
-                                @if ($event['title'])
-                                    <div class="truncate text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ $event['title'] }}
-                                    </div>
-                                @endif
-                                @if (!empty($event['subtitle']))
-                                    <div class="truncate text-xs text-gray-500 dark:text-gray-400">
-                                        {{ $event['subtitle'] }}
-                                    </div>
-                                @endif
-                            </div>
-
-                            @if ($event['amount'] > 0)
-                                <div class="shrink-0 text-sm font-semibold text-gray-900 dark:text-white md:text-right">
-                                    ₺{{ \App\Support\Money::format($event['amount']) }}
-                                </div>
-                            @endif
-                        </div>
-                    </div>
+                @foreach ($activityLogs as $log)
+                    @include('filament.activity.row', ['log' => $log, 'showParty' => false])
                 @endforeach
             </div>
         </x-filament::section>

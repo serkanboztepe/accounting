@@ -222,6 +222,7 @@ class DeclarationBuilder extends Page implements HasSchemas
             $t ? $t->update($attrs) : $t = $this->record->taxpayers()->create($attrs);
             $keep[] = $t->id;
         }
+        \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
         $this->record->taxpayers()->whereNotIn('id', $keep)->delete(); // listeden silinen (daire sahipliği de gider)
         $this->loadState();
     }
@@ -289,6 +290,7 @@ class DeclarationBuilder extends Page implements HasSchemas
             $b ? $b->update($attrs) : $b = $this->record->blocks()->create($attrs);
             $keep[] = $b->id;
         }
+        \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
         $this->record->blocks()->whereNotIn('id', $keep)->delete(); // listeden silinen blok (daireleriyle)
         $this->loadState();
     }
@@ -402,6 +404,7 @@ class DeclarationBuilder extends Page implements HasSchemas
                 $u ? $u->update($attrs) : $u = $block->units()->create($attrs);
                 $keep[] = $u->id;
             }
+            \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
             $block->units()->whereNotIn('id', $keep)->delete();
         }
         $this->loadState();
@@ -544,6 +547,7 @@ class DeclarationBuilder extends Page implements HasSchemas
                 continue; // değişmedi
             }
             $unit = $units[$i];
+            \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
             $unit->allocations()->delete();
             foreach (StudyBuilder::ownersToAllocations($item['owners']) as $a) {
                 $unit->allocations()->create(['property_tax_taxpayer_id' => $a['shareholder_id'], 'pay' => $a['pay'], 'payda' => $a['payda']]);

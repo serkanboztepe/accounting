@@ -8,6 +8,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LandSection extends Model
 {
+    use Concerns\LogsActivityAsPart;
+
+    /** İşlem geçmişi: alt satır — üst kayıt "düzenlendi" olarak yazılır. */
+    public function activityParent(): ?\Illuminate\Database\Eloquent\Model
+    {
+        return LandShareStudy::find(LandBlock::whereKey($this->block_id)->value('study_id'));
+    }
+
     protected $fillable = [
         'block_id',
         'bb_no',

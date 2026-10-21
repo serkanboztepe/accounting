@@ -103,7 +103,7 @@ final class MemoryDraft
         $phone = Phone::normalize($phone);
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_FORGET) {
             $rows = self::matches($d, $phone);
-            AssistantMemory::whereKey($rows->pluck('id'))->update(['status' => 'deleted']);
+            \App\Models\ActivityLog::updateQuery(AssistantMemory::whereKey($rows->pluck('id')), ['status' => 'deleted']);
 
             return ['🧠 Tamam, unuttum: ' . $rows->map(fn ($m) => $m->fact)->implode('; ') . '.', null];
         }

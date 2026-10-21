@@ -8,6 +8,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ContractItem extends Model
 {
+    use Concerns\LogsActivityAsPart;
+
+    /** İşlem geçmişi: alt satır — üst kayıt "düzenlendi" olarak yazılır. */
+    public function activityParent(): ?\Illuminate\Database\Eloquent\Model
+    {
+        return Contract::withoutGlobalScopes()->find($this->contract_id);
+    }
+
     protected $fillable = [
         'contract_id',
         'product_id',

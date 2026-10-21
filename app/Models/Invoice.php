@@ -9,6 +9,42 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Invoice extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityPartyId(): ?int
+    {
+        $id = Contract::withoutGlobalScopes()->whereKey($this->contract_id)->value('party_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    public function activityAction(): string
+    {
+        return 'Fatura';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return trim('No ' . $this->invoice_number . ' · ' . \App\Models\ActivityLog::name(Contract::class, $this->contract_id, 'title'));
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Fatura no' => $this->invoice_number,
+            'Tarih'     => \App\Models\ActivityLog::date($this->invoice_date),
+            'Tutar'     => \App\Models\ActivityLog::money($this->total_amount),
+            'Sözleşme'  => \App\Models\ActivityLog::name(Contract::class, $this->contract_id, 'title'),
+            'Dosya'     => $this->invoice_path ? 'Var' : null,
+            'Not'       => $this->notes,
+        ]);
+    }
+
     use HasFactory;
 
     protected $fillable = [

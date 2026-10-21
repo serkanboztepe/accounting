@@ -9,6 +9,31 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** Asistan hafızası (Faz 2): kullanıcının öğrettiği kalıcı bilgi. Bkz. migration 2026_10_17_000001. */
 class AssistantMemory extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Asistan hafızası';
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->fact;
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Tür'    => self::KINDS[$this->kind] ?? $this->kind,
+            'Konu'   => $this->subject,
+            'Bilgi'  => $this->fact,
+            'Cari'   => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Ürün'   => \App\Models\ActivityLog::name(Product::class, $this->product_id),
+            'Durum'  => ['active' => 'Aktif', 'deleted' => 'Silindi', 'replaced' => 'Yenisiyle değişti'][$this->status] ?? $this->status,
+            'Kaynak' => $this->source,
+        ]);
+    }
+
     public const KINDS = [
         'alias' => 'Kişi / takma ad',
         'agreement' => 'Anlaşma / karar',

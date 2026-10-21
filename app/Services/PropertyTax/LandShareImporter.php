@@ -68,6 +68,7 @@ class LandShareImporter
                     }
 
                     if ($section->allocations->isNotEmpty()) {
+                        \App\Models\ActivityLog::touchParent($unit->activityParent()); // işlem geçmişi: toplu alt satır değişikliği
                         $unit->allocations()->delete();
                         foreach ($section->allocations as $a) {
                             if (isset($taxpayerOf[$a->shareholder_id]) && $a->pay > 0) {

@@ -10,6 +10,42 @@ use Illuminate\Support\Facades\DB;
 
 class Quote extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Teklif';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->title;
+    }
+
+    public function activityDetails(): array
+    {
+        $items = $this->id ? QuoteItem::where('quote_id', $this->id)->get()
+            ->map(fn (QuoteItem $i) => trim($i->description . ' · ' . \App\Support\StockUsage::quantity((float) $i->quantity) . ' × ' . \App\Models\ActivityLog::money($i->unit_price) . ' = ' . \App\Models\ActivityLog::money($i->amount)))
+            ->implode("\n") : '';
+
+        return \App\Models\ActivityLog::compact([
+            'Başlık'     => $this->title,
+            'Tarih'      => \App\Models\ActivityLog::date($this->quote_date),
+            'Geçerlilik' => \App\Models\ActivityLog::date($this->valid_until),
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Toplam'     => \App\Models\ActivityLog::money($this->total_amount),
+            'Durum'      => self::STATUSES[$this->status] ?? $this->status,
+            'Sözleşmeye çevrildi' => $this->converted_contract_id ? 'Evet (#' . $this->converted_contract_id . ')' : null,
+            'Kalemler'   => $items,
+            'Not'        => $this->notes,
+        ]);
+    }
+
     public const STATUS_DRAFT     = 'taslak';
     public const STATUS_SENT      = 'gonderildi';
     public const STATUS_ACCEPTED  = 'kabul';

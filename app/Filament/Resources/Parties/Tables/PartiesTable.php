@@ -62,6 +62,9 @@ class PartiesTable
                 EditAction::make(),
                 DeleteAction::make()
                     ->modalDescription(fn (Party $record) => PartyDeletion::description($record))
+                    // Tek tıkla carinin tüm hareketleri gitmesin (kullanıcı 21.10): "Eminim Sil" yazılmadan silinmez.
+                    ->schema(fn (Party $record) => PartyDeletion::blockers($record) ? [] : [PartyDeletion::confirmField()])
+                    ->modalSubmitActionLabel('Cariyi sil')
                     ->before(function (Party $record, DeleteAction $action) {
                         if (PartyDeletion::blockers($record)) {
                             Notification::make()->danger()->title('Cari silinemedi')->body(PartyDeletion::description($record))->send();

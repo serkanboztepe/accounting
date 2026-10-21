@@ -107,6 +107,9 @@ class WhatsappWebhookController extends Controller
             return HubRouter::unknownPhoneResponse($phone);
         }
 
+        // İşlem geçmişi: bu mesajla yapılan her iş "WhatsApp · ad (numara)" kanalıyla yazılır.
+        \App\Models\ActivityLog::via('whatsapp', self::activityActor($phone));
+
         // Peş peşe gelen mesajlar ("kira 20 bin" + hemen "ödeme yapıldı") aynı anda işlenince ikincisi
         // taslağı göremiyor, ayrı ayrı cevaplanıyordu → aynı telefonun mesajları sıraya girer.
         // Kilit süresi en uzun işlemden (AI 60 sn) uzun olmalı; yoksa süre dolunca ikinci mesaj araya girer (review C).
@@ -3497,6 +3500,19 @@ class WhatsappWebhookController extends Controller
             200,
             ['Content-Type' => 'text/xml']
         );
+    }
+
+    /** İşlem geçmişindeki kişi: hub'daki numara adı + numara ("Emre (0532 059 11 24)"); ad yoksa yalnız numara. */
+    private static function activityActor(string $phone): string
+    {
+        $number = Phone::display($phone);
+        try {
+            $name = \App\Models\HubPhone::where('phone', Phone::normalize($phone))->value('name');
+        } catch (\Throwable) {
+            $name = null; // merkez tablo yoksa (tek kurulum) yalnız numara
+        }
+
+        return $name ? "{$name} ({$number})" : $number;
     }
 }
 

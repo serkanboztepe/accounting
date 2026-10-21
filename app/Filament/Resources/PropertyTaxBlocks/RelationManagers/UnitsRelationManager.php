@@ -213,6 +213,7 @@ class UnitsRelationManager extends RelationManager
                             return;
                         }
                         foreach ($records as $unit) {
+                            \App\Models\ActivityLog::touchParent($unit->activityParent()); // işlem geçmişi: toplu alt satır değişikliği
                             $unit->allocations()->delete();
                             foreach ($ids as $tid) {
                                 $unit->allocations()->create([
@@ -296,6 +297,7 @@ class UnitsRelationManager extends RelationManager
             ];
         }
 
+        \App\Models\ActivityLog::touchParent($unit->activityParent()); // işlem geçmişi: toplu alt satır değişikliği
         $unit->allocations()->delete();
 
         $n = count($selected);

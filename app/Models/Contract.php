@@ -10,6 +10,59 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Contract extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Sözleşme';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->title;
+    }
+
+    public function activityDetails(): array
+    {
+        $items = $this->id ? ContractItem::where('contract_id', $this->id)->get()
+            ->map(fn (ContractItem $i) => trim(($i->description ?: \App\Models\ActivityLog::name(Product::class, $i->product_id)) . ' · ' . \App\Support\StockUsage::quantity((float) $i->quantity)
+                . ' × ' . \App\Models\ActivityLog::money($i->unit_price) . ' = ' . \App\Models\ActivityLog::money($i->amount)))->implode("\n") : '';
+
+        return \App\Models\ActivityLog::compact([
+            'Başlık'    => $this->title,
+            'Tür'       => self::TYPES[$this->contract_type] ?? $this->contract_type,
+            'Yön'       => self::DIRECTIONS[$this->direction] ?? $this->direction,
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Tarih'     => \App\Models\ActivityLog::date($this->contract_date),
+            'Başlangıç' => \App\Models\ActivityLog::date($this->start_date),
+            'Bitiş'     => \App\Models\ActivityLog::date($this->end_date),
+            'Toplam'    => \App\Models\ActivityLog::money($this->total_amount),
+            'Durum'     => ['draft' => 'Taslak', 'active' => 'Aktif', 'completed' => 'Tamamlandı', 'cancelled' => 'İptal'][$this->status] ?? $this->status,
+            'Kalemler'  => $items,
+            'Not'       => $this->notes,
+        ]);
+    }
+
+    /** Sözleşme silinince ödemeleri, teslimatları, faturaları veritabanında kendiliğinden silinir — önce yaz. */
+    public function activityBeforeDelete(?string $note = null): void
+    {
+        $note ??= 'Sözleşme silindiği için';
+        foreach (ContractPayment::where('contract_id', $this->id)->get() as $row) {
+            \App\Models\ActivityLog::record($row, 'deleted', note: $note);
+        }
+        foreach (ContractDelivery::where('contract_id', $this->id)->get() as $row) {
+            \App\Models\ActivityLog::record($row, 'deleted', note: $note);
+        }
+        foreach (Invoice::where('contract_id', $this->id)->get() as $row) {
+            \App\Models\ActivityLog::record($row, 'deleted', note: $note);
+        }
+    }
+
     use HasFactory;
 
     /**

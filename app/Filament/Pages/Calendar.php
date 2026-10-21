@@ -167,7 +167,7 @@ class Calendar extends Page
             ->modalHeading('Sil')
             ->modalDescription('Bundan sonra hatırlatılmaz / gider yazılmaz. Daha önce yazılmış giderler silinmez.')
             ->action(function (array $arguments) {
-                Reminder::whereKey($arguments['id'])->update(['status' => 'cancelled', 'next_fire_at' => null]);
+                \App\Models\ActivityLog::updateQuery(Reminder::whereKey($arguments['id']), ['status' => 'cancelled', 'next_fire_at' => null]);
                 Notification::make()->title('Silindi')->success()->send();
             });
     }

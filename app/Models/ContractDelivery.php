@@ -10,6 +10,44 @@ use App\Models\Unit;
 
 class ContractDelivery extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityPartyId(): ?int
+    {
+        $id = Contract::withoutGlobalScopes()->whereKey($this->contract_id)->value('party_id');
+
+        return $id ? (int) $id : null;
+    }
+
+    public function activityAction(): string
+    {
+        return 'Teslimat / hakediş';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return \App\Models\ActivityLog::name(Contract::class, $this->contract_id, 'title');
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Sözleşme'    => \App\Models\ActivityLog::name(Contract::class, $this->contract_id, 'title'),
+            'Tarih'       => \App\Models\ActivityLog::date($this->delivery_date),
+            'Kalem'       => \App\Models\ActivityLog::name(ContractItem::class, $this->contract_item_id, 'description') ?? \App\Models\ActivityLog::name(Product::class, $this->product_id),
+            'Miktar'      => \App\Support\StockUsage::quantity((float) $this->quantity) . ($this->unit_id ? ' ' . \App\Models\ActivityLog::name(Unit::class, $this->unit_id) : ''),
+            'Birim fiyat' => \App\Models\ActivityLog::money($this->unit_price),
+            'Tutar'       => \App\Models\ActivityLog::money($this->amount),
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Not'         => $this->notes,
+        ]);
+    }
+
     use HasFactory;
 
     protected $fillable = [

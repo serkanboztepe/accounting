@@ -9,6 +9,35 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LandShareStudy extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Hisse dağılımı';
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->name;
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Ad'            => $this->name,
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Ada / parsel'  => trim($this->ada . ' / ' . $this->parsel, ' /'),
+            'Blok sayısı'   => $this->block_count,
+            'Daire / blok'  => $this->units_per_block,
+            'Arsa payda'    => $this->land_share_denominator,
+            'Ortak hisse'   => $this->shared_split,
+            'Yöntem'        => $this->method,
+            'Durum'         => $this->status,
+            'Kişi sayısı'   => $this->id ? LandShareholder::where('study_id', $this->id)->count() : null,
+            'Not'           => $this->notes,
+        ]);
+    }
+
     protected $fillable = [
         'project_id',
         'name',
@@ -105,6 +134,7 @@ class LandShareStudy extends Model
             if ($used) {
                 $kept[] = "{$block->name} Blok";
             } else {
+                \App\Models\ActivityLog::touchParent($this); // işlem geçmişi: toplu alt satır değişikliği
                 $block->sections()->delete();
                 $block->delete();
             }

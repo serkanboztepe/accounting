@@ -10,6 +10,45 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SaleReturn extends Model
 {
+    use Concerns\LogsActivity;
+
+    /** İşlem geçmişi: iade processReturn sonunda (kalemler kurulunca) yazılır; silme kendiliğinden. */
+    public function activityAuto(): bool
+    {
+        return false;
+    }
+
+    public function activityAction(): string
+    {
+        return 'İade aldı';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return 'Satış #' . $this->sale_id . ' iadesi';
+    }
+
+    public function activityDetails(): array
+    {
+        $lines = $this->id ? StockMovement::where('sale_return_id', $this->id)->with('product.unit')->get()
+            ->map(fn (StockMovement $m) => \App\Support\StockUsage::quantity((float) $m->quantity) . ' ' . ($m->product?->unit?->name ? $m->product->unit->name . ' ' : '')
+                . ($m->product?->name ?? 'Ürün') . ($m->amount !== null ? ' · ' . \App\Models\ActivityLog::money($m->amount) : ''))->implode("\n") : '';
+
+        return \App\Models\ActivityLog::compact([
+            'Belge'   => 'Satış #' . $this->sale_id,
+            'Tarih'   => \App\Models\ActivityLog::date($this->return_date),
+            'Cari'    => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Ürünler' => $lines,
+            'Toplam'  => \App\Models\ActivityLog::money($this->total_amount),
+            'Not'     => $this->notes,
+        ]);
+    }
+
     use HasFactory;
 
     protected $fillable = [

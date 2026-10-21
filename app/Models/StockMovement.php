@@ -8,6 +8,52 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockMovement extends Model
 {
+    use Concerns\LogsActivity;
+
+    /** İşlem geçmişi: belgenin (satış/alış/iade/sözleşme) stok satırı ayrı iş değil — yalnız sayım, üretim, elle giriş/çıkış, otomatik düşüş. */
+    public function activitySkipped(): bool
+    {
+        return $this->sale_id || $this->purchase_id || $this->sale_return_id || $this->purchase_return_id || $this->contract_id;
+    }
+
+    public function activityAction(): string
+    {
+        return match ($this->reason) {
+            self::REASON_ADJUSTMENT => 'Stok sayımı / düzeltme',
+            self::REASON_USAGE      => 'Otomatik stok düşüşü',
+            self::REASON_PRODUCTION => 'Üretim',
+            default                 => $this->direction === self::DIRECTION_IN ? 'Stok girişi' : 'Stok çıkışı',
+        };
+    }
+
+    public function activityAmount(): ?float
+    {
+        return $this->amount !== null ? (float) $this->amount : null;
+    }
+
+    public function activitySummary(): ?string
+    {
+        $product = \App\Models\ActivityLog::name(Product::class, $this->product_id);
+
+        return ($this->direction === self::DIRECTION_IN ? '+' : '−') . \App\Support\StockUsage::quantity((float) $this->quantity) . ' ' . $product;
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Tarih'       => \App\Models\ActivityLog::date($this->movement_date),
+            'Ürün'        => \App\Models\ActivityLog::name(Product::class, $this->product_id),
+            'Yön'         => self::DIRECTION_LABELS[$this->direction] ?? $this->direction,
+            'Sebep'       => self::REASON_LABELS[$this->reason] ?? $this->reason,
+            'Miktar'      => \App\Support\StockUsage::quantity((float) $this->quantity),
+            'Birim fiyat' => \App\Models\ActivityLog::money($this->unit_price),
+            'Tutar'       => \App\Models\ActivityLog::money($this->amount),
+            'Cari'        => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Not'         => $this->notes,
+        ]);
+    }
+
     use HasFactory;
 
     public const DIRECTION_IN  = 'in';   // giren

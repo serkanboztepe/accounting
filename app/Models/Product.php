@@ -10,6 +10,37 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Product extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Ürün kartı';
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->name;
+    }
+
+    /** Teknik alanlar (usage_booked_through, low_stock_alerted_at) yok — sistemin işaretleri satır yazdırmaz. */
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Ad'                 => $this->name,
+            'Tür'                => self::TYPE_LABELS[$this->type] ?? $this->type,
+            'Kategori'           => $this->category,
+            'Birim'              => \App\Models\ActivityLog::name(Unit::class, $this->unit_id),
+            'Satış fiyatı'       => \App\Models\ActivityLog::money($this->default_price),
+            'Alış fiyatı'        => \App\Models\ActivityLog::money($this->purchase_price),
+            'Aktif'              => \App\Models\ActivityLog::yes($this->is_active),
+            'Otomatik stoktan düş' => $this->auto_usage ? 'Evet' : null,
+            'Günlük kullanım'    => $this->daily_usage !== null ? \App\Support\StockUsage::quantity((float) $this->daily_usage) : null,
+            'Kaç günde bir'      => $this->usage_every_days,
+            'Uyarı eşiği'        => $this->reorder_level !== null ? \App\Support\StockUsage::quantity((float) $this->reorder_level) : null,
+            'Not'                => $this->notes,
+        ]);
+    }
+
     use HasFactory;
 
     public const TYPE_PRODUCT = 'product';   // Ürün — stoklu

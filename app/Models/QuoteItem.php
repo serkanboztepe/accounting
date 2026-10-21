@@ -7,6 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class QuoteItem extends Model
 {
+    use Concerns\LogsActivityAsPart;
+
+    /** İşlem geçmişi: alt satır — üst kayıt "düzenlendi" olarak yazılır. */
+    public function activityParent(): ?\Illuminate\Database\Eloquent\Model
+    {
+        return Quote::find($this->quote_id);
+    }
+
     protected $fillable = [
         'quote_id',
         'description',

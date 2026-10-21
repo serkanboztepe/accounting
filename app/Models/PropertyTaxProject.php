@@ -12,6 +12,29 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class PropertyTaxProject extends Model
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Emlak beyanı';
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->name;
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Ad'             => $this->name,
+            'Yapı sahibi'    => $this->building_owner,
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Blok sayısı'    => $this->id ? PropertyTaxBlock::where('property_tax_project_id', $this->id)->count() : null,
+            'Mükellef sayısı' => $this->id ? PropertyTaxTaxpayer::where('property_tax_project_id', $this->id)->count() : null,
+        ]);
+    }
+
     protected $fillable = [
         'name',
         'building_owner',

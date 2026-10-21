@@ -661,6 +661,7 @@ class StudyBuilder extends Page implements HasSchemas
                 $keep[] = $this->record->shareholders()->create($attrs)->id;
             }
         }
+        \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
         $this->record->shareholders()->whereNotIn('id', $keep ?: [0])->delete();
 
         $kept = $this->record->syncStructure($d['block_units'] ?? []);
@@ -699,6 +700,7 @@ class StudyBuilder extends Page implements HasSchemas
 
             $section->update($this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null));
 
+            \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
             $section->allocations()->delete();
             foreach (self::itemAllocations($item) as $a) {
                 if (empty($a['shareholder_id'])) {
@@ -828,6 +830,7 @@ class StudyBuilder extends Page implements HasSchemas
         foreach ($this->data['sections'] ?? [] as $i => $item) {
             $attrs = $this->landShareAttributes($input['bb_' . $item['section_id']] ?? null, $denominator);
 
+            \App\Models\ActivityLog::touchParent($this->record); // işlem geçmişi: toplu alt satır değişikliği
             LandSection::whereKey($item['section_id'])->update($attrs);
             $this->data['sections'][$i]['arsa_pay'] = $attrs['arsa_pay'];
             $this->data['sections'][$i]['arsa_payda'] = $attrs['arsa_payda'] ?? $denominator;

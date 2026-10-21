@@ -48,6 +48,7 @@ class AdminPanelProvider extends PanelProvider
                     ->visible(fn (): bool => SwitchFirm::canAccess()),
                 // Eski "Sistem" menü grubu (kullanıcı 21.10: sol menüde kalabalık etmesin) — sayfalar aynı adreste.
                 ...collect([
+                    \App\Filament\Resources\ActivityLogs\ActivityLogResource::class,
                     \App\Filament\Pages\CompanySettingsPage::class,
                     \App\Filament\Resources\Units\UnitResource::class,
                     \App\Filament\Resources\ExpenseCategories\ExpenseCategoryResource::class,

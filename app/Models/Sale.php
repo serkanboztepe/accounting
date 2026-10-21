@@ -11,6 +11,98 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Sale extends Model
 {
+    use Concerns\LogsActivity;
+
+    protected static function booted(): void
+    {
+        // İşlem geçmişi: alanlar (tarih, cari, not) değişmeden önceki hal — kalemler rebuildFromLines'ta kurulunca yazılır.
+        static::updating(fn (self $sale) => $sale->activityRemember());
+    }
+
+    /** İşlem geçmişi: ekleme/düzenleme rebuildFromLines sonunda (kalemler + toplam kurulunca) yazılır; silme kendiliğinden. */
+    private ?array $activityBefore = null;
+
+    private ?ActivityLog $activityRow = null;
+
+    public function activityAuto(): bool
+    {
+        return false;
+    }
+
+    public function activityAction(): string
+    {
+        return $this->party_id ? 'Satış' : 'Peşin satış';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->activityLines() ?: $this->notes;
+    }
+
+    private function activityLines(): string
+    {
+        if (! $this->id) {
+            return '';
+        }
+
+        return StockMovement::where('sale_id', $this->id)->whereNull('sale_return_id')->with('product.unit')->get()
+            ->map(fn (StockMovement $m) => \App\Support\StockUsage::quantity((float) $m->quantity) . ' ' . ($m->product?->unit?->name ? $m->product->unit->name . ' ' : '')
+                . ($m->product?->name ?? 'Ürün') . ($m->amount !== null ? ' · ' . \App\Models\ActivityLog::money($m->amount) : ''))
+            ->implode("\n");
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Belge'         => 'Satış #' . $this->id,
+            'Tarih'         => \App\Models\ActivityLog::date($this->sale_date),
+            'Cari'          => $this->party_id ? \App\Models\ActivityLog::name(Party::class, $this->party_id) : 'Peşin (carisiz)',
+            'Ürünler'       => $this->activityLines(),
+            'Ürünsüz tutar' => (float) $this->manual_amount > 0 ? \App\Models\ActivityLog::money($this->manual_amount) : null,
+            'Toplam'        => \App\Models\ActivityLog::money($this->total_amount),
+            'Nakit'         => (float) $this->cash_amount > 0 ? \App\Models\ActivityLog::money($this->cash_amount) : null,
+            'Kart / banka'  => (float) $this->bank_amount > 0 ? \App\Models\ActivityLog::money($this->bank_amount) : null,
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Not'           => $this->notes,
+        ]);
+    }
+
+    /** Satış silinince iadeleri veritabanında kendiliğinden silinir — önce yaz. */
+    public function activityBeforeDelete(?string $note = null): void
+    {
+        foreach (SaleReturn::where('sale_id', $this->id)->get() as $return) {
+            \App\Models\ActivityLog::record($return, 'deleted', note: $note ?? 'Satış #' . $this->id . ' silindiği için');
+        }
+    }
+
+    /** Düzenlemeden önceki hal (alanlar güncellenmeden ya da kalemler silinmeden önce). */
+    private function activityRemember(): void
+    {
+        if ($this->activityBefore === null && $this->exists && ! $this->wasRecentlyCreated) {
+            $this->activityBefore = ['details' => $this->activityOriginal()->activityDetails(), 'amount' => (float) $this->getRawOriginal('total_amount')];
+        }
+    }
+
+    /** Kalemler ve toplam kurulunca: yeni satışsa "eklendi", değilse "düzenlendi" (değişen yoksa satır yok). */
+    private function activityWrite(): void
+    {
+        if ($this->activityRow) {
+            // Aynı işin devamı (peşin satışta nakit/kart dağılımı) — az önce yazılan satır son hali alır.
+            $this->activityRow->update(['details' => $this->activityDetails(), 'amount' => $this->activityAmount(), 'summary' => mb_substr((string) $this->activitySummary(), 0, 255) ?: null]);
+
+            return;
+        }
+        $this->activityRow = $this->activityBefore === null
+            ? \App\Models\ActivityLog::record($this, 'created')
+            : \App\Models\ActivityLog::record($this, 'updated', $this->activityBefore['details'], beforeAmount: $this->activityBefore['amount']);
+        $this->activityBefore = null;
+    }
+
     use HasFactory;
 
     protected $fillable = [
@@ -157,6 +249,8 @@ class Sale extends Model
      */
     public function rebuildFromLines(array $lines): void
     {
+        $this->activityRemember(); // işlem geçmişi: düzenlemeden önceki hal (kalemler silinmeden)
+
         // Eski kalemleri temizle (stoğu geri verir; net etkiyi baştan kurarız).
         $this->lines()->delete();
 
@@ -202,6 +296,7 @@ class Sale extends Model
         }
 
         $this->syncLedger($total);
+        $this->activityWrite();
     }
 
     /** Peşin satışın ödeme şekli: cash | card | mixed (dağılımdan). */
@@ -235,6 +330,9 @@ class Sale extends Model
         };
 
         $this->forceFill(['cash_amount' => $cash, 'bank_amount' => $bank])->saveQuietly();
+        if ($this->activityRow) {
+            $this->activityWrite(); // aynı işin devamı: işlem geçmişi satırı nakit/kart dağılımını alır
+        }
     }
 
     /**
@@ -307,6 +405,8 @@ class Sale extends Model
                 'description'    => 'Satış #' . $this->id . ' iadesi',
             ]);
         }
+
+        \App\Models\ActivityLog::record($return, 'created');
 
         return $return;
     }

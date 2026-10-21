@@ -12,6 +12,28 @@ use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable implements FilamentUser
 {
+    use Concerns\LogsActivity;
+
+    public function activityAction(): string
+    {
+        return 'Panel kullanıcısı';
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->name . ' · ' . $this->email;
+    }
+
+    /** Şifrenin kendisi ASLA yazılmaz — yalnız değiştiği görünsün diye kısa iz (hash'in hash'i). */
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Ad'      => $this->name,
+            'E-posta' => $this->email,
+            'Şifre'   => $this->password ? '•••• ' . substr(hash('crc32b', (string) $this->password), 0, 4) : null,
+        ]);
+    }
+
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 

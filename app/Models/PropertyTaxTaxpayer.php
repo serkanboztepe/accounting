@@ -13,6 +13,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class PropertyTaxTaxpayer extends Model
 {
+    use Concerns\LogsActivityAsPart;
+
+    /** İşlem geçmişi: alt satır — üst kayıt "düzenlendi" olarak yazılır. */
+    public function activityParent(): ?\Illuminate\Database\Eloquent\Model
+    {
+        return PropertyTaxProject::find($this->property_tax_project_id);
+    }
+
     protected $fillable = [
         'property_tax_project_id',
         'surname',

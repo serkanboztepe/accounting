@@ -9,6 +9,77 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Party extends Model
 {
+    use Concerns\LogsActivity;
+
+    /** Silinirken ayrıntıya ekstre de girsin (cari sayfası "Sil" — kullanıcı 21.10: "cari silinince tüm detay loga"). */
+    private bool $activityFull = false;
+
+    public function activityAction(): string
+    {
+        return $this->is_employee ? 'Personel' : 'Cari';
+    }
+
+    public function activityPartyId(): ?int
+    {
+        return $this->id;
+    }
+
+    public function activityPartyName(): ?string
+    {
+        return $this->name;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->name;
+    }
+
+    public function activityDetails(): array
+    {
+        $details = [
+            'Ad'        => $this->name,
+            'Telefon'   => $this->phone,
+            'Not'       => $this->notes,
+            'Personel'  => $this->is_employee ? 'Evet' : null,
+            'Maaş'      => \App\Models\ActivityLog::money($this->salary_amount),
+            'Maaş günü' => $this->salary_day ? 'Ayın ' . $this->salary_day . "'i" : null,
+        ];
+        if ($this->activityFull) {
+            $statement = \App\Support\PartyStatement::build($this);
+            $details['Bakiye'] = \App\Support\PartyBalances::line($this->name, $statement['balance']);
+            $details['Ekstre'] = collect($statement['rows'])->map(fn ($r) => $r['date'] . ' · ' . $r['label'] . ' · ' . $r['desc']
+                . ($r['borc'] > 0 ? ' · borç ' . \App\Models\ActivityLog::money($r['borc']) : '') . ($r['alacak'] > 0 ? ' · alacak ' . \App\Models\ActivityLog::money($r['alacak']) : ''))
+                ->implode("\n");
+            $details['Carisiz kalan giderler'] = Expense::where('party_id', $this->id)->get()
+                ->map(fn (Expense $e) => \App\Models\ActivityLog::date($e->expense_date) . ' · ' . ($e->description ?: 'Gider') . ' · ' . \App\Models\ActivityLog::money($e->amount))->implode("\n");
+        }
+
+        return \App\Models\ActivityLog::compact($details);
+    }
+
+    /**
+     * Cari silinince veritabanı hareketlerini, satışlarını, alışlarını (ve iadelerini) kendiliğinden siler — olay tetiklenmez.
+     * Önce her birini "silindi" yaz; carinin kendi satırına ekstrenin tamamı girer.
+     */
+    public function activityBeforeDelete(): void
+    {
+        $this->activityFull = true;
+        $note = 'Cari silindiği için';
+        foreach (PartyLedgerEntry::where('party_id', $this->id)->get() as $entry) {
+            if (! $entry->activitySkipped()) {
+                \App\Models\ActivityLog::record($entry, 'deleted', note: $note);
+            }
+        }
+        foreach (Sale::where('party_id', $this->id)->get() as $sale) {
+            $sale->activityBeforeDelete($note);
+            \App\Models\ActivityLog::record($sale, 'deleted', note: $note);
+        }
+        foreach (Purchase::where('party_id', $this->id)->get() as $purchase) {
+            $purchase->activityBeforeDelete($note);
+            \App\Models\ActivityLog::record($purchase, 'deleted', note: $note);
+        }
+    }
+
     use HasFactory;
 
     protected $fillable = [

@@ -15,6 +15,87 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Purchase extends Model
 {
+    use Concerns\LogsActivity;
+
+    protected static function booted(): void
+    {
+        // İşlem geçmişi: alanlar (tarih, cari, peşin) değişmeden önceki hal — kalemler rebuildFromLines'ta kurulunca yazılır.
+        static::updating(fn (self $purchase) => $purchase->activityRemember());
+    }
+
+    /** İşlem geçmişi: ekleme/düzenleme rebuildFromLines sonunda (kalemler + toplam kurulunca) yazılır; silme kendiliğinden. */
+    private ?array $activityBefore = null;
+
+    public function activityAuto(): bool
+    {
+        return false;
+    }
+
+    public function activityAction(): string
+    {
+        return $this->paid ? 'Peşin alım' : 'Alım';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->total_amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->activityLines() ?: $this->notes;
+    }
+
+    private function activityLines(): string
+    {
+        if (! $this->id) {
+            return '';
+        }
+
+        return StockMovement::where('purchase_id', $this->id)->whereNull('purchase_return_id')->with('product.unit')->get()
+            ->map(fn (StockMovement $m) => \App\Support\StockUsage::quantity((float) $m->quantity) . ' ' . ($m->product?->unit?->name ? $m->product->unit->name . ' ' : '')
+                . ($m->product?->name ?? 'Ürün') . ($m->amount !== null ? ' · ' . \App\Models\ActivityLog::money($m->amount) : ''))
+            ->implode("\n");
+    }
+
+    public function activityDetails(): array
+    {
+        return \App\Models\ActivityLog::compact([
+            'Belge'         => 'Alış #' . $this->id,
+            'Tarih'         => \App\Models\ActivityLog::date($this->purchase_date),
+            'Cari'          => $this->party_id ? \App\Models\ActivityLog::name(Party::class, $this->party_id) : 'Carisiz',
+            'Ürünler'       => $this->activityLines(),
+            'Ürünsüz tutar' => (float) $this->manual_amount > 0 ? \App\Models\ActivityLog::money($this->manual_amount) : null,
+            'Toplam'        => \App\Models\ActivityLog::money($this->total_amount),
+            'Ödeme'         => $this->paid ? 'Peşin · ' . (self::PAYMENT_TYPES[$this->payment_type] ?? 'Nakit') : 'Veresiye (cariye borç)',
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Not'           => $this->notes,
+        ]);
+    }
+
+    /** Alış silinince iadeleri veritabanında kendiliğinden silinir — önce yaz. */
+    public function activityBeforeDelete(?string $note = null): void
+    {
+        foreach (PurchaseReturn::where('purchase_id', $this->id)->get() as $return) {
+            \App\Models\ActivityLog::record($return, 'deleted', note: $note ?? 'Alış #' . $this->id . ' silindiği için');
+        }
+    }
+
+    private function activityRemember(): void
+    {
+        if ($this->activityBefore === null && $this->exists && ! $this->wasRecentlyCreated) {
+            $this->activityBefore = ['details' => $this->activityOriginal()->activityDetails(), 'amount' => (float) $this->getRawOriginal('total_amount')];
+        }
+    }
+
+    private function activityWrite(): void
+    {
+        $this->activityBefore === null
+            ? \App\Models\ActivityLog::record($this, 'created')
+            : \App\Models\ActivityLog::record($this, 'updated', $this->activityBefore['details'], beforeAmount: $this->activityBefore['amount']);
+        $this->activityBefore = null;
+    }
+
     protected $fillable = [
         'party_id',
         'project_id',
@@ -140,6 +221,8 @@ class Purchase extends Model
             ]);
         }
 
+        \App\Models\ActivityLog::record($return, 'created');
+
         return $return;
     }
 
@@ -154,6 +237,7 @@ class Purchase extends Model
      */
     public function rebuildFromLines(array $lines): void
     {
+        $this->activityRemember(); // işlem geçmişi: düzenlemeden önceki hal (kalemler silinmeden)
         $this->lines()->delete();
 
         $total = 0.0;
@@ -189,6 +273,7 @@ class Purchase extends Model
         $this->forceFill(['total_amount' => $total])->saveQuietly();
 
         $this->syncLedger($total);
+        $this->activityWrite();
     }
 
     /** Ürün kartındaki alış fiyatı = en son alıştaki fiyat (eski tarihli bir alış düzeltilirse ezmez). */

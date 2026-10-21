@@ -8,6 +8,51 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PartyLedgerEntry extends Model
 {
+    use Concerns\LogsActivity;
+
+    /** İşlem geçmişi: belgenin (satış/alış/iade) cari satırı ayrı iş değil — belgenin satırında; karşılıksız çek karşılığı çekin satırında. */
+    public function activitySkipped(): bool
+    {
+        return $this->sale_id || $this->purchase_id || $this->sale_return_id || $this->purchase_return_id
+            || $this->type === self::TYPE_CHECK_BOUNCED;
+    }
+
+    public function activityAction(): string
+    {
+        return [self::TYPE_SALE => 'Satış', self::TYPE_COLLECTION => 'Para aldı', self::TYPE_PURCHASE => 'Alım',
+            self::TYPE_PAYMENT => 'Ödeme yaptı', self::TYPE_SALE_RETURN => 'İade aldı', self::TYPE_PURCHASE_RETURN => 'İade verdi'][$this->type]
+            ?? 'Cari hareketi';
+    }
+
+    public function activityAmount(): ?float
+    {
+        return (float) $this->amount;
+    }
+
+    public function activitySummary(): ?string
+    {
+        return $this->description;
+    }
+
+    public function activityDetails(): array
+    {
+        $checks = $this->id ? Check::where('party_ledger_entry_id', $this->id)->get()
+            ->map(fn (Check $c) => trim(($c->check_number ? 'No ' . $c->check_number . ' · ' : '') . 'vade ' . \App\Models\ActivityLog::date($c->due_date) . ' · ' . \App\Models\ActivityLog::money($c->amount)))
+            ->implode("\n") : '';
+
+        return \App\Models\ActivityLog::compact([
+            'Tür'           => $this->typeLabel(),
+            'Tarih'         => \App\Models\ActivityLog::date($this->entry_date),
+            'Tutar'         => \App\Models\ActivityLog::money($this->amount),
+            'Açıklama'      => $this->description,
+            'Ödeme yöntemi' => \App\Models\ActivityLog::PAYMENT_TYPES[$this->payment_type] ?? $this->payment_type,
+            'Ödeme günü'    => \App\Models\ActivityLog::date($this->due_date),
+            \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Çekler'        => $checks,
+            'Not'           => $this->notes ?? null,
+        ]);
+    }
+
     public const DIRECTION_DEBIT  = 'borc';   // cari borçlanır (bize borcu artar)
     public const DIRECTION_CREDIT = 'alacak'; // cari alacaklanır (bizim borcumuz artar)
 
@@ -71,7 +116,7 @@ class PartyLedgerEntry extends Model
         // Çekle yapılan ödeme/tahsilat silinince (cari sayfası, "geri al") çekleri de gider — vadesiz kalıp Çekler'de, hatırlatmada
         // görünmesin (firma 7, 21.10: Seramikpark ödemeleri silindi, 7 çek kaldı). Sözleşme ödemesi de çeklerini böyle siler.
         static::deleting(function (self $entry): void {
-            Check::where('party_ledger_entry_id', $entry->id)->delete();
+            \App\Models\ActivityLog::deleteQuery(Check::where('party_ledger_entry_id', $entry->id), 'Bağlı ödeme/tahsilat silindiği için');
         });
     }
 
