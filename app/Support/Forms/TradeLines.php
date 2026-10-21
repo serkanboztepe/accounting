@@ -3,8 +3,10 @@
 namespace App\Support\Forms;
 
 use App\Models\Product;
+use App\Models\Unit;
 use App\Support\Money;
 use App\Support\StockUsage;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -45,6 +47,17 @@ class TradeLines
                         }
                     })
                     ->helperText(fn (Get $get) => self::stockHint($get('product_id'), (float) $get('quantity'), $direction))
+                    // Listede yoksa pencereden çıkmadan kart aç (kullanıcı 21.10: Akkuş'ta un kartı yoktu, alım stoğa giremiyordu).
+                    ->createOptionForm([
+                        TextInput::make('name')->label('Ürün adı')->required()->maxLength(255),
+                        Radio::make('type')->label('Tür')->options(Product::TYPE_LABELS)->default(Product::TYPE_PRODUCT)->inline()->required(),
+                        Select::make('unit_id')->label('Birim')
+                            ->options(fn () => Unit::orderBy('name')->pluck('name', 'id'))
+                            ->searchable(),
+                        MoneyInput::make('price', $direction === 'in' ? 'Alış fiyatı' : 'Satış fiyatı')->required(false),
+                    ])
+                    ->createOptionModalHeading('Yeni ürün kartı')
+                    ->createOptionUsing(fn (array $data): int => self::createProduct($data, $direction))
                     ->columnSpan(2),
 
                 TextInput::make('quantity')
@@ -66,6 +79,29 @@ class TradeLines
                     ->live(debounce: 400)
                     ->columnSpan(2),
             ]);
+    }
+
+    /**
+     * "+ Yeni ürün": aynı adlı kart varsa (büyük/küçük harf farkı dahil) yenisi açılmaz, o seçilir. Fiyat alışta alış fiyatına,
+     * satışta satış fiyatına yazılır — seçilince satıra gelir.
+     */
+    public static function createProduct(array $data, string $direction): int
+    {
+        $name = trim((string) $data['name']);
+        $existing = Product::whereRaw('LOWER(name) = ?', [mb_strtolower($name)])->first();
+        if ($existing) {
+            return $existing->getKey();
+        }
+        $price = Money::parse($data['price'] ?? null);
+
+        return Product::create([
+            'name'           => $name,
+            'type'           => $data['type'] ?? Product::TYPE_PRODUCT,
+            'unit_id'        => $data['unit_id'] ?? null,
+            'is_active'      => true,
+            'purchase_price' => $direction === 'in' && $price > 0 ? $price : null,
+            'default_price'  => $direction === 'out' && $price > 0 ? $price : null,
+        ])->getKey();
     }
 
     /** Kalemler + ürünsüz tutar = toplam (formdaki canlı toplam için). */

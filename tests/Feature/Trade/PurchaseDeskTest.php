@@ -267,4 +267,34 @@ class PurchaseDeskTest extends TestCase
         Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
             ->assertSeeHtml("mountAction('returnEntry')");
     }
+
+    // "+ Yeni ürün" (kullanıcı 21.10): listede olmayan mal pencereden çıkmadan kartlanır; aynı ad tekrar açılmaz.
+    public function test_new_product_from_line_creates_card_once_and_purchase_enters_stock(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $party = Party::create(['name' => 'Uncu Hızlı Test']);
+
+        $id = \App\Support\Forms\TradeLines::createProduct(['name' => 'Hızlı Börek Unu', 'type' => Product::TYPE_PRODUCT, 'price' => '1.250,00'], 'in');
+        $card = Product::find($id);
+        $this->assertSame('Hızlı Börek Unu', $card->name);
+        $this->assertTrue((bool) $card->is_active);
+        $this->assertEqualsWithDelta(1250, (float) $card->purchase_price, 0.001, 'alışta alış fiyatı');
+        $this->assertNull($card->default_price);
+        $this->assertSame($id, \App\Support\Forms\TradeLines::createProduct(['name' => 'hızlı börek unu'], 'in'), 'aynı ad → aynı kart');
+        $this->assertSame(1, Product::whereRaw('LOWER(name) = ?', [mb_strtolower('Hızlı Börek Unu')])->count());
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->mountAction('newPurchase')
+            ->fillForm(['purchase_date' => '2026-10-21', 'paid' => true, 'lines' => [['product_id' => $id, 'quantity' => 20, 'amount' => '25.000,00']]])
+            ->callMountedAction()
+            ->assertHasNoFormErrors();
+        $this->assertSame(20.0, $card->fresh()->currentStock());
+    }
+
+    public function test_product_select_offers_new_card(): void
+    {
+        $select = collect(\App\Support\Forms\TradeLines::repeater('in')->getDefaultChildComponents())
+            ->first(fn ($c) => $c->getName() === 'product_id');
+        $this->assertNotNull($select->getCreateOptionActionForm(\Filament\Schemas\Schema::make()), '+ Yeni ürün formu var');
+    }
 }
