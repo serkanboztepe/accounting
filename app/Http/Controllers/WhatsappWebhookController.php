@@ -1220,6 +1220,10 @@ class WhatsappWebhookController extends Controller
         if (($checks = Understanding::checksNote($data)) && ! str_contains((string) ($data['description'] ?? ''), $checks)) {
             $data['description'] = trim(($data['description'] ?? '') . ' — ' . $checks, ' —');
         }
+        // Açıklama sütunu 255; kayıtta "Avans — " gibi önek de eklenir — taşarsa kayıt sessizce düşüyordu (firma 7, 20.10).
+        if (mb_strlen((string) ($data['description'] ?? '')) > 200) {
+            $data['description'] = mb_strimwidth((string) $data['description'], 0, 200, '…');
+        }
         if ($pending && ! empty($pending->extracted['project_choice_done']) && $this->kind($data) === $this->kind($pending->extracted)
             && empty($data['project_id']) && empty($data['project_name'])) {
             $data['project_choice_done'] = true; // "0 = genel" seçimi düzeltme turunda kaybolmasın

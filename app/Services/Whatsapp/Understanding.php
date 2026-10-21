@@ -557,16 +557,29 @@ final class Understanding
         return $out;
     }
 
-    /** Çekleri açıklamaya ekle (çek kaydı ayrı fazda) — vade ve numara kayıtta kaybolmasın. */
+    /**
+     * Çekleri açıklamaya kısa not olarak ekle (her çek ayrıca çek kaydı olur). Numarasız, aynı tutarlı ardışık çekler tek
+     * parça: "11 çek: 10 × 100.000,00 ₺ (28.02.2027 → 30.11.2027); 31.12.2027 · 187.000,00 ₺" — firma 7, 20.10: 11 çekin
+     * tek tek listesi açıklama sütununu (255) aşıp kaydı düşürmüştü.
+     */
     public static function checksNote(array $d): ?string
     {
+        $checks = array_values((array) ($d['checks'] ?? []));
         $parts = [];
-        foreach ((array) ($d['checks'] ?? []) as $c) {
-            $parts[] = trim(($c['number'] ?? '') . ' · vade ' . ($c['due_date_text'] ?? '?')
-                . (! empty($c['amount']) ? ' · ' . Money::format((float) $c['amount']) . ' ₺' : ''), ' ·');
+        for ($i = 0, $n = count($checks); $i < $n; $i = $j) {
+            $c = $checks[$i];
+            $amount = (float) ($c['amount'] ?? 0);
+            for ($j = $i + 1; $j < $n && empty($c['number']) && empty($checks[$j]['number'])
+                && (float) ($checks[$j]['amount'] ?? 0) === $amount; $j++) {
+            }
+            $money = $amount > 0 ? Money::format($amount) . ' ₺' : '';
+            $parts[] = $j - $i > 2
+                ? ($j - $i) . ' × ' . ($money ?: 'çek') . ' (' . ($c['due_date_text'] ?? '?') . ' → ' . ($checks[$j - 1]['due_date_text'] ?? '?') . ')'
+                : implode('; ', array_map(fn ($k) => trim(($k['number'] ?? '') . ' · vade ' . ($k['due_date_text'] ?? '?')
+                    . (! empty($k['amount']) ? ' · ' . Money::format((float) $k['amount']) . ' ₺' : ''), ' ·'), array_slice($checks, $i, $j - $i)));
         }
 
-        return $parts ? count($parts) . ' çek: ' . implode('; ', $parts) : null;
+        return $parts ? count($checks) . ' çek: ' . implode('; ', $parts) : null;
     }
 
     private static function question(array $d): ?string

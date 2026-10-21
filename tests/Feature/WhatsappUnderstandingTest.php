@@ -304,6 +304,26 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertFalse(\App\Support\CheckReminders::pending()->pluck('id')->contains($received->id));
     }
 
+    /** Firma 7, 20.10 23:54: 11 çekin tek tek listesi açıklamayı 255'ten uzun yaptı, "evet" kaydı düşürdü (cevap yok). */
+    public function test_many_cheques_keep_description_short_and_save(): void
+    {
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $checks = [];
+        foreach (['28.02.2027', '31.03.2027', '30.04.2027', '31.05.2027', '30.06.2027', '31.07.2027', '31.08.2027', '30.09.2027',
+            '31.10.2027', '30.11.2027'] as $due) {
+            $checks[] = ['number' => null, 'due_date_text' => $due, 'amount' => 100000];
+        }
+        $checks[] = ['number' => null, 'due_date_text' => '31.12.2027', 'amount' => 187000];
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 1187000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi', 'checks' => $checks]));
+
+        $reply = $this->send('Yusufa 11 çek verdim');
+        $this->assertStringContainsString('11 çek: 10 × 100.000,00 ₺ (28.02.2027 → 30.11.2027); vade 31.12.2027 · 187.000,00 ₺', $reply);
+
+        $this->assertStringContainsString('11 çek kaydedildi', $this->send('evet'));
+        $this->assertSame(11, \App\Models\Check::where('party_id', $yusuf->id)->count());
+    }
+
     public function test_sector_and_business_note_reach_assistant_context(): void
     {
         config(['app.sector' => 'construction', 'app.business_note' => 'Çoğunlukla vadeli çekle öder.']);
