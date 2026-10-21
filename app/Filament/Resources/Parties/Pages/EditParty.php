@@ -321,13 +321,13 @@ class EditParty extends EditRecord
                     ->options(Purchase::PAYMENT_TYPES)
                     ->default('cash')
                     ->visible(fn (Get $get) => (bool) $get('paid')),
-                // Şube/proje yalnız ürünsüz alışta kullanılır (tezgahtaki kural: ürünlü alış işletme geneli).
+                // Şube/proje yalnız ürünsüz alışta: ürün eklenince gizlenir (ürünlü alış işletme geneli, Serkan 16.10).
                 Select::make('project_id')
                     ->label(fn () => Labels::project())
                     ->options(fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
-                    ->helperText('Yalnız ürünsüz alışta kullanılır; ürünlü (stoğa giren) alış işletme geneline yazılır.')
-                    ->visible(fn () => (bool) config('modules.projects')),
+                    ->helperText('Ürünsüz alışın maliyeti bu şubeye yazılır.')
+                    ->visible(fn (Get $get) => config('modules.projects') && ! TradeLines::hasLines($get('lines'))),
                 TradeLines::repeater('in'),
                 MoneyInput::make('manual_amount', 'Ürünsüz tutar')
                     ->required(false)

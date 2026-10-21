@@ -202,4 +202,42 @@ class PurchaseDeskTest extends TestCase
 
         $this->assertSame($before, PartyLedgerEntry::count());
     }
+
+    // Şube yalnız ürünsüz alışta: ürün eklenince alan kaybolur (ürünlü alış işletme geneli) — cari penceresi ve tezgah.
+    public function test_branch_field_hidden_once_a_product_is_added(): void
+    {
+        $this->actingAs(User::factory()->create());
+        config(['modules.projects' => true]);
+        $p = $this->flour();
+        $party = Party::create(['name' => 'Uncu Test']);
+        $line = ['product_id' => $p->id, 'quantity' => 5, 'amount' => '500,00'];
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->mountAction('newPurchase')
+            ->assertFormFieldVisible('project_id')
+            ->fillForm(['lines' => [$line]])
+            ->assertFormFieldHidden('project_id');
+
+        Livewire::test(ListPurchases::class)
+            ->assertFormFieldVisible('project_id', 'deskForm')
+            ->set('deskData.lines', ['a' => $line])
+            ->assertFormFieldHidden('project_id', 'deskForm');
+    }
+
+    // Basit (alacak-verecek) firmada cari sayfasında iade düğmesi yok — iade yalnız stoklu satışta.
+    public function test_no_return_button_on_simple_party_page(): void
+    {
+        $this->actingAs(User::factory()->create());
+        config(['modules.direct_sales' => false, 'modules.sales_desk' => false, 'modules.purchases' => false, 'modules.cari_supplier' => true]);
+        $party = Party::create(['name' => 'Basit Test']);
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->assertSee('Ödeme Aldım')
+            ->assertDontSee('İade Al')
+            ->assertDontSeeHtml("mountAction('returnEntry')");
+
+        config(['modules.direct_sales' => true]);
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->assertSeeHtml("mountAction('returnEntry')");
+    }
 }

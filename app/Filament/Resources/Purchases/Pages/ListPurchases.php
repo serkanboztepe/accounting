@@ -85,13 +85,13 @@ class ListPurchases extends ListRecords
 
                 DatePicker::make('purchase_date')->label('Tarih')->required(),
 
-                // Proje / Şube (firmada açıksa): peşin kasada birden çok şube varsa zorunlu (WhatsApp'taki kuralın aynısı).
+                // Proje / Şube (firmada açıksa) yalnız ürünsüz alışta: ürün eklenince gizlenir (ürünlü alış işletme geneli, Serkan 16.10).
                 Select::make('project_id')
                     ->label(fn () => Labels::project())
                     ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
-                    ->helperText(fn () => 'Yalnız ürünsüz alışta kullanılır; ürünlü (stoğa giren) alış işletme geneline yazılır.')
-                    ->visible(fn () => (bool) config('modules.projects'))
+                    ->helperText(fn () => 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
+                    ->visible(fn (Get $get) => config('modules.projects') && ! TradeLines::hasLines($get('lines')))
                     ->required(fn (Get $get) => false && \App\Models\Project::whereNotIn('status', ['cancelled'])->count() > 1),
 
                 Select::make('party_id')
