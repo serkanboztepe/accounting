@@ -368,4 +368,39 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         Http::assertSent(fn ($r) => str_contains((string) ($r['Body'] ?? ''), 'Sıradaki fotoğraf'));
         $this->assertSame(1, Expense::where('description', 'Birinci fiş')->count());
     }
+
+    /** 21.10: Opus çek sayfasında ~5'te 1 çekleri boş verdi → kullanıcıya sormadan önce fotoğraf bir kez daha okunur. */
+    public function test_unread_cheques_are_reread_once_automatically(): void
+    {
+        config(['services.whatsapp.from' => '+14786665916']);
+        $party = Party::create(['name' => 'İkinci Okuma Seramik']);
+        $base = ['amount' => 400000, 'party_id' => $party->id, 'description' => 'Seramik 4 adet çek', 'payment_type' => 'check',
+            'work_status' => 'not_yet', 'work_status_known' => true];
+        $mock = $this->fakeAi($this->entry($base), $this->entry($base + ['checks' => [
+            ['number' => '2023471', 'due_date_text' => '28.02.2027', 'amount' => 200000], ['number' => '2023472', 'due_date_text' => '31.03.2027', 'amount' => 200000]]]));
+
+        $this->assertStringContainsString('bir daha bakıyorum', $this->sendPdf());
+
+        $open = WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->sole();
+        $this->assertSame(['2023471', '2023472'], array_column($open->extracted['checks'], 'number'));
+        $mock->shouldHaveReceived('extract')->withArgs(fn ($text) => str_contains((string) $text, 'HER çeki'))->once();
+        Http::assertSent(fn ($r) => str_contains((string) ($r['Body'] ?? ''), '2023471'));
+        $this->assertSame(1, \App\Models\WhatsappMessage::where('phone', \App\Support\Phone::normalize(self::PHONE))
+            ->where('direction', 'in')->where('created_at', '>=', now()->subMinute())->count(), 'gelen mesaj bir kez');
+    }
+
+    /** İkinci okumada da çek yoksa soru sorulur (döngü yok). */
+    public function test_unread_twice_asks_user(): void
+    {
+        config(['services.whatsapp.from' => '+14786665916']);
+        $party = Party::create(['name' => 'İkinci Okuma Boş']);
+        $base = ['amount' => 400000, 'party_id' => $party->id, 'description' => 'Seramik 4 adet çek', 'payment_type' => 'check',
+            'work_status' => 'not_yet', 'work_status_known' => true];
+        $this->fakeAi($this->entry($base), $this->entry($base));
+
+        $this->sendPdf();
+
+        Http::assertSent(fn ($r) => str_contains((string) ($r['Body'] ?? ''), 'Fotoğraftaki çekleri okuyamadım'));
+        $this->assertSame(0, \App\Models\PartyLedgerEntry::where('party_id', $party->id)->count());
+    }
 }

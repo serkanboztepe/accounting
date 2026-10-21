@@ -82,8 +82,12 @@ final class DraftWarnings
                 ->get(['purchase_date', 'total_amount'])->first(fn ($p) => self::same($amount, $p->total_amount));
             $hit = $hit ? [$hit->purchase_date, 'alış'] : null;
         } elseif (! empty($d['party_id']) && ($type = self::ledgerType($kind)) !== null) {
+            // Çek numaraları farklıysa ayrı ödeme (21.10: aynı tutarlı ikinci çek sayfası "iki kez olmasın?" uyarısı aldı).
+            $numbers = array_filter(array_map(fn ($c) => is_array($c) ? trim((string) ($c['number'] ?? '')) : '', (array) ($d['checks'] ?? [])));
             $hit = self::near(PartyLedgerEntry::where('party_id', $d['party_id'])->where('type', $type), 'entry_date', $day, self::DUP_DAYS)
-                ->get(['entry_date', 'amount', 'description'])->first(fn ($e) => self::same($amount, $e->amount));
+                ->with('checks:id,party_ledger_entry_id,check_number')
+                ->get(['id', 'entry_date', 'amount', 'description'])->first(fn ($e) => self::same($amount, $e->amount)
+                    && ($numbers === [] || $e->checks->isEmpty() || array_intersect($numbers, $e->checks->pluck('check_number')->all()) !== []));
             $hit = $hit ? [$hit->entry_date, $hit->description ?: 'kayıt'] : null;
         }
 
@@ -91,7 +95,10 @@ final class DraftWarnings
             return null;
         }
 
-        return '⚠️ Aynı tutarda ' . mb_strtolower((string) $hit[1]) . ' ' . Carbon::parse($hit[0])->format('d.m')
+        $what = preg_replace('/\s*—\s*\d+ çek: .*$/u', '', (string) $hit[1]); // çek listesi uyarıda tekrar edilmez
+        $what = mb_strlen($what) > 50 ? mb_substr($what, 0, 50) . '…' : $what;
+
+        return '⚠️ Aynı tutarda ' . mb_strtolower($what) . ' ' . Carbon::parse($hit[0])->format('d.m')
             . ' günü de girilmiş — iki kez olmasın?';
     }
 

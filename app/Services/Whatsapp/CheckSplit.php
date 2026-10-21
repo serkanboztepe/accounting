@@ -19,7 +19,7 @@ final class CheckSplit
     /** Şema alanı (Understanding::schema). */
     public static function schema(): array
     {
-        return ['check_plan' => ['type' => ['object', 'null'], 'description' => 'Cheques described as a rule ("11 çek aya böl", "100\'er, kalanı sona"): '
+        return ['check_plan' => ['type' => ['object', 'null'], 'description' => 'NEVER for a cheque photo/document (those go to `checks`, one row per cheque). Cheques described in TEXT as a rule ("11 çek aya böl", "100\'er, kalanı sona"): '
             . 'do NOT compute amounts or list cheques — fill this, code computes. null when each cheque is written one by one.',
             'properties' => [
                 'count' => ['type' => ['integer', 'null'], 'description' => 'Number of cheques'],
@@ -89,7 +89,8 @@ final class CheckSplit
         }
         // Fotoğraf çek ama hiçbir çek okunmadıysa çeksiz ödeme yazılmaz (firma 7, 21.10 09:15: 4 çeklik sayfa → ödeme kaydedildi, çek yok).
         // Soru bir kez sorulduysa açıklamada "çek" kalmasa da çek gelene kadar sürer (21.10: düzeltme turunda açıklama değişti).
-        if (! empty($d['from_document']) && ($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && empty($d['checks'])
+        if (! empty($d['from_document']) && in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE], true)
+            && empty($d['checks'])
             && (($d['payment_type'] ?? null) === 'check' || preg_match('/\bçek/iu', (string) ($d['description'] ?? ''))
                 || ($previous['check_choice'] ?? null) === 'unread')) {
             $d['check_choice'] = 'unread';

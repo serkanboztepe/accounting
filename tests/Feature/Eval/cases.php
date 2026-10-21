@@ -216,6 +216,14 @@ return [
             'steps' => [['send' => "Yusuf Dündar'a 300 bin çek verdim, iş sonra yapılacak, vadesi şubat ortası"]],
             'expect' => ['reply_has' => ['15.02.2027']]],
 
+        // 21.10: yalnız fotoğraf, çek sayfası — çekler okunmalı (2 kez "okuyamadım" / çeksiz ödeme oldu).
+        ['id' => 'f7-cek-foto-sayfa1', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['media' => 'cek-sayfa1.jpg']], 'expect' => ['draft_checks' => ['2023471', '2023250', '2023472', '2023473'], 'reply_not' => ['okuyamadım']]],
+        ['id' => 'f7-cek-foto-sayfa2', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['media' => 'cek-sayfa2.jpg']], 'expect' => ['draft_checks' => ['2023474', '2023475', '2023476', '2023477'], 'reply_not' => ['okuyamadım']]],
+        ['id' => 'f7-cek-foto-sayfa3', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['media' => 'cek-sayfa3.jpg']], 'expect' => ['draft_checks' => ['2023478', '2023479', '2023480'], 'reply_not' => ['okuyamadım']]],
+
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Ak Un'dan 20 çuval un aldım 17000"]],

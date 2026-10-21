@@ -153,7 +153,8 @@ class WhatsappWebhookController extends Controller
         $deferred = false;
         try {
             $firstContact = $this->firstContact = $this->isFirstContact($phone);
-            $incoming = $this->logMessage($phone, 'in', $body, $numMedia > 0);
+            // İkinci okuma aynı gelen mesajdır — konuşma kaydına tekrar yazılmaz.
+            $incoming = $request->attributes->get('reread') ? null : $this->logMessage($phone, 'in', $body, $numMedia > 0);
             // "Müşteriye sor" (Faz 3): ona sorulmuş soru varsa bu mesaj cevabıdır → derse yazılır (akış aynen sürer).
             \App\Models\AssistantLesson::captureAnswer($phone, $body);
             \App\Models\RecordReview::captureAnswer($phone, $body);
@@ -314,10 +315,13 @@ class WhatsappWebhookController extends Controller
         return (array) Cache::get($this->photoQueueKey($phone), []);
     }
 
-    private function enqueuePhoto(Request $request, string $phone): void
+    /** $reread: aynı fotoğraf sıranın BAŞINA, ikinci okuma olarak (aynı mesaj kimliği "çift mesaj" sayılmasın). */
+    private function enqueuePhoto(Request $request, string $phone, bool $reread = false): void
     {
-        Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, function () use ($request, $phone) {
-            Cache::put($this->photoQueueKey($phone), [...$this->photoQueue($phone), $request->all()], now()->addDay());
+        $item = $reread ? ['_reread' => 1, 'MessageSid' => $request->input('MessageSid', '') . '-r'] + $request->all() : $request->all();
+        Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, function () use ($item, $phone, $reread) {
+            $queue = $this->photoQueue($phone);
+            Cache::put($this->photoQueueKey($phone), $reread ? [$item, ...$queue] : [...$queue, $item], now()->addDay());
         });
     }
 
@@ -358,10 +362,11 @@ class WhatsappWebhookController extends Controller
                     $request = Request::create('/whatsapp/webhook', 'POST', $item);
                     $request->attributes->set('via_hub', true); // telefon/imza ilk gelişte denetlendi
                     $request->attributes->set('queued', true);
+                    $request->attributes->set('reread', ! empty($item['_reread']));
                     $controller = app()->make(self::class);
                     app()->call([$controller, '__invoke'], ['request' => $request]);
                     foreach ($controller->replies as $n => $reply) {
-                        if ($n === 0) {
+                        if ($n === 0 && empty($item['_reread'])) {
                             $reply = is_array($reply) ? ['📷 *Sıradaki fotoğraf*' . "\n" . $reply[0], $reply[1] ?? null] : '📷 *Sıradaki fotoğraf*' . "\n" . $reply;
                         }
                         $this->deliver($phone, $reply, log: false); // konuşma kaydını iç işlem yazdı
@@ -850,8 +855,11 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->guideText());
         }
 
+        // İkinci okuma: ilk okumada fotoğraftaki çekler boş geldiyse (Opus ~5'te 1, 21.10) aynı fotoğraf bu talimatla bir kez daha okunur.
+        $reread = (bool) $request->attributes->get('reread');
+        $text = $reread ? trim(($body ?: '') . "\n(Fotoğraftaki HER çeki `checks` alanına tek tek yaz: numara, vade yazıldığı gibi, tutar.)") : ($body ?: null);
         try {
-            $data = $extractor->extract($body ?: null, $image, null, ConversationContext::get($phone), $phone);
+            $data = $extractor->extract($text, $image, null, ConversationContext::get($phone), $phone);
             $data['from_document'] = $image !== null;
         } catch (\Throwable $e) {
             Log::error('WhatsApp gider çıkarma hatası', ['msg' => $e->getMessage()]);
@@ -860,7 +868,18 @@ class WhatsappWebhookController extends Controller
             return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
         }
 
-        return $this->twiml($this->saveDraft(null, $phone, $data, $numMedia > 0 ? (string) $request->input('MediaUrl0') : null));
+        $out = $this->saveDraft(null, $phone, $data, $numMedia > 0 ? (string) $request->input('MediaUrl0') : null);
+        if ($image !== null && ! $reread && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')
+            ->latest('id')->first()) && ($open->extracted['check_choice'] ?? null) === 'unread' && $open->created_at->gte(now()->subMinutes(2))) {
+            $open->update(['status' => 'superseded']);
+            $this->enqueuePhoto($request, $phone, reread: true);
+            $this->scheduleDrain($phone);
+            Log::info('WhatsApp çekler okunamadı — fotoğraf ikinci kez okunacak');
+
+            return $this->twiml('🔎 Çeklere bir daha bakıyorum…');
+        }
+
+        return $this->twiml($out);
     }
 
     /**

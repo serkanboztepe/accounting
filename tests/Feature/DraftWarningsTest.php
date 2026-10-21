@@ -86,4 +86,21 @@ class DraftWarningsTest extends TestCase
 
         $this->assertMatchesRegularExpression('/⚠️ Aynı tutarda[^\n]*\n(\n?Kısaca yaz|\n?Kaydedeyim mi|Vazgeçmek için)/u', $reply);
     }
+
+    /** 21.10: aynı tutarlı ikinci çek sayfası (farklı numaralar) "iki kez olmasın?" uyarısı almaz; aynı numara alır. */
+    public function test_different_cheque_numbers_are_not_duplicates(): void
+    {
+        $p = Party::create(['name' => 'Uyarı Testi Seramik']);
+        $entry = PartyLedgerEntry::create(['party_id' => $p->id, 'type' => 'odeme', 'amount' => 400000, 'entry_date' => now()->toDateString(),
+            'description' => 'Avans — Seramik 4 adet çek — 4 çek: 2023471 · vade 28.02.2027 · 100.000,00 ₺; uzun liste']);
+        \App\Models\Check::create(['party_id' => $p->id, 'party_ledger_entry_id' => $entry->id, 'check_number' => '2023471',
+            'issue_date' => now(), 'due_date' => '2027-02-28', 'amount' => 100000, 'status' => 'issued']);
+        $draft = fn (string $no) => ['kind' => 'payment', 'amount' => 400000, 'party_id' => $p->id, 'date' => now()->toDateString(),
+            'checks' => [['number' => $no, 'due_date_text' => '30.06.2027', 'amount' => 400000]]];
+
+        $this->assertSame([], DraftWarnings::for($draft('2023474')));
+        $warn = DraftWarnings::for($draft('2023471'));
+        $this->assertStringContainsString('Aynı tutarda avans — seramik 4 adet çek', $warn[0] ?? '');
+        $this->assertStringNotContainsString('2023471 · vade', $warn[0] ?? '', 'çek listesi uyarıda tekrar edilmez');
+    }
 }

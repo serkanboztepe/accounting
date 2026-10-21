@@ -157,7 +157,7 @@ class AssistantEvalTest extends TestCase
             if (getenv('EVAL_DRAFT') && ($dbg = WhatsappPendingExpense::where('phone', $this->phone)->latest('id')->first())) {
                 fwrite(STDERR, '  [taslak #' . $dbg->id . ' ' . $dbg->status . '] ' . json_encode(array_intersect_key((array) $dbg->extracted, array_flip(['kind',
                     'amount', 'paid', 'party_id', 'party_name', 'project_id', 'project_needed', 'project_choice_done', 'work_status', 'work_status_known',
-                    'advance_used', 'question', 'cross_question', 'debt_asked'])), JSON_UNESCAPED_UNICODE) . "\n");
+                    'advance_used', 'question', 'cross_question', 'debt_asked', 'checks', 'check_plan', 'check_choice', 'description', 'payment_type'])), JSON_UNESCAPED_UNICODE) . "\n");
             }
             // Adım beklentisi (ara cevap: "burada soru sormalıydı" gibi) — son cevap gibi puanlanır, hatalar birikir.
             if (isset($step['expect'])) {
@@ -199,6 +199,13 @@ class AssistantEvalTest extends TestCase
         }
         if (! empty($expect['no_new_draft']) && $draft && $draft->status === 'awaiting_confirmation') {
             $fails[] = 'yeni taslak açılmamalıydı (' . ($draft->extracted['kind'] ?? '?') . ')';
+        }
+        // Okunan çek numaraları (soru kartında görünmez — taslaktan).
+        if (isset($expect['draft_checks'])) {
+            $got = array_column((array) ($draft?->extracted['checks'] ?? []), 'number');
+            if ($got !== $expect['draft_checks']) {
+                $fails[] = 'çekler: beklenen ' . json_encode($expect['draft_checks']) . ', gelen ' . json_encode($got);
+            }
         }
         if (isset($expect['draft'])) {
             if (! $draft) {
