@@ -478,7 +478,7 @@ class ChatAssistant
                 'product_id', 'cash_amount', 'card_amount', 'counted_quantity', 'daily_usage', 'reorder_level', 'month',
                 'purchase_price', 'product_name', 'unit', 'next_items',
                 // Önce anla: sorulan soru ve anlaşılanlar (cevap gelince aynı kayıt tamamlanır).
-                'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks', 'stock_items',
+                'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks', 'check_plan', 'stock_items',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];

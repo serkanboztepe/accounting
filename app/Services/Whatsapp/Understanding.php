@@ -78,14 +78,17 @@ final class Understanding
       parası ödenmiş mal = avans (not_yet): stoğa girmez, "geldi" denince girer. Elindeyse/geldiyse: önceden ödenmiş ve şimdi gelen mal =
       stoğa giren alış + ödendi (paid=true, work_status done) — AVANS DEĞİL.
     - BELGE mesajdan üstündür: çek görüntüsünde her çeki `checks`'e yaz (no, vade YAZILDIĞI GİBİ, tutar) — ödeme çekle yapılmıştır;
-      çek yazıyla anlatılırsa da ("3 çek verdim 335'er bin, vadeler 31.03, 30.04, 31.05") her çeki `checks`'e yaz (no yoksa boş);
+      çek yazıyla tek tek anlatılırsa da ("3 çek verdim 335'er bin, vadeler 31.03, 30.04, 31.05") her çeki `checks`'e yaz (no yoksa boş);
+      çekler KURALLA anlatılırsa ("11 çek aya böl", "şubattan itibaren her ay", "100'er yaz kalanı sona") tutar/vade HESAPLAMA, `checks` boş:
+      `check_plan` doldur (count, first_month YYYY-MM, due_day — ay sonu/söylenmediyse null, each_amount — "100'er" dediyse); kod böler,
+      gerekirse seçenek sorar. Düzeltmede de ("ilk 10'u 100'er, kalanı sona") yeni planı yaz;
       dekontta gönderen/alıcı/açıklama esastır. Mesajla belge çelişirse sor.
     TXT;
 
     /** Şema alanları (propose_entry / save_entry). */
     public static function schema(): array
     {
-        return [
+        return CheckSplit::schema() + [
             'meaning' => ['type' => ['string', 'null'], 'description' => 'Plain everyday Turkish sentence of what HAPPENED, with names (no accounting words). Required for every money/debt record.'],
             'work_status' => ['type' => ['string', 'null'], 'enum' => [...self::STATUSES, null], 'description' => 'Money/debt with a person: state of the work/goods behind it (see ÖNCE ANLA). null if not applicable.'],
             'work_status_known' => ['type' => ['boolean', 'null'], 'description' => 'true only if the user said it or it is certain from the trade meaning; false if guessing → write `question`.'],
@@ -118,6 +121,7 @@ final class Understanding
             'work_status_known' => isset($input['work_status_known']) ? (bool) $input['work_status_known'] : null,
             'party_certain' => isset($input['party_certain']) ? (bool) $input['party_certain'] : null,
             'checks' => $checks ?: null,
+            'check_plan' => CheckSplit::normalize($input['check_plan'] ?? null),
         ];
     }
 

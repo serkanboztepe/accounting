@@ -21,6 +21,7 @@ use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\AdvanceOffset;
 use App\Services\Whatsapp\BundleDraft;
 use App\Services\Whatsapp\ChatAssistant;
+use App\Services\Whatsapp\CheckSplit;
 use App\Services\Whatsapp\DraftFollowUp;
 use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseContext;
@@ -606,6 +607,18 @@ class WhatsappWebhookController extends Controller
 
             // Numaralı iş durumu sorusu ("*1* Mal geldi · *2* Bağlantı / peşin · *3* Eski borcu ödedim") → seçim kayda çevrilir. Eski
             // "*1* iş/mal aldım, *2* avans" menüsünden ÖNCE (yoksa "2" orada yakalanıp kayıt yarım kalıyordu).
+            // Çek bölme / toplam sorusu ("*1* 10 × 100.000 + son çek 187.000 · …") → kod çekleri yazar.
+            if (ctype_digit($body) && CheckSplit::shown($pending->extracted)) {
+                $data = CheckSplit::choose($pending->extracted, (int) $body);
+                if ($data !== null) {
+                    $this->inboundKind = 'quick';
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+
+                return $this->twiml('Listede o numara yok. ' . CheckSplit::question($pending->extracted));
+            }
+
             if (ctype_digit($body) && WorkChoice::shown($pending->extracted)) {
                 $data = WorkChoice::choose($pending->extracted, (int) $body);
                 if ($data !== null) {
@@ -759,6 +772,7 @@ class WhatsappWebhookController extends Controller
             return $this->saveDraft($pending, $phone, ['cross_question' => null, 'question' => null] + $pending->extracted);
         }
         if (($ask = ($pending->extracted['scale_question'] ?? null)
+            ?? CheckSplit::question($pending->extracted)
             ?? (WorkChoice::shown($pending->extracted) ? ($pending->extracted['question'] ?? null) : null)
             ?? Understanding::gap($pending->extracted)) !== null) {
             return '❓ ' . $ask . "\nCevabını yaz; vazgeçmek için *iptal*.";
@@ -1028,8 +1042,12 @@ class WhatsappWebhookController extends Controller
                     $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true, 'advance_declined' => true]);
                 }
                 // Önce anla: belgeden okunan çekler soru-cevap turunda kaybolmasın.
-                if ($pending && empty($data['checks']) && ! empty($pending->extracted['checks'])) {
+                if ($pending && empty($data['checks']) && empty($data['check_plan']) && ! empty($pending->extracted['checks'])) {
                     $data['checks'] = $pending->extracted['checks'];
+                    $data['check_plan'] = $pending->extracted['check_plan'] ?? null;
+                }
+                if ($pending && empty($data['check_plan']) && empty($data['checks']) && ! empty($pending->extracted['check_plan'])) {
+                    $data['check_plan'] = $pending->extracted['check_plan']; // bölme sorusu cevaplanmadan başka soru turu
                 }
                 // Düzeltmede sıradaki kalem unutulmasın (Recep takası: peynir satışı düzeltme turunda kayboldu).
                 if ($pending && empty($data['next_items']) && ! empty($pending->extracted['next_items'])) {
@@ -1217,8 +1235,12 @@ class WhatsappWebhookController extends Controller
         }
         // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
         $data = Understanding::apply($data);
+        // Çek bölme hesabı kodda; toplam ödemeyle tutmazsa soru (firma 7, 20.10 Yusuf Dündar 11 çek).
+        $data = CheckSplit::prepare($data, $pending?->extracted);
         if (($checks = Understanding::checksNote($data)) && ! str_contains((string) ($data['description'] ?? ''), $checks)) {
-            $data['description'] = trim(($data['description'] ?? '') . ' — ' . $checks, ' —');
+            // Düzeltmede önceki çek notu açıklamada kalmışsa yenisiyle değişir (iki liste olmasın).
+            $desc = preg_replace('/\s*—\s*\d+ çek: .*$/u', '', (string) ($data['description'] ?? ''));
+            $data['description'] = trim($desc . ' — ' . $checks, ' —');
         }
         // Açıklama sütunu 255; kayıtta "Avans — " gibi önek de eklenir — taşarsa kayıt sessizce düşüyordu (firma 7, 20.10).
         if (mb_strlen((string) ($data['description'] ?? '')) > 200) {
@@ -1285,7 +1307,7 @@ class WhatsappWebhookController extends Controller
             $data['payment_purpose'] ?? '', var_export($data['paid'] ?? null, true)]);
         $crossDone = array_values(array_filter((array) ($pending?->extracted['cross_asked'] ?? []), 'is_string'));
         $data['cross_asked'] = $crossDone;
-        $ask = $data['scale_question'] ?? Understanding::gap($data);
+        $ask = $data['scale_question'] ?? CheckSplit::question($data) ?? Understanding::gap($data);
         // Taslak başına EN ÇOK BİR kez (19.10 Yeni Yapı: cevap sonrası kayıt biraz değişince yeniden süzülüp aynı soru tekrar soruldu).
         // Önceki ödemeden düşülen iş süzülmez: tek belirsizlik "ayrıca para verdin mi?" — kart bunu zaten söylüyor, ayrıca para
         // verdiyse kullanıcı yazar (firma 7, 20.10: "Asansörcü 250 binlik iş yaptı" → her seferinde "avanstan mı, ayrıca mı?").
@@ -1297,7 +1319,8 @@ class WhatsappWebhookController extends Controller
         }
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
         $data['work_choice'] = null;
-        if ($ask !== null && $ask !== ($data['scale_question'] ?? null) && $ask !== ($data['cross_question'] ?? null) && WorkChoice::applies($data)) {
+        if ($ask !== null && $ask !== ($data['scale_question'] ?? null) && $ask !== ($data['cross_question'] ?? null)
+            && ! CheckSplit::shown($data) && WorkChoice::applies($data)) {
             // AI'ın asıl sorusu ("Asansör takıldı mı, yoksa peşin mi?") saklanır: serbest cevabı ("Takılmadı") ikinci göz onunla
             // karşılaştırır — numaralı başlık ("— ne için?") cevabı anlamsız gösteriyordu (eval 21.10, soru döngüsü).
             $data['work_question'] = str_contains($ask, '*1* ') ? ($pending?->extracted['work_question'] ?? $ask) : $ask;

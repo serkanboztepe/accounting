@@ -324,6 +324,70 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertSame(11, \App\Models\Check::where('party_id', $yusuf->id)->count());
     }
 
+    /** Kullanıcı 21.10: "en son çekin 187 olmasını anlatmakta zorlandım" — bölme hesabı kodda, seçenek numarayla. */
+    public function test_cheque_plan_offers_round_split_and_saves_choice(): void
+    {
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 1187000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'check_plan' => ['count' => 11, 'first_month' => '2027-02', 'due_day' => null, 'each_amount' => null]]));
+
+        $q = $this->send('Yusufa 1.187.000 çek verdim seneye şubattan 11 çek aya böl');
+        $this->assertStringContainsString('11 çeke nasıl böleyim?', $q);
+        $this->assertStringContainsString('*1* 10 × 100.000,00 + son çek 187.000,00', $q);
+        $this->assertStringContainsString('Eşit: 10 × 107.909,09 + son çek 107.909,10', $q);
+        $this->assertStringContainsString('Vadeler: 28.02.2027 → 31.12.2027 (ay sonu)', $q);
+        $this->assertStringNotContainsString('Kaydedeyim mi', $q);
+
+        $card = $this->send('1');
+        $this->assertStringContainsString('11 çek: 10 × 100.000,00 ₺ (28.02.2027 → 30.11.2027); vade 31.12.2027 · 187.000,00 ₺', $card);
+
+        $this->assertStringContainsString('11 çek kaydedildi', $this->send('evet'));
+        $checks = \App\Models\Check::where('party_id', $yusuf->id)->orderBy('due_date')->get();
+        $this->assertEqualsWithDelta(1187000, $checks->sum('amount'), 0.01);
+        $this->assertEqualsWithDelta(187000, (float) $checks->last()->amount, 0.01);
+        $this->assertSame('2027-02-28', $checks->first()->due_date->toDateString());
+    }
+
+    /** "100'er yaz, kalanı sona" → kod hesaplar (AI 10 × 100.000 + 87.000 yazmıştı); soru yok. */
+    public function test_cheque_plan_with_each_amount_puts_rest_on_last(): void
+    {
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 1187000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'check_plan' => ['count' => 11, 'first_month' => '2027-02', 'each_amount' => 100000]]));
+
+        $card = $this->send('Yusufa 1.187.000 11 çek, 100 er yaz kalanı sona');
+        $this->assertStringContainsString('vade 31.12.2027 · 187.000,00 ₺', $card);
+        $this->assertStringNotContainsString('❓', $card);
+    }
+
+    /** Çekler tek tek yazıldı ama toplam tutmuyor → kaydetmez, numaralı düzeltme. */
+    public function test_cheque_total_mismatch_asks_before_saving(): void
+    {
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 1187000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'checks' => [['number' => null, 'due_date_text' => '28.02.2027', 'amount' => 1000000],
+                ['number' => null, 'due_date_text' => '31.03.2027', 'amount' => 87000]]]));
+
+        $q = $this->send('Yusufa çek verdim');
+        $this->assertStringContainsString('Çeklerin toplamı 1.087.000,00 ₺, ödeme 1.187.000,00 ₺ — 100.000,00 ₺ eksik.', $q);
+        $this->assertStringContainsString('*1* Son çek 187.000,00 ₺ olsun · *2* Ödeme 1.087.000,00 ₺ olsun', $q);
+        $this->assertStringContainsString('❓', $this->send('evet'), 'evet kaydetmez, soru tekrar');
+        $this->assertSame(0, \App\Models\Check::where('party_id', $yusuf->id)->count());
+
+        $this->assertStringContainsString('vade 31.03.2027 · 187.000,00 ₺', $this->send('1'));
+    }
+
+    public function test_cheque_split_options(): void
+    {
+        $this->assertCount(1, \App\Services\Whatsapp\CheckSplit::options(900000, 3), 'eşit ve yuvarlak → sorulmaz');
+        $this->assertCount(1, \App\Services\Whatsapp\CheckSplit::options(5000, 2));
+        $this->assertSame([[100000.0, 187000.0], [107000.0, 117000.0], [107909.09, 107909.1]],
+            \App\Services\Whatsapp\CheckSplit::options(1187000, 11));
+    }
+
     public function test_sector_and_business_note_reach_assistant_context(): void
     {
         config(['app.sector' => 'construction', 'app.business_note' => 'Çoğunlukla vadeli çekle öder.']);

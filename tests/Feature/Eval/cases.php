@@ -194,6 +194,15 @@ return [
         ['id' => 'f7-hizli-kayit-geri-al', 'firm' => 'firma7', 'group' => 'regression',
             'steps' => [['send' => 'atatürk şantiyesine 5 bin yemek gideri', 'expect' => ['reply_has' => ['Kaydedildi']]], ['send' => 'geri al'], ['send' => 'evet']],
             'expect' => ['saved' => ['expenses' => 0]]],
+        // 21.10: çek bölme hesabı kodda — AI yalnız planı verir (kullanıcı: "en son çekin 187 olmasını anlatmakta zorlandım").
+        ['id' => 'f7-cek-aya-bol-secenek', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => "Yusuf Dündar'a 1.187.000 çek verdim, iş sonra yapılacak, seneye şubattan itibaren 11 çek aya böl",
+                'expect' => ['reply_has' => ['nasıl böleyim', '187.000'], 'saved' => ['ledger' => 0]]],
+                ['send' => '1']],
+            'expect' => ['reply_has' => ['187.000'], 'saved' => ['ledger' => 1], 'balance' => ['Yusuf Dündar' => 1187000]]],
+        ['id' => 'f7-cek-yuzer-kalani-sona', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => "Yusuf Dündar'a 1.187.000 çek verdim, iş sonra yapılacak, seneye şubattan 11 çek, hepsi 100'er olsun kalanı son çeke yaz"]],
+            'expect' => ['reply_has' => ['31.12.2027 · 187.000'], 'reply_not' => ['nasıl böleyim']]],
 
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
