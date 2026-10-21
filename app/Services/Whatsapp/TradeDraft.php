@@ -57,6 +57,10 @@ class TradeDraft
         if (in_array($kind, [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE], true)
             && config('modules.purchases') && config('modules.stock') && empty($d['settles_expense_id'])) {
             $product = self::productFromItems($d['items'] ?? []) ?? (empty($d['items']) ? self::mentionedProduct((string) ($d['description'] ?? '')) : null);
+            // AI'ın adlandırdığı mal kartın adını niteliyorsa ("Börek unu" ↔ "Un") başka üründür — stok sorusu (StockChoice) yürür.
+            if ($product && ($goods = trim((string) ($d['goods_name'] ?? ''))) !== '' && ! self::goodsMatch($goods)) {
+                $product = null;
+            }
             if ($product && $product->isProduct()) {
                 $d['kind'] = $kind = ExpenseExtractor::KIND_TRADE_PURCHASE;
                 $d['items'] = ! empty($d['items']) ? $d['items'] : [[
@@ -1202,6 +1206,14 @@ class TradeDraft
      * Açıklamada kartın adı geçiyor ama önünde niteleyen bir kelime varsa ("Buzağı yemi sayımı" ↔ "Yem") o nitelikli adı döner
      * (başka ürün); kartın adı başta ya da dolgu kelimesinden sonra geliyorsa ("Un günlük kullanım…") null (aynı ürün).
      */
+    /** Malın kartı: ad eşleşir ve önünde niteleyen kelime yoksa ("Börek unu" → "Un" kartı DEĞİL; "un" → "Un"). */
+    public static function goodsMatch(string $goods): ?Product
+    {
+        $product = self::matchProduct($goods);
+
+        return $product && self::qualifiedName($product->name, $goods) === null ? $product : null;
+    }
+
     private static function qualifiedName(string $productName, string $text): ?string
     {
         $first = self::words($productName)[0] ?? null;

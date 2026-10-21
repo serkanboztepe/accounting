@@ -497,6 +497,10 @@ class ChatAssistant
         if ($stock) {
             $modules[] = '- Stok takibi AÇIK: "ne kadar kaldı" (stock_query), "elimde X var" (stock_count), günlük kullanım / "kaç kalınca haber ver" (stock_setting), ürün tanıtma (product_add) kaydedilir — "stok tutamıyorum" deme. Üretim girişi ("ürettim", "sağdım", "kaldırdım") henüz yok: elde kalan miktarı söylemesini iste, sayım (stock_count) olarak kaydet.';
         }
+        // Kartı olmayan mal alışında stok sorusunu KOD sorar (StockChoice, 21.10 Akkuş "börek unu ödemesi" stoğa girmedi).
+        if ($stock && config('modules.purchases')) {
+            $modules[] = '- Alış ya da ödeme TEK bir mal içinse (un, yağ, susam, şeker, lastik…) `goods_name` alanına malın adını yaz — adet/fiyat söylenmese de, cari olsun olmasın, gider olarak yazsan bile ("25.000 börek unu ödemesi yapıldı" → "Börek unu"; "3000 tl susam aldım nakit" → "Susam"; "Tokgöz\'e yağ parası verdim" → "Yağ"). Hizmet, işçilik, nakliye, kira, fatura, yakıt, yemek ve karışık market/toptancı alışverişinde null. Malın nerede olduğunu ya da kaç tane geldiğini SEN sorma — kod numaralı soruyla sorar.';
+        }
         $modules[] = '- Listede olmayan kişi için yeni cari SEN açabilirsin: `party_name` yaz, onayla birlikte açılır. "Cariye ekle" bunu ister — "panelden ekle" deme.';
         $cannot = $stock ? 'hayvan sayımı, hayvan listesi' : 'hayvan sayımı, stok listesi';
         $understand = Understanding::RULES;

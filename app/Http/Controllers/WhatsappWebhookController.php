@@ -29,6 +29,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\IssuedChecks;
 use App\Services\Whatsapp\Understanding;
+use App\Services\Whatsapp\StockChoice;
 use App\Services\Whatsapp\WorkChoice;
 use App\Services\Whatsapp\HubRouter;
 use App\Services\Whatsapp\PartyNameCheck;
@@ -668,7 +669,9 @@ class WhatsappWebhookController extends Controller
         // Kesin cevaplar (evet / iptal / numara) eskisi gibi kodda kalır — onu AI'a sormaya gerek yok.
         if (ChatAssistant::enabled() && $image === null && $body !== ''
             && ! ($pending && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body)
-                || (WorkChoice::shown($pending->extracted) && WorkChoice::match($pending->extracted, $body) !== null)))) {
+                || (WorkChoice::shown($pending->extracted) && WorkChoice::match($pending->extracted, $body) !== null)
+                // Stok sorusu cevabı ("1 20 çuval", "20 çuval") kodda — AI'a gidince soru tekrarlanıyordu (eval 21.10, Sonnet).
+                || (StockChoice::shown($pending->extracted) && StockChoice::answer($pending->extracted, $body) !== null)))) {
             return $this->twiml($this->chatTurn($pending, $phone, $body));
         }
 
@@ -756,6 +759,20 @@ class WhatsappWebhookController extends Controller
                 }
 
                 return $this->twiml('Listede o numara yok. ' . CheckSplit::question($pending->extracted));
+            }
+
+            // Stok sorusu ("*1* Geldi — kaç? · *2* tedarikçide · *0* stok tutmuyorum"): "1 20 çuval", "20 çuval", "2", "0".
+            if (StockChoice::shown($pending->extracted) && ($res = StockChoice::answer($pending->extracted, $body)) !== null) {
+                if (isset($res['ask'])) {
+                    $data = $pending->extracted;
+                    $data['stock_need_qty'] = str_starts_with($res['ask'], 'Kaç');
+                    $pending->update(['extracted' => $data]);
+
+                    return $this->twiml('❓ ' . $res['ask'] . "\nVazgeçmek için *iptal*.");
+                }
+                $this->inboundKind = 'quick';
+
+                return $this->twiml($this->saveDraft($pending, $phone, $res['data']));
             }
 
             if (WorkChoice::shown($pending->extracted)
@@ -1465,7 +1482,9 @@ class WhatsappWebhookController extends Controller
         // Taslak başına EN ÇOK BİR kez (19.10 Yeni Yapı: cevap sonrası kayıt biraz değişince yeniden süzülüp aynı soru tekrar soruldu).
         // Önceki ödemeden düşülen iş süzülmez: tek belirsizlik "ayrıca para verdin mi?" — kart bunu zaten söylüyor, ayrıca para
         // verdiyse kullanıcı yazar (firma 7, 20.10: "Asansörcü 250 binlik iş yaptı" → her seferinde "avanstan mı, ayrıca mı?").
-        if ($ask === null && $crossDone === [] && AdvanceOffset::used($data) <= 0
+        // Stok sorusu numarayla cevaplandıysa (1 20 çuval / 2 / 3 / 0) anlam kesin — ikinci göz yeniden sormaz (eval 21.10: "teslim
+        // alırken mi ödediniz?" diye sordu, ardından gelen "evet" o soruya gitti, kayıt gidere döndü).
+        if ($ask === null && $crossDone === [] && AdvanceOffset::used($data) <= 0 && empty($data['stock_choice_done'])
             && ($cross = Understanding::crossCheck($data, $this->inboundBody, $phone)) !== null) {
             $ask = $cross;
             $data['cross_asked'] = [...$crossDone, $crossSig];
@@ -1479,10 +1498,26 @@ class WhatsappWebhookController extends Controller
             $data['work_loan_option'] = true;
             $ask = 'Bu ödeme ne için: iş/mal geldi mi, önceden mi ödüyorsun, yoksa eski bir borç mu?';
         }
+        // Aynı taslağın devamında (kişi cevabı, düzeltme) AI malın adını bazen düşürüyor → stok sorusu kayboluyordu (eval 21.10):
+        // önceki taslağın malı ve "stok sorusu cevaplandı" bilgisi korunur. Yeni kayıtta taşınmaz.
+        if ($pending && empty($data['is_new_entry'])) {
+            $data['goods_name'] = ($data['goods_name'] ?? null) ?: ($pending->extracted['goods_name'] ?? null);
+            $data['stock_choice_done'] = ! empty($data['stock_choice_done']) || ! empty($pending->extracted['stock_choice_done']);
+        }
+        // Kartı olmayan MAL (goods_name), adet yok: "Börek unu nerede? 1 geldi (kaç?) · 2 tedarikçide · [3 eski borç] · 0 stok tutmuyorum"
+        // (kullanıcı 21.10 Akkuş: "burada stok sormalıydık"). Başka soru yoksa ya da tek soru iş durumuysa ("ne için?") onun YERİNE —
+        // aynı şeyi soruyorlar, iki soru üst üste gelmesin.
+        $data['stock_choice'] = null;
+        $workAsk = $ask !== null && $ask !== ($data['scale_question'] ?? null) && $ask !== ($data['cross_question'] ?? null)
+            && CheckSplit::question($data) === null && WorkChoice::applies($data);
+        if (($ask === null || $workAsk) && StockChoice::applies($data)) {
+            $ask = StockChoice::question($data);
+            $data['stock_choice'] = true;
+            $workAsk = false;
+        }
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
         $data['work_choice'] = null;
-        if ($ask !== null && $ask !== ($data['scale_question'] ?? null) && $ask !== ($data['cross_question'] ?? null)
-            && CheckSplit::question($data) === null && WorkChoice::applies($data)) {
+        if ($workAsk) {
             // AI'ın asıl sorusu ("Asansör takıldı mı, yoksa peşin mi?") saklanır: serbest cevabı ("Takılmadı") ikinci göz onunla
             // karşılaştırır — numaralı başlık ("— ne için?") cevabı anlamsız gösteriyordu (eval 21.10, soru döngüsü).
             $data['work_question'] = str_contains($ask, '*1* ') ? ($pending?->extracted['work_question'] ?? $ask) : $ask;
@@ -1747,6 +1782,10 @@ class WhatsappWebhookController extends Controller
     {
         if (($pending->extracted['kind'] ?? null) === self::KIND_UNDO) {
             return $this->commitUndo($pending);
+        }
+        // Stok sorusu atlanamaz (hangi yoldan "evet" gelirse gelsin): cevaplanmadan kayıt yok — 0 "stok tutmuyorum" her zaman var.
+        if (StockChoice::shown($pending->extracted)) {
+            return '❓ ' . StockChoice::question($pending->extracted) . "\nVazgeçmek için *iptal*.";
         }
 
         // Bu onayla oluşan gider / cari satırları taslağa yazılır → "son kaydı sil" tam olarak bunları siler.

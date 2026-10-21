@@ -25,7 +25,7 @@ use Tests\TestCase;
  *
  *   php artisan test --group=eval --exclude-group=eval-capability   bozulma seti (hep geçmeli)
  *   php artisan test --group=eval --filter=test_capability          yetenek seti (Faz 1–5 hedefleri)
- *   EVAL_ONLY=akkus-kasa-sube php artisan test --group=eval           tek vaka
+ *   EVAL_ONLY=akkus-kasa-sube php artisan test --group=eval           tek vaka (virgülle birkaç: EVAL_ONLY=a,b)
  *   EVAL_PHOTO=1 php artisan test --group=eval                         fotoğraflı vakalar dahil (Opus — yalnız fotoğraf kodu değişince)
  *
  * Maliyet (21.10): yerelde sohbet + süzgeç Haiku (.env ANTHROPIC_CHECK_MODEL); düşen vaka Sonnet'le bir kez:
@@ -57,7 +57,7 @@ class AssistantEvalTest extends TestCase
         $out = [];
         foreach (self::data()['cases'] as $case) {
             $hasMedia = collect($case['steps'] ?? [])->contains(fn ($s) => isset($s['media']));
-            if ($case['group'] === $group && (! $only || $case['id'] === $only) && ($only || $photo || ! $hasMedia)) {
+            if ($case['group'] === $group && (! $only || in_array($case['id'], explode(',', $only), true)) && ($only || $photo || ! $hasMedia)) {
                 $out[$case['id']] = [$case];
             }
         }

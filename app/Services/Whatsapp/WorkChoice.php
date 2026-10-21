@@ -85,6 +85,19 @@ final class WorkChoice
         return $name . "'" . ($endsVowel ? 'y' : '') . ($back ? 'a' : 'e');
     }
 
+    /** Özel ada bulunma eki, ses uyumu + sertleşme: Muhyiddin → Muhyiddin'de, Beton → Beton'da, Usta → Usta'da, Tokgöz → Tokgöz'de, Seramikpark → Seramikpark'ta. */
+    public static function locative(string $name): string
+    {
+        $lower = mb_strtolower(strtr(trim($name), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        if ($lower === '' || ! preg_match('/([aeıioöuü])[^aeıioöuü]*$/u', $lower, $m)) {
+            return $name . "'de";
+        }
+        $back = in_array($m[1], ['a', 'ı', 'o', 'u'], true);
+        $hard = (bool) preg_match('/[fstkçşhp]$/u', $lower);
+
+        return $name . "'" . ($hard ? 't' : 'd') . ($back ? 'a' : 'e');
+    }
+
     /**
      * Kısa yazılı cevap seçeneğin kelimesine benziyorsa numarası (firma 7, 21.10: "Başlantı" → Bağlantı anlaşılmadı, soru tekrarlandı).
      * Yazım hatası payı 1 harf (7+ harfte 2); iki seçeneğe birden uyarsa ya da 3 kelimeden uzunsa null → AI okur.
