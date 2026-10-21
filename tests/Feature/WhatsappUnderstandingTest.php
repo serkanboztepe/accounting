@@ -462,6 +462,29 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertSame(0, \App\Models\Check::where('party_id', $yusuf->id)->count());
     }
 
+    /** Firma 7, 21.10: çek sayfası okunamadı → çeksiz ödeme yazıldı; aynı sayfa tekrar → önceki sayfanın numaraları yazıldı. */
+    public function test_unread_or_duplicate_cheques_are_not_saved(): void
+    {
+        $seramik = Party::create(['name' => 'Anlama Testi Seramik']);
+        $base = ['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 400000, 'party_id' => $seramik->id, 'from_document' => true,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => "Seramik'e 4 adet çek"];
+
+        // Okunamayan çek (fotoğraf yolu; burada belge bayrağıyla doğrudan).
+        $unread = \App\Services\Whatsapp\CheckSplit::prepare($base + ['checks' => null]);
+        $this->assertSame('unread', $unread['check_choice']);
+        $this->assertStringContainsString('Fotoğraftaki çekleri okuyamadım', \App\Services\Whatsapp\CheckSplit::question($unread));
+        $this->assertNull(\App\Services\Whatsapp\CheckSplit::prepare(['from_document' => false] + $base + ['checks' => null])['check_choice'], 'yazıyla anlatılan ödeme');
+
+        $old = PartyLedgerEntry::create(['party_id' => $seramik->id, 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 100000,
+            'entry_date' => now()->toDateString(), 'description' => 'Avans — çek']);
+        \App\Models\Check::create(['party_id' => $seramik->id, 'party_ledger_entry_id' => $old->id, 'check_number' => '2023471',
+            'issue_date' => now(), 'due_date' => '2027-02-28', 'amount' => 100000, 'status' => 'issued']);
+        $this->ai($this->d(['amount' => 100000, 'checks' => [['number' => '2023471', 'due_date_text' => '28.02.2027', 'amount' => 100000]]] + $base));
+        $this->assertStringContainsString('2023471 (28.02.2027 · Anlama Testi Seramik) numaralı çek zaten kayıtlı', $this->send('çek fotoğrafı'));
+        $this->send('evet');
+        $this->assertSame(1, \App\Models\Check::where('check_number', '2023471')->count());
+    }
+
     public function test_cheque_split_options(): void
     {
         $this->assertCount(1, \App\Services\Whatsapp\CheckSplit::options(900000, 3), 'eşit ve yuvarlak → sorulmaz');

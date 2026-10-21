@@ -2,6 +2,7 @@
 
 namespace App\Services\Whatsapp;
 
+use App\Models\Check;
 use App\Support\Money;
 use Carbon\Carbon;
 
@@ -86,6 +87,20 @@ final class CheckSplit
 
             return $d;
         }
+        // Fotoğraf çek ama hiçbir çek okunmadıysa çeksiz ödeme yazılmaz (firma 7, 21.10 09:15: 4 çeklik sayfa → ödeme kaydedildi, çek yok).
+        if (! empty($d['from_document']) && ($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && empty($d['checks'])
+            && (($d['payment_type'] ?? null) === 'check' || preg_match('/\bçek/iu', (string) ($d['description'] ?? '')))) {
+            $d['check_choice'] = 'unread';
+
+            return $d;
+        }
+        // Kayıtlı numara ikinci kez yazılmaz (09:18: aynı sayfa tekrar → AI önceki sayfanın çek numaralarını yazdı).
+        if (($dup = self::duplicateNumber($d)) !== null) {
+            $d['check_choice'] = 'dup';
+            $d['check_duplicate'] = $dup;
+
+            return $d;
+        }
         // Vade yazıyla geldiyse ("şubat ortası", "15 mart") tarihe çevrilir; okunamayan vadeyle kayıt yapılmaz (çek vadesiz olamaz —
         // Sonnet 21.10 "şubat ortası" yazdı, kayıt veritabanında düştü).
         $checks = array_values(array_filter((array) ($d['checks'] ?? []), 'is_array'));
@@ -135,6 +150,18 @@ final class CheckSplit
         }
 
         return $out;
+    }
+
+    /** Taslaktaki çeklerden zaten kayıtlı olan ilki: "2023471 (28.02.2027 · Seramikpark)". */
+    private static function duplicateNumber(array $d): ?string
+    {
+        $numbers = array_filter(array_map(fn ($c) => is_array($c) ? trim((string) ($c['number'] ?? '')) : '', (array) ($d['checks'] ?? [])));
+        if ($numbers === []) {
+            return null;
+        }
+        $check = Check::with('party')->whereIn('check_number', $numbers)->first();
+
+        return $check ? $check->check_number . ' (' . $check->due_date?->format('d.m.Y') . ($check->party ? ' · ' . $check->party->name : '') . ')' : null;
     }
 
     private const MONTHS = ['ocak' => 1, 'şubat' => 2, 'subat' => 2, 'mart' => 3, 'nisan' => 4, 'mayıs' => 5, 'mayis' => 5, 'haziran' => 6,
@@ -219,6 +246,13 @@ final class CheckSplit
 
             return 'Çeklerin toplamı ' . Money::format($sum) . ' ₺, ödeme ' . Money::format((float) $d['amount']) . ' ₺ — '
                 . Money::format(abs($diff)) . ' ₺ ' . ($diff > 0 ? 'eksik' : 'fazla') . ".\n" . implode(' · ', $opts);
+        }
+        if (($d['check_choice'] ?? null) === 'unread') {
+            return 'Fotoğraftaki çekleri okuyamadım. Fotoğrafı tekrar gönderir misin? (ya da çekleri yaz: numara, vade, tutar)';
+        }
+        if (($d['check_choice'] ?? null) === 'dup') {
+            return ($d['check_duplicate'] ?? 'Bu') . ' numaralı çek zaten kayıtlı — aynı çek iki kez yazılmasın. '
+                . 'Fotoğraf yanlış okunduysa tekrar gönder ya da çekleri yaz; gerek yoksa *iptal*.';
         }
         if (($d['check_choice'] ?? null) === 'due') {
             return 'Çekin vadesini gün.ay.yıl olarak yazar mısın? (ör. 15.02.2027)';

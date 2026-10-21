@@ -316,4 +316,27 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
     {
         $this->assertStringContainsString('PDF', $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://x/y', 'MediaContentType0' => 'application/vnd.ms-excel']));
     }
+
+    /** Firma 7, 21.10: 3 çek fotoğrafı birden → ikisine "tekrar gönder" dendi. Meşgulken gelen fotoğraf sıraya alınır, sonra işlenir. */
+    public function test_photo_while_busy_is_queued_and_processed_after(): void
+    {
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 750, 'description' => 'Sıradaki fotoğraf fişi', 'paid' => true]));
+        $lockName = \App\Tenancy\Tenancy::key('wa-msg:' . \App\Support\Phone::normalize(self::PHONE));
+        config(['services.whatsapp.from' => '+14786665916']);
+        \Illuminate\Support\Facades\Cache::lock($lockName, 1)->get(); // önceki mesaj 1 sn daha sürüyor
+        \App\Http\Controllers\WhatsappWebhookController::$lockWait = 0;
+        try {
+            $reply = $this->sendPdf();
+        } finally {
+            \App\Http\Controllers\WhatsappWebhookController::$lockWait = 12;
+        }
+
+        $this->assertStringContainsString('Fotoğrafı aldım', $reply);
+        $this->assertStringNotContainsString('tekrar gönder', $reply);
+        // İstek kapandıktan sonra sıra geldi: fiş işlendi, kart ayrı mesajla gitti.
+        $this->assertSame('Sıradaki fotoğraf fişi', WhatsappPendingExpense::where('phone', self::PHONE)->latest('id')->first()?->extracted['description']);
+        Http::assertSent(fn ($r) => str_contains($r->url(), 'Messages.json') && str_contains((string) ($r['Body'] ?? ''), '750'));
+        $this->assertSame(1, \App\Models\WhatsappMessage::where('phone', \App\Support\Phone::normalize(self::PHONE))
+            ->where('direction', 'in')->where('created_at', '>=', now()->subMinute())->count(), 'gelen mesaj bir kez kaydedilir');
+    }
 }

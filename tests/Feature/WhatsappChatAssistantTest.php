@@ -6,6 +6,7 @@ use App\Models\PartyLedgerEntry;
 use App\Models\WhatsappMessage;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\ExpenseExtractor;
+use App\Services\Whatsapp\WorkChoice;
 use App\Support\ModuleProfiles;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Http;
@@ -335,6 +336,24 @@ class WhatsappChatAssistantTest extends TestCase
         $this->assertStringContainsString('*1* Yaptığı işin parası · *2* İşe başlamadan, peşin · *3* Eski borcu ödedim', $this->send('Ustaya 50 bin verdim'));
         $this->assertStringContainsString('Listede o numara yok', $this->send('7'));
         $this->assertStringContainsString('· önceden ödeme (iş/mal sonra)', $this->send('2'));
+    }
+
+    /** Firma 7, 21.10: "Başlantı" (yazım hatası) anlaşılmadı, soru tekrarlandı — seçeneğin kelimesine benzeyen kısa cevap seçim sayılır. */
+    public function test_work_choice_typed_word_with_typo(): void
+    {
+        $party = \App\Models\Party::create(['name' => 'Seçim Testi Seramik']);
+        $this->chat(['type' => 'entry', 'data' => ['kind' => ExpenseExtractor::KIND_PAYMENT, 'party_id' => $party->id, 'party_name' => null,
+            'work_status' => null, 'work_status_known' => false, 'is_service' => false] + $this->sale(400000, 'x'), 'text' => '']);
+        $this->send('Seramiğe 400 bin verdim');
+
+        $this->assertStringContainsString('· önceden ödeme (iş/mal sonra)', $this->send('Başlantı'));
+
+        $d = ['kind' => ExpenseExtractor::KIND_PAYMENT, 'is_service' => false];
+        $this->assertSame(2, WorkChoice::match($d, 'peşin'));
+        $this->assertSame(3, WorkChoice::match($d, 'eski borç'));
+        $this->assertNull(WorkChoice::match($d, 'evet'));
+        $this->assertNull(WorkChoice::match($d, 'ödedim'));
+        $this->assertNull(WorkChoice::match($d, 'Takılmadı, asansör sonra gelecek ama parası verildi'), 'uzun cevap AI\'a');
     }
 
     public function test_affirms_check_words(): void

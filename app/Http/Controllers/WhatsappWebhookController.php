@@ -113,13 +113,22 @@ class WhatsappWebhookController extends Controller
         // Arka plana bırakılan tur (DeferTurn) süresiz çalışır (5 AI turu × 60 sn + kontroller) — kilit onu kapsasın (review 4).
         $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 360);
         try {
-            $lock->block(12);
+            $lock->block(self::$lockWait);
         } catch (LockTimeoutException) {
             // Kilitsiz devam ETME: iki mesaj aynı taslağa aynı anda yazıp çift/yarım kayıt üretebilir (review C).
             // Twilio 15 sn bekliyor; daha uzun bekleyemeyiz → kişiye tekrar göndermesini söyle (son 7 günde en uzun 12 sn).
             Log::warning('WhatsApp kilit alınamadı — mesaj işlenmedi', ['phone' => Phone::normalize($phone)]);
-            $this->logMessage($phone, 'in', $body, $numMedia > 0);
 
+            // Fotoğraf sıraya alınır (firma 7, 21.10: 3 çek sayfası birden atıldı → ikisine "tekrar gönder" dendi): önceki iş bitince
+            // aynı istek arka planda işlenir, cevap ayrı mesaj gider. Yazı mesajı eskisi gibi (tekrar gönder) — sırası önemli olabilir.
+            if ($numMedia > 0 && ! $request->attributes->get('queued')) {
+                $this->queueAfterBusy($request, $phone);
+                $busy = '📷 Fotoğrafı aldım — öncekini bitirince buna bakıyorum.';
+                $this->logMessage($phone, 'out', $busy, false); // gelen mesaj sırası gelince kaydedilir
+
+                return $this->twiml($busy);
+            }
+            $this->logMessage($phone, 'in', $body, $numMedia > 0);
             $busy = '⏳ Bir önceki mesajını hâlâ işliyorum. Bu mesajı birkaç saniye sonra tekrar gönderir misin?';
             $this->logMessage($phone, 'out', $busy, false);
 
@@ -137,7 +146,9 @@ class WhatsappWebhookController extends Controller
 
         // Twilio ~15 sn bekler: AI turu isteğin başından en geç 10 sn içinde bitmezse ertelenir ("bakıyorum").
         // İsteğin geldiği an (testte istek oluşturulduğu an); yoksa şimdi.
-        ChatAssistant::$deadline = (float) ($request->server('REQUEST_TIME_FLOAT') ?: microtime(true)) + self::SYNC_SECONDS;
+        // Sıraya alınmış fotoğraf zaten arka planda: süre sınırı yok (ertelenen tur iç içe çalışmaz).
+        ChatAssistant::$deadline = $request->attributes->get('queued') ? null
+            : (float) ($request->server('REQUEST_TIME_FLOAT') ?: microtime(true)) + self::SYNC_SECONDS;
         $deferred = false;
         try {
             $firstContact = $this->firstContact = $this->isFirstContact($phone);
@@ -222,6 +233,9 @@ class WhatsappWebhookController extends Controller
     // Mal mı hizmet mi AI her zaman doğru işaretlemiyor (Haiku, Yeni Yapı 19.10 "Boyacı Ahmet'e 50 bin") — satır ikisine de uyar.
     private const WHAT_BOUGHT = '📦 Mal aldıysan ne aldığını yaz (ör. *susam 50 kg*), stoğa girsin. Hizmetse (nakliye, usta…) gerek yok, *evet* yeter.';
 
+    /** Meşgul numarada sıradaki mesajın kilidi bekleme süresi (sn); testte kısaltılır. */
+    public static int $lockWait = 12;
+
     /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
     private const SYNC_SECONDS = 10;
 
@@ -275,13 +289,47 @@ class WhatsappWebhookController extends Controller
         });
     }
 
+    /**
+     * Meşgulken gelen fotoğraf: istek kapandıktan sonra önceki iş bitene kadar (en çok 5 dk) bekler, aynı mesajı baştan işler
+     * (kilit, çift mesaj koruması dahil), cevabı WhatsApp API ile gönderir. Gelen mesaj kaydı zaten yazıldı (meşgul yolunda).
+     */
+    private function queueAfterBusy(Request $request, string $phone): void
+    {
+        $firm = Tenancy::current();
+        $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
+        app()->terminating(function () use ($request, $phone, $firm, $lockName) {
+            $work = function () use ($request, $phone, $lockName) {
+                try {
+                    Cache::lock($lockName, 360)->block(300, fn () => true); // sıra gelene kadar bekle, sonra bırak
+                } catch (LockTimeoutException) {
+                    $this->deliver($phone, '⏳ Fotoğrafa sıra gelmedi — birkaç dakika sonra tekrar gönderir misin?');
+
+                    return;
+                }
+                $request->attributes->set('queued', true);
+                $controller = app(self::class);
+                app()->call([$controller, '__invoke'], ['request' => $request]);
+                foreach ($controller->replies as $reply) {
+                    $this->deliver($phone, $reply, log: false); // konuşma kaydını iç işlem yazdı
+                }
+            };
+            try {
+                $firm ? Tenancy::run($firm, $work) : $work();
+            } catch (\Throwable $e) {
+                Log::error('WhatsApp sıradaki fotoğraf işlenemedi', ['msg' => $e->getMessage()]);
+            }
+        });
+    }
+
     /** Ertelenen cevabı WhatsApp API ile gönder + konuşma ve maliyet kaydı. */
-    private function deliver(string $phone, string|array $out): void
+    private function deliver(string $phone, string|array $out, bool $log = true): void
     {
         [$text, $media] = is_array($out) ? [$out[0], $out[1] ?? null] : [$out, null];
         $sender = app(WhatsappSender::class);
         $ok = $media ? $sender->sendMedia($phone, $text, $media) : $sender->sendText($phone, $text);
-        $this->logMessage($phone, 'out', $text, $media !== null);
+        if ($log) {
+            $this->logMessage($phone, 'out', $text, $media !== null);
+        }
         if ($ok && ($firm = Tenancy::current())) {
             try {
                 \App\Models\HubMessageLog::create(['hub_firm_id' => $firm->id, 'phone' => Phone::normalize($phone), 'direction' => 'out']);
@@ -533,7 +581,8 @@ class WhatsappWebhookController extends Controller
         // Sohbet asistanı (deneme, ayarla açılır): yazılı mesajlar konuşmayı gören asistana gider.
         // Kesin cevaplar (evet / iptal / numara) eskisi gibi kodda kalır — onu AI'a sormaya gerek yok.
         if (ChatAssistant::enabled() && $image === null && $body !== ''
-            && ! ($pending && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body)))) {
+            && ! ($pending && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body)
+                || (WorkChoice::shown($pending->extracted) && WorkChoice::match($pending->extracted, $body) !== null)))) {
             return $this->twiml($this->chatTurn($pending, $phone, $body));
         }
 
@@ -619,8 +668,9 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml('Listede o numara yok. ' . CheckSplit::question($pending->extracted));
             }
 
-            if (ctype_digit($body) && WorkChoice::shown($pending->extracted)) {
-                $data = WorkChoice::choose($pending->extracted, (int) $body);
+            if (WorkChoice::shown($pending->extracted)
+                && (ctype_digit($body) || ($typed = WorkChoice::match($pending->extracted, $body)) !== null)) {
+                $data = WorkChoice::choose($pending->extracted, ctype_digit($body) ? (int) $body : $typed);
                 if ($data !== null) {
                     $this->inboundKind = 'quick';
 

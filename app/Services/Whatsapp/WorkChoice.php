@@ -84,6 +84,35 @@ final class WorkChoice
         return $name . "'" . ($endsVowel ? 'y' : '') . ($back ? 'a' : 'e');
     }
 
+    /**
+     * Kısa yazılı cevap seçeneğin kelimesine benziyorsa numarası (firma 7, 21.10: "Başlantı" → Bağlantı anlaşılmadı, soru tekrarlandı).
+     * Yazım hatası payı 1 harf (7+ harfte 2); iki seçeneğe birden uyarsa ya da 3 kelimeden uzunsa null → AI okur.
+     */
+    public static function match(array $d, string $body): ?int
+    {
+        $fold = fn (string $v) => strtr(mb_strtolower(strtr($v, ['İ' => 'i', 'I' => 'ı']), 'UTF-8'), ['ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ş' => 's', 'ü' => 'u']);
+        $said = preg_split('/[^a-z]+/', $fold($body), -1, PREG_SPLIT_NO_EMPTY);
+        if ($said === [] || count($said) > 3) {
+            return null;
+        }
+        $generic = ['sonra', 'parasi', 'parasini', 'vermedim', 'geldi', 'yapildi', 'odedim', 'odeme'];
+        $hits = [];
+        foreach (self::options($d) as $i => $label) {
+            foreach (preg_split('/[^a-z]+/', $fold($label), -1, PREG_SPLIT_NO_EMPTY) as $word) {
+                if (mb_strlen($word) < 4 || in_array($word, $generic, true)) {
+                    continue;
+                }
+                foreach ($said as $w) {
+                    if (mb_strlen($w) >= 4 && levenshtein($w, $word) <= (strlen($word) >= 7 ? 2 : 1)) {
+                        $hits[$i + 1] = true;
+                    }
+                }
+            }
+        }
+
+        return count($hits) === 1 ? array_key_first($hits) : null;
+    }
+
     /** Numara → iş durumu (Understanding::apply kayda çevirir); geçersizse null. */
     public static function choose(array $d, int $n): ?array
     {
