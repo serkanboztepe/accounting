@@ -80,7 +80,8 @@ final class Understanding
     - BELGE mesajdan üstündür: çek görüntüsünde her çeki `checks`'e yaz (no, vade YAZILDIĞI GİBİ, tutar) — ödeme çekle yapılmıştır;
       çek yazıyla tek tek anlatılırsa da ("3 çek verdim 335'er bin, vadeler 31.03, 30.04, 31.05") her çeki `checks`'e yaz (no yoksa boş);
       çekler KURALLA anlatılırsa ("11 çek aya böl", "şubattan itibaren her ay", "100'er yaz kalanı sona") tutar/vade HESAPLAMA, `checks` boş:
-      `check_plan` doldur (count, first_month YYYY-MM, due_day — ay sonu/söylenmediyse null, each_amount — "100'er" dediyse); kod böler,
+      `check_plan` doldur (count, first_month YYYY-MM, due_day — "ayın ortası"=15, ay sonu/söylenmediyse null, interval_months —
+      "2 ay arayla"/"3'er ay"=2/3, her aysa null, months — düzensizse her çekin ayı ["2027-02","2027-05"], each_amount — "100'er" dediyse); kod böler,
       gerekirse seçenek sorar. Düzeltmede de ("ilk 10'u 100'er, kalanı sona") yeni planı yaz;
       dekontta gönderen/alıcı/açıklama esastır. Mesajla belge çelişirse sor.
     TXT;
@@ -577,7 +578,7 @@ final class Understanding
                 && (float) ($checks[$j]['amount'] ?? 0) === $amount; $j++) {
             }
             $money = $amount > 0 ? Money::format($amount) . ' ₺' : '';
-            $parts[] = $j - $i > 2
+            $parts[] = $j - $i > 4
                 ? ($j - $i) . ' × ' . ($money ?: 'çek') . ' (' . ($c['due_date_text'] ?? '?') . ' → ' . ($checks[$j - 1]['due_date_text'] ?? '?') . ')'
                 : implode('; ', array_map(fn ($k) => trim(($k['number'] ?? '') . ' · vade ' . ($k['due_date_text'] ?? '?')
                     . (! empty($k['amount']) ? ' · ' . Money::format((float) $k['amount']) . ' ₺' : ''), ' ·'), array_slice($checks, $i, $j - $i)));

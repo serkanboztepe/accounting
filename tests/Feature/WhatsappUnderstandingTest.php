@@ -380,6 +380,37 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertStringContainsString('vade 31.03.2027 · 187.000,00 ₺', $this->send('1'));
     }
 
+    /** Kullanıcı 21.10: "3 çek şubattan başla 2 ay aralıkla" / "ayın ortalarına". */
+    public function test_cheque_plan_interval_and_mid_month(): void
+    {
+        $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 900000, 'party_id' => $yusuf->id,
+            'work_status' => 'not_yet', 'work_status_known' => true, 'description' => 'Çek ödemesi',
+            'check_plan' => ['count' => 3, 'first_month' => '2027-02', 'due_day' => 15, 'interval_months' => 2]]));
+
+        $card = $this->send('Yusufa 900 bin 3 çek şubattan başla 2 ay arayla ayın ortasına');
+        $this->assertStringContainsString('3 çek: vade 15.02.2027 · 300.000,00 ₺; vade 15.04.2027 · 300.000,00 ₺; vade 15.06.2027 · 300.000,00 ₺', $card);
+        $this->assertStringNotContainsString('❓', $card, 'eşit ve yuvarlak → sorulmaz');
+
+        $this->send('evet');
+        $this->assertSame(['2027-02-15', '2027-04-15', '2027-06-15'], \App\Models\Check::where('party_id', $yusuf->id)->orderBy('due_date')
+            ->get()->map(fn ($c) => $c->due_date->toDateString())->all());
+    }
+
+    /** "biri şubat diğeri mayıs, ayın ortası" → ay listesi; yılsız/geçmiş ay sonraki yıla. */
+    public function test_cheque_plan_irregular_months_and_past_year(): void
+    {
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-21 12:00'));
+        $plan = \App\Services\Whatsapp\CheckSplit::normalize(['months' => ['2026-02', '2026-05'], 'due_day' => 15]);
+        $this->assertSame(2, $plan['count']);
+        $d = \App\Services\Whatsapp\CheckSplit::prepare(['amount' => 400000, 'check_plan' => $plan]);
+        $this->assertSame(['15.02.2027', '15.05.2027'], array_column($d['checks'], 'due_date_text'));
+        $this->assertSame([200000.0, 200000.0], array_column($d['checks'], 'amount'));
+
+        $every = \App\Services\Whatsapp\CheckSplit::prepare(['amount' => 400000, 'check_plan' => ['count' => 4, 'first_month' => '2026-02', 'interval_months' => 3]]);
+        $this->assertSame(['28.02.2027', '31.05.2027', '31.08.2027', '30.11.2027'], array_column($every['checks'], 'due_date_text'));
+    }
+
     public function test_cheque_split_options(): void
     {
         $this->assertCount(1, \App\Services\Whatsapp\CheckSplit::options(900000, 3), 'eşit ve yuvarlak → sorulmaz');

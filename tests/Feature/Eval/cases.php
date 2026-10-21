@@ -204,6 +204,14 @@ return [
             'steps' => [['send' => "Yusuf Dündar'a 1.187.000 çek verdim, iş sonra yapılacak, seneye şubattan 11 çek, hepsi 100'er olsun kalanı son çeke yaz"]],
             'expect' => ['reply_has' => ['31.12.2027 · 187.000'], 'reply_not' => ['nasıl böleyim']]],
 
+        ['id' => 'f7-cek-iki-ay-arayla-ay-ortasi', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => "Yusuf Dündar'a 900 bin çek verdim, iş sonra yapılacak, 3 çek şubattan başla 2 ay arayla ayın ortasına"]],
+            'expect' => ['reply_has' => ['15.02.2027', '15.04.2027', '15.06.2027'], 'reply_not' => ['nasıl böleyim']]],
+
+        ['id' => 'f7-cek-duzensiz-aylar', 'firm' => 'firma7', 'group' => 'regression',
+            'steps' => [['send' => "Yusuf Dündar'a 400 bin çek verdim, iş sonra yapılacak, 2 çek biri şubat diğeri mayıs ayın ortaları"]],
+            'expect' => ['reply_has' => ['15.02.2027', '15.05.2027', '200.000'], 'reply_not' => ['nasıl böleyim']]],
+
         // ---------------------------------------------------------------- Stoklu satış
         ['id' => 'stok-urunlu-alis', 'firm' => 'stok', 'group' => 'regression',
             'steps' => [['send' => "Ak Un'dan 20 çuval un aldım 17000"]],

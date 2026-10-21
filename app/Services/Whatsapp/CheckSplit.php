@@ -23,21 +23,33 @@ final class CheckSplit
             'properties' => [
                 'count' => ['type' => ['integer', 'null'], 'description' => 'Number of cheques'],
                 'first_month' => ['type' => ['string', 'null'], 'description' => 'Month of the first due date, YYYY-MM ("seneye şubattan" → next year-02)'],
-                'due_day' => ['type' => ['integer', 'null'], 'description' => 'Day of month for every due date; null = month end ("ay sonu") or not said'],
+                'due_day' => ['type' => ['integer', 'null'], 'description' => 'Day of month for every due date ("ayın ortası" → 15, "ayın 10\'u" → 10); null = month end ("ay sonu") or not said'],
+                'interval_months' => ['type' => ['integer', 'null'], 'description' => 'Months between due dates ("2 ay arayla" → 2, "3 ayda bir" → 3); null = every month'],
+                'months' => ['type' => ['array', 'null'], 'items' => ['type' => 'string'], 'description' => 'Irregular due months, one per cheque, YYYY-MM ("biri şubat diğeri mayıs" → [next Feb, next May]); null if regular'],
                 'each_amount' => ['type' => ['number', 'null'], 'description' => 'Amount of each cheque if said ("100\'er" → 100000); the rest goes to the last cheque. null if not said'],
             ]]];
     }
 
     public static function normalize(mixed $plan): ?array
     {
-        if (! is_array($plan) || (int) ($plan['count'] ?? 0) < 1 || (int) $plan['count'] > 60) {
+        if (! is_array($plan)) {
+            return null;
+        }
+        // Düzensiz aylar ("biri şubat diğeri mayıs") → ay listesi; adet listeden.
+        $months = array_values(array_map(fn ($m) => self::future($m), array_filter((array) ($plan['months'] ?? []),
+            fn ($m) => is_string($m) && preg_match('/^\d{4}-\d{2}$/', $m))));
+        $count = $months !== [] ? count($months) : (int) ($plan['count'] ?? 0);
+        if ($count < 1 || $count > 60) {
             return null;
         }
 
         return [
-            'count' => (int) $plan['count'],
-            'first_month' => is_string($plan['first_month'] ?? null) && preg_match('/^\d{4}-\d{2}$/', $plan['first_month']) ? $plan['first_month'] : null,
+            'count' => $count,
+            'months' => $months ?: null,
+            'first_month' => is_string($plan['first_month'] ?? null) && preg_match('/^\d{4}-\d{2}$/', $plan['first_month'])
+                ? self::future($plan['first_month']) : ($months[0] ?? null),
             'due_day' => (int) ($plan['due_day'] ?? 0) >= 1 && (int) $plan['due_day'] <= 31 ? (int) $plan['due_day'] : null,
+            'interval_months' => (int) ($plan['interval_months'] ?? 0) >= 2 && (int) $plan['interval_months'] <= 12 ? (int) $plan['interval_months'] : null,
             'each_amount' => (float) ($plan['each_amount'] ?? 0) > 0 ? round((float) $plan['each_amount'], 2) : null,
         ];
     }
@@ -56,7 +68,7 @@ final class CheckSplit
             // Aynı plan önceki turda seçenekle çözüldüyse (AI planı "tutarsız" tekrar gönderdi) seçilen çekler kalır.
             $prevPlan = $previous['check_plan'] ?? null;
             if ($plan['each_amount'] === null && is_array($prevPlan) && ! empty($previous['checks'])
-                && array_diff_key($prevPlan, ['each_amount' => 1]) == array_diff_key($plan, ['each_amount' => 1])
+                && array_diff_key($prevPlan + ['months' => null], ['each_amount' => 1]) == array_diff_key($plan, ['each_amount' => 1])
                 && abs((float) ($previous['amount'] ?? 0) - $amount) < 0.01) {
                 $plan['each_amount'] = $prevPlan['each_amount'];
                 $d['check_plan'] = $plan;
@@ -130,7 +142,8 @@ final class CheckSplit
         $dues = self::dues($plan);
 
         return $count . ' çeke nasıl böleyim?' . "\n" . implode("\n", $lines)
-            . ($dues ? "\nVadeler: " . $dues[0] . ($count > 1 ? ' → ' . end($dues) : '') . ($plan['due_day'] === null ? ' (ay sonu)' : '') : '');
+            . ($dues ? "\nVadeler: " . implode(', ', $count <= 4 ? $dues : [$dues[0] . ' → ' . end($dues)])
+                . ($plan['due_day'] === null ? ' (ay sonu)' : '') . (($plan['interval_months'] ?? null) ? ' · ' . $plan['interval_months'] . ' ay arayla' : '') : '');
     }
 
     /** Numara → çekler; geçersizse null. */
@@ -203,6 +216,17 @@ final class CheckSplit
         return $checks;
     }
 
+    /** Çek vadesi geçmişte olmaz: "şubattan" (yılsız) geçmiş bir aya düştüyse sonraki yıl (Sonnet 21.10: Şubat 2026 yazdı). */
+    private static function future(string $month): string
+    {
+        $m = Carbon::createFromFormat('Y-m-d', $month . '-01')->startOfDay();
+        while ($m->lt(now()->startOfMonth())) {
+            $m->addYear();
+        }
+
+        return $m->format('Y-m');
+    }
+
     /** @return list<string> vade metinleri "28.02.2027" (ilk ay bilinmiyorsa boş) */
     private static function dues(array $plan): array
     {
@@ -212,7 +236,9 @@ final class CheckSplit
         $start = Carbon::createFromFormat('Y-m-d', $plan['first_month'] . '-01')->startOfDay();
         $out = [];
         for ($i = 0; $i < $plan['count']; $i++) {
-            $month = $start->copy()->addMonthsNoOverflow($i);
+            $month = isset($plan['months'][$i])
+                ? Carbon::createFromFormat('Y-m-d', $plan['months'][$i] . '-01')->startOfDay()
+                : $start->copy()->addMonthsNoOverflow($i * ($plan['interval_months'] ?? 1));
             $day = $plan['due_day'] === null ? $month->daysInMonth : min($plan['due_day'], $month->daysInMonth);
             $out[] = $month->setDay($day)->format('d.m.Y');
         }
