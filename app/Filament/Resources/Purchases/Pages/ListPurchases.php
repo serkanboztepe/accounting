@@ -85,15 +85,6 @@ class ListPurchases extends ListRecords
 
                 DatePicker::make('purchase_date')->label('Tarih')->required(),
 
-                // Proje / Şube (firmada açıksa) yalnız ürünsüz alışta: ürün eklenince gizlenir (ürünlü alış işletme geneli, Serkan 16.10).
-                Select::make('project_id')
-                    ->label(fn () => Labels::project())
-                    ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
-                    ->placeholder('Genel')
-                    ->helperText(fn () => 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
-                    ->visible(fn (Get $get) => config('modules.projects') && ! TradeLines::hasLines($get('lines')))
-                    ->required(fn (Get $get) => false && \App\Models\Project::whereNotIn('status', ['cancelled'])->count() > 1),
-
                 Select::make('party_id')
                     ->label(fn (Get $get) => $get('mode') === 'cash' ? 'Kimden (isteğe bağlı)' : 'Kimden')
                     ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
@@ -116,6 +107,16 @@ class ListPurchases extends ListRecords
                     ->visible(fn (Get $get) => $get('mode') === 'cash'),
 
                 TradeLines::repeater('in'),
+
+                // Proje / Şube (firmada açıksa) yalnız ürünsüz alışta: "Ürün ekle" deyince gizlenir, satır silinince geri gelir
+                // (ürünlü alış işletme geneli, Serkan 16.10).
+                Select::make('project_id')
+                    ->label(fn () => Labels::project())
+                    ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
+                    ->placeholder('Genel')
+                    ->helperText(fn () => 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
+                    ->visible(fn (Get $get) => config('modules.projects') && empty($get('lines')))
+                    ->columnSpan(['default' => 1, 'md' => 2]),
 
                 MoneyInput::make('manual_amount', 'Ürünsüz tutar')
                     ->required(false)

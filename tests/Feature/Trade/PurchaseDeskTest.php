@@ -203,25 +203,52 @@ class PurchaseDeskTest extends TestCase
         $this->assertSame($before, PartyLedgerEntry::count());
     }
 
-    // Şube yalnız ürünsüz alışta: ürün eklenince alan kaybolur (ürünlü alış işletme geneli) — cari penceresi ve tezgah.
-    public function test_branch_field_hidden_once_a_product_is_added(): void
+    // Şube yalnız ürünsüz alışta: "Ürün ekle" deyince (ürün seçilmeden) kaybolur, satır silinince geri gelir — cari penceresi ve tezgah.
+    public function test_branch_field_hidden_once_a_product_row_is_added(): void
     {
         $this->actingAs(User::factory()->create());
         config(['modules.projects' => true]);
-        $p = $this->flour();
         $party = Party::create(['name' => 'Uncu Test']);
-        $line = ['product_id' => $p->id, 'quantity' => 5, 'amount' => '500,00'];
+        $emptyRow = ['product_id' => null, 'quantity' => 1, 'unit_price' => null, 'amount' => null];
 
         Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
             ->mountAction('newPurchase')
             ->assertFormFieldVisible('project_id')
-            ->fillForm(['lines' => [$line]])
-            ->assertFormFieldHidden('project_id');
+            ->fillForm(['lines' => [$emptyRow]])
+            ->assertFormFieldHidden('project_id')
+            ->fillForm(['lines' => []])
+            ->assertFormFieldVisible('project_id');
 
         Livewire::test(ListPurchases::class)
             ->assertFormFieldVisible('project_id', 'deskForm')
-            ->set('deskData.lines', ['a' => $line])
-            ->assertFormFieldHidden('project_id', 'deskForm');
+            ->set('deskData.lines', ['a' => $emptyRow])
+            ->assertFormFieldHidden('project_id', 'deskForm')
+            ->set('deskData.lines', [])
+            ->assertFormFieldVisible('project_id', 'deskForm');
+    }
+
+    // Eklenen ürün satırı zorunlu: ürün seçilmeden kayıt yok (ürünsüz tutar yazılsa da).
+    public function test_added_product_row_is_required(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $party = Party::create(['name' => 'Zorunlu Test']);
+        $before = PartyLedgerEntry::count();
+
+        Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
+            ->mountAction('newPurchase')
+            ->fillForm(['purchase_date' => '2026-10-20', 'manual_amount' => '1.000,00',
+                'lines' => [['product_id' => null, 'quantity' => 1, 'unit_price' => null, 'amount' => null]]])
+            ->callMountedAction()
+            ->assertHasFormErrors();
+
+        Livewire::test(ListPurchases::class)
+            ->set('deskData.party_id', $party->id)
+            ->set('deskData.manual_amount', '1.000,00')
+            ->set('deskData.lines', ['a' => ['product_id' => null, 'quantity' => 1, 'unit_price' => null, 'amount' => null]])
+            ->call('saveDesk')
+            ->assertHasErrors();
+
+        $this->assertSame($before, PartyLedgerEntry::count());
     }
 
     // Basit (alacak-verecek) firmada cari sayfasında iade düğmesi yok — iade yalnız stoklu satışta.
