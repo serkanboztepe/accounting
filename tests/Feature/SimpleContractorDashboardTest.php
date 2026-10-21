@@ -81,9 +81,19 @@ class SimpleContractorDashboardTest extends TestCase
         $this->assertEqualsWithDelta(50000, $d['pending_checks'] - $before['pending_checks'], 0.01);
         $this->assertEqualsWithDelta($d['payables'] + $d['pending_checks'], $d['total_due'], 0.01);
 
-        Livewire::test(PurchaseOverviewCard::class)->assertSee('Genel Durum · Maliyet')->assertSee('Carilere Borcum')->assertDontSee('Ödenecek Nakit');
+        // Önceden ödenen (mal/iş gelecek) ayrı satır; ödenecek toplamı değişmez.
+        $tugla = Party::create(['name' => 'Ana Sayfa Testi Tuğla']);
+        PartyLedgerEntry::create(['party_id' => $tugla->id, 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 2000000,
+            'entry_date' => now()->toDateString(), 'description' => 'Avans — Tuğla bağlantısı']);
+        $after = (new PurchaseOverviewCard)->getData();
+        $this->assertEqualsWithDelta(2000000, $after['prepaid'] - $d['prepaid'], 0.01);
+        $this->assertEqualsWithDelta($d['total_due'], $after['total_due'], 0.01);
+        $this->assertEqualsWithDelta($d['total_cost'], $after['total_cost'], 0.01, 'peşin ödeme maliyet değil');
+
+        Livewire::test(PurchaseOverviewCard::class)->assertSee('Genel Durum · Maliyet')->assertSee('Carilere Borcum')->assertDontSee('Ödenecek Nakit')
+            ->assertSee('Önceden ödediğin, malı/işi gelecek');
         Livewire::test(TopPurchasePartiesTable::class)->loadTable()->assertSee('Ana Sayfa Testi Beton')->assertSee('22.000,00');
         Livewire::test(ProjectComparisonTable::class)->loadTable()->assertSee('Ana Sayfa Testi Fatih')->assertSee('75.000,00')
-            ->assertSee('Toplam Maliyet')->assertDontSee('Gerçek Ödenen');
+            ->assertSee('Toplam Maliyet')->assertDontSee('Gerçek Ödenen')->assertDontSee('Açık Çek');
     }
 }

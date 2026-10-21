@@ -69,6 +69,10 @@
             </div>
         </div>
 
+        @if ($d['prepaid'] > 0.01)
+            <div class="pc-foot tnum">📦 Önceden ödediğin, malı/işi gelecek: <b>{{ $m($d['prepaid']) }}</b> ({{ $d['prepaid_count'] }} cari) — mal/iş geldikçe maliyete girer, ödenecekten ayrı</div>
+        @endif
+
         <div class="pc-foot tnum">Maliyet = direkt gider + cariden alış (iş / malzeme) · Ödeme ve avans maliyete girmez · Çek verildiğinde cari borcu düşer, vadesine kadar "Bekleyen Çek"te durur</div>
     </div>
     @else

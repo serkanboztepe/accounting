@@ -2,7 +2,6 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\Check;
 use App\Models\Contract;
 use App\Models\Project;
 use App\Support\Money;
@@ -66,14 +65,6 @@ class ProjectComparisonTable extends TableWidget
                     ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
                     ->alignEnd()
                     ->weight('bold'),
-
-                Tables\Columns\TextColumn::make('project_checks')
-                    ->label('Açık Çek')
-                    ->visible(! $contracts && config('modules.checks'))
-                    ->getStateUsing(fn (Project $p): float => (float) Check::query()->where('project_id', $p->id)->where('status', 'issued')->sum('amount'))
-                    ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
-                    ->alignEnd()
-                    ->color('warning'),
 
                 Tables\Columns\TextColumn::make('contracts_total')
                     ->label('Sözleşme')

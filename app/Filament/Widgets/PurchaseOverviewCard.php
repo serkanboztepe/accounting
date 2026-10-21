@@ -31,6 +31,8 @@ class PurchaseOverviewCard extends Widget
             $overdue = Check::query()->where('status', 'issued')->whereDate('due_date', '<', $today);
             $overdueCount = (clone $overdue)->count();
             $payables = (float) PartyBalances::payables()->sum(fn ($r) => abs((float) $r['balance']));
+            // Bize borçlu cariler = önceden ödediğimiz, malı/işi henüz gelmemiş para (müteahhitte satış yok). Ödenecek'e karışmaz.
+            $prepaid = PartyBalances::receivables();
             $expenses = ProjectCost::expenses();
             $purchases = ProjectCost::purchases();
 
@@ -43,6 +45,8 @@ class PurchaseOverviewCard extends Widget
                 'payables'        => $payables,
                 'pending_checks'  => $pending,
                 'total_due'       => $payables + $pending,
+                'prepaid'         => (float) $prepaid->sum('balance'),
+                'prepaid_count'   => $prepaid->count(),
                 'pending_note'    => $overdueCount > 0
                     ? ' · ₺' . Money::format((float) (clone $overdue)->sum('amount')) . ' vadesi geçmiş (' . $overdueCount . ')'
                     : '',
