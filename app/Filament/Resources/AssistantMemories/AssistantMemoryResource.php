@@ -33,6 +33,9 @@ class AssistantMemoryResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'Sistem';
 
+    /** Sol menüde değil, sağ üstteki profil menüsünde (AdminPanelProvider::userMenuItems) — menü kalabalık etmesin. */
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?int $navigationSort = 20;
 
     protected static ?string $navigationLabel = 'Asistan hafızası';

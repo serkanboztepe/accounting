@@ -14,7 +14,6 @@ use App\Tenancy\Tenancy;
 use Filament\Actions\Action;
 use Filament\Support\Icons\Heroicon;
 use App\Http\Middleware\IdentifyTenant;
-use Filament\Navigation\NavigationGroup;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
@@ -47,6 +46,17 @@ class AdminPanelProvider extends PanelProvider
                     ->icon(Heroicon::OutlinedArrowsRightLeft)
                     ->url(fn (): string => SwitchFirm::getUrl())
                     ->visible(fn (): bool => SwitchFirm::canAccess()),
+                // Eski "Sistem" menü grubu (kullanıcı 21.10: sol menüde kalabalık etmesin) — sayfalar aynı adreste.
+                ...collect([
+                    \App\Filament\Pages\CompanySettingsPage::class,
+                    \App\Filament\Resources\Units\UnitResource::class,
+                    \App\Filament\Resources\ExpenseCategories\ExpenseCategoryResource::class,
+                    \App\Filament\Resources\AssistantMemories\AssistantMemoryResource::class,
+                ])->map(fn (string $class) => Action::make('menu' . class_basename($class))
+                    ->label(fn (): string => $class::getNavigationLabel())
+                    ->icon(fn () => $class::getNavigationIcon())
+                    ->url(fn (): string => is_subclass_of($class, \Filament\Resources\Resource::class) ? $class::getUrl('index') : $class::getUrl())
+                    ->visible(fn (): bool => $class::canAccess()))->all(),
             ])
             ->colors([
                 'primary' => Color::hex('#0E8A5F'), // hesapasistanim.com yeşili
@@ -83,9 +93,9 @@ class AdminPanelProvider extends PanelProvider
                 : \App\Filament\Resources\Parties\PartyResource::getUrl('index'))
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
-            // Kümeler collapsible; Ayarlar (Sistem) varsayılan kapalı — yalnız
-            // içindeyken açılır (Filament aktif grubu otomatik açar).
-            ->collapsibleNavigationGroups()
+            // Kümeler açılır-kapanır DEĞİL (kullanıcı 21.10: "elim değiyor, kapanıyor"); başlık + girintili öğeler (theme.css).
+            // Sistem sayfaları sol menüde değil, profil menüsünde (userMenuItems).
+            ->collapsibleNavigationGroups(false)
             ->navigationGroups([
                 'Genel',
                 'Cari',
@@ -95,7 +105,6 @@ class AdminPanelProvider extends PanelProvider
                 'Ürün & Stok',
                 'Mimar',
                 'Raporlar',
-                NavigationGroup::make('Sistem')->collapsed(),
             ])
             ->pages([
                 Dashboard::class,

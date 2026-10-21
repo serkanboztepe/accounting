@@ -24,6 +24,9 @@ class UnitResource extends Resource
     // Nadir tanım → Ayarlar (Sistem) grubuna saklandı.
     protected static string|UnitEnum|null $navigationGroup = 'Sistem';
 
+    /** Sol menüde değil, sağ üstteki profil menüsünde (AdminPanelProvider::userMenuItems) — menü kalabalık etmesin. */
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?string $navigationLabel = 'Birimler';
 
     protected static ?string $modelLabel = 'Birim';

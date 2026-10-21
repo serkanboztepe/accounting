@@ -24,6 +24,9 @@ class CompanySettingsPage extends Page implements HasSchemas
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sistem';
 
+    /** Sol menüde değil, sağ üstteki profil menüsünde (AdminPanelProvider::userMenuItems) — menü kalabalık etmesin. */
+    protected static bool $shouldRegisterNavigation = false;
+
     protected static ?int $navigationSort = 9;
 
     protected static ?string $title = 'Ayarlar';

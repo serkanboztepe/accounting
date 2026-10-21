@@ -41,6 +41,10 @@
 .dark .fi-sidebar-group-label {
     color: #6E817A;
 }
+/* Grup öğeleri başlığın altında girintili (gruplar açılır-kapanır değil) */
+.fi-sidebar-group-items {
+    padding-left: 0.6rem;
+}
 
 /* Menü öğeleri: yuvarlak, yumuşak hover */
 .fi-sidebar-item-btn {
