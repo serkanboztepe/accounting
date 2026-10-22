@@ -331,7 +331,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
             \App\Http\Controllers\WhatsappWebhookController::$lockWait = 12;
         }
 
-        $this->assertStringContainsString('Fotoğrafı aldım', $reply);
+        $this->assertStringContainsString('Bunu da aldım', $reply);
         $this->assertStringNotContainsString('tekrar gönder', $reply);
         // İstek kapandıktan sonra sıra geldi: fiş işlendi, kart ayrı mesajla gitti.
         $this->assertSame('Sıradaki fotoğraf fişi', WhatsappPendingExpense::where('phone', self::PHONE)->latest('id')->first()?->extracted['description']);
@@ -357,7 +357,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
             \App\Http\Controllers\WhatsappWebhookController::$lockWait = 12;
         }
 
-        $this->assertStringNotContainsString('Fotoğrafı aldım', $reply);
+        $this->assertStringNotContainsString('Bunu da aldım', $reply);
         $this->assertSame([], (array) \Illuminate\Support\Facades\Cache::get(\App\Tenancy\Tenancy::key('wa-photo-queue:'
             . \App\Support\Phone::normalize(self::PHONE)), []));
     }
@@ -377,7 +377,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         \Illuminate\Support\Facades\Cache::lock($lockName, 1)->get();
         \App\Http\Controllers\WhatsappWebhookController::$lockWait = 0;
         try {
-            $this->assertStringContainsString('açık kaydı bitirince', $this->sendPdf());
+            $this->assertStringContainsString('Bunu da aldım', $this->sendPdf());
         } finally {
             \App\Http\Controllers\WhatsappWebhookController::$lockWait = 12;
         }

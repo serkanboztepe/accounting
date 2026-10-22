@@ -148,7 +148,9 @@ class ExpenseExtractor
             . 'nakit/EFT satırlarını da agreement_payments\'a yaz (paid_date = o tarih; sistem ödendi saymaz, hatırlatma kurar). Belgede '
             . 'tarih "05,30,2027" gibi ay,gün,yıl sırasıyla yazılmışsa 2027-05-30 oku. Birden çok sayfa birlikte geldiyse hepsini TEK anlaşma '
             . 'olarak oku ve `pages_related` doldur. Açık anlaşma taslağına yeni sayfa geldiyse `continues_agreement` doldur; devamıysa '
-            . 'YALNIZ bu sayfadaki kalemleri / ödemeleri / notları yaz (taslaktakileri tekrarlama). '
+            . 'YALNIZ bu sayfadaki kalemleri / ödemeleri / notları yaz (taslaktakileri tekrarlama). Konuşma geçmişindeki ESKİ anlaşma '
+            . 'kayıtlarına dayanarak "o anlaşmaya mı eklensin" diye SORMA (silinmiş olabilir) — yalnız AÇIK ANLAŞMALAR listesindeki gerçek '
+            . 'kayıtlar vardır. '
             . 'amount = anlaşılan toplam (miktarlı + götürü; fiyat listesi 0). description = kısa ad ("Seramik ve vitrifiye", "Mermer işçiliği"). '
             . 'date = anlaşma/belge tarihi.',
         self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',

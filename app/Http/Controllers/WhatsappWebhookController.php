@@ -140,7 +140,8 @@ class WhatsappWebhookController extends Controller
             if ($numMedia > 0 && ! $request->attributes->get('queued')) {
                 $this->enqueuePhoto($request, $phone);
                 $this->scheduleDrain($phone);
-                $busy = '📷 Fotoğrafı aldım — açık kaydı bitirince sırayla bakacağım.';
+                // Birlikte gönderilen sözleşme sayfası öncekiyle birleşebilir — "sırayla" demek yanıltıyordu (22.10 Kamuran).
+                $busy = '📷 Bunu da aldım, bakıyorum.';
                 $this->logMessage($phone, 'out', $busy, false); // gelen mesaj sırası gelince kaydedilir
 
                 return $this->twiml($busy);
