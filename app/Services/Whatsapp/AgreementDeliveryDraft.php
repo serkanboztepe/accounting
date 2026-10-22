@@ -199,6 +199,19 @@ class AgreementDeliveryDraft
     }
 
     /** Menü gösterildi mi (numaralı cevap bekleniyor). */
+    /** Teslim edilen kalemlerden biri projesiz anlaşmada mı — o zaman proje sorulur (ProjectChoice). */
+    public static function withoutProject(array $d): bool
+    {
+        foreach ($d['delivery_lines'] ?? [] as $line) {
+            $item = $line['agreement_item_id'] ? self::openItem($line['agreement_item_id']) : null;
+            if ($item && $item->agreement->project_id === null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function awaitsNumber(array $d): bool
     {
         $q = self::question($d);
@@ -257,7 +270,12 @@ class AgreementDeliveryDraft
             ];
             $applyToRest = $applyToRest || ($line['price_choice'] ?? null) === 2;
         }
-        $project = ! empty($d['project_id']) && Project::whereKey($d['project_id'])->exists() ? (int) $d['project_id'] : 'agreement';
+        // Seçilen proje · menüden "0 = Genel" · yoksa her kalem kendi anlaşmasının projesine.
+        $project = match (true) {
+            ! empty($d['project_id']) && Project::whereKey($d['project_id'])->exists() => (int) $d['project_id'],
+            ! empty($d['project_choice_done']) => null,
+            default => 'agreement',
+        };
         $paid = ! empty($d['paid']);
         $result = AgreementDesk::deliver($party, $direction, $lines, $d['date'] ?? now()->toDateString(), $project, $applyToRest,
             null, $paid && $direction === Agreement::DIRECTION_PURCHASE, $d['payment_type'] ?? null);

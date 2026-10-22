@@ -618,7 +618,7 @@ class WhatsappWebhookController extends Controller
         }
 
         // Anlaşma belgesinde okunamayan yer soruldu → "geç": önemli değil, kart onaya gelir (AI'sız).
-        if ($pending && $image === null && AgreementDraft::handles($pending->extracted) && ! empty($pending->extracted['unreadable'])
+        if ($pending && $image === null && AgreementDraft::handles($pending->extracted) && AgreementDraft::skippable($pending->extracted)
             && in_array($this->word($body), AgreementDraft::SKIP_WORDS, true)) {
             $this->inboundKind = 'quick';
 
@@ -757,8 +757,10 @@ class WhatsappWebhookController extends Controller
             // Tutarı eksik taslak ("Kira" → "Kira tutarı ne kadar?") + sadece sayı ("20000", "20.000 tl")
             // → tutar budur. Eskiden soruyu sorup taslak açmıyor, cevaba "onay bekleyen kayıt yok" diyordu.
             $typedAmount = $this->typedAmount($body);
+            // Anlaşma / anlaşmadan teslim tutarsız olabilir (fiyat listesi) — numara orada proje menüsü cevabı.
             if ($typedAmount !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0
-                && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_REMINDER) {
+                && ! in_array($this->kind($pending->extracted), [ExpenseExtractor::KIND_REMINDER, ExpenseExtractor::KIND_AGREEMENT,
+                    ExpenseExtractor::KIND_AGREEMENT_DELIVERY], true)) {
                 $data = $pending->extracted;
                 $data['amount'] = $typedAmount;
                 $data['question'] = null;
@@ -2207,6 +2209,10 @@ class WhatsappWebhookController extends Controller
             return $text;
         }
         if (AgreementDraft::handles($pending->extracted)) {
+            // "Belgede X yazıyor — carilerindeki Y mi?" → *evet*: eşleşme teyit, sıradaki soru / kart.
+            if (AgreementDraft::partyUnclear($pending->extracted)) {
+                return $this->saveAgreementDraft($pending, $pending->phone, ['party_confirmed' => true] + $pending->extracted);
+            }
             if ($question = AgreementDraft::question($pending->extracted)) {
                 return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
             }
@@ -2564,21 +2570,43 @@ class WhatsappWebhookController extends Controller
     private function saveAgreementDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
     {
         if ($pending && AgreementDraft::handles($pending->extracted)) {
-            $data['agreement_items'] = AgreementDraft::mergeItems($pending->extracted['agreement_items'] ?? [], $data['agreement_items'] ?? []);
-            if (empty($data['agreement_payments']) && ! empty($pending->extracted['agreement_payments'])) {
-                $data['agreement_payments'] = $pending->extracted['agreement_payments'];
+            $prev = $pending->extracted;
+            $data['agreement_items'] = AgreementDraft::mergeItems($prev['agreement_items'] ?? [], $data['agreement_items'] ?? []);
+            if (empty($data['agreement_payments']) && ! empty($prev['agreement_payments'])) {
+                $data['agreement_payments'] = $prev['agreement_payments'];
             }
-            $data['party_id'] = $data['party_id'] ?? $pending->extracted['party_id'] ?? null;
-            $data['party_name'] = $data['party_name'] ?? (empty($data['party_id']) ? ($pending->extracted['party_name'] ?? null) : null);
-            $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
+            // Kişi: cevapta yeni ad söylendiyse o ("Hüseyin Yılmaz yeni cari"); hiç kişi yoksa öncekisi.
+            if (empty($data['party_id']) && trim((string) ($data['party_name'] ?? '')) === '') {
+                $data['party_id'] = $prev['party_id'] ?? null;
+                $data['party_name'] = $prev['party_name'] ?? null;
+                $data['party_said'] = $data['party_said'] ?? $prev['party_said'] ?? null;
+                $data['party_certain'] = $data['party_certain'] ?? $prev['party_certain'] ?? null;
+            }
+            $data['party_confirmed'] = ! empty($data['party_confirmed'])
+                || (! empty($prev['party_confirmed']) && ($prev['party_id'] ?? null) === ($data['party_id'] ?? null));
+            $data['has_payments'] = ! empty($data['has_payments']) || ! empty($prev['has_payments']);
+            $data['payments_skipped'] = ! empty($data['payments_skipped']) || ! empty($prev['payments_skipped']);
+            $data['from_document'] = ! empty($data['from_document']) || ! empty($prev['from_document']);
+            // AI cevapta projeyi tekrarlamazsa önceki (belgeden / menüden) kalır; "0 = genel" seçimi de kaybolmaz.
+            if (empty($data['project_id']) && empty($data['project_name'])) {
+                $data['project_id'] = $prev['project_id'] ?? null;
+                $data['project_choice_done'] = ! empty($prev['project_choice_done']);
+            }
         }
         $question = AgreementDraft::question($data);
         $data['question'] = $question;
-        $card = AgreementDraft::summary($data);
+        // Proje menüsü yalnız sorular bitince (numara cevabı soruyla karışmasın).
+        $data = $question === null ? ProjectChoice::prepare($data, $phone)
+            : array_merge($data, ['project_suggested' => false, 'project_needed' => false]);
+        $card = AgreementDraft::summary($data) . (($pl = ProjectChoice::lines($data)) ? "\n" . implode("\n", $pl) : '');
         // Kişi bilinmiyorsa kart anlamsız — yalnız soru.
         $summary = empty($data['party_id']) && trim((string) ($data['party_name'] ?? '')) === '' ? '❓ ' . $question
             : $card . ($question !== null ? "\n\n❓ " . $question : '');
-        $footer = $question !== null ? "\n\nVazgeçmek için *iptal*." : "\n\nKaydedeyim mi? *evet* / *iptal*";
+        $footer = match (true) {
+            $question !== null => "\n\nVazgeçmek için *iptal*.",
+            ProjectChoice::menuShown($data) => '',
+            default => "\n\nKaydedeyim mi? *evet* / *iptal*",
+        };
 
         if ($pending) {
             $pending->update(['extracted' => $data, 'summary' => $summary]);
@@ -2607,6 +2635,7 @@ class WhatsappWebhookController extends Controller
                     ? array_merge($l, array_filter($byId[$l['agreement_item_id']], fn ($v) => $v !== null)) : $l, $prev);
             }
             $data['project_id'] = $data['project_id'] ?? $pending->extracted['project_id'] ?? null;
+            $data['project_choice_done'] = ! empty($data['project_choice_done']) || ! empty($pending->extracted['project_choice_done']);
         }
         $data = AgreementDeliveryDraft::prepare($data);
         if (($data['delivery_lines'] ?? []) === []) {
@@ -2616,10 +2645,18 @@ class WhatsappWebhookController extends Controller
         }
         $question = AgreementDeliveryDraft::question($data);
         $data['question'] = $question;
+        // Projesiz anlaşmadan gelen mal: proje sorulur (anlaşmanın projesi varsa oraya, sorulmaz). Sorular bitince.
+        $data = $question === null && AgreementDeliveryDraft::withoutProject($data) ? ProjectChoice::prepare($data, $phone)
+            : array_merge($data, ['project_suggested' => false, 'project_needed' => false]);
         $summary = ! empty(array_filter(array_column($data['delivery_lines'], 'agreement_item_id')))
-            ? AgreementDeliveryDraft::summary($data) . ($question !== null ? "\n\n❓ " . $question : '')
+            ? AgreementDeliveryDraft::summary($data) . (($pl = ProjectChoice::lines($data)) && ProjectChoice::menuShown($data) ? "\n" . implode("\n", $pl) : '')
+                . ($question !== null ? "\n\n❓ " . $question : '')
             : '❓ ' . $question;
-        $footer = $question !== null ? "\n\nVazgeçmek için *iptal*." : "\n\nKaydedeyim mi? *evet* / *iptal*";
+        $footer = match (true) {
+            $question !== null => "\n\nVazgeçmek için *iptal*.",
+            ProjectChoice::menuShown($data) => '',
+            default => "\n\nKaydedeyim mi? *evet* / *iptal*",
+        };
 
         if ($pending) {
             $pending->update(['extracted' => $data, 'summary' => $summary]);

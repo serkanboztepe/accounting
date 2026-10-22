@@ -57,11 +57,18 @@ class AgreementDraft
             if ($amount <= 0) {
                 continue;
             }
+            $method = array_key_exists($row['method'] ?? '', self::METHODS) ? $row['method'] : 'cash';
+            $paid = self::date($row['paid_date'] ?? null);
+            $due = self::date($row['due_date'] ?? null);
+            // Çek/senet yanında tek tarih = vadesi (Alim Tok 21.10: 15.07 / 20.08 "verildiği gün" sanıldı, vade bugüne düştü).
+            if (self::isDeferred($method) && $due === null && $paid !== null) {
+                [$due, $paid] = [$paid, null];
+            }
             $payments[] = [
-                'method'       => array_key_exists($row['method'] ?? '', self::METHODS) ? $row['method'] : 'cash',
+                'method'       => $method,
                 'amount'       => round($amount, 2),
-                'paid_date'    => self::date($row['paid_date'] ?? null),
-                'due_date'     => self::date($row['due_date'] ?? null),
+                'paid_date'    => $paid,
+                'due_date'     => $due,
                 'check_number' => is_string($row['check_number'] ?? null) && trim($row['check_number']) !== '' ? mb_substr(trim($row['check_number']), 0, 50) : null,
             ];
         }
@@ -70,17 +77,26 @@ class AgreementDraft
             'agreement_direction' => ($input['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE,
             'agreement_items'     => $items,
             'agreement_payments'  => $payments,
+            // Belgede ödeme geçiyor mu (tutar okunamasa da) — liste boş kalırsa sorulur (Seramikpark 22.10: ödemeler sessizce düştü).
+            'has_payments'        => ! empty($input['has_payments']),
             // En fazla 3 soru (kullanıcı 21.10: "o kadar ayrıntıya giremeyiz") — AI en önemlisini önce yazar.
             'unreadable'          => array_slice(array_values(array_filter(array_map(fn ($u) => is_string($u) ? mb_substr(trim($u), 0, 200) : '',
                 (array) ($input['unreadable'] ?? [])))), 0, 3),
         ];
     }
 
-    /** Kaydetmeden önce sorulacak (kişi, kalem, fiyatı eksik kalem, okunamayan yer). null = kart onaya hazır. */
+    /**
+     * Kaydetmeden önce sorulacak (kişi, eşleşme, kalem, fiyatı eksik kalem, okunamayan ödeme, okunamayan yer, vadesiz çek).
+     * null = kart onaya hazır.
+     */
     public static function question(array $d): ?string
     {
         if (empty($d['party_id']) && trim((string) ($d['party_name'] ?? '')) === '') {
             return 'Kiminle anlaştın? Kişinin ya da firmanın adını yaz.';
+        }
+        if (self::partyUnclear($d)) {
+            return 'Belgede *' . trim((string) $d['party_said']) . '* yazıyor — carilerindeki *' . Party::find($d['party_id'])?->name
+                . '* mi? *evet* ya da doğru adı yaz.';
         }
         $items = $d['agreement_items'] ?? [];
         if ($items === []) {
@@ -91,12 +107,57 @@ class AgreementDraft
                 return '"' . $item['description'] . '" için fiyat ya da tutar ne? Yazar mısın?';
             }
         }
+        if (self::paymentsMissing($d)) {
+            return 'Belgede ödeme var ama tutarlarını çıkaramadım. Ne kadar, nasıl ödendi? (ör. "160 bin nakit, 3 senet 200\'er bin, '
+                . 'vadeleri 30.07, 30.10, 30.12") Ödeme yoksa *geç* yaz.';
+        }
         if (! empty($d['unreadable'])) {
             return "Şurayı tam okuyamadım:\n• " . implode("\n• ", $d['unreadable'])
                 . "\nDoğrusunu yazar mısın? Önemli değilse *geç* yaz.";
         }
+        if ($p = self::undated($d)) {
+            return Money::format($p['amount']) . ' ₺ ' . self::METHODS[$p['method']] . 'in vadesi ne? Tarihini yaz. Bilmiyorsan *geç* yaz '
+                . '(anlaşma tarihi yazılır).';
+        }
 
         return null;
+    }
+
+    /**
+     * Belge adı carinin adından farklı ve AI eşleşmeden emin değil ("Hüseyin Yılmaz" → Seramikpark, 22.10) — bir kez sorulur;
+     * *evet* (party_confirmed) ya da doğru ad.
+     */
+    public static function partyUnclear(array $d): bool
+    {
+        return ! empty($d['party_id']) && ($d['party_certain'] ?? null) === false && empty($d['party_confirmed'])
+            && trim((string) ($d['party_said'] ?? '')) !== '';
+    }
+
+    /** "geç" ile atlanabilen soru mu (okunamayan yer / okunamayan ödeme / vadesiz çek). */
+    public static function skippable(array $d): bool
+    {
+        return ! self::partyUnclear($d) && (! empty($d['unreadable']) || self::paymentsMissing($d) || self::undated($d) !== null);
+    }
+
+    private static function paymentsMissing(array $d): bool
+    {
+        return ! empty($d['has_payments']) && empty($d['payments_skipped']) && empty($d['agreement_payments']);
+    }
+
+    private static function undated(array $d): ?array
+    {
+        foreach ($d['agreement_payments'] ?? [] as $p) {
+            if (self::isDeferred($p['method']) && empty($p['due_date'])) {
+                return $p;
+            }
+        }
+
+        return null;
+    }
+
+    private static function isDeferred(string $method): bool
+    {
+        return in_array($method, ['check', 'promissory_note'], true);
     }
 
     /**
@@ -126,11 +187,17 @@ class AgreementDraft
         return array_values($merged);
     }
 
-    /** "geç" cevabı: okunamayan yerler boş verilir, kart onaya gelir. */
+    /** "geç" cevabı: okunamayan yerler boş verilir (ödeme yok sayılır, vadesiz çek anlaşma tarihli), kart onaya gelir. */
     public static function skipUnreadable(array $d): array
     {
         $d['unreadable'] = [];
         $d['question'] = null;
+        $d['payments_skipped'] = true;
+        foreach ($d['agreement_payments'] ?? [] as $i => $p) {
+            if (self::isDeferred($p['method']) && empty($p['due_date'])) {
+                $d['agreement_payments'][$i]['due_date'] = self::date($d['date'] ?? null) ?? now()->toDateString();
+            }
+        }
 
         return $d;
     }
@@ -154,9 +221,8 @@ class AgreementDraft
         if ($total > 0) {
             $lines[] = 'Anlaşılan: *' . Money::format($total) . ' ₺*';
         }
-        if ($pay = self::paymentsLine($d['agreement_payments'] ?? [], $isSale)) {
-            $lines[] = $pay;
-        }
+        // Ödeme satırı hep görünür — yoksa "yok" (22.10: ödeme düştüğünde kartta fark edilmiyordu).
+        $lines[] = self::paymentsLine($d['agreement_payments'] ?? [], $isSale);
         $lines[] = 'Borç yazılmaz; ' . ($isSale ? 'teslim ettikçe' : 'mal/iş geldikçe') . ' anlaşmadan düşülür.';
 
         return implode("\n", $lines);
@@ -231,10 +297,10 @@ class AgreementDraft
     }
 
     /** "💸 Ödeme: 160.000 nakit · 3 senet 600.000 (30.07 · 30.10 · 30.12)". */
-    private static function paymentsLine(array $payments, bool $isSale): ?string
+    private static function paymentsLine(array $payments, bool $isSale): string
     {
         if ($payments === []) {
-            return null;
+            return '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': yok';
         }
         $groups = [];
         foreach ($payments as $p) {

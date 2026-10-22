@@ -46,6 +46,11 @@ class WhatsappAgreementTest extends TestCase
             AgreementDraft::sanitize($o), array_diff_key($o, array_flip(['agreement_items', 'agreement_payments', 'unreadable', 'agreement_direction'])));
     }
 
+    private function project(string $name = 'WAA Proje'): int
+    {
+        return \App\Models\Project::create(['name' => $name, 'status' => 'active'])->id;
+    }
+
     private function ai(array ...$r): void
     {
         $m = Mockery::mock(ExpenseExtractor::class);
@@ -116,7 +121,7 @@ class WhatsappAgreementTest extends TestCase
     public function test_unreadable_is_asked_and_skip_brings_card(): void
     {
         $this->ai($this->agreement([
-            'party_name' => 'WA Anlaşma Alim Tok',
+            'party_name' => 'WA Anlaşma Alim Tok', 'project_id' => $this->project(),
             'agreement_items' => [
                 ['description' => 'WAA 13\'lük tuğla', 'unit' => 'adet', 'unit_price' => 8.5],
                 ['description' => 'WAA Çimento', 'unit_price' => 125],
@@ -148,6 +153,111 @@ class WhatsappAgreementTest extends TestCase
         $checks = Check::where('party_id', $party->id)->orderBy('due_date')->get();
         $this->assertSame(['2026-07-15', '2026-08-20'], $checks->map(fn ($c) => $c->due_date->toDateString())->all());
         $this->assertSame(['issued', 'issued'], $checks->pluck('status')->all());   // verdiğimiz çek → vade hatırlatması
+    }
+
+    /**
+     * Seramikpark (22.10): AI belgedeki ödemeleri anlattı ama listeye koymadı — kart "Ödeme: yok" ile onaya geliyordu, 1.142.000 kayboldu.
+     * Artık: has_payments + boş liste → sorulur; cevapta gelen ödemeler karta ve kayda girer.
+     */
+    public function test_payments_mentioned_but_missing_are_asked(): void
+    {
+        $items = [['description' => 'WAA3 Vitra', 'quantity' => 100, 'unit' => 'm²', 'unit_price' => 450]];
+        $this->ai(
+            $this->agreement(['party_name' => 'WA Anlaşma Seramik', 'project_id' => $this->project(), 'has_payments' => true, 'agreement_items' => $items]),
+            $this->agreement(['party_name' => 'WA Anlaşma Seramik', 'is_new_entry' => false, 'agreement_items' => $items,
+                'agreement_payments' => [['method' => 'cash', 'amount' => 20000], ['method' => 'promissory_note', 'amount' => 25000, 'due_date' => '2026-12-30']]]),
+        );
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('Belgede ödeme var ama tutarlarını çıkaramadım', $ask);
+        $this->assertStringContainsString('💸 Ödeme: yok', $ask);
+        $this->assertStringContainsString('❓', $this->send('evet'));    // soru varken kaydetmez
+
+        $card = $this->send('20 bin nakit 25 bin senet vadesi 30 aralık');
+        $this->assertStringContainsString('💸 Ödeme: nakit 20.000,00 · senet 25.000,00 (vade 30.12.2026)', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->send('evet');
+        $party = Party::where('name', 'WA Anlaşma Seramik')->sole();
+        $this->assertEqualsWithDelta(45000, PartyStatement::build($party)['balance'], 0.01);
+    }
+
+    /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
+    public function test_missing_payments_can_be_skipped(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Seramik 2', 'project_id' => $this->project(), 'has_payments' => true,
+            'agreement_items' => [['description' => 'WAA4 Vitra', 'unit_price' => 450]]]));
+        $this->sendPhoto();
+        $card = $this->send('geç');
+        $this->assertStringContainsString('💸 Ödeme: yok', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+    }
+
+    /** Alim Tok (22.10): çek yanındaki tek tarih "paid_date" geldi → vade sayılır (vade bugüne düşmez); tarihsiz çek sorulur. */
+    public function test_check_single_date_is_due_date_and_undated_is_asked(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Tok 3', 'project_id' => $this->project(), 'date' => '2026-06-01',
+            'agreement_items' => [['description' => 'WAA5 Tuğla', 'unit_price' => 8.5]],
+            'agreement_payments' => [['method' => 'check', 'amount' => 200000, 'paid_date' => '2026-07-15'], ['method' => 'check', 'amount' => 400000]]]));
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('2 çek 600.000,00 (vade 15.07.2026)', $ask);
+        $this->assertStringContainsString("400.000,00 ₺ çekin vadesi ne?", $ask);
+        $card = $this->send('geç');                                      // bilinmiyor → anlaşma tarihi
+        $this->assertStringContainsString('(vade 15.07.2026 · 01.06.2026)', $card);
+        $this->send('evet');
+
+        $party = Party::where('name', 'WA Anlaşma Tok 3')->sole();
+        $this->assertSame(['2026-06-01', '2026-07-15'], Check::where('party_id', $party->id)->orderBy('due_date')->get()
+            ->map(fn ($c) => $c->due_date->toDateString())->all());
+    }
+
+    /** Seramikpark (22.10): belgede "Hüseyin Yılmaz", AI emin değil ama Seramikpark'a bağladı, sormadı. Artık sorar; *evet* → kart. */
+    public function test_uncertain_party_match_is_asked(): void
+    {
+        $party = Party::create(['name' => 'WA Seramikpark']);
+        $this->ai($this->agreement(['party_id' => $party->id, 'party_said' => 'Hüseyin Yılmaz', 'party_certain' => false,
+            'project_id' => $this->project(), 'agreement_items' => [['description' => 'WAA6 Vitra', 'unit_price' => 450]]]));
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('Belgede *Hüseyin Yılmaz* yazıyor — carilerindeki *WA Seramikpark* mi?', $ask);
+        $card = $this->send('evet');
+        $this->assertStringNotContainsString('Hüseyin Yılmaz', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->send('evet');
+        $this->assertSame(1, Agreement::where('party_id', $party->id)->count());
+    }
+
+    /** Proje (22.10: üç anlaşma da projesiz kaldı): birden çok projede menü, numara → o projeye kaydedilir. */
+    public function test_agreement_asks_project_and_number_saves(): void
+    {
+        $this->project('WAA Proje A');
+        $this->project('WAA Proje B');
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Mermer', 'agreement_items' => [['description' => 'WAA7 Denizlik', 'unit_price' => 1050]]]));
+
+        $card = $this->sendPhoto();
+        $this->assertStringContainsString('🏗 Hangi proje?', $card);
+        $this->assertStringNotContainsString('Kaydedeyim mi?', $card);
+        $n = \App\Services\Whatsapp\ProjectChoice::projects()->search(fn ($p) => $p->name === 'WAA Proje B') + 1;
+        $this->assertStringContainsString('✅ Anlaşma kaydedildi', $this->send((string) $n));
+
+        $a = Agreement::whereHas('party', fn ($q) => $q->where('name', 'WA Anlaşma Mermer'))->sole();
+        $this->assertSame('WAA Proje B', $a->project?->name);
+    }
+
+    /** Projesiz anlaşmadan gelen mal: proje sorulur; seçilen projeye alış yazılır. Projeli anlaşmada sorulmaz (test_delivery_single_match). */
+    public function test_delivery_from_projectless_agreement_asks_project(): void
+    {
+        $this->project('WAA Proje C');
+        $target = $this->project('WAA Proje D');
+        $party = Party::create(['name' => 'WAT Tok 5']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Tuğla5', 'adet'), 'unit_price' => 8.5]]);
+
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id, 'quantity' => 200]]]));
+        $card = $this->send('toktan 200 tuğla geldi');
+        $this->assertStringContainsString('🏗 Hangi proje?', $card);
+        $n = \App\Services\Whatsapp\ProjectChoice::projects()->search(fn ($p) => $p->id === $target) + 1;
+        $this->assertStringContainsString('✅ Kaydedildi: 1.700,00 ₺ alış', $this->send((string) $n));
+        $this->assertSame($target, (int) \App\Models\Purchase::where('party_id', $party->id)->sole()->project_id);
     }
 
     /** Okunamayan yere cevap: AI yalnız değişen kalemi döndürür — diğer kalemler kaybolmaz, fiyat korunur. */
@@ -311,7 +421,7 @@ class WhatsappAgreementTest extends TestCase
     public function test_delivery_missing_quantity_then_number(): void
     {
         $party = Party::create(['name' => 'WAT Kuşak 4']);
-        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Beton4', 'm³'), 'quantity' => 100, 'unit_price' => 3800]]);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Beton4', 'm³'), 'quantity' => 100, 'unit_price' => 3800]], $this->project());
 
         $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id]]]));
         $this->assertStringContainsString('Kaç m³ WAT Beton4 geldi?', $this->send('kuşaktan beton geldi'));

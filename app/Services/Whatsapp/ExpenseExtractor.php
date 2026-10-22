@@ -124,7 +124,13 @@ class ExpenseExtractor
             . 'taraf belirsizse `unreadable`\'a yaz); `agreement_items` her kalem: miktar + birim fiyat (miktarlı) · yalnız toplam tutar (götürü '
             . 'iş: "tesisatı 1 milyona") · yalnız birim fiyat, miktar yok (fiyat listesi: "tuğla adedi 8,5"); ücretsiz/bedelsiz kalem `free`=true; '
             . '`agreement_payments` belgede/mesajda geçen her ödeme: method cash|eft|check|promissory_note (senet), amount, paid_date (verildiği '
-            . 'gün), due_date (çek/senet vadesi). Başkasından devir/takas/mahsup ("X\'ten devraldı") → method cash (nakit sayılır). ÜSTÜ ÇİZİLİ '
+            . 'gün), due_date (çek/senet vadesi). Başkasından devir/takas/mahsup ("X\'ten devraldı") → method cash (nakit sayılır). '
+            . 'Belgede/mesajda HERHANGİ bir ödeme geçiyorsa (tutarı okunamasa da) `has_payments`=true; meaning\'de anlattığın HER ödeme '
+            . 'agreement_payments\'ta da satır olmalı. Çek/senet yanında TEK tarih varsa o VADEDİR (due_date) — "verildiği gün mü vade mi" '
+            . 'diye SORMA. Göreli vade ("2. ay", "3 ay sonra") → anlaşma tarihinden hesapla. Bekleyen anlaşma taslağına cevapta ödeme '
+            . 'değişiyorsa ("çekler iki adet") agreement_payments\'ın TAMAMINI yeni hâliyle yaz; tutarı söylenmeyen ödemeyi eşit bölerek '
+            . 'TAHMİN ETME — unreadable\'a yaz. El yazısıyla eklenen kalemin adı yanında yazandır ("nakliye"); "Ek kalem" gibi ad UYDURMA, '
+            . 'okunamıyorsa unreadable\'a yaz. Belgedeki ad carilerdeki addan farklıysa (kişi adı ↔ firma adı) party_certain=false. ÜSTÜ ÇİZİLİ '
             . 'satırları ve tutarları YOK SAY. Eski muhasebe programı çıktılarında tutarlar 6 fazla sıfırlı basılır (450,000,000 = 450 TL; toplamla '
             . 'karşılaştırıp doğrula). PARA, MİKTAR, FİYAT ya da KİŞİYİ etkileyen ve okuyamadığın / iki anlama gelen yeri TAHMİN ETME: `unreadable`\'a kısa Türkçe '
             . 'yaz ("ödeme tablosunda 124.000\'in yanındaki not", "çek tarihleri verildiği gün mü vade mi", "çimentonun birimi") — sistem sorar. '
@@ -825,6 +831,8 @@ class ExpenseExtractor
                 'description' => 'Only for kind=agreement_delivery when the item is ambiguous: ids of the matching open items (system asks which)'],
             'query_item_ids' => ['type' => 'array', 'items' => ['type' => 'integer'],
                 'description' => 'Only for kind=agreement_query: ids from AÇIK ANLAŞMALAR of the item(s) asked about; empty if a person or all agreements are asked'],
+            'has_payments' => ['type' => ['boolean', 'null'],
+                'description' => 'Only for kind=agreement: true if the message/document mentions ANY payment (cash, transfer, check, promissory note, devir/offset), even if amounts are unreadable'],
             'unreadable' => ['type' => 'array', 'items' => ['type' => 'string'],
                 'description' => 'Only for kind=agreement: short Turkish notes for every part you could not read or that has two meanings (the user is asked); empty if all clear'],
         ];

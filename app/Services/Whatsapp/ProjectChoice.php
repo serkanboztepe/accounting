@@ -20,8 +20,10 @@ use Illuminate\Support\Collection;
  */
 final class ProjectChoice
 {
+    // Anlaşma + anlaşmadan teslim (22.10: proje sorulmadı, tuğla Genel'e gitti) — teslimatta yalnız anlaşmanın projesi yoksa sorulur.
     public const KINDS = [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_SALE,
-        ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_SALARY];
+        ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_SALARY,
+        ExpenseExtractor::KIND_AGREEMENT, ExpenseExtractor::KIND_AGREEMENT_DELIVERY];
 
     public static function applies(array $d): bool
     {
