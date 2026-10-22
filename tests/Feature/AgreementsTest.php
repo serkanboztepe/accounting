@@ -436,6 +436,32 @@ class AgreementsTest extends TestCase
         $this->assertEqualsWithDelta(90, $a->fresh()->loadForCard()->items[0]->remainingQuantity(), 0.001);
     }
 
+    /**
+     * Projesiz (iki projelik) anlaşmadan gelen mal (firma 7 22.10: 85.710 ₺ teslimat sessizce Genel'e gitti): proje seçilmeden
+     * kaydedilmez; proje seçilince oraya, "Genel (projesiz)" açıkça seçilince projesiz.
+     */
+    public function test_projectless_agreement_delivery_requires_project_choice(): void
+    {
+        $a = $this->agreement([['product_id' => $this->product('AT Seramik P', 'm²')->id, 'quantity' => 100, 'unit_price' => 565]], ['project_id' => null]);
+        $page = \Livewire\Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $this->party->getRouteKey()]);
+        $take = function () use ($page) {
+            $page->mountAction('newLedgerEntry', ['type' => 'alis']);
+            $key = array_key_first($page->instance()->mountedActions[0]['data']['agreement_lines']);
+            $page->set("mountedActions.0.data.agreement_lines.{$key}.take", true)
+                ->set("mountedActions.0.data.agreement_lines.{$key}.quantity", '10');
+        };
+
+        $take();
+        $page->callMountedAction()->assertHasActionErrors(['agreement_project']);
+        $this->assertSame(0, Purchase::where('party_id', $this->party->id)->count());
+        $page->set('mountedActions.0.data.agreement_project', $this->cumhuriyet->id)->callMountedAction()->assertHasNoActionErrors();
+        $this->assertSame($this->cumhuriyet->id, (int) Purchase::where('party_id', $this->party->id)->sole()->project_id);
+
+        $take();
+        $page->set('mountedActions.0.data.agreement_project', \App\Support\Forms\AgreementForm::GENERAL)->callMountedAction()->assertHasNoActionErrors();
+        $this->assertSame(1, Purchase::where('party_id', $this->party->id)->whereNull('project_id')->count());
+    }
+
     public function test_purchase_window_saves_agreement_only_and_mixed(): void
     {
         $a = $this->agreement([['product_id' => $this->product('AT Beton5', 'm³')->id, 'quantity' => 300, 'unit_price' => 3800]]);

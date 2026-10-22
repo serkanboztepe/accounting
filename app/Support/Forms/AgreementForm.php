@@ -197,12 +197,16 @@ class AgreementForm
                         ->visible(fn (Get $get) => $get('take') && $get('is_lump')),
                 ]),
 
+            // Projesiz (Genel) anlaşmadan gelen mal: proje SEÇİLMEDEN kaydedilmez — "Anlaşmadaki proje" sessizce Genel oluyordu
+            // (firma 7 22.10: iki projelik seramik anlaşması, 85.710 ₺ teslimat Genel'e gitti). Genel de açık seçenek.
             config('modules.projects') ? Select::make('agreement_project')
                 ->label(Labels::project())
-                ->options(fn () => ['agreement' => 'Anlaşmadaki ' . mb_strtolower(Labels::project())]
-                    + Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id')->all())
-                ->placeholder('Genel')
-                ->default('agreement')
+                ->options(fn (Get $get) => (self::takenWithoutProject($get) ? [] : ['agreement' => 'Anlaşmadaki ' . mb_strtolower(Labels::project())])
+                    + Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id')->all()
+                    + [self::GENERAL => 'Genel (projesiz)'])
+                ->default($items->every(fn (AgreementItem $i) => $i->agreement->project_id !== null) ? 'agreement' : null)
+                ->required(fn (Get $get) => self::takenWithoutProject($get))
+                ->validationMessages(['required' => 'Bu anlaşmanın projesi yok — malın geldiği projeyi seç (ya da Genel).'])
                 ->visible(fn (Get $get) => self::anyTaken($get)) : null,
 
             Toggle::make('agreement_price_to_rest')
@@ -213,6 +217,16 @@ class AgreementForm
     }
 
     /** Pencerede anlaşma kalemi işaretlendi mi? (alt kısmın tutar/ürün zorunluluğu o zaman düşer) */
+    public const GENERAL = 'general';
+
+    /** İşaretli kalemlerden biri projesiz anlaşmada mı. */
+    private static function takenWithoutProject(Get $get): bool
+    {
+        $ids = collect($get('agreement_lines') ?? [])->filter(fn ($l) => ! empty($l['take']))->pluck('agreement_item_id')->filter();
+
+        return $ids->isNotEmpty() && AgreementItem::whereIn('id', $ids)->whereHas('agreement', fn ($q) => $q->whereNull('project_id'))->exists();
+    }
+
     public static function anyTaken(Get $get, string $path = 'agreement_lines'): bool
     {
         return collect($get($path) ?? [])->contains(fn ($l) => ! empty($l['take']));
@@ -227,6 +241,7 @@ class AgreementForm
     {
         $lines = array_values(array_filter((array) ($data['agreement_lines'] ?? []), fn ($l) => ! empty($l['take'])));
         $project = config('modules.projects') ? ($data['agreement_project'] ?? null) : 'agreement';
+        $project = $project === self::GENERAL ? null : $project;
         $priceToRest = (bool) ($data['agreement_price_to_rest'] ?? false);
         unset($data['agreement_lines'], $data['agreement_project'], $data['agreement_price_to_rest']);
 
