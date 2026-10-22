@@ -181,6 +181,41 @@ class WhatsappAgreementTest extends TestCase
         $this->assertEqualsWithDelta(45000, PartyStatement::build($party)['balance'], 0.01);
     }
 
+    /**
+     * Firma 7 22.10: ödeme sorusuna "Şubattan itibaren 11 adet çek" → AI listeyi boş bıraktı, aynı soru tekrarlandı.
+     * Artık: check_plan → anlaşılan toplam 11'e bölünür; küsuratlıysa numaralı seçenek, numara → 11 çek (vadeler şubattan ay sonu).
+     */
+    public function test_text_check_plan_splits_agreement_total(): void
+    {
+        $this->travelTo('2026-10-22 09:45');
+        $items = [['description' => 'WAA8 Core Mat', 'quantity' => 1502, 'unit' => 'm²', 'unit_price' => 565],
+            ['description' => 'WAA8 Yapıştırıcı', 'quantity' => 448, 'unit_price' => 500],
+            ['description' => 'WAA8 Derz', 'quantity' => 1, 'unit_price' => 115190]];          // toplam 1.187.820
+        $this->ai(
+            $this->agreement(['party_name' => 'WA Anlaşma Plan', 'project_id' => $this->project(), 'has_payments' => true, 'agreement_items' => $items]),
+            $this->agreement(['party_name' => 'WA Anlaşma Plan', 'is_new_entry' => false, 'has_payments' => true, 'agreement_items' => $items,
+                'check_plan' => ['count' => 11, 'first_month' => '2027-02']]),
+        );
+
+        $this->sendPhoto();
+        $ask = $this->send('Şubattan itibaren 11 adet çek');
+        $this->assertStringContainsString('11 çeke nasıl böleyim?', $ask);
+        $this->assertStringContainsString('*1* 10 × 100.000,00 + son çek 187.820,00', $ask);
+        $this->assertStringContainsString('Vadeler: 28.02.2027 → 31.12.2027 (ay sonu)', $ask);
+
+        $card = $this->send('1');
+        $this->assertStringContainsString('💸 Ödeme: 11 çek 1.187.820,00', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->send('evet');
+
+        $party = Party::where('name', 'WA Anlaşma Plan')->sole();
+        $checks = Check::where('party_id', $party->id)->orderBy('due_date')->get();
+        $this->assertCount(11, $checks);
+        $this->assertEqualsWithDelta(1187820, $checks->sum('amount'), 0.01);
+        $this->assertSame('2027-02-28', $checks->first()->due_date->toDateString());
+        $this->assertEqualsWithDelta(187820, $checks->last()->amount, 0.01);
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {

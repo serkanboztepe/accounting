@@ -625,6 +625,16 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::skipUnreadable($pending->extracted)));
         }
 
+        // Anlaşma: "11 çeke nasıl böleyim? *1* … *3* Eşit" → numara (AI'sız).
+        if ($pending && $image === null && ctype_digit($body) && AgreementDraft::handles($pending->extracted)
+            && AgreementDraft::awaitsSplit($pending->extracted)) {
+            $this->inboundKind = 'quick';
+            $chosen = AgreementDraft::chooseSplit($pending->extracted, (int) $body);
+
+            return $this->twiml($chosen === null ? 'Listede o numara yok. ' . AgreementDraft::question($pending->extracted)
+                : $this->saveDraft($pending, $phone, $chosen));
+        }
+
         // Anlaşmadan teslim: "hangi anlaşma?" / fiyat farkı sorusuna numara (AI'sız).
         if ($pending && $image === null && ctype_digit($body) && AgreementDeliveryDraft::handles($pending->extracted)
             && AgreementDeliveryDraft::awaitsNumber($pending->extracted)) {
@@ -2582,6 +2592,10 @@ class WhatsappWebhookController extends Controller
                 $data['party_said'] = $data['party_said'] ?? $prev['party_said'] ?? null;
                 $data['party_certain'] = $data['party_certain'] ?? $prev['party_certain'] ?? null;
             }
+            // Bölme seçeneği bekliyordu, AI cevapta planı tekrarlamadı → plan kalır (tutar/numara cevabı).
+            if (empty($data['check_plan']) && empty($data['agreement_payments']) && in_array($prev['check_choice'] ?? null, ['split', 'amount'], true)) {
+                $data['check_plan'] = $prev['check_plan'];
+            }
             $data['party_confirmed'] = ! empty($data['party_confirmed'])
                 || (! empty($prev['party_confirmed']) && ($prev['party_id'] ?? null) === ($data['party_id'] ?? null));
             $data['has_payments'] = ! empty($data['has_payments']) || ! empty($prev['has_payments']);
@@ -2593,6 +2607,7 @@ class WhatsappWebhookController extends Controller
                 $data['project_choice_done'] = ! empty($prev['project_choice_done']);
             }
         }
+        $data = AgreementDraft::applyCheckPlan($data);
         $question = AgreementDraft::question($data);
         $data['question'] = $question;
         // Proje menüsü yalnız sorular bitince (numara cevabı soruyla karışmasın).

@@ -19,7 +19,7 @@ final class CheckSplit
     /** Şema alanı (Understanding::schema). */
     public static function schema(): array
     {
-        return ['check_plan' => ['type' => ['object', 'null'], 'description' => 'NEVER for a cheque photo/document (those go to `checks`, one row per cheque). Cheques described in TEXT as a rule ("11 çek aya böl", "100\'er, kalanı sona"): '
+        return ['check_plan' => ['type' => ['object', 'null'], 'description' => 'NEVER for a photo of the cheques themselves (those go to `checks`, one row per cheque). Cheques described as a RULE — in text or in a contract/agreement document ("11 çek aya böl", "100\'er, kalanı sona", "2. aydan 12. aya vadeli çek"): '
             . 'do NOT compute amounts or list cheques — fill this, code computes. null when each cheque is written one by one.',
             'properties' => [
                 'count' => ['type' => ['integer', 'null'], 'description' => 'Number of cheques'],
@@ -354,7 +354,7 @@ final class CheckSplit
     }
 
     /** @return list<array{number: null, due_date_text: ?string, amount: float}> */
-    private static function build(float $amount, array $plan): array
+    public static function build(float $amount, array $plan): array
     {
         $count = $plan['count'];
         $each = $plan['each_amount'] ?? round($amount / $count, 2);

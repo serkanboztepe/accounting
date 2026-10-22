@@ -107,6 +107,13 @@ class AgreementDraft
                 return '"' . $item['description'] . '" için fiyat ya da tutar ne? Yazar mısın?';
             }
         }
+        // Çek planı yazıyla ("şubattan itibaren 11 çek", firma 7 22.10 — cevap anılmadan aynı soru tekrarlandı): bölme kodda.
+        if (($d['check_choice'] ?? null) === 'split') {
+            return CheckSplit::question(['check_choice' => 'split', 'check_plan' => $d['check_plan'], 'amount' => $d['check_base']]);
+        }
+        if (($d['check_choice'] ?? null) === 'amount') {
+            return $d['check_plan']['count'] . ' çekin toplam tutarı ne? (ya da her biri kaç lira)';
+        }
         if (self::paymentsMissing($d)) {
             return 'Belgede ödeme var ama tutarlarını çıkaramadım. Ne kadar, nasıl ödendi? (ör. "160 bin nakit, 3 senet 200\'er bin, '
                 . 'vadeleri 30.07, 30.10, 30.12") Ödeme yoksa *geç* yaz.';
@@ -133,10 +140,61 @@ class AgreementDraft
             && trim((string) ($d['party_said'] ?? '')) !== '';
     }
 
+    /**
+     * Yazıyla çek planı (`check_plan`: kaç çek, ilk ay, gün, "100'er") → çek ödemeleri. Taban: anlaşılan toplam − diğer ödemeler.
+     * Eşit bölüm küsuratlıysa numaralı seçenek (check_choice=split, CheckSplit::options); toplam yoksa (fiyat listesi) tutar sorulur.
+     */
+    public static function applyCheckPlan(array $d): array
+    {
+        $d['check_choice'] = null;
+        $plan = CheckSplit::normalize($d['check_plan'] ?? null);
+        $d['check_plan'] = $plan;
+        if ($plan === null) {
+            return $d;
+        }
+        $other = array_values(array_filter($d['agreement_payments'] ?? [], fn ($p) => $p['method'] !== 'check'));
+        $base = round(self::agreedTotal($d['agreement_items'] ?? []) - array_sum(array_column($other, 'amount')), 2);
+        if ($base <= 0 && $plan['each_amount'] !== null) {
+            $base = round($plan['each_amount'] * $plan['count'], 2);
+        }
+        if ($base <= 0) {
+            $d['check_choice'] = 'amount';
+
+            return $d;
+        }
+        if ($plan['each_amount'] === null && count(CheckSplit::options($base, $plan['count'])) > 1) {
+            $d['check_choice'] = 'split';
+            $d['check_base'] = $base;
+
+            return $d;
+        }
+        $checks = array_map(fn ($c) => ['method' => 'check', 'amount' => (float) $c['amount'], 'paid_date' => null,
+            'due_date' => $c['due_date_text'] ? Carbon::createFromFormat('d.m.Y', $c['due_date_text'])->toDateString() : null,
+            'check_number' => null], CheckSplit::build($base, $plan));
+        $d['agreement_payments'] = [...$other, ...$checks];
+        $d['check_plan'] = null; // uygulandı — sonraki turda yeniden bölünmez
+
+        return $d;
+    }
+
+    /** Bölme seçeneğine numara cevabı → çekler; geçersizse null. */
+    public static function chooseSplit(array $d, int $n): ?array
+    {
+        $chosen = CheckSplit::choose(['check_choice' => 'split', 'check_plan' => $d['check_plan'], 'amount' => $d['check_base'] ?? 0], $n);
+
+        return $chosen === null ? null : self::applyCheckPlan(['check_plan' => $chosen['check_plan']] + $d);
+    }
+
+    public static function awaitsSplit(array $d): bool
+    {
+        return ($d['check_choice'] ?? null) === 'split';
+    }
+
     /** "geç" ile atlanabilen soru mu (okunamayan yer / okunamayan ödeme / vadesiz çek). */
     public static function skippable(array $d): bool
     {
-        return ! self::partyUnclear($d) && (! empty($d['unreadable']) || self::paymentsMissing($d) || self::undated($d) !== null);
+        return ! self::partyUnclear($d) && (! empty($d['unreadable']) || self::paymentsMissing($d) || self::undated($d) !== null
+            || ($d['check_choice'] ?? null) === 'amount');
     }
 
     private static function paymentsMissing(array $d): bool
@@ -193,6 +251,7 @@ class AgreementDraft
         $d['unreadable'] = [];
         $d['question'] = null;
         $d['payments_skipped'] = true;
+        $d['check_plan'] = $d['check_choice'] = null;
         foreach ($d['agreement_payments'] ?? [] as $i => $p) {
             if (self::isDeferred($p['method']) && empty($p['due_date'])) {
                 $d['agreement_payments'][$i]['due_date'] = self::date($d['date'] ?? null) ?? now()->toDateString();
@@ -310,6 +369,8 @@ class AgreementDraft
         foreach ($groups as $method => $rows) {
             $sum = Money::format(array_sum(array_column($rows, 'amount')));
             $dates = array_filter(array_map(fn ($r) => $r['due_date'] ? Carbon::parse($r['due_date'])->format('d.m.Y') : null, $rows));
+            // Çok vadede kısa: "(vade 28.02.2027 → 31.12.2027)" (kart ≈4 satır kuralı).
+            $dates = count($dates) > 4 ? [reset($dates) . ' → ' . end($dates)] : $dates;
             $parts[] = (count($rows) > 1 ? count($rows) . ' ' : '') . self::METHODS[$method] . ' ' . $sum . ($dates ? ' (vade ' . implode(' · ', $dates) . ')' : '');
         }
 
