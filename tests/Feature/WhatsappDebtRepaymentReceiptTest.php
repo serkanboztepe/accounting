@@ -340,6 +340,28 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
             ->where('direction', 'in')->where('created_at', '>=', now()->subMinute())->count(), 'gelen mesaj bir kez kaydedilir');
     }
 
+    /**
+     * Firma 7, 22.10 11:16: tek fotoğraf, okuma uzun sürdü, AYNI mesaj (aynı MessageSid) ikinci kez geldi → "yeni fotoğraf" sanılıp
+     * sıraya alındı ("Fotoğrafı aldım…" + "Sırada 1 fotoğraf var"). İşlenmekte olan mesajın tekrarı sessizce atlanır.
+     */
+    public function test_retry_of_message_in_progress_is_not_queued(): void
+    {
+        $lockName = \App\Tenancy\Tenancy::key('wa-msg:' . \App\Support\Phone::normalize(self::PHONE));
+        \Illuminate\Support\Facades\Cache::lock($lockName, 1)->get();                         // ilk istek hâlâ işleniyor
+        \Illuminate\Support\Facades\Cache::add(\App\Tenancy\Tenancy::key('wa-sid:SMRETRY1'), true, now()->addDay());
+        \App\Http\Controllers\WhatsappWebhookController::$lockWait = 0;
+        try {
+            $reply = $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/ME1',
+                'MediaContentType0' => 'application/pdf', 'MessageSid' => 'SMRETRY1']);
+        } finally {
+            \App\Http\Controllers\WhatsappWebhookController::$lockWait = 12;
+        }
+
+        $this->assertStringNotContainsString('Fotoğrafı aldım', $reply);
+        $this->assertSame([], (array) \Illuminate\Support\Facades\Cache::get(\App\Tenancy\Tenancy::key('wa-photo-queue:'
+            . \App\Support\Phone::normalize(self::PHONE)), []));
+    }
+
     /** 21.10 (2. deneme): sıradaki fotoğraf açık kartın cevabı beklenirken işlenip ona karışmıştı — kart kapanınca işlenir. */
     public function test_queued_photo_waits_for_open_draft(): void
     {

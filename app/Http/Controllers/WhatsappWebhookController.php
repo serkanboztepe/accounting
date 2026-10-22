@@ -124,6 +124,14 @@ class WhatsappWebhookController extends Controller
         } catch (LockTimeoutException) {
             // Kilitsiz devam ETME: iki mesaj aynı taslağa aynı anda yazıp çift/yarım kayıt üretebilir (review C).
             // Twilio 15 sn bekliyor; daha uzun bekleyemeyiz → kişiye tekrar göndermesini söyle (son 7 günde en uzun 12 sn).
+            // Aynı mesajın tekrarı (Twilio, ilk istek hâlâ işlenirken — firma 7 22.10 11:16: tek sözleşme fotoğrafı, okuma uzun sürdü,
+            // tekrar "yeni fotoğraf" sanılıp sıraya alındı: "Fotoğrafı aldım…" + "Sırada 1 fotoğraf var" boşuna gitti) → sessizce atla.
+            $retrySid = (string) $request->input('MessageSid', '');
+            if ($retrySid !== '' && ! $request->attributes->get('queued') && Cache::has(Tenancy::key('wa-sid:' . $retrySid))) {
+                Log::info('WhatsApp aynı mesaj işlenirken tekrar geldi — atlandı', ['sid' => $retrySid]);
+
+                return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
+            }
             Log::warning('WhatsApp kilit alınamadı — mesaj işlenmedi', ['phone' => Phone::normalize($phone)]);
 
             // Fotoğraf sıraya alınır (firma 7, 21.10: 3 çek sayfası birden atıldı → ikisine "tekrar gönder" dendi): önceki iş bitince
