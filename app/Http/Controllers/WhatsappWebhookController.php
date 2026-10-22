@@ -739,6 +739,18 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::skipUnreadable($pending->extracted)));
         }
 
+        // Anlaşma: "açık anlaşma var — *1* yerine · *2* ayrı" ve "çeklerin vadesi geçmiş — *1* ödendi · *2* bekliyor" → numara (AI'sız).
+        if ($pending && $image === null && ctype_digit($body) && AgreementDraft::handles($pending->extracted)
+            && (AgreementDraft::awaitsReplace($pending->extracted) || AgreementDraft::awaitsPastChecks($pending->extracted))) {
+            $this->inboundKind = 'quick';
+            $chosen = AgreementDraft::awaitsReplace($pending->extracted)
+                ? AgreementDraft::chooseReplace($pending->extracted, (int) $body)
+                : AgreementDraft::choosePastChecks($pending->extracted, (int) $body);
+
+            return $this->twiml($chosen === null ? 'Listede o numara yok. ' . AgreementDraft::question($pending->extracted)
+                : $this->saveDraft($pending, $phone, $chosen));
+        }
+
         // Anlaşma: "fark tam %20 KDV. *1* Fiyatlara KDV ekle · *2* Kalemler doğru" → numara (AI'sız).
         if ($pending && $image === null && ctype_digit($body) && AgreementDraft::handles($pending->extracted)
             && AgreementDraft::awaitsTotalChoice($pending->extracted)) {
@@ -2784,6 +2796,9 @@ class WhatsappWebhookController extends Controller
             }
             $data['total_ok'] = ! empty($data['total_ok']) || ! empty($prev['total_ok']);
             $data['payments_skipped'] = ! empty($data['payments_skipped']) || ! empty($prev['payments_skipped']);
+            foreach (['replace_choice', 'replace_ids', 'past_checks'] as $k) {
+                $data[$k] = $data[$k] ?? $prev[$k] ?? null; // verilen karar düzeltme turunda kaybolmasın
+            }
             $data['from_document'] = ! empty($data['from_document']) || ! empty($prev['from_document']);
             // AI cevapta projeyi tekrarlamazsa önceki (belgeden / menüden) kalır; "0 = genel" seçimi de kaybolmaz.
             if (empty($data['project_id']) && empty($data['project_name'])) {

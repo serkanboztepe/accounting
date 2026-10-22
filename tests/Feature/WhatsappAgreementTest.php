@@ -143,7 +143,8 @@ class WhatsappAgreementTest extends TestCase
 
         $card = $this->send('geç');
         $this->assertStringNotContainsString('okuyamadım', $card);
-        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->assertStringContainsString('⚠️ 2 çekin vadesi geçmiş (15.07 → 20.08.2026). Bunlar ödendi mi?', $card);   // eski sözleşme
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('2'));                 // ödenmedi, bekliyor
         $this->send('evet');
 
         $party = Party::where('name', 'WA Anlaşma Alim Tok')->sole();
@@ -459,6 +460,57 @@ class WhatsappAgreementTest extends TestCase
         $this->assertCount(3, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WA Anlaşma Devam'))->sole()->items);
     }
 
+    /**
+     * Eski sözleşme (22.10 İşbilir/Kamuran 2): vadesi geçmiş çekler sorulur; *1* ödendi say → Çekler'de ödendi, gelecek vadeli bekliyor.
+     */
+    public function test_past_due_checks_asked_and_marked_paid(): void
+    {
+        $this->travelTo('2026-10-22 12:00');
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Eski Çek', 'project_id' => $this->project(), 'date' => '2026-05-01',
+            'agreement_items' => [['description' => 'WAA22 Boya', 'unit_price' => 300]],
+            'agreement_payments' => [['method' => 'check', 'amount' => 750000, 'due_date' => '2026-06-30'],
+                ['method' => 'check', 'amount' => 750000, 'due_date' => '2026-09-30'],
+                ['method' => 'check', 'amount' => 750000, 'due_date' => '2026-12-30']]]));
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString("⚠️ 2 çekin vadesi geçmiş (30.06 → 30.09.2026). Bunlar ödendi mi?\n*1* Ödendi say · *2* Ödenmedi, bekliyor", $ask);
+        $this->assertStringContainsString('❓', $this->send('evet'));      // soru varken kaydetmez
+        $card = $this->send('1');
+        $this->assertStringContainsString('💸 Ödeme: 2 çek 1.500.000,00 ödendi · çek 750.000,00 (vade 30.12.2026)', $card);
+        $this->send('evet');
+
+        $party = Party::where('name', 'WA Anlaşma Eski Çek')->sole();
+        $this->assertSame(['paid', 'paid', 'issued'], Check::where('party_id', $party->id)->orderBy('due_date')->pluck('status')->all());
+        $this->assertEqualsWithDelta(2250000, PartyStatement::build($party)['balance'], 0.01);   // üç çek de verilmiş ödeme
+    }
+
+    /**
+     * Aynı cariyle açık anlaşma (22.10 Kamuran 2. sözleşme): KOD sorar "*1* yerine · *2* ayrı"; *1* → eski kapanır; *2* → ikisi açık.
+     * Yeni caride sorulmaz.
+     */
+    public function test_existing_open_agreement_replace_or_separate(): void
+    {
+        $party = Party::create(['name' => 'WA Anlaşma Kamuran 2']);
+        $old = \App\Support\AgreementDesk::create($party, ['direction' => 'purchase', 'agreement_date' => '2026-09-26', 'title' => 'WAA Eski liste',
+            'lines' => [['product_id' => $this->product('WAA23 Alçı boya'), 'unit_price' => 310]]]);
+        $draft = $this->agreement(['party_id' => $party->id, 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA23 Alçı boya', 'unit_price' => 300]]]);
+        $this->ai($draft, $draft);
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString("WA Anlaşma Kamuran 2 ile açık bir anlaşma var: *WAA Eski liste* (26.09.2026).\n*1* Eskisinin yerine", $ask);
+        $this->assertStringNotContainsString('*geç*', $ask);
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('1'));
+        $done = $this->send('evet');
+        $this->assertStringContainsString('🔒 Eski anlaşma kapandı: WAA Eski liste.', $done);
+        $this->assertSame(Agreement::STATUS_CLOSED, $old->fresh()->status);
+
+        $this->sendPhoto();                                               // yine aynı cari: artık açık olan yeni anlaşma
+        $this->send('2');
+        $this->send('evet');
+        $this->assertSame(2, Agreement::where('party_id', $party->id)->where('status', Agreement::STATUS_OPEN)->count());
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {
@@ -482,6 +534,7 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString("400.000,00 ₺ çekin vadesi ne?", $ask);
         $card = $this->send('geç');                                      // bilinmiyor → anlaşma tarihi
         $this->assertStringContainsString('(vade 01.06.2026 · 15.07.2026)', $card);
+        $this->send('2');                                                // vadesi geçmiş — bekliyor
         $this->send('evet');
 
         $party = Party::where('name', 'WA Anlaşma Tok 3')->sole();

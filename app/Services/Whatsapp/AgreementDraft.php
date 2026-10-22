@@ -131,6 +131,9 @@ class AgreementDraft
         if ($gap = self::totalGap($d)) {
             return self::totalQuestion($d, $gap);
         }
+        if ($q = self::replaceQuestion($d)) {
+            return $q;
+        }
         // Çek planı yazıyla ("şubattan itibaren 11 çek", firma 7 22.10 — cevap anılmadan aynı soru tekrarlandı): bölme kodda.
         if (($d['check_choice'] ?? null) === 'split') {
             return CheckSplit::question(['check_choice' => 'split', 'check_plan' => $d['check_plan'], 'amount' => $d['check_base']]);
@@ -150,8 +153,85 @@ class AgreementDraft
             return Money::format($p['amount']) . ' ₺ ' . self::METHODS[$p['method']] . 'in vadesi ne? Tarihini yaz. Bilmiyorsan *geç* yaz '
                 . '(anlaşma tarihi yazılır).';
         }
+        if ($q = self::pastChecksQuestion($d)) {
+            return $q;
+        }
 
         return null;
+    }
+
+    /**
+     * Aynı cariyle aynı yönde açık anlaşma varsa (22.10 Kamuran 2. sözleşme: AI "yerine mi ayrı mı" diye sordu, ama "yerine" denince
+     * eskisini kapatan kod yoktu; "geç" ve "not" da anlamsızdı) — KOD sorar: *1* yerine (eskiler kapanır) · *2* ayrı. Yeni caride sorulmaz.
+     */
+    private static function openAgreementsOf(array $d)
+    {
+        if (empty($d['party_id'])) {
+            return collect();
+        }
+        $direction = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE;
+
+        return Agreement::where('party_id', $d['party_id'])->where('direction', $direction)->where('status', Agreement::STATUS_OPEN)
+            ->orderBy('agreement_date')->get();
+    }
+
+    private static function replaceQuestion(array $d): ?string
+    {
+        if (! empty($d['replace_choice']) || ($open = self::openAgreementsOf($d))->isEmpty()) {
+            return null;
+        }
+        $names = $open->map(fn (Agreement $a) => '*' . $a->title . '* (' . $a->agreement_date->format('d.m.Y') . ')')->implode(', ');
+
+        return self::partyLabel($d) . ' ile açık ' . ($open->count() > 1 ? $open->count() . ' anlaşma' : 'bir anlaşma') . ' var: ' . $names . ".\n"
+            . '*1* Eskisinin yerine: eskisi kapanır, bundan sonra yeni fiyatlar geçerli' . "\n"
+            . '*2* Ayrı anlaşma: ikisi de açık kalır';
+    }
+
+    public static function awaitsReplace(array $d): bool
+    {
+        return ($q = self::replaceQuestion($d)) !== null && self::question($d) === $q;
+    }
+
+    /** *1* yerine · *2* ayrı; geçersizse null. */
+    public static function chooseReplace(array $d, int $n): ?array
+    {
+        return match ($n) {
+            1 => ['replace_choice' => 'replace', 'replace_ids' => self::openAgreementsOf($d)->pluck('id')->all()] + $d,
+            2 => ['replace_choice' => 'separate'] + $d,
+            default => null,
+        };
+    }
+
+    /** Vadesi bugünden önce olan çekler (eski sözleşme — 22.10 İşbilir/Kamuran: Çekler'de "verildi, vadesi geçmiş" kalıyordu). */
+    private static function pastChecks(array $d): array
+    {
+        return array_values(array_filter($d['agreement_payments'] ?? [], fn ($p) => $p['method'] === 'check'
+            && ! empty($p['due_date']) && $p['due_date'] < now()->toDateString()));
+    }
+
+    private static function pastChecksQuestion(array $d): ?string
+    {
+        if (! empty($d['past_checks']) || ($past = self::pastChecks($d)) === []) {
+            return null;
+        }
+        $dates = array_column($past, 'due_date');
+        sort($dates);
+        $range = count($dates) > 1 ? Carbon::parse(reset($dates))->format('d.m') . ' → ' . Carbon::parse(end($dates))->format('d.m.Y')
+            : Carbon::parse($dates[0])->format('d.m.Y');
+
+        return '⚠️ ' . (count($past) > 1 ? count($past) . ' çekin' : 'Çekin') . ' vadesi geçmiş (' . $range . '). '
+            . (count($past) > 1 ? 'Bunlar' : 'Bu') . " ödendi mi?\n*1* Ödendi say · *2* Ödenmedi, bekliyor";
+    }
+
+    public static function awaitsPastChecks(array $d): bool
+    {
+        return ($q = self::pastChecksQuestion($d)) !== null && self::question($d) === $q;
+    }
+
+    /** *1* ödendi · *2* bekliyor; geçersizse null. */
+    public static function choosePastChecks(array $d, int $n): ?array
+    {
+        return in_array($n, [1, 2], true) ? ['past_checks' => $n === 1 ? 'paid' : 'pending'] + $d : null;
     }
 
     /**
@@ -451,7 +531,12 @@ class AgreementDraft
         }
         // Ödeme satırı hep görünür — yoksa "yok" (22.10: ödeme düştüğünde kartta fark edilmiyordu). İleri tarihli nakit ayrı: plan.
         [$now, $planned] = self::splitPlanned($d['agreement_payments'] ?? []);
-        if ($now !== [] || $planned === []) {
+        if (($d['past_checks'] ?? null) === 'paid' && ($past = self::pastChecks($d)) !== []) {
+            // "💸 Ödeme: 4 çek 3.000.000 ödendi · 1 çek 750.000 (vade 30.12.2026)"
+            $rest = array_values(array_filter($now, fn ($p) => ! in_array($p, $past, true)));
+            $lines[] = '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': ' . count($past) . ' çek ' . Money::format(array_sum(array_column($past, 'amount')))
+                . ' ödendi' . ($rest !== [] ? ' · ' . self::groupsText($rest, 'due') : '');
+        } elseif ($now !== [] || $planned === []) {
             $lines[] = self::paymentsLine($now, $isSale);
         }
         if ($planned !== []) {
@@ -504,7 +589,18 @@ class AgreementDraft
             'notes'          => $d['agreement_notes'] ?? null,
         ]);
         [$now, $planned] = self::splitPlanned($d['agreement_payments'] ?? []);
+        $lastEntry = (int) \App\Models\PartyLedgerEntry::max('id');
         AgreementDesk::recordPayments($agreement, $now);
+        // Vadesi geçmiş çekler "ödendi say" → Çekler'de ödendi (bekleyen görünmez, hatırlatma gitmez). Yalnız bu kayıtta yazılanlar.
+        if (($d['past_checks'] ?? null) === 'paid') {
+            \App\Models\Check::whereIn('party_ledger_entry_id', \App\Models\PartyLedgerEntry::where('party_id', $party->id)
+                ->where('id', '>', $lastEntry)->pluck('id'))
+                ->whereDate('due_date', '<', now()->toDateString())->get()->each(fn ($c) => $c->update(['status' => 'paid']));
+        }
+        // "Eskisinin yerine" → eski açık anlaşmalar kapanır (gelenler olduğu gibi kalır; bundan sonra yeni fiyatlar).
+        $replaced = ($d['replace_choice'] ?? null) === 'replace'
+            ? Agreement::whereIn('id', $d['replace_ids'] ?? [])->where('party_id', $party->id)->where('id', '!=', $agreement->id)->get() : collect();
+        $replaced->each(fn (Agreement $a) => AgreementDesk::close($a));
         // Planlı nakit: tutarsız hatırlatma (tutarlı hatırlatma "düzenli gider" sayılıp o gün gider yazar — Reminder::isExpense).
         if ($phone !== null) {
             foreach ($planned as $p) {
@@ -522,6 +618,7 @@ class AgreementDraft
             . ($paid > 0 ? "\n💸 " . Money::format($paid) . ' ₺ ödeme ' . $party->name . ($isSale ? ' hesabından düşüldü.' : ' hesabına yazıldı.') : '')
             . ($planned !== [] && $phone !== null ? "\n⏰ " . count($planned) . ' ödeme hatırlatması kuruldu (ilki '
                 . Carbon::parse(min(array_map(fn ($p) => $p['paid_date'] ?? $p['due_date'], $planned)))->format('d.m.Y') . ').' : '')
+            . ($replaced->isNotEmpty() ? "\n🔒 Eski anlaşma kapandı: " . $replaced->pluck('title')->implode(', ') . '.' : '')
             . "\nPanelde carinin sayfasında kalem kalem görünür.";
 
         return [$text, $agreement];
