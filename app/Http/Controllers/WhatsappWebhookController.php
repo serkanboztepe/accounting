@@ -1566,6 +1566,20 @@ class WhatsappWebhookController extends Controller
         return "✅ *Kaydedildi*\n" . $card . ($rest !== '' ? "\n\n" . $rest : '') . "\n\nYanlışsa düzeltmeyi yaz ya da *geri al*.";
     }
 
+    /** Gelen mesajda projenin adı geçiyor mu (en az 4 harfli bir kelimesi — "Fatih'e" ↔ "Deneme Fatih"). */
+    private function mentionsProject(int $projectId): bool
+    {
+        $name = (string) Project::whereKey($projectId)->value('name');
+        $said = PartyNameCheck::words($this->inboundBody);
+        foreach (PartyNameCheck::words($name) as $w) {
+            if (mb_strlen($w) >= 4 && collect($said)->contains(fn ($s) => str_starts_with($s, $w) || str_starts_with($w, $s) && mb_strlen($s) >= 4)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Bu numarada soru soran (cevap bekleyen) bir taslak var mı. */
     private function draftAsking(string $phone): bool
     {
@@ -2879,6 +2893,13 @@ class WhatsappWebhookController extends Controller
         if ($pending) {
             $pending->update(['extracted' => $data, 'summary' => $summary]);
         } else {
+            // Aynı cariye yeni sözleşme kartı: o carinin eski açık anlaşma kartları kapanır (22.10 Gül Mobilya üç kez atıldı — eskiler
+            // "yarım kalan" diye hatırlatılıyordu).
+            $party = mb_strtolower(trim(AgreementDraft::partyLabel($data)));
+            WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->get()
+                ->filter(fn ($p) => AgreementDraft::handles($p->extracted) && $party !== ''
+                    && mb_strtolower(trim(AgreementDraft::partyLabel($p->extracted))) === $party)
+                ->each(fn ($p) => $p->update(['status' => 'superseded']));
             WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
         }
 
@@ -2891,6 +2912,11 @@ class WhatsappWebhookController extends Controller
      */
     private function saveAgreementDeliveryDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
     {
+        // Proje mesajda geçmiyorsa AI'ın seçtiği proje yok sayılır — sorulur (22.10 Gül Mobilya: "320 dolap teslim aldım" → bir önceki
+        // teslimatın projesi "Deneme Fatih" sessizce yazıldı). Menüden seçim ve önceki turun seçimi aşağıda korunur.
+        if (! empty($data['project_id']) && empty($data['project_choice_done']) && ! $this->mentionsProject((int) $data['project_id'])) {
+            $data['project_id'] = null;
+        }
         if ($pending && AgreementDeliveryDraft::handles($pending->extracted)) {
             $prev = $pending->extracted['delivery_lines'] ?? [];
             $new = $data['delivery_lines'] ?? [];

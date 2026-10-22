@@ -1269,7 +1269,13 @@ class ExpenseExtractor
         if (config('modules.agreements')) {
             // Anlaşmalar açıkken "X'le Y'yi Z'ye anlaştık" kayıttır (kart, kalan), hafıza notu değil (21.10).
             $guide .= "\n" . '- ANLAŞMA ÖNCELİĞİ: cariyle ileride gelecek mal/iş için fiyat ya da tutar kararlaştırıldıysa ("…\'ye anlaştık", '
-                . '"…den anlaştık", sözleşme / sipariş belgesi) kind "agreement" — "remember" DEĞİL. remember yalnız para/mal kararı olmayan bilgi için.';
+                . '"…den anlaştık", sözleşme / sipariş belgesi) kind "agreement" — "remember" DEĞİL. remember yalnız para/mal kararı olmayan bilgi için.'
+                // 22.10 Gül Mobilya: "Toplam 8 adet kapı alacaklıyız" PVC kapının miktarı sanıldı → 1.100.000 sözleşme + sağlama sorusu.
+                . "\n" . '- ESKİ SÖZLEŞMEDEN KALAN: açık sözleşme kartına kullanıcı "… alacaklıyız", "… kaldı", "… gelmedi daha", "geriye … var" '
+                . 'derse ("3 bodrum kapısı 5 iç kapı alacaklıyız", "Toplam 8 adet kapı alacaklıyız") bu sözleşme ESKİDİR, parası çoktan '
+                . 'ödenmiş, yalnız söylenen mal kalmıştır: kind "agreement", `remaining_only`=true, agreement_items YALNIZ söylenen kalan '
+                . 'kalemler (adı ve miktarıyla, ör. "Kapı" 8 adet; fiyatı söylenmediyse unit_price null), agreement_payments BOŞ. Bunu '
+                . 'listedeki kalemin miktarı SANMA, fiyat SORMA.';
         }
         if (config('modules.cari_supplier')) {
             // Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" sorulmadan alış sayıldı, satıştı.

@@ -42,6 +42,14 @@ final class DraftGaps
         if (MemoryDraft::handles($d)) {
             return self::confirm();
         }
+        // Anlaşma / anlaşmadan teslim: tutar 0 olabilir (fiyat listesi) — "tutar eksik" değil, kendi sorusu (22.10 Gül Mobilya).
+        if (AgreementDraft::handles($d) || AgreementDeliveryDraft::handles($d)) {
+            $question = AgreementDraft::handles($d) ? AgreementDraft::question($d) : AgreementDeliveryDraft::question($d);
+
+            return $question
+                ? ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Kaydetmeden önce sormak istedim:']
+                : self::confirm();
+        }
         if (RecurringDraft::handles($d)) {
             return ($question = RecurringDraft::blocker($d))
                 ? ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question]
@@ -103,6 +111,8 @@ final class DraftGaps
     {
         $kind = self::kind($d);
         $word = match ($kind) {
+            ExpenseExtractor::KIND_AGREEMENT => 'Anlaşma',
+            ExpenseExtractor::KIND_AGREEMENT_DELIVERY => 'Anlaşmadan teslim',
             ExpenseExtractor::KIND_EXPENSE => 'Gider',
             ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_TRADE_SALE => 'Satış',
             ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_TRADE_PURCHASE => 'Alış',

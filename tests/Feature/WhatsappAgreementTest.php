@@ -559,6 +559,46 @@ class WhatsappAgreementTest extends TestCase
         $this->assertCount(2, Agreement::where('party_id', $party->id)->sole()->items);
     }
 
+    /** 22.10 Gül Mobilya: "320 dolap teslim aldım" — mesajda proje yok ama AI önceki teslimatın projesini yazdı → yok sayılır, sorulur. */
+    public function test_delivery_project_not_in_message_is_asked(): void
+    {
+        $this->project('WAA Proje Fatih');
+        $fatih = $this->project('WAA Proje Atatürk Fatih Değil');
+        $party = Party::create(['name' => 'WAT Gül 2']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Dolap', 'mt'), 'unit_price' => 6500]]);
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id, 'quantity' => 320]], 'project_id' => $fatih]));
+        $card = $this->send('320 dolap teslim aldım');
+        $this->assertStringContainsString('🏗 Hangi proje?', $card);
+
+        $this->send('iptal');
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id, 'quantity' => 10]], 'project_id' => $fatih]));
+        $card = $this->send('atatürk şantiyesine 10 dolap geldi');                     // adı geçiyor → sorulmaz
+        $this->assertStringNotContainsString('🏗 Hangi proje?', $card);
+        $this->assertStringContainsString('WAA Proje Atatürk Fatih Değil', $card);
+    }
+
+    /** Yarım kalan hatırlatmasında anlaşma "Kayıt — tutar eksik" değil: "Anlaşma" + kendi sorusu (22.10 Gül Mobilya). */
+    public function test_open_agreement_draft_follow_up_label(): void
+    {
+        $d = $this->agreement(['party_name' => 'WA Anlaşma Hatır', 'agreement_items' => [['description' => 'WAA25 Kapı', 'unit_price' => 6500]],
+            'document_total' => 1100000, 'agreement_payments' => [['method' => 'cash', 'amount' => 50000]]]);
+        $this->assertStringStartsWith('Anlaşma — WA Anlaşma Hatır', \App\Services\Whatsapp\DraftGaps::label($d));
+        $this->assertNotSame(\App\Services\Whatsapp\DraftGaps::AMOUNT, \App\Services\Whatsapp\DraftGaps::reason($d)['code']);
+    }
+
+    /** Aynı cariye yeni sözleşme kartı → eski açık kart kapanır (Gül Mobilya üç kez atıldı, eskiler "yarım kalan" oldu). */
+    public function test_new_agreement_card_supersedes_old_one_for_same_party(): void
+    {
+        $d = $this->agreement(['party_name' => 'WA Anlaşma Tekrar', 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA26 Kapı', 'unit_price' => 6500]]]);
+        $this->ai($d, $d);
+        $this->sendPhoto();
+        \Illuminate\Support\Facades\Cache::forget(\App\Tenancy\Tenancy::key('wa-photo-busy:' . \App\Support\Phone::normalize(self::PHONE)));
+        WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->update(['extracted->from_document' => false]);
+        $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/MEA9', 'MediaContentType0' => 'image/jpeg', 'MessageSid' => 'MMTEKRAR2']);
+        $this->assertSame(1, WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->count());
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {
