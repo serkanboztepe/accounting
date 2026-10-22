@@ -209,6 +209,7 @@ class WhatsappConversationFixesTest extends TestCase
 
     public function test_yeni_turns_suggested_settlement_into_a_separate_expense(): void
     {
+        config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $this->notFirstContact();
         $rent = $this->openRent();
         $before = Expense::count();
@@ -405,6 +406,7 @@ class WhatsappConversationFixesTest extends TestCase
     /** "mal aldım" alıştır (tedarikçi tarafı açık her firmada) — eskiden gider kapalıyken en yakın kalıp "ödeme" seçilip yön ters çıkıyordu (Burak). */
     public function test_purchase_kind_with_supplier_side_and_records_ledger_purchase(): void
     {
+        config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         config(['modules.cari_supplier' => false]);
         $this->assertNotContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds()); // tedarikçi tarafı kapalı (mimar)
         config(['modules.expenses' => false, 'modules.cari_supplier' => true]);

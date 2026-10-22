@@ -58,6 +58,14 @@ class WhatsappAgreementTest extends TestCase
         return \App\Models\Project::create(['name' => $name, 'status' => 'active'])->id;
     }
 
+    /** Proje menüsünden seç (maliyet kaydında proje her zaman sorulur — 22.10): verilen proje ya da 0 = Genel. */
+    private function chooseProject(?int $projectId = null): string
+    {
+        $n = $projectId ? \App\Services\Whatsapp\ProjectChoice::projects()->search(fn ($p) => (int) $p->id === $projectId) + 1 : 0;
+
+        return $this->send((string) $n);
+    }
+
     private function ai(array ...$r): void
     {
         $m = Mockery::mock(ExpenseExtractor::class);
@@ -105,7 +113,7 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('nakit 542.000,00 · 3 senet 600.000,00 (vade 30.07.2026 · 30.10.2026 · 30.12.2026)', $card);
         $this->assertStringContainsString('Borç yazılmaz', $card);
 
-        $done = $this->send('evet');
+        $done = $this->chooseProject();
         $this->assertStringContainsString('✅ Anlaşma kaydedildi: *Seramik ve vitrifiye*', $done);
 
         $party = Party::where('name', 'WA Anlaşma Hüseyin Yılmaz')->sole();
@@ -711,7 +719,7 @@ class WhatsappAgreementTest extends TestCase
         $card = $this->send("Ali Usta'yla elektrik tesisatını 1 milyona anlaştık, 200 bin peşin verdim");
         $this->assertStringContainsString('WAA Elektrik tesisatı · götürü 1.000.000,00 ₺', $card);
         $this->assertStringContainsString('💸 Ödeme: nakit 200.000,00', $card);
-        $this->send('evet');
+        $this->chooseProject();
 
         $party = Party::where('name', 'WA Anlaşma Ali Usta')->sole();
         $this->assertEqualsWithDelta(1000000, Agreement::where('party_id', $party->id)->sole()->loadForCard()->agreedTotal(), 0.01);
@@ -791,7 +799,7 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('WAT Beton 44,50 m³ × 3.800,00 = 169.100,00 · WAT Yeşilyurt — kalan 455,50 m³', $card);
         $this->assertStringContainsString('Sonra: borcun 169.100,00 ₺', $card);
 
-        $done = $this->send('evet');
+        $done = $this->chooseProject($project->id);
         $this->assertStringContainsString('✅ Kaydedildi: 169.100,00 ₺ alış — anlaşmadan düşüldü.', $done);
         $this->assertStringContainsString('WAT Beton kalan 455,50 m³', $done);
         $purchase = \App\Models\Purchase::where('party_id', $party->id)->sole();
@@ -815,7 +823,7 @@ class WhatsappAgreementTest extends TestCase
 
         $card = $this->send('2');
         $this->assertStringContainsString('WAT Beton2 20 m³ × 4.100,00 = 82.000,00', $card);
-        $this->send('evet');
+        $this->chooseProject();
         $this->assertEqualsWithDelta(30, $a2->fresh()->loadForCard()->items[0]->remainingQuantity(), 0.001);
         $this->assertEqualsWithDelta(100, $a1->fresh()->loadForCard()->items[0]->remainingQuantity(), 0.001);
     }
@@ -830,7 +838,7 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString("Anlaşmadaki fiyat 3.800,00 ₺, sen 4.000,00 yazdın.\n*1* Yalnız bu teslimat 4.000,00\n*2* Bundan sonra hepsi 4.000,00 (zam)", $ask);
 
         $this->assertStringContainsString('= 120.000,00', $this->send('2'));
-        $this->send('evet');
+        $this->chooseProject();
         $items = $a->fresh()->loadForCard()->items;
         $this->assertCount(2, $items);                                  // zam: eski kalem kapandı, kalan yeni fiyattan
         $this->assertEqualsWithDelta(4000, $items[1]->unit_price, 0.01);
@@ -846,7 +854,9 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('Kaç m³ WAT Beton4 geldi?', $this->send('kuşaktan beton geldi'));
         $card = $this->send('44');
         $this->assertStringContainsString('WAT Beton4 44 m³ × 3.800,00 = 167.200,00', $card);
-        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->assertStringContainsString('🏗 Hangi proje?', $card);   // maliyet: proje her zaman sorulur (anlaşmanın projesi olsa da)
+        $this->assertStringContainsString('WAA Proje (anlaşmadaki)', $card);
+        $this->assertStringContainsString('Hangi proje? Numarasını yaz (0 = Genel)', $this->send('evet'));   // evet kaydetmez
     }
 
     public function test_delivery_lump_sum_half_with_advance(): void
@@ -859,7 +869,7 @@ class WhatsappAgreementTest extends TestCase
         $card = $this->send('ali usta tesisatın yarısını bitirdi');
         $this->assertStringContainsString('WAT Elektrik tesisatı %50 · 500.000,00 ₺', $card);
         $this->assertStringContainsString('Sonra: borcun 300.000,00 ₺', $card);   // peşinat düşüldü
-        $this->send('evet');
+        $this->chooseProject();
         $this->assertSame(50, $a->fresh()->loadForCard()->progress());
     }
 
@@ -916,7 +926,7 @@ class WhatsappAgreementTest extends TestCase
         $this->ai($this->delivery(['paid' => true, 'delivery_lines' => [['agreement_item_id' => $a->items[0]->id, 'quantity' => 10, 'unit_price' => 4000]]]));
         $card = $this->send('kuşaktan 10 metreküp beton aldım 40 bin peşin ödedim');
         $this->assertStringContainsString('💸 Peşin ödendi — bakiye değişmez', $card);
-        $this->send('evet');
+        $this->chooseProject();
 
         $this->assertTrue(\App\Models\Purchase::where('party_id', $party->id)->sole()->paid);
         $this->assertSame(0.0, (float) PartyStatement::build($party)['balance']);

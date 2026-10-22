@@ -1716,6 +1716,12 @@ class WhatsappWebhookController extends Controller
             $data['project_choice_done'] = true; // "0 = genel" seçimi düzeltme turunda kaybolmasın
             $data['project_id'] = $pending->extracted['project_id'] ?? null;
         }
+        // Maliyet kaydında AI'ın seçtiği proje mesajda geçmiyorsa yok sayılır (hatırlama/tahmin yok — kullanıcı 22.10); önceki turda
+        // seçilen/söylenen proje korunur.
+        if (ProjectChoice::alwaysAsk($data) && ! empty($data['project_id']) && empty($data['project_choice_done']) && empty($data['from_document'])
+            && (int) $data['project_id'] !== (int) ($pending?->extracted['project_id'] ?? 0) && ! $this->mentionsProject((int) $data['project_id'])) {
+            $data['project_id'] = null;
+        }
         $data = ProjectChoice::prepare($data, $phone);
         $data = AdvanceOffset::apply($data, $this->inboundBody);
         $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
@@ -2446,7 +2452,7 @@ class WhatsappWebhookController extends Controller
             return BundleDraft::commit($pending);
         }
         if (AgreementDeliveryDraft::handles($pending->extracted)) {
-            if ($question = AgreementDeliveryDraft::question($pending->extracted)) {
+            if ($question = AgreementDeliveryDraft::question($pending->extracted) ?? ProjectChoice::blocker($pending->extracted)) {
                 return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
             }
             [$text] = AgreementDeliveryDraft::commit($pending->extracted);
@@ -2464,7 +2470,7 @@ class WhatsappWebhookController extends Controller
             if (AgreementDraft::totalUnclear($pending->extracted)) {
                 return $this->saveAgreementDraft($pending, $pending->phone, ['total_ok' => true] + $pending->extracted);
             }
-            if ($question = AgreementDraft::question($pending->extracted)) {
+            if ($question = AgreementDraft::question($pending->extracted) ?? ProjectChoice::blocker($pending->extracted)) {
                 return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
             }
             [$text, $agreement] = AgreementDraft::commit($pending->extracted, $pending->phone);
@@ -2522,7 +2528,7 @@ class WhatsappWebhookController extends Controller
         }
 
         if (EmployeeDraft::handles($d)) {
-            if ($question = EmployeeDraft::blocker($d)) {
+            if ($question = EmployeeDraft::blocker($d) ?? ProjectChoice::blocker($d)) {
                 return '❓ ' . $question;
             }
             [$text, $partyId] = EmployeeDraft::commit($d, $pending->phone);
@@ -2549,6 +2555,10 @@ class WhatsappWebhookController extends Controller
         $gap = DraftGaps::reason($d);
         if ($gap['code'] === DraftGaps::AMOUNT) {
             return '❓ ' . DraftGaps::label($d) . ": tutar olmadan kaydedemiyorum.\n" . $gap['ask'];
+        }
+        // Maliyet kaydında proje/şube seçilmeden kayıt yok — *evet* menünün yerine geçmez (kullanıcı 22.10).
+        if ($question = ProjectChoice::blocker($d)) {
+            return '❓ ' . $question;
         }
 
         if ($kind !== ExpenseExtractor::KIND_EXPENSE) {
@@ -2940,7 +2950,9 @@ class WhatsappWebhookController extends Controller
         $question = AgreementDeliveryDraft::question($data);
         $data['question'] = $question;
         // Projesiz anlaşmadan gelen mal: proje sorulur (anlaşmanın projesi varsa oraya, sorulmaz). Sorular bitince.
-        $data = $question === null && AgreementDeliveryDraft::withoutProject($data) ? ProjectChoice::prepare($data, $phone)
+        // Her zaman sorulur (kullanıcı 22.10); anlaşmanın projesi menüde "(anlaşmadaki)" işaretli, seçim kullanıcının.
+        $data['project_hint'] = AgreementDeliveryDraft::agreementProjectId($data);
+        $data = $question === null ? ProjectChoice::prepare($data, $phone)
             : array_merge($data, ['project_suggested' => false, 'project_needed' => false]);
         $summary = ! empty(array_filter(array_column($data['delivery_lines'], 'agreement_item_id')))
             ? AgreementDeliveryDraft::summary($data) . (($pl = ProjectChoice::lines($data)) && ProjectChoice::menuShown($data) ? "\n" . implode("\n", $pl) : '')

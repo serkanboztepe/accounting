@@ -199,6 +199,19 @@ class AgreementDeliveryDraft
     }
 
     /** Menü gösterildi mi (numaralı cevap bekleniyor). */
+    /** Teslim edilen ilk kalemin anlaşmasının projesi (menüde "(anlaşmadaki)" işareti). */
+    public static function agreementProjectId(array $d): ?int
+    {
+        foreach ($d['delivery_lines'] ?? [] as $line) {
+            $item = $line['agreement_item_id'] ? self::openItem($line['agreement_item_id']) : null;
+            if ($item && $item->agreement->project_id) {
+                return (int) $item->agreement->project_id;
+            }
+        }
+
+        return null;
+    }
+
     /** Teslim edilen kalemlerden biri projesiz anlaşmada mı — o zaman proje sorulur (ProjectChoice). */
     public static function withoutProject(array $d): bool
     {

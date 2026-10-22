@@ -25,6 +25,24 @@ final class ProjectChoice
         ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_SALARY,
         ExpenseExtractor::KIND_AGREEMENT, ExpenseExtractor::KIND_AGREEMENT_DELIVERY];
 
+    /**
+     * Maliyet yazan türler: proje/şube HER ZAMAN sorulur, hatırlanmaz (kullanıcı 22.10: "her zaman sorsun, hatırlamasın, öyle hata
+     * olur" — Gül Mobilya "320 dolap" önceki teslimatın projesine yazılıyordu; "stoklu alım yoksa şube de olsa proje de olsa maliyeti
+     * arttırır"). "(son)" önerisi yok, tek proje olsa da sorulur, *evet* numaranın yerine geçmez; mesajda adı geçerse sorulmaz.
+     * Stoğa giren alım genel (applies false). Satış/kasa eskisi gibi (öneri + kasada zorunlu).
+     */
+    public const COST_KINDS = [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_TRADE_PURCHASE,
+        ExpenseExtractor::KIND_SALARY, ExpenseExtractor::KIND_AGREEMENT, ExpenseExtractor::KIND_AGREEMENT_DELIVERY];
+
+    public static function alwaysAsk(array $d): bool
+    {
+        // Var olan borcun ödenmesi (kira ödendi, borç kapandı) yeni maliyet değil — gider zaten kendi projesinde.
+        return in_array($d['kind'] ?? ExpenseExtractor::KIND_EXPENSE, self::COST_KINDS, true)
+            && empty($d['settles_expense_id']) && empty($d['debt_repayment'])
+            // Anlaşmalı SATIŞ / teslim ettiğimiz mal gelir, maliyet değil — eski davranış.
+            && ($d['agreement_direction'] ?? null) !== 'sale' && ($d['delivery_direction'] ?? null) !== 'sale';
+    }
+
     public static function applies(array $d): bool
     {
         $kind = $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
@@ -77,6 +95,11 @@ final class ProjectChoice
         if ($projects->isEmpty()) {
             return $d;
         }
+        if (self::alwaysAsk($d)) {
+            $d['project_needed'] = true;
+
+            return $d;
+        }
         if ($projects->count() === 1) {
             $d['project_id'] = $projects->first()->id;
 
@@ -99,6 +122,9 @@ final class ProjectChoice
         if (! empty($d['project_needed']) && self::isCashSale($d)) {
             return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz.';
         }
+        if (! empty($d['project_needed']) && self::alwaysAsk($d) && self::applies($d)) {
+            return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz (0 = Genel).';
+        }
 
         return null;
     }
@@ -117,9 +143,11 @@ final class ProjectChoice
         // Kalabalıksa (>6) alt alta.
         if (! empty($d['project_suggested']) || ! empty($d['project_needed'])) {
             $suggested = ! empty($d['project_suggested']) ? ($d['project_id'] ?? null) : null;
+            $hint = $d['project_hint'] ?? null; // anlaşmanın projesi — işaret, seçim değil
             $inline = $projects->count() <= 6;
-            $choices = $projects->map(function ($p, $i) use ($inline, $suggested) {
-                $name = $p->name . ($suggested !== null && (int) $p->id === (int) $suggested ? ' (son)' : '');
+            $choices = $projects->map(function ($p, $i) use ($inline, $suggested, $hint) {
+                $name = $p->name . ($suggested !== null && (int) $p->id === (int) $suggested ? ' (son)' : '')
+                    . ($hint !== null && (int) $p->id === (int) $hint ? ' (anlaşmadaki)' : '');
 
                 return $inline ? '*' . ($i + 1) . '* ' . $name : '   ' . ($i + 1) . ') ' . $name;
             })->all();

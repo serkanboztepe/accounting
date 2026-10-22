@@ -106,7 +106,11 @@ class WhatsappBranchTest extends TestCase
         $this->assertSame($this->branches['Ergenekon']->id, Sale::latest('id')->value('project_id'));
     }
 
-    public function test_purchase_suggests_party_branch_and_zero_means_general(): void
+    /**
+     * Kullanıcı 22.10: maliyet kaydında şube/proje HER ZAMAN sorulur, hatırlanmaz — carinin son şubesi "(son)" diye önerilmez,
+     * *evet* numaranın yerine geçmez; 0 = Genel.
+     */
+    public function test_purchase_always_asks_branch_without_suggestion_and_zero_means_general(): void
     {
         $party = Party::create(['name' => 'Un Toptancı Şube']);
         PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now()->subDay(), 'type' => 'alis', 'amount' => 100,
@@ -116,8 +120,11 @@ class WhatsappBranchTest extends TestCase
             'confidence' => 'high', 'question' => null, 'is_new_entry' => true]);
 
         $reply = $this->send('Un toptancıdan 25 çuval un 35750');
-        $this->assertStringContainsString('İzzetpaşa Test (son)', $reply);
+        $this->assertStringNotContainsString('(son)', $reply);
+        $this->assertStringContainsString('İzzetpaşa Test', $reply);
         $this->assertStringContainsString('*0* Genel', $reply);
+        $this->assertStringContainsString('Hangi şube? Numarasını yaz (0 = Genel)', $this->send('evet'));   // evet kaydetmez
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->count());
         $this->send('0');
         $this->assertNull(PartyLedgerEntry::where('party_id', $party->id)->latest('id')->value('project_id'));
     }

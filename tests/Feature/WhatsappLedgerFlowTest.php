@@ -129,6 +129,7 @@ class WhatsappLedgerFlowTest extends TestCase
     /** "1" (iş/mal aldım) → peşin alış: alış + ödeme cari hesabında, gider açılmaz (Taner, 13 Ekim). */
     public function test_payment_without_debt_choice_one_becomes_paid_purchase(): void
     {
+        config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $party = Party::create(['name' => 'Ali Usta']);
         $this->fakeAi($this->entry([
             'kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 5000, 'party_id' => $party->id,
@@ -346,6 +347,7 @@ class WhatsappLedgerFlowTest extends TestCase
 
     public function test_unstated_payment_defaults_unpaid_with_party_paid_without(): void
     {
+        config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $party = Party::create(['name' => 'Zz Varsayılan Cari']);
         $this->fakeAi(
             $this->entry(['amount' => 100000, 'party_id' => $party->id, 'paid' => null, 'description' => 'Malzeme']),
@@ -380,6 +382,7 @@ class WhatsappLedgerFlowTest extends TestCase
 
     public function test_turkish_capital_cancel_and_punctuation_confirm(): void
     {
+        config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $this->fakeAi(
             $this->entry(['amount' => 1000, 'description' => 'Yakıt İptal Testi']),
             $this->entry(['amount' => 2000, 'description' => 'Yakıt Onay Testi', 'is_new_entry' => true]),
@@ -400,6 +403,7 @@ class WhatsappLedgerFlowTest extends TestCase
      */
     public function test_missing_amount_keeps_draft_and_number_reply_completes_it(): void
     {
+        config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $this->fakeAi($this->entry(['amount' => 0, 'description' => 'Kira', 'question' => 'Kira tutarı ne kadar?']));
         $before = Expense::count();
 
