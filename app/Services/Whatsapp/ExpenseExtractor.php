@@ -144,7 +144,9 @@ class ExpenseExtractor
             . 'Belgenin altındaki genel toplamı (indirim / silinen +KDV sonrası ödenecek son rakam) `document_total`\'a AYRICA yaz. Kalem '
             . 'fiyatı = gerçekte ödenecek birim fiyat: kalemde KDV hariç ve KDV dahil iki sütun varsa genel toplamla TUTAN sütunu al. '
             . 'Belgedeki önemli şartları (geçerlilik süresi, fiyata dahil olanlar, fiyat değişim kuralı) `agreement_notes`\'a kısa yaz; karşı '
-            . 'tarafın belgede yazan telefonu/adresi `party_phone` / `party_address` (BİZİM bilgilerimiz DEĞİL). Ödeme planındaki İLERİ tarihli '
+            . 'tarafın belgede yazan telefonu/adresi `party_phone` / `party_address` — sözleşmedeki "Ana firma / İşi yaptıran / İşveren" '
+            . 'bloğu BİZİZ, oradaki adres/telefon party_* DEĞİL (karşı tarafın kendi bloğundakini al); emin değilsen boş bırak. Belgede geçen '
+            . 'şantiye/proje adları PROJELER\'de yoksa `new_projects` (tek proje ve anlaşma ona aitse project_name de olur). Ödeme planındaki İLERİ tarihli '
             . 'nakit/EFT satırlarını da agreement_payments\'a yaz (paid_date = o tarih; sistem ödendi saymaz, hatırlatma kurar). Belgede '
             . 'tarih "05,30,2027" gibi ay,gün,yıl sırasıyla yazılmışsa 2027-05-30 oku. Birden çok sayfa birlikte geldiyse hepsini TEK anlaşma '
             . 'olarak oku ve `pages_related` doldur. Açık anlaşma taslağına yeni sayfa geldiyse `continues_agreement` doldur; devamıysa '
@@ -849,6 +851,8 @@ class ExpenseExtractor
                 'description' => 'Only for kind=agreement: important terms written in the document, short Turkish (validity period, what is included in the price, price-change rule); null if none. Not the items or payments.'],
             'party_phone' => ['type' => ['string', 'null'], 'description' => 'Only for kind=agreement: the COUNTERPARTY phone written in the document (not ours — see BİZ); null if none'],
             'party_address' => ['type' => ['string', 'null'], 'description' => 'Only for kind=agreement: the COUNTERPARTY address written in the document; null if none'],
+            'new_projects' => ['type' => 'array', 'items' => ['type' => 'string'],
+                'description' => 'Only for kind=agreement: construction sites / projects named in the document that are NOT in PROJELER (short names, e.g. "Cumhuriyet Mah. 6 daire"); empty if none'],
             'continues_agreement' => ['type' => ['boolean', 'null'],
                 'description' => 'Only when an open agreement draft is given and a new page arrives: true = this page belongs to the SAME document/agreement (other page, payment page); false = a different document; null = cannot tell'],
             'pages_related' => ['type' => ['boolean', 'null'],

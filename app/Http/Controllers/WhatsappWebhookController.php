@@ -2400,7 +2400,11 @@ class WhatsappWebhookController extends Controller
             $this->committedPartyId = $agreement->party_id;
             $pending->update(['status' => 'confirmed']);
             // Belgede karşı tarafın telefonu/adresi varsa ve kartta yoksa sor (kullanıcı 22.10: "sen yazma, asistan yapayım mı desin").
-            if ($info = PartyInfoDraft::offer($agreement->party, $pending->extracted['party_phone'] ?? null, $pending->extracted['party_address'] ?? null)) {
+            // Kartta "(yeni)" diye açılan tek proje zaten açıldı — tekrar sorulmaz.
+            $projects = array_filter($pending->extracted['new_projects'] ?? [],
+                fn ($p) => mb_strtolower(trim($p)) !== mb_strtolower(trim((string) ($pending->extracted['project_name'] ?? ''))));
+            if ($info = PartyInfoDraft::offer($agreement->party, $pending->extracted['party_phone'] ?? null, $pending->extracted['party_address'] ?? null,
+                $projects)) {
                 $summary = PartyInfoDraft::summary($info);
                 WhatsappPendingExpense::create(['phone' => $pending->phone, 'extracted' => $info, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
                 $text .= "\n\n" . $summary;

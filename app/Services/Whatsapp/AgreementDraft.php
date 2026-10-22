@@ -93,6 +93,9 @@ class AgreementDraft
                 ? mb_substr(trim($input['party_phone']), 0, 30) : null,
             'party_address'       => is_string($input['party_address'] ?? null) && trim($input['party_address']) !== ''
                 ? mb_substr(trim($input['party_address']), 0, 150) : null,
+            // Belgede geçen ama sistemde olmayan şantiyeler — kayıttan sonra "proje olarak açayım mı?" (PartyInfoDraft).
+            'new_projects'        => array_slice(array_values(array_unique(array_filter(array_map(fn ($n) => is_string($n) ? mb_substr(trim($n), 0, 80) : '',
+                (array) ($input['new_projects'] ?? []))))), 0, 5),
             // Açık anlaşma kartına gelen sayfa: aynı belgenin devamı mı (true / false / null = emin değil).
             'continues_agreement' => isset($input['continues_agreement']) && is_bool($input['continues_agreement']) ? $input['continues_agreement'] : null,
             // Birlikte gönderilen sayfalar aynı belge mi (çok görselli okuma).

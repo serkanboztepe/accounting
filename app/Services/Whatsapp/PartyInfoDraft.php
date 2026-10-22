@@ -3,58 +3,77 @@
 namespace App\Services\Whatsapp;
 
 use App\Models\Party;
+use App\Models\Project;
 
 /**
- * Belgedeki cari bilgisi (kullanıcı 22.10: "ek bilgi cariye sen yazma, asistan yapabiliyorsa yapayım mı desin"): anlaşma kaydından
- * sonra sözleşmedeki karşı tarafın telefonu / adresi cari kartında yoksa sorulur — *evet* → telefon (boşsa) + notlara "Adres: …".
- * Başka bir mesaj gelirse soru sessizce kapanır (kontrolcü).
+ * Belgedeki ek bilgi (kullanıcı 22.10: "ek bilgi cariye sen yazma, asistan yapabiliyorsa yapayım mı desin"; "2 proje var, açayım mı
+ * diyebilirdi"): anlaşma kaydından sonra sözleşmedeki karşı tarafın telefonu / adresi cari kartında yoksa ve belgede geçen şantiyeler
+ * sistemde yoksa TEK soru — *evet* → telefon (boşsa) + notlara "Adres: …" + projeler açılır. Başka bir mesaj soruyu kapatır (kontrolcü).
  */
 final class PartyInfoDraft
 {
     public const KIND = 'party_info';
 
-    /** Sorulacak bir şey varsa taslak verisi; yoksa null (telefon zaten var, adres notlarda). */
-    public static function offer(Party $party, ?string $phone, ?string $address): ?array
+    /**
+     * Sorulacak bir şey varsa taslak verisi; yoksa null. Bizim firma adı geçen adres ENGELLENMEZ (22.10 Kamuran: adreste "Yen Yapı İnşaat"
+     * geçiyordu ama karşı tarafın adresiydi) — hangi blok bizim, AI talimatı ayırır; kullanıcı soruyu görüp onaylar.
+     */
+    public static function offer(Party $party, ?string $phone, ?string $address, array $projects = []): ?array
     {
-        $phone = trim((string) $phone) !== '' && blank($party->phone) ? trim((string) $phone) : null;
+        $phone = trim((string) $phone);
+        $phone = $phone !== '' && blank($party->phone) ? $phone : null;
         $address = trim((string) $address);
         $address = $address !== '' && ! str_contains(mb_strtolower((string) $party->notes), mb_strtolower($address)) ? $address : null;
-        if ($phone === null && $address === null) {
+        $existing = Project::pluck('name')->map(fn ($n) => mb_strtolower(trim($n)))->all();
+        $projects = array_values(array_filter(array_map('trim', $projects), fn ($p) => $p !== '' && ! in_array(mb_strtolower($p), $existing, true)));
+        if ($phone === null && $address === null && $projects === []) {
             return null;
         }
 
-        return ['kind' => self::KIND, 'party_id' => $party->id, 'party_phone' => $phone, 'party_address' => $address];
+        return ['kind' => self::KIND, 'party_id' => $party->id, 'party_phone' => $phone, 'party_address' => $address, 'new_projects' => $projects];
     }
 
-    /** "📇 Belgede Kamuran Narçin'in telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok. var — cari kartına yazayım mı?" */
+    /** "📇 Belgede: • Kamuran Narçin telefonu … • 2 şantiye: … — cari kartına yazayım, projeleri açayım mı?" */
     public static function summary(array $d): string
     {
         $name = Party::find($d['party_id'])?->name ?? 'carinin';
-        $parts = array_filter([
-            $d['party_phone'] ? 'telefonu ' . $d['party_phone'] : null,
-            $d['party_address'] ? 'adresi ' . $d['party_address'] : null,
-        ]);
+        $lines = [];
+        $card = array_filter([$d['party_phone'] ? 'telefonu ' . $d['party_phone'] : null, $d['party_address'] ? 'adresi ' . $d['party_address'] : null]);
+        if ($card) {
+            $lines[] = '• *' . $name . '* ' . implode(', ', $card);
+        }
+        $projects = $d['new_projects'] ?? [];
+        if ($projects) {
+            $lines[] = '• ' . (count($projects) > 1 ? count($projects) . ' şantiye: ' : 'Şantiye: ') . implode(', ', $projects);
+        }
+        $ask = implode(', ', array_filter([$card ? 'cari kartına yazayım' : null, $projects ? (count($projects) > 1 ? 'projeleri' : 'projeyi') . ' açayım' : null]));
 
-        return '📇 Belgede *' . $name . '* ' . implode(', ', $parts) . ' var — cari kartına yazayım mı? *evet* / *iptal*';
+        return "📇 Belgede şunlar var:\n" . implode("\n", $lines) . "\n" . mb_strtoupper(mb_substr($ask, 0, 1)) . mb_substr($ask, 1) . ' mı? *evet* / *iptal*';
     }
 
     public static function commit(array $d): string
     {
         $party = Party::find($d['party_id']);
-        if (! $party) {
-            return 'Cari bulunamadı, bir şey yazmadım.';
-        }
+        $done = [];
         $changes = [];
-        if ($d['party_phone'] && blank($party->phone)) {
+        if ($party && $d['party_phone'] && blank($party->phone)) {
             $changes['phone'] = mb_substr($d['party_phone'], 0, 50);
         }
-        if ($d['party_address']) {
+        if ($party && $d['party_address']) {
             $changes['notes'] = trim(trim((string) $party->notes) . "\nAdres: " . $d['party_address']);
         }
         if ($changes !== []) {
             $party->update($changes);
+            $done[] = $party->name . ' cari kartına yazıldı';
+        }
+        $opened = [];
+        foreach ($d['new_projects'] ?? [] as $name) {
+            $opened[] = Project::firstOrCreate(['name' => $name], ['status' => 'active'])->name;
+        }
+        if ($opened) {
+            $done[] = (count($opened) > 1 ? 'projeler açıldı: ' : 'proje açıldı: ') . implode(', ', $opened);
         }
 
-        return '✅ ' . $party->name . ' cari kartına yazıldı.';
+        return $done ? '✅ ' . implode('; ', $done) . '.' : 'Yazılacak bir şey kalmadı.';
     }
 }

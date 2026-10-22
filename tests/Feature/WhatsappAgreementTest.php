@@ -355,7 +355,7 @@ class WhatsappAgreementTest extends TestCase
             'agreement_items' => [['description' => 'WAA16 Sıva', 'unit_price' => 250]]]));
         $this->sendPhoto();
         $done = $this->send('evet');
-        $this->assertStringContainsString("📇 Belgede *WA Anlaşma Tel* telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok. var — cari kartına yazayım mı?", $done);
+        $this->assertStringContainsString("📇 Belgede şunlar var:\n• *WA Anlaşma Tel* telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok.\nCari kartına yazayım mı? *evet* / *iptal*", $done);
         $this->assertStringNotContainsString('yarım kalan', $done);                            // soru yarım kayıt sanılmaz (22.10)
         $party = Party::where('name', 'WA Anlaşma Tel')->sole();
         $this->assertNull($party->phone);                                                      // sormadan yazmaz
@@ -364,6 +364,27 @@ class WhatsappAgreementTest extends TestCase
         $party->refresh();
         $this->assertSame('0543 960 92 17', $party->phone);
         $this->assertStringContainsString('Adres: Ergenekon Mah. 136 Sok.', $party->notes);
+    }
+
+    /**
+     * Belgede sistemde olmayan iki şantiye (Kamuran 22.10: Cumhuriyet Mah. 6 daire, Ulalar Mah. 2 daire — "2 proje var açayım mı
+     * diyebilirdi"): kayıttan sonra telefon/adresle aynı soruda; *evet* → projeler açılır, adres yazılır. Var olan proje sorulmaz.
+     */
+    public function test_new_projects_offered_with_party_info(): void
+    {
+        $existing = $this->project('WAA Var Olan Şantiye');
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Şantiye', 'project_id' => $existing,
+            'party_address' => 'İzzet Paşa Mah. 844 Sk. No:2',
+            'new_projects' => ['WAA Cumhuriyet Mah. 6 daire', 'WAA Ulalar Mah. 2 daire', 'WAA Var Olan Şantiye'],
+            'agreement_items' => [['description' => 'WAA21 Alçı boya', 'unit_price' => 300]]]));
+
+        $this->sendPhoto();
+        $done = $this->send('evet');
+        $this->assertStringContainsString("📇 Belgede şunlar var:\n• *WA Anlaşma Şantiye* adresi İzzet Paşa Mah. 844 Sk. No:2\n"
+            . "• 2 şantiye: WAA Cumhuriyet Mah. 6 daire, WAA Ulalar Mah. 2 daire\nCari kartına yazayım, projeleri açayım mı? *evet* / *iptal*", $done);
+        $this->assertStringContainsString('projeler açıldı', $this->send('evet'));
+        $this->assertSame(2, \App\Models\Project::whereIn('name', ['WAA Cumhuriyet Mah. 6 daire', 'WAA Ulalar Mah. 2 daire'])->count());
+        $this->assertStringContainsString('Adres: İzzet Paşa Mah. 844 Sk. No:2', Party::where('name', 'WA Anlaşma Şantiye')->sole()->notes);
     }
 
     /** Birlikte gönderilen iki sayfa (Kamuran: 1 sn arayla): ilk sayfa anlaşma → sıradaki kardeş sayfa birlikte okunur, TEK kart. */
