@@ -362,6 +362,24 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
             . \App\Support\Phone::normalize(self::PHONE)), []));
     }
 
+    /**
+     * 22.10 Gül Mobilya: fotoğraf okunurken gelen 2. sayfa kilidi 12 sn bekliyordu → sözleşme kartı "sonraki sayfa" beklemesinde onu
+     * göremedi, iki kart gitti. Fotoğraf okunuyorsa gelen fotoğraf beklemeden sıraya girer.
+     */
+    public function test_photo_while_photo_is_read_is_queued_without_waiting(): void
+    {
+        $phone = \App\Support\Phone::normalize(self::PHONE);
+        $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 750, 'description' => 'İkinci foto fişi', 'paid' => true]));
+        config(['services.whatsapp.from' => '+14786665916']);
+        \Illuminate\Support\Facades\Cache::lock(\App\Tenancy\Tenancy::key('wa-msg:' . $phone), 2)->get();     // 1. foto okunuyor (2 sn daha)
+        \Illuminate\Support\Facades\Cache::put(\App\Tenancy\Tenancy::key('wa-photo-busy:' . $phone), true, now()->addMinute());
+        // Eski kod: kilidi bekleyip (2 sn) fotoğrafı doğrudan işlerdi → kart döner. Yeni: beklemeden sıraya, "Bunu da aldım".
+        $reply = $this->send('', ['NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/ME2', 'MediaContentType0' => 'image/jpeg', 'MessageSid' => 'MMBUSY2']);
+
+        $this->assertStringContainsString('Bunu da aldım', $reply);
+        \Illuminate\Support\Facades\Cache::forget(\App\Tenancy\Tenancy::key('wa-photo-busy:' . $phone));
+    }
+
     /** 21.10 (2. deneme): sıradaki fotoğraf açık kartın cevabı beklenirken işlenip ona karışmıştı — kart kapanınca işlenir. */
     public function test_queued_photo_waits_for_open_draft(): void
     {

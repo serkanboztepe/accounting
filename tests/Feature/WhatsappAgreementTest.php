@@ -36,6 +36,13 @@ class WhatsappAgreementTest extends TestCase
         Http::fake(['*' => Http::response('jpeg', 200, ['Content-Type' => 'image/jpeg'])]);
         WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
         $this->actingAs(User::factory()->create());
+        \App\Http\Controllers\WhatsappWebhookController::$pageWait = 0; // sözleşme sayfası beklemesi (gerçekte 10 sn)
+    }
+
+    protected function tearDown(): void
+    {
+        \App\Http\Controllers\WhatsappWebhookController::$pageWait = 10;
+        parent::tearDown();
     }
 
     private function agreement(array $o): array
@@ -445,6 +452,7 @@ class WhatsappAgreementTest extends TestCase
 
         $this->sendPhoto();
         $card = $this->sendPhoto();
+        $this->assertStringStartsWith('<?xml version="1.0" encoding="UTF-8"?><Response><Message>🔄 *Kart güncellendi* — 2. sayfa eklendi, önceki kart geçersiz.', $card);
         $this->assertStringContainsString('📄 2 sayfa', $card);
         $this->assertStringContainsString('WAA19 Alçı boya', $card);
         $this->assertStringContainsString('WAA19 Sıva', $card);
@@ -454,6 +462,7 @@ class WhatsappAgreementTest extends TestCase
         $ask = $this->sendPhoto();
         $this->assertStringContainsString('📄 Bu sayfa *WA Anlaşma Devam* sözleşmesinin devamı mı?', $ask);
         $card = $this->send('evet');
+        $this->assertStringContainsString('🔄 *Kart güncellendi* — 3. sayfa eklendi', $card);
         $this->assertStringContainsString('📄 3 sayfa', $card);
         $this->assertStringContainsString('WAA19 Şap', $card);
         $this->send('evet');

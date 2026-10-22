@@ -120,8 +120,11 @@ class WhatsappWebhookController extends Controller
         // Kilit süresi en uzun işlemden (AI 60 sn) uzun olmalı; yoksa süre dolunca ikinci mesaj araya girer (review C).
         // Arka plana bırakılan tur (DeferTurn) süresiz çalışır (5 AI turu × 60 sn + kontroller) — kilit onu kapsasın (review 4).
         $lock = Cache::lock(Tenancy::key('wa-msg:' . Phone::normalize($phone)), 360);
+        // Fotoğraf okunurken gelen fotoğraf kilidi beklemez, hemen sıraya: sözleşme sayfası bekleyen ilk istek onu görsün (22.10 —
+        // 12 sn kilit beklemesi yüzünden 2. sayfa sıraya geç giriyordu). Yazı mesajları eskisi gibi bekler.
+        $photoBusy = $numMedia > 0 && ! $request->attributes->get('queued') && Cache::has($this->photoBusyKey($phone));
         try {
-            $lock->block(self::$lockWait);
+            $lock->block($photoBusy ? 0 : self::$lockWait);
         } catch (LockTimeoutException) {
             // Kilitsiz devam ETME: iki mesaj aynı taslağa aynı anda yazıp çift/yarım kayıt üretebilir (review C).
             // Twilio 15 sn bekliyor; daha uzun bekleyemeyiz → kişiye tekrar göndermesini söyle (son 7 günde en uzun 12 sn).
@@ -244,6 +247,7 @@ class WhatsappWebhookController extends Controller
             return $response;
         } finally {
             ChatAssistant::$deadline = null;
+            Cache::forget($this->photoBusyKey($phone));
             if (! $deferred) {
                 $lock->release();
             }
@@ -285,6 +289,9 @@ class WhatsappWebhookController extends Controller
 
     /** Meşgul numarada sıradaki mesajın kilidi bekleme süresi (sn); testte kısaltılır. */
     public static int $lockWait = 12;
+
+    /** Sözleşme sayfası okununca kartı göndermeden önce sonraki sayfayı bekleme süresi (sn; kullanıcı 22.10 "A'yı yapalım"). Testte 0. */
+    public static float $pageWait = 10;
 
     /** Senkron cevap için AI'a ayrılan süre (Twilio 15 sn bekler; payı kayıt ve ağ için). */
     private const SYNC_SECONDS = 10;
@@ -344,6 +351,12 @@ class WhatsappWebhookController extends Controller
      * onay/cevap bekleyen) kapanınca sıradaki işlenir — ekranda hep tek soru olsun (sıradaki fotoğraf açık kartın devamı sanılıp
      * tutarı/çekleri karışmıştı). İstek kapandıktan sonra çalışır, cevap ayrı mesaj gider.
      */
+    /** Bu numaranın fotoğrafı şu an okunuyor işareti (kilidi tutan istek fotoğraf mı). */
+    private function photoBusyKey(string $phone): string
+    {
+        return Tenancy::key('wa-photo-busy:' . Phone::normalize($phone));
+    }
+
     private function photoQueueKey(string $phone): string
     {
         return Tenancy::key('wa-photo-queue:' . Phone::normalize($phone));
@@ -367,7 +380,28 @@ class WhatsappWebhookController extends Controller
     }
 
     /**
-     * Bu fotoğrafla birlikte (en çok 20 sn sonra) gelip sıraya giren fotoğraflar — sıradan alınır.
+     * Sözleşme sayfası okundu: kartı göndermeden en çok $pageWait sn sonraki sayfayı bekle (22.10 Gül Mobilya: 2. foto 14 sn sonra
+     * geldi, ilk kart gitmişti — "iki kart garip geldi"). Bir sayfa gelince 2 sn daha (3. sayfa) bekler.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function awaitSiblingPhotos(Request $request, string $phone): array
+    {
+        $deadline = microtime(true) + self::$pageWait;
+        $found = $this->siblingPhotos($request, $phone);
+        while (microtime(true) < $deadline) {
+            if ($found !== []) {
+                $deadline = min($deadline, microtime(true) + 2);
+            }
+            usleep(500_000);
+            $found = [...$found, ...$this->siblingPhotos($request, $phone)];
+        }
+
+        return array_slice($found, 0, 4);
+    }
+
+    /**
+     * Bu fotoğrafla birlikte (en çok 40 sn sonra — okuma + bekleme) gelip sıraya giren fotoğraflar — sıradan alınır.
      *
      * @return list<array<string, mixed>>
      */
@@ -379,13 +413,22 @@ class WhatsappWebhookController extends Controller
             $take = $keep = [];
             foreach ($this->photoQueue($phone) as $item) {
                 $at = (float) ($item['_queued_at'] ?? 0);
-                $near = empty($item['_reread']) && $at >= $start - 1 && $at <= $start + 20 && count($take) < 4;
+                $near = empty($item['_reread']) && empty($item['_separate']) && $at >= $start - 1 && $at <= $start + 40 && count($take) < 4;
                 $near ? $take[] = $item : $keep[] = $item;
             }
             $keep === [] ? Cache::forget($this->photoQueueKey($phone)) : Cache::put($this->photoQueueKey($phone), $keep, now()->addDay());
 
             return $take;
         });
+    }
+
+    /** Sonradan gelen sayfa karta eklendi: "🔄 Kart güncellendi — N. sayfa eklendi, önceki kart geçersiz." + yeni kart (kullanıcı 22.10). */
+    private function pageAdded(WhatsappPendingExpense $pending, string $phone, array $data): string|array
+    {
+        $out = $this->saveDraft($pending, $phone, $data);
+        $head = '🔄 *Kart güncellendi* — ' . (int) ($data['pages'] ?? 2) . ". sayfa eklendi, önceki kart geçersiz.\n\n";
+
+        return is_array($out) ? [$head . $out[0], $out[1] ?? null] : $head . $out;
     }
 
     /** Sayfaları tek okumada oku; aynı belge değilse (ya da okunamazsa) kardeşler sıraya geri, null. */
@@ -644,6 +687,9 @@ class WhatsappWebhookController extends Controller
         }
 
         $image = $numMedia > 0 ? $this->downloadMedia($request) : null;
+        if ($image !== null) {
+            Cache::put($this->photoBusyKey($phone), true, now()->addMinutes(3)); // okunurken gelen foto beklemesin (bkz. kilit)
+        }
 
         // Bekleyen taslak yokken gelen "evet"/"iptal"/numara: yeni kayıt SANMA (0 ₺'lik gider açılıyordu).
         // Taslak yokken "tamam" / "evet": az önce gönderilen hatırlatma(lar) görüldü (kayıt yok). Kalan
@@ -721,7 +767,7 @@ class WhatsappWebhookController extends Controller
             $offer = $d['page_offer'];
             unset($d['page_offer']);
             if ($this->isConfirm($body)) {
-                return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::appendPage($d, $offer['data'])));
+                return $this->twiml($this->pageAdded($pending, $phone, AgreementDraft::appendPage($d, $offer['data'])));
             }
             $pending->update(['extracted' => $d]);
             // _separate: açık kart kapanana kadar bekler, bir daha "devamı mı" sorulmaz.
@@ -1065,7 +1111,7 @@ class WhatsappWebhookController extends Controller
                 }
                 $continues = AgreementDraft::handles($page) ? ($page['continues_agreement'] ?? null) : false;
                 if ($continues === true) {
-                    return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::appendPage($pending->extracted, $page)));
+                    return $this->twiml($this->pageAdded($pending, $phone, AgreementDraft::appendPage($pending->extracted, $page)));
                 }
                 if ($continues === null) {
                     $pending->update(['extracted' => ['page_offer' => ['data' => $page, 'item' => $request->all()]] + $pending->extracted]);
@@ -1115,7 +1161,7 @@ class WhatsappWebhookController extends Controller
             $data['from_document'] = $image !== null;
             // Birlikte gönderilen sayfalar (Kamuran 22.10: iki foto 1 sn arayla): ilk sayfa anlaşmaysa, okunurken sıraya giren
             // kardeş sayfalar tek okumada birlikte okunur → tek kart. Başka belgeyse sıraya geri (eskisi gibi tek tek).
-            if ($image !== null && ! $reread && AgreementDraft::handles($data) && ($siblings = $this->siblingPhotos($request, $phone)) !== []) {
+            if ($image !== null && ! $reread && AgreementDraft::handles($data) && ($siblings = $this->awaitSiblingPhotos($request, $phone)) !== []) {
                 $data = $this->readPagesTogether($extractor, $text, $image, $siblings, $phone) ?? $data;
             }
         } catch (\Throwable $e) {
