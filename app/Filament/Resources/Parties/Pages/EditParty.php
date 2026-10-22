@@ -730,52 +730,51 @@ class EditParty extends EditRecord
                 $purchase = Purchase::findOrFail($arguments['purchase']);
 
                 return [
+                    // Projesiz alışta boş gelir → "Genel (projesiz)" bilerek seçilir (gözden kaçmasın).
                     'project_id'    => $purchase->project_id,
                     'purchase_date' => $purchase->purchase_date,
                     'paid'          => (bool) $purchase->paid,
                     'payment_type'  => $purchase->payment_type,
                     'notes'         => $purchase->notes,
-                    'lines'         => $purchase->lines()->orderBy('id')->get()->map(fn ($m) => [
-                        'product_id' => $m->product_id,
-                        'quantity'   => number_format((float) $m->quantity, 2, '.', ''),
-                        'unit_price' => $m->unit_price !== null ? Money::format((float) $m->unit_price) : null,
-                        'amount'     => $m->amount !== null ? Money::format((float) $m->amount) : null,
-                    ])->toArray(),
+                    ...AgreementForm::purchaseEditFill($purchase, AgreementForm::purchaseEditItems($purchase)),
                 ];
             })
-            ->schema([
-                AgreementForm::projectSelect('project_id'),
+            // Alım Yaptım'ın aynısı (kullanıcı 22.10): anlaşma kalemi varsa "Anlaşmadan | Anlaşma dışı" sekmeleri, bu alıştakiler işaretli.
+            ->schema(fn (array $arguments): array => AgreementForm::withAgreementTabs([
+                AgreementForm::requiredProjectSelect('project_id'),
                 DatePicker::make('purchase_date')->label('Tarih')->required(),
                 Toggle::make('paid')->label('Peşin (parası verildi)')->live(),
                 Select::make('payment_type')->label('Ödeme')->options(Purchase::PAYMENT_TYPES)->visible(fn (Get $get) => (bool) $get('paid')),
                 TradeLines::repeater('in'),
                 Textarea::make('notes')->label('Açıklama')->rows(2),
-            ])
+            ], Agreement::DIRECTION_PURCHASE, $this->record, ['project_id', 'purchase_date', 'paid', 'payment_type'],
+                ($p = Purchase::find($arguments['purchase'] ?? null)) ? AgreementForm::purchaseEditItems($p) : collect(), projectField: false))
             ->action(function (array $data, array $arguments): void {
                 $purchase = Purchase::findOrFail($arguments['purchase']);
                 abort_if((int) $purchase->party_id !== (int) $this->record->id, 403);
-                if ($arguments['delete'] ?? false) {
-                    $this->deleteDocument($purchase);
-
-                    return;
-                }
-                $purchase->update([
-                    'project_id'    => $data['project_id'] ?? null,
-                    'purchase_date' => $data['purchase_date'],
-                    'paid'          => (bool) ($data['paid'] ?? false),
-                    'payment_type'  => ($data['paid'] ?? false) ? ($data['payment_type'] ?? null) : null,
-                    'notes'         => $data['notes'] ?? null,
-                ]);
-                $purchase->rebuildFromLines($data['lines'] ?? []);
-                $this->refreshAgreementsOf($purchase);
+                [$taken, , , $data] = AgreementForm::extract($data);
+                $lines = [...AgreementForm::agreementLinesToPurchaseLines($taken, (int) $this->record->id),
+                    ...array_map(fn ($l) => ['agreement_item_id' => null] + $l, $data['lines'] ?? [])];
+                $project = $data['project_id'] ?? null;
+                $before = $this->agreementIdsOf($purchase);
+                \Illuminate\Support\Facades\DB::transaction(function () use ($purchase, $data, $lines, $project) {
+                    $purchase->update([
+                        'project_id'    => $project === AgreementForm::GENERAL ? null : $project,
+                        'purchase_date' => $data['purchase_date'],
+                        'paid'          => (bool) ($data['paid'] ?? false),
+                        'payment_type'  => ($data['paid'] ?? false) ? ($data['payment_type'] ?? null) : null,
+                        'notes'         => $data['notes'] ?? null,
+                    ]);
+                    $purchase->rebuildFromLines($lines, keepAgreementLinks: false);
+                });
+                Agreement::whereIn('id', $before->merge($this->agreementIdsOf($purchase))->unique())->get()
+                    ->each(fn (Agreement $a) => AgreementDesk::refreshStatus($a));
                 Notification::make()->success()->title('Alış güncellendi')->send();
             })
+            // Sil: formu doğrulamadan (proje seçilmemiş olsa da) silme onayına geçer.
             ->extraModalFooterActions(fn (Action $action): array => [
-                $action->makeModalSubmitAction('deletePurchase', arguments: ['delete' => true])
-                    ->label('Sil')
-                    ->color('danger')
-                    ->requiresConfirmation()
-                    ->modalDescription('Alış, kalemleri ve cari kaydı silinir. Anlaşmadan geldiyse düşülen miktar anlaşmaya geri döner.'),
+                Action::make('deletePurchase')->label('Sil')->color('danger')
+                    ->action(fn () => $this->replaceMountedAction('deleteDocument', ['purchase' => $action->getArguments()['purchase'] ?? null])),
             ]);
     }
 

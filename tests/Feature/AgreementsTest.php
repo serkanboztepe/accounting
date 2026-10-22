@@ -63,32 +63,53 @@ class AgreementsTest extends TestCase
 
     /**
      * Müteahhitte Alışlar ekranı kapalı (22.10 firma 7: anlaşmadan gelen tuğla, ekstrede "Aç" → 403). Alış satırına tıklayınca
-     * düzenleme penceresi: proje değişir (belge + stok satırı + cari kaydı); pencereden silince anlaşmadan düşülen miktar geri döner.
+     * Alım Yaptım'ın aynısı: "Anlaşmadan" sekmesinde bu alıştaki kalem işaretli; başka kalem işaretlenince o da anlaşmadan düşer
+     * (kullanıcı 22.10: "yeni ürün eklediğimde anlaşmadan gelmiyor"); proje seçilmeden (Genel dahil) kaydedilmez; Sil.
      */
     public function test_delivery_purchase_is_edited_and_deleted_from_statement(): void
     {
         $this->assertFalse(\App\Filament\Resources\Purchases\PurchaseResource::canAccess());
-        $a = $this->agreement([['product_id' => $this->product('Sil Test Tuğla', 'adet')->id, 'quantity' => 1000, 'unit_price' => 8.5]]);
+        $a = $this->agreement([['product_id' => $this->product('Sil Test Tuğla', 'adet')->id, 'quantity' => 1000, 'unit_price' => 8.5],
+            ['product_id' => $this->product('Sil Test Çimento', 'torba')->id, 'quantity' => 100, 'unit_price' => 125]], ['project_id' => null]);
         AgreementDesk::deliver($this->party, Agreement::DIRECTION_PURCHASE, [['agreement_item_id' => $a->items[0]->id, 'quantity' => 200]], now()->toDateString());
         $purchase = Purchase::where('party_id', $this->party->id)->sole();
+        $nakliye = $this->product('Sil Test Nakliye');
 
         $page = \Livewire\Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $this->party->getRouteKey()]);
         $page->assertDontSee('/admin/purchases/' . $purchase->id)
             ->assertSeeHtml("mountAction('editPurchase', { purchase: " . $purchase->id . ' })');
 
-        $page->mountAction('editPurchase', ['purchase' => $purchase->id])
-            ->set('mountedActions.0.data.project_id', $this->cumhuriyet->id)
-            ->callMountedAction();
-        $purchase->refresh();
-        $this->assertSame($this->cumhuriyet->id, (int) $purchase->project_id);
-        $this->assertSame($this->cumhuriyet->id, (int) $purchase->lines()->sole()->project_id);
-        $this->assertSame($this->cumhuriyet->id, (int) PartyLedgerEntry::where('purchase_id', $purchase->id)->sole()->project_id);
-        $this->assertEqualsWithDelta(200, $a->fresh()->loadForCard()->items[0]->deliveredQuantity(), 0.001); // anlaşma bağı korundu
+        $page->mountAction('editPurchase', ['purchase' => $purchase->id]);
+        $rows = $page->instance()->mountedActions[0]['data']['agreement_lines'];
+        $keys = array_keys($rows);
+        $this->assertTrue($rows[$keys[0]]['take']);                      // bu alıştaki tuğla işaretli, miktarıyla
+        $this->assertEqualsWithDelta(200, (float) $rows[$keys[0]]['quantity'], 0.001);
+        $this->assertFalse($rows[$keys[1]]['take']);                     // çimento açık kalem, işaretsiz
+        $page->set("mountedActions.0.data.agreement_lines.{$keys[1]}.take", true)
+            ->set("mountedActions.0.data.agreement_lines.{$keys[1]}.quantity", '10')
+            ->set('mountedActions.0.data.lines', [['product_id' => $nakliye->id, 'quantity' => '1', 'unit_price' => '500,00']])
+            ->callMountedAction()->assertHasActionErrors(['project_id']);   // proje boş (Genel de seçilmeli)
+        $page->set('mountedActions.0.data.project_id', $this->cumhuriyet->id)->callMountedAction()->assertHasNoActionErrors();
 
-        $page->callAction('editPurchase', arguments: ['purchase' => $purchase->id, 'delete' => true]);
+        $purchase->refresh();
+        $items = $a->fresh()->loadForCard()->items;
+        $this->assertEqualsWithDelta(200, $items[0]->deliveredQuantity(), 0.001);
+        $this->assertEqualsWithDelta(10, $items[1]->deliveredQuantity(), 0.001);
+        $this->assertNull($purchase->lines()->where('product_id', $nakliye->id)->sole()->agreement_item_id); // anlaşma dışı
+        $this->assertEqualsWithDelta(1700 + 1250 + 500, $purchase->total_amount, 0.01);
+        $this->assertSame($this->cumhuriyet->id, (int) $purchase->project_id);
+        $this->assertSame($this->cumhuriyet->id, (int) PartyLedgerEntry::where('purchase_id', $purchase->id)->sole()->project_id);
+
+        // İşaret kaldırılınca anlaşmaya geri döner
+        $page->mountAction('editPurchase', ['purchase' => $purchase->id]);
+        $keys = array_keys($page->instance()->mountedActions[0]['data']['agreement_lines']);
+        $page->set("mountedActions.0.data.agreement_lines.{$keys[0]}.take", false)->callMountedAction()->assertHasNoActionErrors();
+        $this->assertEqualsWithDelta(0, $a->fresh()->loadForCard()->items[0]->deliveredQuantity(), 0.001);
+
+        $page->callAction('deleteDocument', arguments: ['purchase' => $purchase->id]);
         $this->assertNull(Purchase::find($purchase->id));
         $this->assertSame(0.0, $this->balance());
-        $this->assertEqualsWithDelta(0, $a->fresh()->loadForCard()->items[0]->deliveredQuantity(), 0.001);
+        $this->assertEqualsWithDelta(0, $a->fresh()->loadForCard()->items[1]->deliveredQuantity(), 0.001);
     }
 
     /** Anlaşmanın projesi sonradan (kullanıcı 22.10: "proje seçmemişim") — "gelen malları da taşı" ile önceki teslimat da taşınır. */

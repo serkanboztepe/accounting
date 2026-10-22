@@ -236,11 +236,13 @@ class Purchase extends Model
      * Kalemleri stok girişine + cari satırlarına dönüştürür (tek doğruluk noktası). Düzenlemede eski
      * kalemler silinip yeniden yazılır. $lines: [['product_id'=>, 'quantity'=>, 'unit_price'=>, 'amount'=>], ...]
      */
-    public function rebuildFromLines(array $lines): void
+    /** $keepAgreementLinks=false: satırlar anlaşma bağını kendisi taşır (cari ekstresindeki sekmeli düzenleme) — eski bağ uygulanmaz. */
+    public function rebuildFromLines(array $lines, bool $keepAgreementLinks = true): void
     {
         $this->activityRemember(); // işlem geçmişi: düzenlemeden önceki hal (kalemler silinmeden)
         // Düzenleme formu anlaşma bağını taşımaz: aynı ürünün eski bağı korunur (teslimat anlaşmadan kopmasın).
-        $agreementLinks = $this->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id', 'product_id');
+        $agreementLinks = $keepAgreementLinks
+            ? $this->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id', 'product_id') : collect();
         $this->lines()->delete();
 
         $total = 0.0;

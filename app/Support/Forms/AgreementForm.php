@@ -122,9 +122,10 @@ class AgreementForm
      * Açık kalem yoksa bileşenler AYNEN döner (pencere bugünkü gibi). $keep: sekmelerin üstünde kalanlar (tarih, peşin).
      * fillForm değil default: pencerenin diğer alanlarının varsayılanları ezilmesin.
      */
-    public static function withAgreementTabs(array $components, string $direction, ?Party $party, array $keep = []): array
+    public static function withAgreementTabs(array $components, string $direction, ?Party $party, array $keep = [],
+        ?\Illuminate\Support\Collection $items = null, bool $projectField = true): array
     {
-        $items = $party && config('modules.agreements') ? AgreementDesk::openItems($party, $direction) : collect();
+        $items ??= $party && config('modules.agreements') ? AgreementDesk::openItems($party, $direction) : collect();
         if ($items->isEmpty()) {
             return $components;
         }
@@ -148,7 +149,7 @@ class AgreementForm
                         ->icon('heroicon-o-hand-raised')
                         // İşaretli kalem sayısı: öbür sekmeye geçince de kaydedileceği görünsün.
                         ->badge(fn (Get $get) => ($n = collect($get('agreement_lines') ?? [])->filter(fn ($l) => ! empty($l['take']))->count()) ?: null)
-                        ->schema(self::pendingFields($items, $isSale)),
+                        ->schema(self::pendingFields($items, $isSale, $projectField)),
                     Tab::make('Anlaşma dışı')
                         ->icon('heroicon-o-pencil-square')
                         ->schema($rest),
@@ -156,7 +157,7 @@ class AgreementForm
         ];
     }
 
-    private static function pendingFields($items, bool $isSale): array
+    private static function pendingFields($items, bool $isSale, bool $projectField = true): array
     {
         return array_values(array_filter([
             Repeater::make('agreement_lines')
@@ -199,7 +200,7 @@ class AgreementForm
 
             // Projesiz (Genel) anlaşmadan gelen mal: proje SEÇİLMEDEN kaydedilmez — "Anlaşmadaki proje" sessizce Genel oluyordu
             // (firma 7 22.10: iki projelik seramik anlaşması, 85.710 ₺ teslimat Genel'e gitti). Genel de açık seçenek.
-            config('modules.projects') ? Select::make('agreement_project')
+            $projectField && config('modules.projects') ? Select::make('agreement_project')
                 ->label(Labels::project())
                 ->options(fn (Get $get) => (self::takenWithoutProject($get) ? [] : ['agreement' => 'Anlaşmadaki ' . mb_strtolower(Labels::project())])
                     + Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id')->all()
@@ -209,15 +210,99 @@ class AgreementForm
                 ->validationMessages(['required' => 'Bu anlaşmanın projesi yok — malın geldiği projeyi seç (ya da Genel).'])
                 ->visible(fn (Get $get) => self::anyTaken($get)) : null,
 
-            Toggle::make('agreement_price_to_rest')
+            $projectField ? Toggle::make('agreement_price_to_rest')
                 ->label('Fiyatı değiştirdiysem kalanlar da yeni fiyattan')
                 ->helperText('Kapalıysa yeni fiyat yalnız bu teslimatta geçer.')
-                ->visible(fn (Get $get) => self::anyTaken($get)),
+                ->visible(fn (Get $get) => self::anyTaken($get)) : null,
         ]));
     }
 
     /** Pencerede anlaşma kalemi işaretlendi mi? (alt kısmın tutar/ürün zorunluluğu o zaman düşer) */
     public const GENERAL = 'general';
+
+    /**
+     * Alış düzenleme (cari ekstresi, kullanıcı 22.10: "alım yapın aynısı olsun, anlaşmadan olanlar seçili gelsin"): bu alışa bağlı
+     * kalemler + carinin açık kalemleri. Bağlı kalem kapanmış olsa da listede (işaretini kaldırınca anlaşmaya geri döner).
+     */
+    public static function purchaseEditItems(\App\Models\Purchase $purchase): \Illuminate\Support\Collection
+    {
+        $linked = AgreementItem::with(['agreement.project', 'product.unit', 'movements'])
+            ->whereIn('id', $purchase->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id'))->get();
+        $open = $purchase->party ? AgreementDesk::openItems($purchase->party, Agreement::DIRECTION_PURCHASE) : collect();
+
+        return $linked->concat($open)->unique('id')->sortBy('id')->values();
+    }
+
+    /** Sekmeli düzenlemenin dolu hâli: bağlı kalemler işaretli + bu alıştaki miktar/fiyat; anlaşma dışı satırlar "lines"ta. */
+    public static function purchaseEditFill(\App\Models\Purchase $purchase, \Illuminate\Support\Collection $items): array
+    {
+        $moves = $purchase->lines()->orderBy('id')->get();
+        $byItem = $moves->whereNotNull('agreement_item_id')->groupBy('agreement_item_id');
+
+        return [
+            'agreement_lines' => $items->map(function (AgreementItem $i) use ($byItem) {
+                $rows = $byItem->get($i->id);
+                $price = $rows?->first()?->unit_price ?? $i->unit_price;
+
+                return [
+                    'agreement_item_id' => $i->id,
+                    'is_lump'           => $i->is_lump,
+                    'take'              => $rows !== null,
+                    'quantity'          => $rows && ! $i->is_lump ? number_format((float) $rows->sum('quantity'), 2, '.', '') : null,
+                    'unit_price'        => $i->is_lump || $price === null ? null : Money::format((float) $price),
+                    'amount'            => $rows && $i->is_lump ? Money::format((float) $rows->sum('amount')) : null,
+                ];
+            })->values()->all(),
+            'lines' => $moves->whereNull('agreement_item_id')->map(fn ($m) => [
+                'product_id' => $m->product_id,
+                'quantity'   => number_format((float) $m->quantity, 2, '.', ''),
+                'unit_price' => $m->unit_price !== null ? Money::format((float) $m->unit_price) : null,
+                'amount'     => $m->amount !== null ? Money::format((float) $m->amount) : null,
+            ])->values()->all(),
+        ];
+    }
+
+    /** İşaretli anlaşma satırları → alış satırları (anlaşma bağıyla; götürüde miktar = tutar ÷ toplam, AgreementDesk::deliver gibi). */
+    public static function agreementLinesToPurchaseLines(array $taken, int $partyId): array
+    {
+        $out = [];
+        foreach ($taken as $l) {
+            $item = AgreementItem::with('agreement')->find($l['agreement_item_id'] ?? null);
+            if (! $item || $item->agreement->party_id !== $partyId || $item->agreement->direction !== Agreement::DIRECTION_PURCHASE) {
+                continue;
+            }
+            if ($item->is_lump) {
+                $amount = Money::parse($l['amount'] ?? null);
+                $total = (float) $item->unit_price;
+                if ($amount > 0) {
+                    $out[] = ['product_id' => $item->product_id, 'quantity' => max($total > 0 ? round($amount / $total, 2) : 1.0, 0.01),
+                        'unit_price' => null, 'amount' => $amount, 'agreement_item_id' => $item->id];
+                }
+
+                continue;
+            }
+            $qty = (float) str_replace(',', '.', (string) ($l['quantity'] ?? 0));
+            if ($qty > 0) {
+                $out[] = ['product_id' => $item->product_id, 'quantity' => $qty, 'agreement_item_id' => $item->id,
+                    // rebuildFromLines Money::parse eder — ham "565.00" nokta binlik sanılmasın.
+                    'unit_price' => blank($l['unit_price'] ?? null) ? Money::format((float) $item->unit_price) : $l['unit_price']];
+            }
+        }
+
+        return $out;
+    }
+
+    /** Proje seçimi zorunlu, "Genel (projesiz)" açık seçenek (kullanıcı 22.10: "genel ise bile seçtirmek lazım, gözümden kaçabilir"). */
+    public static function requiredProjectSelect(string $name): Select
+    {
+        return Select::make($name)
+            ->label(fn () => Labels::project())
+            ->options(fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id')->all()
+                + [self::GENERAL => 'Genel (projesiz)'])
+            ->required(fn () => (bool) config('modules.projects'))
+            ->validationMessages(['required' => 'Projeyi seç (ya da Genel).'])
+            ->visible(fn () => (bool) config('modules.projects'));
+    }
 
     /** İşaretli kalemlerden biri projesiz anlaşmada mı. */
     private static function takenWithoutProject(Get $get): bool
