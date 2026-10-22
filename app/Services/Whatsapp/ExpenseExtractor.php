@@ -152,7 +152,9 @@ class ExpenseExtractor
             . 'olarak oku ve `pages_related` doldur. Açık anlaşma taslağına yeni sayfa geldiyse `continues_agreement` doldur; devamıysa '
             . 'YALNIZ bu sayfadaki kalemleri / ödemeleri / notları yaz (taslaktakileri tekrarlama). Konuşma geçmişindeki ESKİ anlaşma '
             . 'kayıtlarına dayanarak "o anlaşmaya mı eklensin" diye SORMA (silinmiş olabilir) — yalnız AÇIK ANLAŞMALAR listesindeki gerçek '
-            . 'kayıtlar vardır. Aynı cariyle açık anlaşma varsa "yerine mi ayrı mı" diye SORMA (sistem kendisi sorar); vadesi geçmiş '
+            . 'kayıtlar vardır. Kullanıcı açık sözleşme kartına "X alacaklıyız / X kaldı / kalanı şu" derse bu ESKİ sözleşmedir: '
+            . '`remaining_only`=true, agreement_items YALNIZ kalan kalemler (miktarlı; fiyatı söylemediyse unit_price null — sistem sözleşme '
+            . 'listesinden bulur), ödeme yazma (sistem kalanın değerini önceden ödendi sayar); fiyat SORMA. Aynı cariyle açık anlaşma varsa "yerine mi ayrı mı" diye SORMA (sistem kendisi sorar); vadesi geçmiş '
             . 'çeklerin ödenip ödenmediğini de SORMA (sistem sorar). '
             . 'amount = anlaşılan toplam (miktarlı + götürü; fiyat listesi 0). description = kısa ad ("Seramik ve vitrifiye", "Mermer işçiliği"). '
             . 'date = anlaşma/belge tarihi.',
@@ -856,6 +858,8 @@ class ExpenseExtractor
                 'description' => 'Only for kind=agreement: construction sites / projects named in the document that are NOT in PROJELER (short names, e.g. "Cumhuriyet Mah. 6 daire"); empty if none'],
             'continues_agreement' => ['type' => ['boolean', 'null'],
                 'description' => 'Only when an open agreement draft is given and a new page arrives: true = this page belongs to the SAME document/agreement (other page, payment page); false = a different document; null = cannot tell'],
+            'remaining_only' => ['type' => ['boolean', 'null'],
+                'description' => 'Only for kind=agreement: true when the user says this is an OLD contract and only the REMAINING goods/work are still owed ("3 bodrum kapısı 5 iç kapı alacaklıyız", "geriye 200 m² kaldı", "kalanı şu") — then agreement_items = ONLY the remaining items with quantity (unit_price only if the user says it), no payments'],
             'pages_related' => ['type' => ['boolean', 'null'],
                 'description' => 'Only when several images are sent together: true = all pages belong to one document; false = unrelated documents'],
             'document_total' => ['type' => ['number', 'null'],

@@ -520,6 +520,45 @@ class WhatsappAgreementTest extends TestCase
         $this->assertSame(2, Agreement::where('party_id', $party->id)->where('status', Agreement::STATUS_OPEN)->count());
     }
 
+    /**
+     * Eski sözleşmeden kalan (22.10 Gül Mobilya): tam sözleşme kartına "3 bodrum kapısı 5 iç kapı alacaklıyız" → TEK hamle: yalnız kalan
+     * kalemler, fiyat sözleşme listesinden (kapı ↔ PVC kapı 6.500), eski nakit/çek yok, belge toplamı/vadesi geçmiş çek sorulmaz,
+     * "Önceden ödendi: 52.000"; kayıtta bakiye 52.000, çek yok.
+     */
+    public function test_old_contract_remaining_items_in_one_step(): void
+    {
+        $this->travelTo('2026-10-22 15:38');
+        $list = [['description' => 'WAA24 Bute beyaz PVC kapı', 'unit' => 'adet', 'unit_price' => 6500],
+            ['description' => 'WAA24 Beyaz akrilik mutfak dolabı', 'unit' => 'mt', 'unit_price' => 6500]];
+        $this->ai(
+            $this->agreement(['party_name' => 'WA Anlaşma Gül', 'project_id' => $this->project(), 'date' => '2026-01-23', 'document_total' => 1100000,
+                'agreement_items' => $list, 'agreement_payments' => [['method' => 'cash', 'amount' => 50000],
+                    ['method' => 'check', 'amount' => 350000, 'due_date' => '2026-08-20'], ['method' => 'check', 'amount' => 350000, 'due_date' => '2026-09-20'],
+                    ['method' => 'check', 'amount' => 350000, 'due_date' => '2026-10-20']],
+                'unreadable' => ['Alt kısımdaki el yazısı not ("3 adet ...", "5 adet ...")']]),
+            $this->agreement(['party_name' => 'WA Anlaşma Gül', 'is_new_entry' => false, 'remaining_only' => true,
+                'agreement_items' => [['description' => 'Bodrum kapısı', 'quantity' => 3, 'unit' => 'adet'],
+                    ['description' => 'İç kapı', 'quantity' => 5, 'unit' => 'adet']]]),
+        );
+
+        $this->sendPhoto();
+        $card = $this->send('3 Bodrum kapısı 5 iç kapı alacaklıyız');
+        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Gül (yeni cari) · *eski sözleşmeden kalan*', $card);
+        $this->assertStringContainsString('• Bodrum kapısı 3 adet × 6.500,00 = 19.500,00', $card);
+        $this->assertStringContainsString('• İç kapı 5 adet × 6.500,00 = 32.500,00', $card);
+        $this->assertStringContainsString('💸 Önceden ödendi: 52.000,00', $card);
+        $this->assertStringNotContainsString('PVC kapı', $card);
+        $this->assertStringNotContainsString('çek', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);                     // fiyat / sağlama / vade sorusu yok
+
+        $done = $this->send('evet');
+        $this->assertStringContainsString('52.000,00 ₺ önceden ödenmiş olarak WA Anlaşma Gül hesabına yazıldı', $done);
+        $party = Party::where('name', 'WA Anlaşma Gül')->sole();
+        $this->assertEqualsWithDelta(52000, PartyStatement::build($party)['balance'], 0.01);
+        $this->assertSame(0, Check::where('party_id', $party->id)->count());
+        $this->assertCount(2, Agreement::where('party_id', $party->id)->sole()->items);
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {

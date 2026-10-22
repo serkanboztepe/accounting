@@ -2818,10 +2818,18 @@ class WhatsappWebhookController extends Controller
     {
         if ($pending && AgreementDraft::handles($pending->extracted)) {
             $prev = $pending->extracted;
-            $data['agreement_items'] = AgreementDraft::mergeItems($prev['agreement_items'] ?? [], $data['agreement_items'] ?? []);
-            if (empty($data['agreement_payments']) && ! empty($prev['agreement_payments'])) {
-                $data['agreement_payments'] = $prev['agreement_payments'];
+            // "3 bodrum kapısı 5 iç kapı alacaklıyız" (22.10 Gül Mobilya): eski sözleşme, yalnız KALAN — kalemler cevaptakiler
+            // (birleştirilmez), eski ödemeler alınmaz; sözleşmenin fiyat listesi fiyat bulmak için saklanır (applyRemaining).
+            if (! empty($data['remaining_only']) && empty($prev['remaining_only'])) {
+                $data['contract_items'] = $prev['agreement_items'] ?? [];
+            } else {
+                $data['agreement_items'] = AgreementDraft::mergeItems($prev['agreement_items'] ?? [], $data['agreement_items'] ?? []);
+                if (empty($data['agreement_payments']) && ! empty($prev['agreement_payments'])) {
+                    $data['agreement_payments'] = $prev['agreement_payments'];
+                }
             }
+            $data['remaining_only'] = ! empty($data['remaining_only']) || ! empty($prev['remaining_only']);
+            $data['contract_items'] = $data['contract_items'] ?? $prev['contract_items'] ?? null;
             // Kişi: cevapta yeni ad söylendiyse o ("Hüseyin Yılmaz yeni cari"); hiç kişi yoksa öncekisi.
             if (empty($data['party_id']) && trim((string) ($data['party_name'] ?? '')) === '') {
                 $data['party_id'] = $prev['party_id'] ?? null;
@@ -2852,7 +2860,7 @@ class WhatsappWebhookController extends Controller
                 $data['project_choice_done'] = ! empty($prev['project_choice_done']);
             }
         }
-        $data = AgreementDraft::applyCheckPlan($data);
+        $data = AgreementDraft::applyCheckPlan(AgreementDraft::applyRemaining($data));
         $question = AgreementDraft::question($data);
         $data['question'] = $question;
         // Proje menüsü yalnız sorular bitince (numara cevabı soruyla karışmasın).

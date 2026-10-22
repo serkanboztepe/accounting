@@ -330,8 +330,8 @@ class AgreementDesk
                     'check_number'         => $p['check_number'] ?? null,
                     'check_due_date'       => $due,
                     'entry_date'           => $p['paid_date'] ?? null,
-                    'note'                 => $method === 'promissory_note' && $due
-                        ? 'Senet, vade ' . \Carbon\Carbon::parse($due)->format('d.m.Y') : null,
+                    'note'                 => $p['note'] ?? ($method === 'promissory_note' && $due
+                        ? 'Senet, vade ' . \Carbon\Carbon::parse($due)->format('d.m.Y') : null),
                 ]);
             }
         });

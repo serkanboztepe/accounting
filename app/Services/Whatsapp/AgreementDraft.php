@@ -96,6 +96,8 @@ class AgreementDraft
             // Belgede geçen ama sistemde olmayan şantiyeler — kayıttan sonra "proje olarak açayım mı?" (PartyInfoDraft).
             'new_projects'        => array_slice(array_values(array_unique(array_filter(array_map(fn ($n) => is_string($n) ? mb_substr(trim($n), 0, 80) : '',
                 (array) ($input['new_projects'] ?? []))))), 0, 5),
+            // Eski sözleşme, yalnız kalan mal/iş ("X alacaklıyız", "X kaldı") — applyRemaining.
+            'remaining_only'      => ! empty($input['remaining_only']),
             // Açık anlaşma kartına gelen sayfa: aynı belgenin devamı mı (true / false / null = emin değil).
             'continues_agreement' => isset($input['continues_agreement']) && is_bool($input['continues_agreement']) ? $input['continues_agreement'] : null,
             // Birlikte gönderilen sayfalar aynı belge mi (çok görselli okuma).
@@ -454,6 +456,56 @@ class AgreementDraft
         return ! empty($d['party_id']) && ($p = Party::find($d['party_id'])) ? $p->name : trim((string) ($d['party_name'] ?? ''));
     }
 
+    /**
+     * Eski sözleşmeden KALAN (kullanıcı 22.10 Gül Mobilya: "3 bodrum kapısı 5 iç kapı alacaklıyız" — tam sözleşme 1.100.000 ödendi
+     * yazılıp bakiye 1 milyon şişecekti; fiyat iki kez, sağlama bir kez soruldu): yalnız kalan kalemler; fiyatı yoksa sözleşmenin
+     * fiyat listesinden benzer kalemin fiyatı (kapısı ↔ PVC kapı); eski ödemeler/çekler/belge toplamı yok sayılır; kalanın değeri
+     * "önceden ödendi" (devir — kullanıcı kuralı: devir ödenmiş sayılır).
+     */
+    public static function applyRemaining(array $d): array
+    {
+        if (empty($d['remaining_only'])) {
+            return $d;
+        }
+        $list = array_values(array_filter([...($d['contract_items'] ?? []), ...($d['agreement_items'] ?? [])],
+            fn ($i) => ($i['unit_price'] ?? null) !== null && ($i['quantity'] ?? null) === null));
+        $items = [];
+        foreach ($d['agreement_items'] ?? [] as $item) {
+            if ($item['quantity'] === null && $item['amount'] === null) {
+                continue; // sözleşmenin fiyat listesi — kalan değil
+            }
+            if ($item['unit_price'] === null && $item['amount'] === null && ($match = self::similarItem($item['description'], $list))) {
+                $item['unit_price'] = $match['unit_price'];
+            }
+            $items[] = $item;
+        }
+        $d['agreement_items'] = $items;
+        $total = self::agreedTotal($items);
+        $d['agreement_payments'] = $total > 0
+            ? [['method' => 'cash', 'amount' => $total, 'paid_date' => null, 'due_date' => null, 'check_number' => null, 'note' => 'Önceden ödendi']]
+            : [];
+        $d['has_payments'] = false;
+        $d['total_ok'] = true;           // belge toplamı (tüm sözleşme) kalanla karşılaştırılmaz
+        $d['check_plan'] = null;
+        $d['past_checks'] = null;
+
+        return $d;
+    }
+
+    /** Sözleşme listesinde adı benzeyen fiyatlı kalem ("Bodrum kapısı" ↔ "Bute beyaz PVC kapı": ortak kök "kapı"). */
+    private static function similarItem(string $name, array $list): ?array
+    {
+        $stems = fn (string $s) => array_map(fn ($w) => mb_substr($w, 0, 4), array_filter(PartyNameCheck::words($s), fn ($w) => mb_strlen($w) >= 4));
+        $mine = $stems($name);
+        foreach ($list as $candidate) {
+            if (array_intersect($mine, $stems($candidate['description'])) !== []) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
     /** "not" cevabı: okunamayan maddeler olduğu gibi anlaşma notuna, sonra "geç" gibi. */
     public static function noteUnreadable(array $d): array
     {
@@ -515,7 +567,8 @@ class AgreementDraft
     {
         $isSale = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
         $party = self::partyName($d);
-        $lines = ['🤝 *Anlaşma* — ' . $party . ($isSale ? ' (satış)' : '') . ((int) ($d['pages'] ?? 1) > 1 ? ' · 📄 ' . $d['pages'] . ' sayfa' : '')];
+        $lines = ['🤝 *Anlaşma* — ' . $party . ($isSale ? ' (satış)' : '')
+            . (! empty($d['remaining_only']) ? ' · *eski sözleşmeden kalan*' : ((int) ($d['pages'] ?? 1) > 1 ? ' · 📄 ' . $d['pages'] . ' sayfa' : ''))];
 
         $items = $d['agreement_items'] ?? [];
         foreach (array_slice($items, 0, self::MAX_CARD_ITEMS) as $item) {
@@ -531,7 +584,9 @@ class AgreementDraft
         }
         // Ödeme satırı hep görünür — yoksa "yok" (22.10: ödeme düştüğünde kartta fark edilmiyordu). İleri tarihli nakit ayrı: plan.
         [$now, $planned] = self::splitPlanned($d['agreement_payments'] ?? []);
-        if (($d['past_checks'] ?? null) === 'paid' && ($past = self::pastChecks($d)) !== []) {
+        if (! empty($d['remaining_only'])) {
+            $lines[] = '💸 Önceden ödendi: ' . ($now !== [] ? Money::format(array_sum(array_column($now, 'amount'))) : 'yok');
+        } elseif (($d['past_checks'] ?? null) === 'paid' && ($past = self::pastChecks($d)) !== []) {
             // "💸 Ödeme: 4 çek 3.000.000 ödendi · 1 çek 750.000 (vade 30.12.2026)"
             $rest = array_values(array_filter($now, fn ($p) => ! in_array($p, $past, true)));
             $lines[] = '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': ' . count($past) . ' çek ' . Money::format(array_sum(array_column($past, 'amount')))
@@ -615,7 +670,8 @@ class AgreementDraft
 
         $paid = array_sum(array_column($now, 'amount'));
         $text = '✅ Anlaşma kaydedildi: *' . $agreement->title . '*'
-            . ($paid > 0 ? "\n💸 " . Money::format($paid) . ' ₺ ödeme ' . $party->name . ($isSale ? ' hesabından düşüldü.' : ' hesabına yazıldı.') : '')
+            . ($paid > 0 ? "\n💸 " . Money::format($paid) . ' ₺ ' . (! empty($d['remaining_only']) ? 'önceden ödenmiş olarak ' : 'ödeme ')
+                . $party->name . ($isSale ? ' hesabından düşüldü.' : ' hesabına yazıldı.') : '')
             . ($planned !== [] && $phone !== null ? "\n⏰ " . count($planned) . ' ödeme hatırlatması kuruldu (ilki '
                 . Carbon::parse(min(array_map(fn ($p) => $p['paid_date'] ?? $p['due_date'], $planned)))->format('d.m.Y') . ').' : '')
             . ($replaced->isNotEmpty() ? "\n🔒 Eski anlaşma kapandı: " . $replaced->pluck('title')->implode(', ') . '.' : '')
