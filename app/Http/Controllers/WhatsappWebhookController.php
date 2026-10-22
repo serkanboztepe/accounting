@@ -506,8 +506,10 @@ class WhatsappWebhookController extends Controller
         }
 
         // "çekler" — vadesi yaklaşan çek listesi (hatırlatmanın devamı). AI'sız, doğrudan veriden.
+        // Tek "çek" bekleyen sorunun cevabı olabilir (firma 7 22.10: "el yazısı kelime çek mi?" → "çek" → çek listesi geldi) — o zaman komut değil.
         if ($numMedia === 0 && config('modules.checks')
-            && in_array($this->word($body), ['çekler', 'cekler', 'çeklerim', 'ceklerim', 'çek', 'cek'], true)) {
+            && in_array($this->word($body), ['çekler', 'cekler', 'çeklerim', 'ceklerim', 'çek', 'cek'], true)
+            && ! (in_array($this->word($body), ['çek', 'cek'], true) && $this->draftAsking($phone))) {
             $this->inboundKind = 'checks';
 
             return $this->twiml(CheckReminders::listText());
@@ -1363,6 +1365,14 @@ class WhatsappWebhookController extends Controller
         return "✅ *Kaydedildi*\n" . $card . ($rest !== '' ? "\n\n" . $rest : '') . "\n\nYanlışsa düzeltmeyi yaz ya da *geri al*.";
     }
 
+    /** Bu numarada soru soran (cevap bekleyen) bir taslak var mı. */
+    private function draftAsking(string $phone): bool
+    {
+        $draft = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first();
+
+        return $draft !== null && ! empty($draft->extracted['question']);
+    }
+
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
         $out = $this->saveDraftInner($pending, $phone, $data, $mediaUrl);
@@ -1375,8 +1385,10 @@ class WhatsappWebhookController extends Controller
         }
         $out = $this->fastSave($out, $phone);
         // Doğal konuşma (modül): taslak özetini AI insan gibi yazar; rakam güvenliği tutmazsa kalıp aynen gider.
+        // Anlaşma kartı hariç: numaralı seçenek + "okuyamadım" sorusu yeniden yazılınca bozuluyordu (firma 7 22.10: "çek mi, yoksa geç mi diyeyim?").
         if (is_string($out) && NaturalVoice::enabled() && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
             && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
+            && ! AgreementDraft::handles($open->extracted) && ! AgreementDeliveryDraft::handles($open->extracted)
             && trim((string) $open->summary) !== '' && str_contains($out, trim((string) $open->summary))) {
             $out = NaturalVoice::render($out, $this->inboundBody, (float) ($open->extracted['amount'] ?? 0) ?: null);
         }

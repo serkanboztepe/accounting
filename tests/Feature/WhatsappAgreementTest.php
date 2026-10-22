@@ -268,6 +268,22 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringNotContainsString('Kalemleri topladım', $this->sendPhoto());
     }
 
+    /** Firma 7 22.10: "el yazısı kelime çek mi?" sorusuna "çek" → çek listesi geldi. Soru bekleyen taslakta tek "çek" cevaptır. */
+    public function test_cek_answer_to_question_is_not_check_list_command(): void
+    {
+        config(['modules.checks' => true]);
+        $items = [['description' => 'WAA13 Core', 'unit_price' => 565]];
+        $this->ai(
+            $this->agreement(['party_name' => 'WA Anlaşma Çek', 'project_id' => $this->project(), 'agreement_items' => $items,
+                'unreadable' => ['"2. aydan 12. aya" sonundaki el yazısı kelime (çek mi?)']]),
+            $this->agreement(['party_name' => 'WA Anlaşma Çek', 'project_id' => $this->project(), 'is_new_entry' => false, 'agreement_items' => $items]),
+        );
+        $this->sendPhoto();
+        $card = $this->send('çek');
+        $this->assertStringNotContainsString('vadesi gelen çekin yok', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {

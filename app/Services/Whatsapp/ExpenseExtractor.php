@@ -105,7 +105,8 @@ class ExpenseExtractor
     private const KIND_HINTS = [
         self::KIND_AGREEMENT_QUERY => '- "agreement_query": anlaşmanın durumu SORULUYOR, kayıt yok ("fayansta ne kaldı", "kuşaktan ne kadar beton gelecek", '
             . '"Ali Usta\'yla ne durumdayız", "anlaşmalarım"). Bir kalem/mal soruluyorsa `query_item_ids` = AÇIK ANLAŞMALAR\'daki ilgili '
-            . 'kalemlerin id\'leri; bir kişi soruluyorsa party_id; ikisi de yoksa (tüm anlaşmalar) boş. amount=0.',
+            . 'kalemlerin id\'leri; bir kişi soruluyorsa party_id; ikisi de yoksa (tüm anlaşmalar) boş. amount=0. Çek soruları ("tüm çeklerim", '
+            . '"vadesi gelen çekler", "hangi çekler var") agreement_query DEĞİL — çek kayıtlarından cevaplanır.',
         self::KIND_AGREEMENT_DELIVERY => '- "agreement_delivery": AÇIK ANLAŞMALAR listesindeki bir cariden o kalemin malı GELDİ / işi YAPILDI (alış) ya da '
             . 'ona TESLİM EDİLDİ (satış): "Kuşaktan 44,5 m³ beton geldi", "Ali Usta tesisatın yarısını bitirdi", "5 bin tuğla geldi". Her gelen '
             . 'kalem için `delivery_lines`: agreement_item_id (listeden), quantity (miktarlı / fiyat listesi kalemde gelen miktar), amount (YALNIZ '
