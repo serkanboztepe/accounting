@@ -273,6 +273,7 @@ class AgreementDeliveryDraft
         // Seçilen proje · menüden "0 = Genel" · yoksa her kalem kendi anlaşmasının projesine.
         $project = match (true) {
             ! empty($d['project_id']) && Project::whereKey($d['project_id'])->exists() => (int) $d['project_id'],
+            ! empty($d['project_name']) => Project::firstOrCreate(['name' => trim($d['project_name'])], ['status' => 'active'])->id,
             ! empty($d['project_choice_done']) => null,
             default => 'agreement',
         };

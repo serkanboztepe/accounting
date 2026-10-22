@@ -336,6 +336,17 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('bahçe duvarı', $notes);
     }
 
+    /** Kartta "🏗 Proje: X (yeni)" → kayıtta proje açılır ve anlaşma ona bağlanır (22.10 İşbilir Elektrik: proje açılmadı, Genel kaldı). */
+    public function test_new_project_name_is_created_on_save(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Elektrik', 'project_name' => 'WAA Cumhuriyet 50 ada 6 parsel',
+            'agreement_items' => [['description' => 'WAA20 Elektrik işleri', 'amount' => 600000]]]));
+        $this->assertStringContainsString('🏗 Proje: WAA Cumhuriyet 50 ada 6 parsel (yeni)', $this->sendPhoto());
+        $this->send('evet');
+        $a = Agreement::whereHas('party', fn ($q) => $q->where('name', 'WA Anlaşma Elektrik'))->sole();
+        $this->assertSame('WAA Cumhuriyet 50 ada 6 parsel', $a->project?->name);
+    }
+
     /** Belgedeki telefon/adres: kayıttan sonra "cari kartına yazayım mı?" — *evet* yazar, *iptal* yazmaz, başka mesaj soruyu kapatır. */
     public function test_party_info_offered_after_save(): void
     {

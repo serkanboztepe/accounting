@@ -487,10 +487,15 @@ class AgreementDraft
             };
         }
 
+        // Kartta "🏗 Proje: X (yeni)" görünen proje açılır (22.10: İşbilir Elektrik — kartta yeni proje, kayıt projesiz kaldı).
+        $projectId = $d['project_id'] ?? null;
+        if ($projectId === null && ! empty($d['project_name'])) {
+            $projectId = \App\Models\Project::firstOrCreate(['name' => trim($d['project_name'])], ['status' => 'active'])->id;
+        }
         $agreement = AgreementDesk::create($party, [
             'direction'      => $isSale ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE,
             'agreement_date' => self::date($d['date'] ?? null) ?? now()->toDateString(),
-            'project_id'     => $d['project_id'] ?? null,
+            'project_id'     => $projectId,
             'title'          => self::title($d),
             'lines'          => $lines,
             'notes'          => $d['agreement_notes'] ?? null,
