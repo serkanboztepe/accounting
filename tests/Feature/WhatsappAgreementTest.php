@@ -345,6 +345,7 @@ class WhatsappAgreementTest extends TestCase
         $this->sendPhoto();
         $done = $this->send('evet');
         $this->assertStringContainsString("📇 Belgede *WA Anlaşma Tel* telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok. var — cari kartına yazayım mı?", $done);
+        $this->assertStringNotContainsString('yarım kalan', $done);                            // soru yarım kayıt sanılmaz (22.10)
         $party = Party::where('name', 'WA Anlaşma Tel')->sole();
         $this->assertNull($party->phone);                                                      // sormadan yazmaz
 

@@ -130,7 +130,9 @@ final class DraftFollowUp
         return WhatsappPendingExpense::query()
             ->when($phone !== null, fn ($q) => $q->where('phone', $phone))
             ->where('status', 'awaiting_confirmation')
-            ->where('follow_ups', '<', self::MAX);
+            ->where('follow_ups', '<', self::MAX)
+            // "Cari kartına yazayım mı?" sorusu yarım kayıt değil (22.10: "Kayıt — Kamuran Narçin, tutar eksik" diye hatırlatıldı).
+            ->where('extracted', 'not like', '%"kind":"' . PartyInfoDraft::KIND . '"%');
     }
 
     /**
