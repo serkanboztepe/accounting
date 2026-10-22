@@ -127,7 +127,7 @@ class ExpenseExtractor
             . 'gün), due_date (çek/senet vadesi). Başkasından devir/takas/mahsup ("X\'ten devraldı") → method cash (nakit sayılır). '
             . 'Belgede/mesajda HERHANGİ bir ödeme geçiyorsa (tutarı okunamasa da) `has_payments`=true; meaning\'de anlattığın HER ödeme '
             . 'agreement_payments\'ta da satır olmalı. Çek/senet yanında TEK tarih varsa o VADEDİR (due_date) — "verildiği gün mü vade mi" '
-            . 'diye SORMA. Göreli vade ("2. ay", "3 ay sonra") → anlaşma tarihinden hesapla. Bekleyen anlaşma taslağına cevapta ödeme '
+            . 'diye SORMA. "2. ay", "ikinci ay", "12. aya" = TAKVİM AYI (2. ay = şubat, 12. ay = aralık; geçmişte kalıyorsa gelecek yıl) — göreli DEĞİL; yalnız "3 ay sonra" / "2 ay vadeli" göreli (anlaşma tarihinden). Bekleyen anlaşma taslağına cevapta ödeme '
             . 'değişiyorsa ("çekler iki adet") agreement_payments\'ın TAMAMINI yeni hâliyle yaz; tutarı söylenmeyen ödemeyi eşit bölerek '
             . 'TAHMİN ETME — unreadable\'a yaz. Çekler mesajda YA DA BELGEDE tek tek değil KURAL olarak yazılıysa ("şubattan itibaren 11 çek", "100\'er bin 10 çek", sözleşmede "2. aydan 12. aya vade") '
             . 'agreement_payments\'a çek satırı YAZMA — `check_plan` doldur (kod böler, tutarı sorar). El yazısıyla eklenen kalemin adı yanında yazandır ("nakliye"); "Ek kalem" gibi ad UYDURMA, '
