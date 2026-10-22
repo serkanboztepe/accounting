@@ -284,6 +284,148 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('Kaydedeyim mi?', $card);
     }
 
+    /**
+     * Kamuran 22.10: ödeme planı 9 × (750.000 çek + 600.000 nakit), tarihler 2027-28. Vadeli çek verilmiş sayılır; ileri tarihli nakit
+     * "ödendi" yazılmaz → tutarsız hatırlatma (gider oluşmaz). Geçmiş tarihli nakit eskisi gibi ödeme.
+     */
+    public function test_future_cash_becomes_reminders_checks_are_paid(): void
+    {
+        $this->travelTo('2026-10-22 12:00');
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Kamuran', 'project_id' => $this->project(), 'date' => '2026-09-26',
+            'agreement_items' => [['description' => 'WAA14 Alçı boya', 'unit_price' => 310]],
+            'agreement_payments' => [
+                ['method' => 'check', 'amount' => 750000, 'due_date' => '2027-05-30'],
+                ['method' => 'cash', 'amount' => 600000, 'paid_date' => '2027-05-30'],
+                ['method' => 'check', 'amount' => 750000, 'due_date' => '2027-06-30'],
+                ['method' => 'cash', 'amount' => 600000, 'paid_date' => '2027-06-30'],
+                ['method' => 'cash', 'amount' => 50000, 'paid_date' => '2026-09-26'],          // imzada verilen nakit — ödeme
+            ]]));
+
+        $card = $this->sendPhoto();
+        $this->assertStringContainsString('💸 Ödeme: 2 çek 1.500.000,00 (vade 30.05.2027 · 30.06.2027) · nakit 50.000,00', $card);
+        $this->assertStringContainsString('📅 Plan: 2 nakit 1.200.000,00 (30.05.2027 · 30.06.2027) — hatırlatma kurulur', $card);
+        $done = $this->send('evet');
+        $this->assertStringContainsString('⏰ 2 ödeme hatırlatması kuruldu (ilki 30.05.2027)', $done);
+
+        $party = Party::where('name', 'WA Anlaşma Kamuran')->sole();
+        $this->assertEqualsWithDelta(1550000, PartyStatement::build($party)['balance'], 0.01);   // yalnız çekler + imzadaki nakit
+        $this->assertSame(2, Check::where('party_id', $party->id)->count());
+        $reminders = \App\Models\Reminder::where('party_id', $party->id)->orderBy('event_date')->get();
+        $this->assertCount(2, $reminders);
+        $this->assertSame('2027-05-30', $reminders[0]->event_date->toDateString());
+        $this->assertNull($reminders[0]->amount);                                              // tutarsız: gider yazmaz
+        $this->assertStringContainsString("WA Anlaşma Kamuran'e 600.000,00 ₺ nakit ödeme", $reminders[0]->text);
+    }
+
+    /** Okunamayan yer → "not": olduğu gibi anlaşma notuna; belgedeki şartlar (agreement_notes) da notta. */
+    public function test_note_answer_writes_unreadable_into_agreement_notes(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Not', 'project_id' => $this->project(),
+            'agreement_notes' => 'Dış cephe mantolamada 300 m tül söve dahil',
+            'agreement_items' => [['description' => 'WAA15 Dış boya', 'unit_price' => 250]],
+            'unreadable' => ["Dış boya yanındaki el yazısı '? bahçe duvarı'"]]));
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('olduğu gibi nota yazayım dersen *not* yaz', $ask);
+        $this->assertStringContainsString('📝 Dış cephe mantolamada 300 m tül söve dahil', $ask);
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('not'));
+        $this->send('evet');
+
+        $notes = Agreement::whereHas('party', fn ($q) => $q->where('name', 'WA Anlaşma Not'))->sole()->notes;
+        $this->assertStringContainsString('300 m tül söve', $notes);
+        $this->assertStringContainsString('bahçe duvarı', $notes);
+    }
+
+    /** Belgedeki telefon/adres: kayıttan sonra "cari kartına yazayım mı?" — *evet* yazar, *iptal* yazmaz, başka mesaj soruyu kapatır. */
+    public function test_party_info_offered_after_save(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Tel', 'project_id' => $this->project(),
+            'party_phone' => '0543 960 92 17', 'party_address' => 'Ergenekon Mah. 136 Sok.',
+            'agreement_items' => [['description' => 'WAA16 Sıva', 'unit_price' => 250]]]));
+        $this->sendPhoto();
+        $done = $this->send('evet');
+        $this->assertStringContainsString("📇 Belgede *WA Anlaşma Tel* telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok. var — cari kartına yazayım mı?", $done);
+        $party = Party::where('name', 'WA Anlaşma Tel')->sole();
+        $this->assertNull($party->phone);                                                      // sormadan yazmaz
+
+        $this->assertStringContainsString('cari kartına yazıldı', $this->send('evet'));
+        $party->refresh();
+        $this->assertSame('0543 960 92 17', $party->phone);
+        $this->assertStringContainsString('Adres: Ergenekon Mah. 136 Sok.', $party->notes);
+    }
+
+    /** Birlikte gönderilen iki sayfa (Kamuran: 1 sn arayla): ilk sayfa anlaşma → sıradaki kardeş sayfa birlikte okunur, TEK kart. */
+    public function test_pages_sent_together_make_one_card(): void
+    {
+        $queueKey = \App\Tenancy\Tenancy::key('wa-photo-queue:' . \App\Support\Phone::normalize(self::PHONE));
+        \Illuminate\Support\Facades\Cache::put($queueKey, [['_queued_at' => microtime(true) + 1, 'From' => self::PHONE, 'Body' => '',
+            'NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/MEA2', 'MediaContentType0' => 'image/jpeg', 'MessageSid' => 'MMPAGE2']], now()->addHour());
+        $page1 = $this->agreement(['party_name' => 'WA Anlaşma İki Sayfa', 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA17 Alçı boya', 'unit_price' => 310]]]);
+        $both = $this->agreement(['party_name' => 'WA Anlaşma İki Sayfa', 'project_id' => $this->project(), 'pages_related' => true,
+            'agreement_items' => [['description' => 'WAA17 Alçı boya', 'unit_price' => 310]],
+            'agreement_payments' => [['method' => 'check', 'amount' => 750000, 'due_date' => '2027-05-30']]]);
+        $m = Mockery::mock(ExpenseExtractor::class);
+        $m->shouldReceive('extract')->withArgs(fn ($t, $img) => is_array($img) && array_is_list($img))->once()->andReturn($both);
+        $m->shouldReceive('extract')->andReturn($page1);
+        $this->app->instance(ExpenseExtractor::class, $m);
+
+        $card = $this->sendPhoto();
+        $this->assertStringContainsString('📄 2 sayfa', $card);
+        $this->assertStringContainsString('1 çek', str_replace('💸 Ödeme: çek', '1 çek', $card));
+        $this->assertSame([], (array) \Illuminate\Support\Facades\Cache::get($queueKey, []));            // kardeş sıradan alındı
+    }
+
+    /** Birlikte gönderilen sayfalar ilgisizse (pages_related=false) eskisi gibi: ilk kart, ikinci sırada. */
+    public function test_unrelated_pages_sent_together_stay_queued(): void
+    {
+        $queueKey = \App\Tenancy\Tenancy::key('wa-photo-queue:' . \App\Support\Phone::normalize(self::PHONE));
+        \Illuminate\Support\Facades\Cache::put($queueKey, [['_queued_at' => microtime(true) + 1, 'From' => self::PHONE, 'Body' => '',
+            'NumMedia' => 1, 'MediaUrl0' => 'https://api.twilio.com/media/MEA3', 'MediaContentType0' => 'image/jpeg', 'MessageSid' => 'MMPAGE3']], now()->addHour());
+        $page1 = $this->agreement(['party_name' => 'WA Anlaşma Tek', 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA18 Boya', 'unit_price' => 310]]]);
+        $m = Mockery::mock(ExpenseExtractor::class);
+        $m->shouldReceive('extract')->withArgs(fn ($t, $img) => is_array($img) && array_is_list($img))->once()
+            ->andReturn(['pages_related' => false] + $page1);
+        $m->shouldReceive('extract')->andReturn($page1);
+        $this->app->instance(ExpenseExtractor::class, $m);
+
+        $card = $this->sendPhoto();
+        $this->assertStringNotContainsString('📄 2 sayfa', $card);
+        $this->assertCount(1, (array) \Illuminate\Support\Facades\Cache::get($queueKey, []));
+        \Illuminate\Support\Facades\Cache::forget($queueKey);
+    }
+
+    /** Açık sözleşme kartına sonradan sayfa: devamıysa eklenir (📄 2 sayfa); emin değilse sorulur, *evet* ekler. */
+    public function test_later_page_is_appended_or_asked(): void
+    {
+        $page1 = $this->agreement(['party_name' => 'WA Anlaşma Devam', 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA19 Alçı boya', 'unit_price' => 310]]]);
+        $page2 = $this->agreement(['party_name' => 'WA Anlaşma Devam', 'is_new_entry' => false, 'continues_agreement' => true,
+            'agreement_items' => [['description' => 'WAA19 Sıva', 'unit_price' => 250]],
+            'agreement_payments' => [['method' => 'check', 'amount' => 750000, 'due_date' => '2027-05-30']],
+            'agreement_notes' => '2027 yılı bağlantı']);
+        $page3 = ['continues_agreement' => null] + $this->agreement(['party_name' => 'WA Anlaşma Devam', 'is_new_entry' => false,
+            'agreement_items' => [['description' => 'WAA19 Şap', 'unit_price' => 275]]]);
+        $this->ai($page1, $page2, $page3);
+
+        $this->sendPhoto();
+        $card = $this->sendPhoto();
+        $this->assertStringContainsString('📄 2 sayfa', $card);
+        $this->assertStringContainsString('WAA19 Alçı boya', $card);
+        $this->assertStringContainsString('WAA19 Sıva', $card);
+        $this->assertStringContainsString('çek 750.000,00', $card);
+        $this->assertStringContainsString('📝 2027 yılı bağlantı', $card);
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('📄 Bu sayfa *WA Anlaşma Devam* sözleşmesinin devamı mı?', $ask);
+        $card = $this->send('evet');
+        $this->assertStringContainsString('📄 3 sayfa', $card);
+        $this->assertStringContainsString('WAA19 Şap', $card);
+        $this->send('evet');
+        $this->assertCount(3, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WA Anlaşma Devam'))->sole()->items);
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {
@@ -306,7 +448,7 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('2 çek 600.000,00 (vade 15.07.2026)', $ask);
         $this->assertStringContainsString("400.000,00 ₺ çekin vadesi ne?", $ask);
         $card = $this->send('geç');                                      // bilinmiyor → anlaşma tarihi
-        $this->assertStringContainsString('(vade 15.07.2026 · 01.06.2026)', $card);
+        $this->assertStringContainsString('(vade 01.06.2026 · 15.07.2026)', $card);
         $this->send('evet');
 
         $party = Party::where('name', 'WA Anlaşma Tok 3')->sole();

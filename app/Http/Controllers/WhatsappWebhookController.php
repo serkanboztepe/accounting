@@ -22,6 +22,7 @@ use App\Services\Whatsapp\AdvanceOffset;
 use App\Services\Whatsapp\AgreementDeliveryDraft;
 use App\Services\Whatsapp\AgreementDraft;
 use App\Services\Whatsapp\AgreementQuery;
+use App\Services\Whatsapp\PartyInfoDraft;
 use App\Services\Whatsapp\BundleDraft;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\CheckSplit;
@@ -356,11 +357,72 @@ class WhatsappWebhookController extends Controller
     /** $reread: aynı fotoğraf sıranın BAŞINA, ikinci okuma olarak (aynı mesaj kimliği "çift mesaj" sayılmasın). */
     private function enqueuePhoto(Request $request, string $phone, bool $reread = false): void
     {
-        $item = $reread ? ['_reread' => 1, 'MessageSid' => $request->input('MessageSid', '') . '-r'] + $request->all() : $request->all();
+        $item = $reread ? ['_reread' => 1, 'MessageSid' => $request->input('MessageSid', '') . '-r'] + $request->all()
+            : ['_queued_at' => microtime(true)] + $request->all(); // birlikte gönderilen sayfalar (çok sayfalı sözleşme) tanınsın
         Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, function () use ($item, $phone, $reread) {
             $queue = $this->photoQueue($phone);
             Cache::put($this->photoQueueKey($phone), $reread ? [$item, ...$queue] : [...$queue, $item], now()->addDay());
         });
+    }
+
+    /**
+     * Bu fotoğrafla birlikte (en çok 20 sn sonra) gelip sıraya giren fotoğraflar — sıradan alınır.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function siblingPhotos(Request $request, string $phone): array
+    {
+        $start = (float) ($request->input('_queued_at') ?: $request->server('REQUEST_TIME_FLOAT') ?: microtime(true));
+
+        return Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, function () use ($phone, $start) {
+            $take = $keep = [];
+            foreach ($this->photoQueue($phone) as $item) {
+                $at = (float) ($item['_queued_at'] ?? 0);
+                $near = empty($item['_reread']) && $at >= $start - 1 && $at <= $start + 20 && count($take) < 4;
+                $near ? $take[] = $item : $keep[] = $item;
+            }
+            $keep === [] ? Cache::forget($this->photoQueueKey($phone)) : Cache::put($this->photoQueueKey($phone), $keep, now()->addDay());
+
+            return $take;
+        });
+    }
+
+    /** Sayfaları tek okumada oku; aynı belge değilse (ya da okunamazsa) kardeşler sıraya geri, null. */
+    private function readPagesTogether(ExpenseExtractor $extractor, ?string $text, array $first, array $siblings, string $phone): ?array
+    {
+        $images = [$first];
+        foreach ($siblings as $item) {
+            if ($img = $this->downloadMedia(Request::create('/', 'POST', $item))) {
+                $images[] = $img;
+            }
+        }
+        // Sıraya geri; $separate: AI "ayrı belge" dedi → açık kart kapanana kadar bekler, bir daha "devamı mı" sorulmaz.
+        $requeue = function (bool $separate = false) use ($siblings, $phone) {
+            $items = $separate ? array_map(fn ($i) => ['_separate' => 1] + $i, $siblings) : $siblings;
+            Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, fn () => Cache::put($this->photoQueueKey($phone),
+                [...$items, ...$this->photoQueue($phone)], now()->addDay()));
+        };
+        try {
+            $all = $extractor->extract(trim(($text ?? '') . "\n(" . count($images) . ' sayfa birlikte gönderildi.)'), $images, null,
+                ConversationContext::get($phone), $phone);
+        } catch (\Throwable $e) {
+            Log::error('WhatsApp çok sayfalı okuma hatası', ['msg' => $e->getMessage()]);
+            $requeue();
+
+            return null;
+        }
+        if (! AgreementDraft::handles($all) || ($all['pages_related'] ?? null) === false) {
+            $requeue(separate: true);
+
+            return null;
+        }
+        // Kardeş mesajlar konuşma kaydına da (sırada işlenmeyecekler).
+        foreach ($siblings as $item) {
+            $this->logMessage($phone, 'in', (string) ($item['Body'] ?? ''), true);
+            Cache::add(Tenancy::key('wa-sid:' . ($item['MessageSid'] ?? '')), true, now()->addDay());
+        }
+
+        return ['from_document' => true, 'pages' => count($images)] + $all;
     }
 
     private function popPhoto(string $phone): ?array
@@ -388,8 +450,11 @@ class WhatsappWebhookController extends Controller
             $work = function () use ($phone, $lockName) {
                 for ($i = 0; $i < 20; $i++) {
                     try {
-                        $item = Cache::lock($lockName, 360)->block(300, fn () => WhatsappPendingExpense::where('phone', $phone)
-                            ->where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))->exists()
+                        // Açık kart varken sıradaki foto bekler — belgeden gelen ANLAŞMA kartı hariç (sıradaki sayfa onun devamı olabilir, 22.10).
+                        $item = Cache::lock($lockName, 360)->block(300, fn () => ($open = WhatsappPendingExpense::where('phone', $phone)
+                            ->where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))->latest('updated_at')->first())
+                            && ! (AgreementDraft::handles($open->extracted) && ! empty($open->extracted['from_document'])
+                                && empty(($this->photoQueue($phone)[0] ?? [])['_separate']))
                             ? null : $this->popPhoto($phone));
                     } catch (LockTimeoutException) {
                         return;
@@ -545,6 +610,18 @@ class WhatsappWebhookController extends Controller
             }
             $pending = null;
         }
+        // "Belgede telefonu … var — cari kartına yazayım mı?" (anlaşma kaydından sonra): yalnız *evet* / *iptal*; başka mesaj soruyu kapatır.
+        if ($pending && ($pending->extracted['kind'] ?? null) === PartyInfoDraft::KIND) {
+            if ($numMedia === 0 && ($this->isConfirm($body) || $this->isCancel($body))) {
+                $this->inboundKind = 'quick';
+                $yes = $this->isConfirm($body);
+                $pending->update(['status' => $yes ? 'confirmed' : 'cancelled']);
+
+                return $this->twiml($yes ? PartyInfoDraft::commit($pending->extracted) : 'Tamam, cari kartına yazmadım.');
+            }
+            $pending->update(['status' => 'superseded']);
+            $pending = null;
+        }
         $this->openDraft = $pending;
 
         // Ses / video / belge: şimdilik okuyamıyoruz — sessizce yardım metni yerine açıkça söyle.
@@ -625,6 +702,32 @@ class WhatsappWebhookController extends Controller
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
+        }
+
+        // Okunamayan yer → "not": olduğu gibi anlaşmanın notuna, kart onaya gelir (AI'sız; kullanıcı 22.10).
+        if ($pending && $image === null && AgreementDraft::handles($pending->extracted) && ! empty($pending->extracted['unreadable'])
+            && in_array($this->word($body), AgreementDraft::NOTE_WORDS, true)) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::noteUnreadable($pending->extracted)));
+        }
+
+        // "Bu sayfa X sözleşmesinin devamı mı? *evet* / *ayrı*" (AI emin değildi): evet → karta eklenir; ayrı → foto sıraya, kart kapanınca.
+        if ($pending && $image === null && AgreementDraft::handles($pending->extracted) && ! empty($pending->extracted['page_offer'])
+            && ($this->isConfirm($body) || in_array($this->word($body), ['ayrı', 'ayri', 'ayrı belge', 'değil', 'degil', 'başka'], true))) {
+            $this->inboundKind = 'quick';
+            $d = $pending->extracted;
+            $offer = $d['page_offer'];
+            unset($d['page_offer']);
+            if ($this->isConfirm($body)) {
+                return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::appendPage($d, $offer['data'])));
+            }
+            $pending->update(['extracted' => $d]);
+            // _separate: açık kart kapanana kadar bekler, bir daha "devamı mı" sorulmaz.
+            Cache::lock($this->photoQueueKey($phone) . ':w', 5)->block(5, fn () => Cache::put($this->photoQueueKey($phone),
+                [...$this->photoQueue($phone), ['_separate' => 1] + $offer['item']], now()->addDay()));
+
+            return $this->twiml('Tamam, ayrı belge — bu kartı bitirince ona bakacağım.' . "\n\n" . $pending->summary);
         }
 
         // Anlaşma belgesinde okunamayan yer soruldu → "geç": önemli değil, kart onaya gelir (AI'sız).
@@ -935,9 +1038,35 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
 
+            // Açık sözleşme kartına yeni sayfa (22.10 Kamuran: 2. sayfa ödeme planıydı, ayrı okundu/kayboldu): aynı belgenin devamı mı?
+            // AI karar verir: devamıysa karta eklenir, emin değilse sorulur, başka belgeyse aşağıdaki eski akış (yeni kayıt).
+            if ($image !== null && AgreementDraft::handles($pending->extracted) && ! empty($pending->extracted['from_document'])
+                && ! $request->input('_separate')) {
+                try {
+                    $page = $extractor->extract($body ?: null, $image, $pending->extracted, null, $phone);
+                } catch (\Throwable $e) {
+                    Log::error('WhatsApp sözleşme sayfası okunamadı', ['msg' => $e->getMessage()]);
+                    $this->inboundKind = 'error';
+
+                    return $this->twiml('Şu an okuyamadım, birazdan tekrar dener misin? 🙏');
+                }
+                $continues = AgreementDraft::handles($page) ? ($page['continues_agreement'] ?? null) : false;
+                if ($continues === true) {
+                    return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::appendPage($pending->extracted, $page)));
+                }
+                if ($continues === null) {
+                    $pending->update(['extracted' => ['page_offer' => ['data' => $page, 'item' => $request->all()]] + $pending->extracted]);
+                    $this->inboundKind = 'agreement';
+
+                    return $this->twiml('📄 Bu sayfa *' . AgreementDraft::partyLabel($pending->extracted) . '* sözleşmesinin devamı mı? '
+                        . '*evet* (karta ekleyeyim) / *ayrı* (ayrı belge)');
+                }
+            }
+
             // Tutarı beklenen taslağa belge geldi (Taner: "borcum ödendi" → tutar soruldu → dekont PDF'i): belge o kaydın tamamlayıcısı.
+            // Anlaşma kartı hariç: fiyat listesinde tutar 0 — başka belge karta karışmasın (devam sayfası yukarıda).
             if ($image !== null && (float) ($pending->extracted['amount'] ?? 0) <= 0
-                && $this->kind($pending->extracted) !== ExpenseExtractor::KIND_REMINDER) {
+                && ! in_array($this->kind($pending->extracted), [ExpenseExtractor::KIND_REMINDER, ExpenseExtractor::KIND_AGREEMENT], true)) {
                 try {
                     $data = $extractor->extract($body ?: null, $image, $pending->extracted, null, $phone);
                     $data['from_document'] = true;
@@ -971,6 +1100,11 @@ class WhatsappWebhookController extends Controller
         try {
             $data = $extractor->extract($text, $image, null, ConversationContext::get($phone), $phone);
             $data['from_document'] = $image !== null;
+            // Birlikte gönderilen sayfalar (Kamuran 22.10: iki foto 1 sn arayla): ilk sayfa anlaşmaysa, okunurken sıraya giren
+            // kardeş sayfalar tek okumada birlikte okunur → tek kart. Başka belgeyse sıraya geri (eskisi gibi tek tek).
+            if ($image !== null && ! $reread && AgreementDraft::handles($data) && ($siblings = $this->siblingPhotos($request, $phone)) !== []) {
+                $data = $this->readPagesTogether($extractor, $text, $image, $siblings, $phone) ?? $data;
+            }
         } catch (\Throwable $e) {
             Log::error('WhatsApp gider çıkarma hatası', ['msg' => $e->getMessage()]);
             $this->inboundKind = 'error';
@@ -2260,10 +2394,16 @@ class WhatsappWebhookController extends Controller
             if ($question = AgreementDraft::question($pending->extracted)) {
                 return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
             }
-            [$text, $agreement] = AgreementDraft::commit($pending->extracted);
+            [$text, $agreement] = AgreementDraft::commit($pending->extracted, $pending->phone);
             $this->touchedPartyId = $agreement->party_id;
             $this->committedPartyId = $agreement->party_id;
             $pending->update(['status' => 'confirmed']);
+            // Belgede karşı tarafın telefonu/adresi varsa ve kartta yoksa sor (kullanıcı 22.10: "sen yazma, asistan yapayım mı desin").
+            if ($info = PartyInfoDraft::offer($agreement->party, $pending->extracted['party_phone'] ?? null, $pending->extracted['party_address'] ?? null)) {
+                $summary = PartyInfoDraft::summary($info);
+                WhatsappPendingExpense::create(['phone' => $pending->phone, 'extracted' => $info, 'summary' => $summary, 'status' => 'awaiting_confirmation']);
+                $text .= "\n\n" . $summary;
+            }
 
             return $text;
         }
@@ -2634,6 +2774,9 @@ class WhatsappWebhookController extends Controller
                 || (! empty($prev['party_confirmed']) && ($prev['party_id'] ?? null) === ($data['party_id'] ?? null));
             $data['has_payments'] = ! empty($data['has_payments']) || ! empty($prev['has_payments']);
             $data['document_total'] = $data['document_total'] ?? $prev['document_total'] ?? null;
+            foreach (['pages', 'agreement_notes', 'party_phone', 'party_address'] as $k) {
+                $data[$k] = $data[$k] ?? $prev[$k] ?? null; // cevapta AI tekrarlamazsa kaybolmasın
+            }
             $data['total_ok'] = ! empty($data['total_ok']) || ! empty($prev['total_ok']);
             $data['payments_skipped'] = ! empty($data['payments_skipped']) || ! empty($prev['payments_skipped']);
             $data['from_document'] = ! empty($data['from_document']) || ! empty($prev['from_document']);

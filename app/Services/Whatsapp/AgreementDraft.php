@@ -21,6 +21,9 @@ class AgreementDraft
     /** "geç" — okunamayan yeri boş ver (sorulan yer önemli değil). */
     public const SKIP_WORDS = ['geç', 'gec', 'geç onu', 'boşver', 'boş ver', 'önemli değil', 'onemli degil', 'atla'];
 
+    /** "not" — okunamayan yeri olduğu gibi anlaşmanın notuna yaz (kullanıcı 22.10: "geç dedim de üşendiğimden; notu kaydet olsa öyle yapardım"). */
+    public const NOTE_WORDS = ['not', 'nota yaz', 'not al', 'notla', 'nota ekle', 'not et'];
+
     private const METHODS = ['cash' => 'nakit', 'eft' => 'EFT', 'check' => 'çek', 'promissory_note' => 'senet'];
 
     private const MAX_CARD_ITEMS = 6;
@@ -82,6 +85,18 @@ class AgreementDraft
             // Belgenin altındaki genel toplam — kalemlerin toplamıyla sağlama (22.10: KDV hariç/dahil iki sütunlu belge).
             'document_total'      => is_numeric($input['document_total'] ?? null) && (float) $input['document_total'] > 0
                 ? round((float) $input['document_total'], 2) : null,
+            // Belgedeki önemli şartlar (geçerlilik, fiyata dahil olanlar) — anlaşmanın notu.
+            'agreement_notes'     => is_string($input['agreement_notes'] ?? null) && trim($input['agreement_notes']) !== ''
+                ? mb_substr(trim($input['agreement_notes']), 0, 300) : null,
+            // Karşı tarafın belgedeki telefonu / adresi — kayıttan sonra "cari kartına yazayım mı?" (PartyInfoDraft).
+            'party_phone'         => is_string($input['party_phone'] ?? null) && preg_match('/\d{7,}/', preg_replace('/\D/', '', $input['party_phone']))
+                ? mb_substr(trim($input['party_phone']), 0, 30) : null,
+            'party_address'       => is_string($input['party_address'] ?? null) && trim($input['party_address']) !== ''
+                ? mb_substr(trim($input['party_address']), 0, 150) : null,
+            // Açık anlaşma kartına gelen sayfa: aynı belgenin devamı mı (true / false / null = emin değil).
+            'continues_agreement' => isset($input['continues_agreement']) && is_bool($input['continues_agreement']) ? $input['continues_agreement'] : null,
+            // Birlikte gönderilen sayfalar aynı belge mi (çok görselli okuma).
+            'pages_related'       => isset($input['pages_related']) && is_bool($input['pages_related']) ? $input['pages_related'] : null,
             // En fazla 3 soru (kullanıcı 21.10: "o kadar ayrıntıya giremeyiz") — AI en önemlisini önce yazar.
             'unreadable'          => array_slice(array_values(array_filter(array_map(fn ($u) => is_string($u) ? mb_substr(trim($u), 0, 200) : '',
                 (array) ($input['unreadable'] ?? [])))), 0, 3),
@@ -126,7 +141,7 @@ class AgreementDraft
         }
         if (! empty($d['unreadable'])) {
             return "Şurayı tam okuyamadım:\n• " . implode("\n• ", $d['unreadable'])
-                . "\nDoğrusunu yazar mısın? Önemli değilse *geç* yaz.";
+                . "\nDoğrusunu yazar mısın? Önemli değilse *geç*, olduğu gibi nota yazayım dersen *not* yaz.";
         }
         if ($p = self::undated($d)) {
             return Money::format($p['amount']) . ' ₺ ' . self::METHODS[$p['method']] . 'in vadesi ne? Tarihini yaz. Bilmiyorsan *geç* yaz '
@@ -295,6 +310,75 @@ class AgreementDraft
         return null;
     }
 
+    /**
+     * İleri tarihli nakit / EFT = ödeme PLANI, ödeme değil (Kamuran 22.10: "30.05.2027 … 600 bin nakit" × 9 — bugünkü kod 5,4 milyon
+     * "ödendi" yazardı). Kayıtta cariye yazılmaz; her tarih için hatırlatma kurulur. Çek/senet hariç (vadeli çek = verilmiş çek).
+     */
+    public static function isPlanned(array $p): bool
+    {
+        $date = $p['paid_date'] ?? $p['due_date'] ?? null;
+
+        return ! self::isDeferred($p['method']) && $date !== null && $date > now()->toDateString();
+    }
+
+    /** @return array{0: list<array>, 1: list<array>} [şimdi yazılacak ödemeler, planlı (hatırlatma)] */
+    public static function splitPlanned(array $payments): array
+    {
+        $planned = array_values(array_filter($payments, fn ($p) => self::isPlanned($p)));
+
+        return [array_values(array_filter($payments, fn ($p) => ! self::isPlanned($p))), $planned];
+    }
+
+    /**
+     * Açık karta aynı belgenin yeni sayfası: kalemler eklenir (aynı adlı kalem yeni sayfadakiyle güncellenir), ödemeler eklenir
+     * (aynısı iki kez yazılmaz), notlar birleşir, kişi/tarih/belge toplamı boşsa yeni sayfadan; okunamayan sorular yeni sayfanınki.
+     */
+    public static function appendPage(array $d, array $page): array
+    {
+        $key = fn (array $i) => mb_strtolower(trim($i['description']));
+        $items = [];
+        foreach ([...($d['agreement_items'] ?? []), ...($page['agreement_items'] ?? [])] as $item) {
+            $items[$key($item)] = array_merge($items[$key($item)] ?? [], array_filter($item, fn ($v) => $v !== null));
+        }
+        $payKey = fn (array $p) => $p['method'] . '|' . $p['amount'] . '|' . ($p['paid_date'] ?? '') . '|' . ($p['due_date'] ?? '');
+        $payments = [];
+        foreach ([...($d['agreement_payments'] ?? []), ...($page['agreement_payments'] ?? [])] as $p) {
+            $payments[$payKey($p)] ??= $p;
+        }
+        $notes = array_unique(array_filter([trim((string) ($d['agreement_notes'] ?? '')), trim((string) ($page['agreement_notes'] ?? ''))]));
+        $hasParty = ! empty($d['party_id']) || trim((string) ($d['party_name'] ?? '')) !== '';
+
+        return array_merge($d, [
+            'agreement_items'    => array_values(array_map(fn ($i) => $i + ['product_id' => null, 'quantity' => null, 'unit' => null,
+                'unit_price' => null, 'amount' => null, 'free' => false], $items)),
+            'agreement_payments' => array_values($payments),
+            'agreement_notes'    => $notes ? mb_substr(implode("\n", $notes), 0, 600) : null,
+            'has_payments'       => ! empty($d['has_payments']) || ! empty($page['has_payments']),
+            'document_total'     => $d['document_total'] ?? $page['document_total'] ?? null,
+            'party_id'           => $hasParty ? ($d['party_id'] ?? null) : ($page['party_id'] ?? null),
+            'party_name'         => $hasParty ? ($d['party_name'] ?? null) : ($page['party_name'] ?? null),
+            'party_phone'        => $d['party_phone'] ?? $page['party_phone'] ?? null,
+            'party_address'      => $d['party_address'] ?? $page['party_address'] ?? null,
+            'check_plan'         => $page['check_plan'] ?? $d['check_plan'] ?? null,
+            'unreadable'         => $page['unreadable'] ?? [],
+            'pages'              => (int) ($d['pages'] ?? 1) + 1,
+            'question'           => null,
+        ]);
+    }
+
+    public static function partyLabel(array $d): string
+    {
+        return ! empty($d['party_id']) && ($p = Party::find($d['party_id'])) ? $p->name : trim((string) ($d['party_name'] ?? ''));
+    }
+
+    /** "not" cevabı: okunamayan maddeler olduğu gibi anlaşma notuna, sonra "geç" gibi. */
+    public static function noteUnreadable(array $d): array
+    {
+        $d['agreement_notes'] = trim(trim((string) ($d['agreement_notes'] ?? '')) . "\n" . implode("\n", $d['unreadable'] ?? []));
+
+        return self::skipUnreadable($d);
+    }
+
     private static function isDeferred(string $method): bool
     {
         return in_array($method, ['check', 'promissory_note'], true);
@@ -348,7 +432,7 @@ class AgreementDraft
     {
         $isSale = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
         $party = self::partyName($d);
-        $lines = ['🤝 *Anlaşma* — ' . $party . ($isSale ? ' (satış)' : '')];
+        $lines = ['🤝 *Anlaşma* — ' . $party . ($isSale ? ' (satış)' : '') . ((int) ($d['pages'] ?? 1) > 1 ? ' · 📄 ' . $d['pages'] . ' sayfa' : '')];
 
         $items = $d['agreement_items'] ?? [];
         foreach (array_slice($items, 0, self::MAX_CARD_ITEMS) as $item) {
@@ -362,8 +446,17 @@ class AgreementDraft
         if ($total > 0) {
             $lines[] = 'Anlaşılan: *' . Money::format($total) . ' ₺*';
         }
-        // Ödeme satırı hep görünür — yoksa "yok" (22.10: ödeme düştüğünde kartta fark edilmiyordu).
-        $lines[] = self::paymentsLine($d['agreement_payments'] ?? [], $isSale);
+        // Ödeme satırı hep görünür — yoksa "yok" (22.10: ödeme düştüğünde kartta fark edilmiyordu). İleri tarihli nakit ayrı: plan.
+        [$now, $planned] = self::splitPlanned($d['agreement_payments'] ?? []);
+        if ($now !== [] || $planned === []) {
+            $lines[] = self::paymentsLine($now, $isSale);
+        }
+        if ($planned !== []) {
+            $lines[] = '📅 Plan: ' . self::groupsText($planned, 'paid') . ' — hatırlatma kurulur';
+        }
+        if (! empty($d['agreement_notes'])) {
+            $lines[] = '📝 ' . mb_strimwidth(preg_replace('/\s+/u', ' ', $d['agreement_notes']), 0, 90, '…');
+        }
         $lines[] = 'Borç yazılmaz; ' . ($isSale ? 'teslim ettikçe' : 'mal/iş geldikçe') . ' anlaşmadan düşülür.';
 
         return implode("\n", $lines);
@@ -374,7 +467,7 @@ class AgreementDraft
      *
      * @return array{0:string, 1:Agreement}
      */
-    public static function commit(array $d): array
+    public static function commit(array $d, ?string $phone = null): array
     {
         $party = ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
         $party ??= DraftGaps::exactParty($d['party_name'] ?? null) ?? Party::create(['name' => trim((string) $d['party_name'])]);
@@ -400,12 +493,27 @@ class AgreementDraft
             'project_id'     => $d['project_id'] ?? null,
             'title'          => self::title($d),
             'lines'          => $lines,
+            'notes'          => $d['agreement_notes'] ?? null,
         ]);
-        AgreementDesk::recordPayments($agreement, $d['agreement_payments'] ?? []);
+        [$now, $planned] = self::splitPlanned($d['agreement_payments'] ?? []);
+        AgreementDesk::recordPayments($agreement, $now);
+        // Planlı nakit: tutarsız hatırlatma (tutarlı hatırlatma "düzenli gider" sayılıp o gün gider yazar — Reminder::isExpense).
+        if ($phone !== null) {
+            foreach ($planned as $p) {
+                \App\Support\Reminders::fromDraft([
+                    'description' => $party->name . ($isSale ? '\'dan ' : '\'e ') . Money::format($p['amount']) . ' ₺ ' . self::METHODS[$p['method']]
+                        . ($isSale ? ' tahsilat' : ' ödeme') . ' (anlaşma: ' . $agreement->title . ')',
+                    'party_id' => $party->id,
+                    'event_date' => $p['paid_date'] ?? $p['due_date'],
+                ], $phone)->save();
+            }
+        }
 
-        $paid = array_sum(array_column($d['agreement_payments'] ?? [], 'amount'));
+        $paid = array_sum(array_column($now, 'amount'));
         $text = '✅ Anlaşma kaydedildi: *' . $agreement->title . '*'
             . ($paid > 0 ? "\n💸 " . Money::format($paid) . ' ₺ ödeme ' . $party->name . ($isSale ? ' hesabından düşüldü.' : ' hesabına yazıldı.') : '')
+            . ($planned !== [] && $phone !== null ? "\n⏰ " . count($planned) . ' ödeme hatırlatması kuruldu (ilki '
+                . Carbon::parse(min(array_map(fn ($p) => $p['paid_date'] ?? $p['due_date'], $planned)))->format('d.m.Y') . ').' : '')
             . "\nPanelde carinin sayfasında kalem kalem görünür.";
 
         return [$text, $agreement];
@@ -440,9 +548,12 @@ class AgreementDraft
     /** "💸 Ödeme: 160.000 nakit · 3 senet 600.000 (30.07 · 30.10 · 30.12)". */
     private static function paymentsLine(array $payments, bool $isSale): string
     {
-        if ($payments === []) {
-            return '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': yok';
-        }
+        return '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': ' . ($payments === [] ? 'yok' : self::groupsText($payments, 'due'));
+    }
+
+    /** Yönteme göre gruplu: "9 çek 6.750.000 (vade 30.05.2027 → 30.01.2028)"; $dateKind 'due' = vade, 'paid' = ödeme tarihi. */
+    private static function groupsText(array $payments, string $dateKind): string
+    {
         $groups = [];
         foreach ($payments as $p) {
             $groups[$p['method']][] = $p;
@@ -450,13 +561,17 @@ class AgreementDraft
         $parts = [];
         foreach ($groups as $method => $rows) {
             $sum = Money::format(array_sum(array_column($rows, 'amount')));
-            $dates = array_filter(array_map(fn ($r) => $r['due_date'] ? Carbon::parse($r['due_date'])->format('d.m.Y') : null, $rows));
-            // Çok vadede kısa: "(vade 28.02.2027 → 31.12.2027)" (kart ≈4 satır kuralı).
+            // Belgede iki sütunlu plan (Kamuran: 05, 06, 07, 11, 01 / 08, 09, 10, 12) — tarih sırasıyla.
+            $dates = array_filter(array_map(fn ($r) => $dateKind === 'due' ? $r['due_date'] : ($r['paid_date'] ?? $r['due_date']), $rows));
+            sort($dates);
+            $dates = array_map(fn ($dt) => Carbon::parse($dt)->format('d.m.Y'), $dates);
+            // Çok tarihte kısa: "(vade 28.02.2027 → 31.12.2027)" (kart ≈4 satır kuralı).
             $dates = count($dates) > 4 ? [reset($dates) . ' → ' . end($dates)] : $dates;
-            $parts[] = (count($rows) > 1 ? count($rows) . ' ' : '') . self::METHODS[$method] . ' ' . $sum . ($dates ? ' (vade ' . implode(' · ', $dates) . ')' : '');
+            $parts[] = (count($rows) > 1 ? count($rows) . ' ' : '') . self::METHODS[$method] . ' ' . $sum
+                . ($dates ? ' (' . ($dateKind === 'due' ? 'vade ' : '') . implode(' · ', $dates) . ')' : '');
         }
 
-        return '💸 ' . ($isSale ? 'Alınan' : 'Ödeme') . ': ' . implode(' · ', $parts);
+        return implode(' · ', $parts);
     }
 
     private static function partyName(array $d): string

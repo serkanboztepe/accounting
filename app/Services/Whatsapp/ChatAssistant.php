@@ -480,7 +480,7 @@ class ChatAssistant
                 // Önce anla: sorulan soru ve anlaşılanlar (cevap gelince aynı kayıt tamamlanır).
                 'question', 'meaning', 'work_status', 'work_status_known', 'party_certain', 'checks', 'check_plan', 'stock_items',
                 // Anlaşma taslağı (sözleşme fotoğrafı): düzeltmede kalemler/ödemeler görünsün.
-                'agreement_direction', 'agreement_items', 'agreement_payments', 'has_payments', 'document_total', 'total_ok', 'unreadable', 'delivery_lines', 'delivery_candidates',
+                'agreement_direction', 'agreement_items', 'agreement_payments', 'has_payments', 'document_total', 'total_ok', 'agreement_notes', 'party_phone', 'party_address', 'unreadable', 'delivery_lines', 'delivery_candidates',
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];

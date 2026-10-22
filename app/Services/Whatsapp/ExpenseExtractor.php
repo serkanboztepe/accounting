@@ -143,6 +143,12 @@ class ExpenseExtractor
             . 'bedelsiz olduğu (free=true yaz). '
             . 'Belgenin altındaki genel toplamı (indirim / silinen +KDV sonrası ödenecek son rakam) `document_total`\'a AYRICA yaz. Kalem '
             . 'fiyatı = gerçekte ödenecek birim fiyat: kalemde KDV hariç ve KDV dahil iki sütun varsa genel toplamla TUTAN sütunu al. '
+            . 'Belgedeki önemli şartları (geçerlilik süresi, fiyata dahil olanlar, fiyat değişim kuralı) `agreement_notes`\'a kısa yaz; karşı '
+            . 'tarafın belgede yazan telefonu/adresi `party_phone` / `party_address` (BİZİM bilgilerimiz DEĞİL). Ödeme planındaki İLERİ tarihli '
+            . 'nakit/EFT satırlarını da agreement_payments\'a yaz (paid_date = o tarih; sistem ödendi saymaz, hatırlatma kurar). Belgede '
+            . 'tarih "05,30,2027" gibi ay,gün,yıl sırasıyla yazılmışsa 2027-05-30 oku. Birden çok sayfa birlikte geldiyse hepsini TEK anlaşma '
+            . 'olarak oku ve `pages_related` doldur. Açık anlaşma taslağına yeni sayfa geldiyse `continues_agreement` doldur; devamıysa '
+            . 'YALNIZ bu sayfadaki kalemleri / ödemeleri / notları yaz (taslaktakileri tekrarlama). '
             . 'amount = anlaşılan toplam (miktarlı + götürü; fiyat listesi 0). description = kısa ad ("Seramik ve vitrifiye", "Mermer işçiliği"). '
             . 'date = anlaşma/belge tarihi.',
         self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
@@ -360,14 +366,15 @@ class ExpenseExtractor
         }
 
         $content = [];
-        if ($image !== null) {
+        // $image: tek görsel ya da görsel listesi (birlikte gönderilen sözleşme sayfaları — tek okumada tek kart, 22.10).
+        foreach ($image === null ? [] : (array_is_list($image) ? $image : [$image]) as $img) {
             $content[] = [
                 // PDF (dekont) belge olarak, diğerleri resim olarak.
-                'type' => $image['media_type'] === 'application/pdf' ? 'document' : 'image',
+                'type' => $img['media_type'] === 'application/pdf' ? 'document' : 'image',
                 'source' => [
                     'type' => 'base64',
-                    'media_type' => $image['media_type'],
-                    'data' => $image['data'],
+                    'media_type' => $img['media_type'],
+                    'data' => $img['data'],
                 ],
             ];
         }
@@ -836,6 +843,14 @@ class ExpenseExtractor
                 'description' => 'Only for kind=agreement_delivery when the item is ambiguous: ids of the matching open items (system asks which)'],
             'query_item_ids' => ['type' => 'array', 'items' => ['type' => 'integer'],
                 'description' => 'Only for kind=agreement_query: ids from AÇIK ANLAŞMALAR of the item(s) asked about; empty if a person or all agreements are asked'],
+            'agreement_notes' => ['type' => ['string', 'null'],
+                'description' => 'Only for kind=agreement: important terms written in the document, short Turkish (validity period, what is included in the price, price-change rule); null if none. Not the items or payments.'],
+            'party_phone' => ['type' => ['string', 'null'], 'description' => 'Only for kind=agreement: the COUNTERPARTY phone written in the document (not ours — see BİZ); null if none'],
+            'party_address' => ['type' => ['string', 'null'], 'description' => 'Only for kind=agreement: the COUNTERPARTY address written in the document; null if none'],
+            'continues_agreement' => ['type' => ['boolean', 'null'],
+                'description' => 'Only when an open agreement draft is given and a new page arrives: true = this page belongs to the SAME document/agreement (other page, payment page); false = a different document; null = cannot tell'],
+            'pages_related' => ['type' => ['boolean', 'null'],
+                'description' => 'Only when several images are sent together: true = all pages belong to one document; false = unrelated documents'],
             'document_total' => ['type' => ['number', 'null'],
                 'description' => 'Only for kind=agreement from a document: the grand total printed at the bottom (genel toplam — the final amount to be paid, after discounts / struck-out lines), as written; null if none'],
             'has_payments' => ['type' => ['boolean', 'null'],
