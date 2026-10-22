@@ -61,6 +61,27 @@ class AgreementsTest extends TestCase
         return (float) \App\Support\PartyStatement::build($this->party->fresh())['balance'];
     }
 
+    /**
+     * Müteahhitte Alışlar ekranı kapalı (22.10 firma 7: anlaşmadan gelen tuğla, ekstrede "Aç" → 403). Ekstrede Alışlar bağlantısı yok,
+     * "Sil" var; silince alış + cari kaydı gider, anlaşmadan düşülen miktar geri döner.
+     */
+    public function test_delivery_purchase_without_purchases_screen_can_be_deleted_from_statement(): void
+    {
+        $this->assertFalse(\App\Filament\Resources\Purchases\PurchaseResource::canAccess());
+        $a = $this->agreement([['product_id' => $this->product('Sil Test Tuğla', 'adet')->id, 'quantity' => 1000, 'unit_price' => 8.5]]);
+        AgreementDesk::deliver($this->party, Agreement::DIRECTION_PURCHASE, [['agreement_item_id' => $a->items[0]->id, 'quantity' => 200]], now()->toDateString());
+        $purchase = Purchase::where('party_id', $this->party->id)->sole();
+
+        $page = \Livewire\Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $this->party->getRouteKey()]);
+        $page->assertDontSee('/admin/purchases/' . $purchase->id)
+            ->assertSeeHtml("mountAction('deleteDocument', { purchase: " . $purchase->id . ' })');
+        $page->callAction('deleteDocument', arguments: ['purchase' => $purchase->id]);
+
+        $this->assertNull(Purchase::find($purchase->id));
+        $this->assertSame(0.0, $this->balance());
+        $this->assertEqualsWithDelta(0, $a->fresh()->loadForCard()->items[0]->deliveredQuantity(), 0.001);
+    }
+
     public function test_kinds_are_inferred_and_agreement_writes_no_debt(): void
     {
         $beton = $this->product('AT Beton', 'm³');

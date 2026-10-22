@@ -699,6 +699,31 @@ class EditParty extends EditRecord
     }
 
     /**
+     * Alış / satış belgesini sil — Alışlar / Satışlar ekranı kapalı firmada (müteahhit, 22.10: anlaşmadan gelen tuğla "Aç" → 403).
+     * Stok satırları ve cari kaydı belgeyle silinir (cascade); anlaşmadan düşülen miktar geri döner, anlaşma durumu yenilenir.
+     */
+    public function deleteDocumentAction(): Action
+    {
+        return Action::make('deleteDocument')
+            ->requiresConfirmation()
+            ->modalHeading(fn (array $arguments): string => ! empty($arguments['purchase']) ? 'Alışı sil' : 'Satışı sil')
+            ->modalDescription('Belge, kalemleri ve cari kaydı silinir. Anlaşmadan geldiyse düşülen miktar anlaşmaya geri döner.')
+            ->modalSubmitActionLabel('Sil')
+            ->color('danger')
+            ->action(function (array $arguments): void {
+                $doc = ! empty($arguments['purchase']) ? Purchase::find($arguments['purchase']) : Sale::find($arguments['sale'] ?? null);
+                if (! $doc || (int) $doc->party_id !== (int) $this->record->id) {
+                    return;
+                }
+                $agreements = \App\Models\AgreementItem::whereIn('id', $doc->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id'))
+                    ->pluck('agreement_id')->unique();
+                \Illuminate\Support\Facades\DB::transaction(fn () => $doc->delete());
+                Agreement::whereIn('id', $agreements)->get()->each(fn (Agreement $a) => AgreementDesk::refreshStatus($a));
+                Notification::make()->success()->title(! empty($arguments['purchase']) ? 'Alış silindi' : 'Satış silindi')->send();
+            });
+    }
+
+    /**
      * Satışı Düzenle — ekstre içinden (kalem/adet/fiyat). SaleForm dolu gelir, rebuildFromLines yeniden kurar.
      * İadesi olan satış düzenlenemez (stok/bakiye bozulmasın) — önce iade "Satışı Aç"tan geri alınmalı.
      */

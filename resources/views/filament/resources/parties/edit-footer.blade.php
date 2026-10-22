@@ -166,13 +166,24 @@
                                         @else
                                             <span class="text-xs text-amber-600" title="İadesi var — düzenlemek için önce iadeyi geri alın">İadeli 🔒</span>
                                         @endif
-                                        <a href="{{ \App\Filament\Resources\Sales\SaleResource::getUrl('edit', ['record' => $r['sale_id']]) }}"
-                                            class="text-xs text-primary-600 hover:underline">Aç</a>
+                                        @if (\App\Filament\Resources\Sales\SaleResource::canAccess())
+                                            <a href="{{ \App\Filament\Resources\Sales\SaleResource::getUrl('edit', ['record' => $r['sale_id']]) }}"
+                                                class="text-xs text-primary-600 hover:underline">Aç</a>
+                                        @else
+                                            <button type="button" class="text-xs text-danger-600 hover:underline"
+                                                wire:click="mountAction('deleteDocument', { sale: {{ $r['sale_id'] }} })">Sil</button>
+                                        @endif
                                     </span>
                                 @elseif (! empty($r['purchase_id']))
                                     <span class="ml-2 inline-flex align-middle">
-                                        <a href="{{ \App\Filament\Resources\Purchases\PurchaseResource::getUrl('edit', ['record' => $r['purchase_id']]) }}"
-                                            class="text-xs text-primary-600 hover:underline">Aç</a>
+                                        {{-- Alışlar ekranı kapalı firmada (müteahhit: anlaşmadan gelen mal) "Aç" 403 veriyordu → Sil. --}}
+                                        @if (\App\Filament\Resources\Purchases\PurchaseResource::canAccess())
+                                            <a href="{{ \App\Filament\Resources\Purchases\PurchaseResource::getUrl('edit', ['record' => $r['purchase_id']]) }}"
+                                                class="text-xs text-primary-600 hover:underline">Aç</a>
+                                        @else
+                                            <button type="button" class="text-xs text-danger-600 hover:underline"
+                                                wire:click="mountAction('deleteDocument', { purchase: {{ $r['purchase_id'] }} })">Sil</button>
+                                        @endif
                                     </span>
                                 @elseif (! empty($r['sale_return_id']))
                                     <span class="ml-2 inline-flex align-middle">
