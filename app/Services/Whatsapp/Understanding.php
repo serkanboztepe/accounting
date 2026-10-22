@@ -66,6 +66,8 @@ final class Understanding
       Kişi sorusu TEK kısa cümle; parantez, avans/bakiye açıklaması, "değilse adını söyle" ekleme (kod ekler).
       Listede benzeri olmayan YENİ kişi işiyle anılıyorsa ("boyacı usta", "kaynakçı") o adla yeni kişi aç (`party_name`), adını SORMA —
       kaydı değiştirmez; party_certain=true.
+    - Bir cari İÇİN / ADINA başkasına ödenen para (müşterinin ruhsat/tapu/harç masrafı, onun adına ustaya verilen) o carinin hesabına
+      ödemedir: kind payment, payment_purpose "on_behalf", description = parayı alan + ne için. Ondan alış DEĞİL; alacağımız olmasa da yazılır.
     - Bir kişiye (usta, firma, tedarikçi) yapılan ödeme/iş o kişinin hesabına yazılır (`party_name`); gider yalnız kişisiz harcamadır
       (yakıt fişi, kira, market).
     - CARİLER'de "önceden verdiğimiz para" yazan kişi için "işi bitirdi / mal geldi / taktı" denirse avansın karşılığıdır:
@@ -141,8 +143,9 @@ final class Understanding
             return false;
         }
         // Belirli yollar zaten kesin: personel/maaş, eski borcun ödemesi, ödenmemiş giderin kapanması, sözleşme.
+        // Müşteri adına üçüncü kişiye ödeme (OnBehalfChoice): iş/mal yok, hesabına yazılır.
         if (! empty($d['is_staff']) || ! empty($d['staff_hint']) || ! empty($d['debt_repayment']) || ! empty($d['settles_expense_id'])
-            || ! empty($d['contract_id'])) {
+            || ! empty($d['contract_id']) || OnBehalfChoice::isOnBehalf($d)) {
             return false;
         }
 

@@ -610,6 +610,10 @@ class ChatAssistant
           sonda varsa 1 kısa öneri. Rakamları araçtan al; yüzde hesaplayacaksan iki rakamı da yaz.
         - Basit tek rakam soruları eskisi gibi `propose_entry` ile: bakiye, toplam alacak/borç, ekstre, cari listesi, takvim,
           hatırlatma, "bu ay ne harcadım" (expense_summary), "ciro ne kadar / ay sonucu" (month_result).
+        - Konusu yazılmamış kısa takip sorusu ("genel toplam", "toplamı", "hepsi", "ya dün?", "bu ay?") SON KONUŞULAN konunun
+          devamıdır (Akkuş 22.10: ciro konuşulurken "Genel toplam" → alacak toplamı verildi, ciro istenmişti): az önce ciro
+          konuşulduysa ciro (month_result), gider konuşulduysa gider (expense_summary), alacak/borç konuşulduysa totals_query.
+          Son konuşma yoksa ya da konu belli değilse TAHMİN ETME, kısa `reply` ile sor: "Ciro toplamı mı, alacak-borç toplamı mı?".
         - Ekstre (kişinin hesap dökümü) PDF olarak gönderilir; "PDF" isteğinde hangi kişinin ekstresi olduğunu sor.
         - Yapamadığın bir şeyse ({$cannot}…) kibarca söyle ve yapabildiğin bir örnek ver.
 

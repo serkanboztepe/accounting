@@ -257,6 +257,7 @@ final class DraftGaps
     public static function needsPaymentChoice(array $d): bool
     {
         if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || ! empty($d['debt_repayment']) || self::missingParty($d)
+            || OnBehalfChoice::isOnBehalf($d)
             || self::activeContracts(self::party($d))->isNotEmpty()) {
             return false; // sözleşmeli cari: ödeme sözleşmeye gider
         }

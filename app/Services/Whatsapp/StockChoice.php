@@ -37,7 +37,7 @@ final class StockChoice
         }
         if (! in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PAYMENT], true)
             || (($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && ! self::hasParty($d))
-            || ! empty($d['settles_expense_id']) || ! empty($d['debt_repayment']) || ! empty($d['is_staff'])) {
+            || ! empty($d['settles_expense_id']) || ! empty($d['debt_repayment']) || ! empty($d['is_staff']) || OnBehalfChoice::isOnBehalf($d)) {
             return false;
         }
         // Adet zaten söylendiyse ya da kartı varsa mevcut akış (yeni kart önerisi / stoklu alış) yürür.

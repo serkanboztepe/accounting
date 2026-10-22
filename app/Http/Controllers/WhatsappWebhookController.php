@@ -33,6 +33,7 @@ use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\TradeDraft;
 use App\Services\Whatsapp\IssuedChecks;
 use App\Services\Whatsapp\Understanding;
+use App\Services\Whatsapp\OnBehalfChoice;
 use App\Services\Whatsapp\StockChoice;
 use App\Services\Whatsapp\WorkChoice;
 use App\Services\Whatsapp\HubRouter;
@@ -990,6 +991,18 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml('Listede o numara yok. ' . CheckSplit::question($pending->extracted));
             }
 
+            // Müşteriden alış mı, müşteri adına ödeme mi? ("*1* onun adına ödedim · *2* ondan aldım") — Yıldız 22.10.
+            if (ctype_digit($body) && OnBehalfChoice::shown($pending->extracted)) {
+                $data = OnBehalfChoice::choose($pending->extracted, (int) $body);
+                if ($data !== null) {
+                    $this->inboundKind = 'quick';
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+
+                return $this->twiml('Listede o numara yok. ' . OnBehalfChoice::question($pending->extracted));
+            }
+
             // Stok sorusu ("*1* Geldi — kaç? · *2* tedarikçide · *0* stok tutmuyorum"): "1 20 çuval", "20 çuval", "2", "0".
             if (StockChoice::shown($pending->extracted) && ($res = StockChoice::answer($pending->extracted, $body)) !== null) {
                 if (isset($res['ask'])) {
@@ -1803,6 +1816,7 @@ class WhatsappWebhookController extends Controller
         if ($pending && empty($data['is_new_entry'])) {
             $data['goods_name'] = ($data['goods_name'] ?? null) ?: ($pending->extracted['goods_name'] ?? null);
             $data['stock_choice_done'] = ! empty($data['stock_choice_done']) || ! empty($pending->extracted['stock_choice_done']);
+            $data['on_behalf_done'] = ! empty($data['on_behalf_done']) || ! empty($pending->extracted['on_behalf_done']);
         }
         // Kartı olmayan MAL (goods_name), adet yok: "Börek unu nerede? 1 geldi (kaç?) · 2 tedarikçide · [3 eski borç] · 0 stok tutmuyorum"
         // (kullanıcı 21.10 Akkuş: "burada stok sormalıydık"). Başka soru yoksa ya da tek soru iş durumuysa ("ne için?") onun YERİNE —
@@ -1813,6 +1827,14 @@ class WhatsappWebhookController extends Controller
         if (($ask === null || $workAsk) && StockChoice::applies($data)) {
             $ask = StockChoice::question($data);
             $data['stock_choice'] = true;
+            $workAsk = false;
+        }
+        // Hiç alış yapılmamış MÜŞTERİDEN alış (Yıldız 22.10: müşteri adına ruhsat ödemesi alış yazıldı): sessiz geçmez, sorulur —
+        // iş durumu sorusunun yerine (ondan aldıysak iş durumu zaten "ondan aldım" cevabıyla belli).
+        $data['on_behalf_choice'] = null;
+        if (($ask === null || $workAsk) && empty($data['stock_choice']) && OnBehalfChoice::applies($data)) {
+            $ask = OnBehalfChoice::question($data);
+            $data['on_behalf_choice'] = true;
             $workAsk = false;
         }
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
@@ -2092,6 +2114,9 @@ class WhatsappWebhookController extends Controller
         // Stok sorusu atlanamaz (hangi yoldan "evet" gelirse gelsin): cevaplanmadan kayıt yok — 0 "stok tutmuyorum" her zaman var.
         if (StockChoice::shown($pending->extracted)) {
             return '❓ ' . StockChoice::question($pending->extracted) . "\nVazgeçmek için *iptal*.";
+        }
+        if (OnBehalfChoice::shown($pending->extracted)) {
+            return '❓ ' . OnBehalfChoice::question($pending->extracted) . "\nVazgeçmek için *iptal*.";
         }
 
         // Bu onayla oluşan gider / cari satırları taslağa yazılır → "son kaydı sil" tam olarak bunları siler.
@@ -2681,6 +2706,10 @@ class WhatsappWebhookController extends Controller
             $description = $description && mb_stripos($description, $word) !== false
                 ? $description
                 : $label . ($description ? ' — ' . $description : '');
+        }
+
+        if (OnBehalfChoice::isOnBehalf($d)) {
+            $description = 'Adına ödendi' . ($description ? ' — ' . $description : '');
         }
 
         // Kayıtlı olmayan eski borcun ödemesi (Taner/Hazal): önce eski borç, sonra ödeme — bakiye 0, ekstrede geçmiş görünür.
@@ -3321,11 +3350,11 @@ class WhatsappWebhookController extends Controller
         $headDesc = $inline && ! self::saidInMeaning($desc, $name . ' iş işi işçilik ödeme ödemesi alış alışı satış tahsilat avans avansı verilen')
             ? ' — ' . $desc : '';
         if ($kind === ExpenseExtractor::KIND_PAYMENT) {
-            $type = ! empty($d['advance']) ? match (true) {
+            $type = OnBehalfChoice::isOnBehalf($d) ? ' · onun adına (hesabına yazılır)' : (! empty($d['advance']) ? match (true) {
                 ($d['payment_purpose'] ?? null) === 'loan' => ' · borç verdin (geri alacaksın)',
                 $staff => ' · maaş avansı (maaşından düşülür)',
                 default => ' · önceden ödeme (iş/mal sonra)',
-            } : '';
+            } : '');
             $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ '
                 . (! empty($d['debt_repayment']) ? '*borcunu ödedin*' : 'ödedin') . $headDesc . $type;
             if (($missing = DraftGaps::unrecordedDebt($d)) > 0) {
