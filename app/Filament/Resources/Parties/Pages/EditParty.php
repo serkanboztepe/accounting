@@ -712,14 +712,137 @@ class EditParty extends EditRecord
             ->color('danger')
             ->action(function (array $arguments): void {
                 $doc = ! empty($arguments['purchase']) ? Purchase::find($arguments['purchase']) : Sale::find($arguments['sale'] ?? null);
-                if (! $doc || (int) $doc->party_id !== (int) $this->record->id) {
+                $this->deleteDocument($doc);
+            });
+    }
+
+    /**
+     * Alışı düzenle — ekstrede alış satırına tıklayınca (kullanıcı 22.10: "düzenleme ekranı açılsın, oradan düzenleyip veya silelim").
+     * Proje, tarih, peşin, kalemler; "Sil" pencere içinde. Anlaşma bağı rebuildFromLines'ta ürün üzerinden korunur.
+     */
+    public function editPurchaseAction(): Action
+    {
+        return Action::make('editPurchase')
+            ->modalHeading(fn (array $arguments): string => 'Alış #' . ($arguments['purchase'] ?? ''))
+            ->modalSubmitActionLabel('Kaydet')
+            ->slideOver()
+            ->fillForm(function (array $arguments): array {
+                $purchase = Purchase::findOrFail($arguments['purchase']);
+
+                return [
+                    'project_id'    => $purchase->project_id,
+                    'purchase_date' => $purchase->purchase_date,
+                    'paid'          => (bool) $purchase->paid,
+                    'payment_type'  => $purchase->payment_type,
+                    'notes'         => $purchase->notes,
+                    'lines'         => $purchase->lines()->orderBy('id')->get()->map(fn ($m) => [
+                        'product_id' => $m->product_id,
+                        'quantity'   => number_format((float) $m->quantity, 2, '.', ''),
+                        'unit_price' => $m->unit_price !== null ? Money::format((float) $m->unit_price) : null,
+                        'amount'     => $m->amount !== null ? Money::format((float) $m->amount) : null,
+                    ])->toArray(),
+                ];
+            })
+            ->schema([
+                AgreementForm::projectSelect('project_id'),
+                DatePicker::make('purchase_date')->label('Tarih')->required(),
+                Toggle::make('paid')->label('Peşin (parası verildi)')->live(),
+                Select::make('payment_type')->label('Ödeme')->options(Purchase::PAYMENT_TYPES)->visible(fn (Get $get) => (bool) $get('paid')),
+                TradeLines::repeater('in'),
+                Textarea::make('notes')->label('Açıklama')->rows(2),
+            ])
+            ->action(function (array $data, array $arguments): void {
+                $purchase = Purchase::findOrFail($arguments['purchase']);
+                abort_if((int) $purchase->party_id !== (int) $this->record->id, 403);
+                if ($arguments['delete'] ?? false) {
+                    $this->deleteDocument($purchase);
+
                     return;
                 }
-                $agreements = \App\Models\AgreementItem::whereIn('id', $doc->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id'))
-                    ->pluck('agreement_id')->unique();
-                \Illuminate\Support\Facades\DB::transaction(fn () => $doc->delete());
-                Agreement::whereIn('id', $agreements)->get()->each(fn (Agreement $a) => AgreementDesk::refreshStatus($a));
-                Notification::make()->success()->title(! empty($arguments['purchase']) ? 'Alış silindi' : 'Satış silindi')->send();
+                $purchase->update([
+                    'project_id'    => $data['project_id'] ?? null,
+                    'purchase_date' => $data['purchase_date'],
+                    'paid'          => (bool) ($data['paid'] ?? false),
+                    'payment_type'  => ($data['paid'] ?? false) ? ($data['payment_type'] ?? null) : null,
+                    'notes'         => $data['notes'] ?? null,
+                ]);
+                $purchase->rebuildFromLines($data['lines'] ?? []);
+                $this->refreshAgreementsOf($purchase);
+                Notification::make()->success()->title('Alış güncellendi')->send();
+            })
+            ->extraModalFooterActions(fn (Action $action): array => [
+                $action->makeModalSubmitAction('deletePurchase', arguments: ['delete' => true])
+                    ->label('Sil')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalDescription('Alış, kalemleri ve cari kaydı silinir. Anlaşmadan geldiyse düşülen miktar anlaşmaya geri döner.'),
+            ]);
+    }
+
+    /** Belgeyi sil (bu carinin) + bağlı anlaşmaların durumunu yenile. */
+    private function deleteDocument(Purchase|Sale|null $doc): void
+    {
+        if (! $doc || (int) $doc->party_id !== (int) $this->record->id) {
+            return;
+        }
+        $agreements = $this->agreementIdsOf($doc);
+        \Illuminate\Support\Facades\DB::transaction(fn () => $doc->delete());
+        Agreement::whereIn('id', $agreements)->get()->each(fn (Agreement $a) => AgreementDesk::refreshStatus($a));
+        Notification::make()->success()->title($doc instanceof Purchase ? 'Alış silindi' : 'Satış silindi')->send();
+    }
+
+    private function agreementIdsOf(Purchase|Sale $doc): \Illuminate\Support\Collection
+    {
+        return AgreementItem::whereIn('id', $doc->lines()->whereNotNull('agreement_item_id')->pluck('agreement_item_id'))
+            ->pluck('agreement_id')->unique();
+    }
+
+    private function refreshAgreementsOf(Purchase|Sale $doc): void
+    {
+        Agreement::whereIn('id', $this->agreementIdsOf($doc))->get()->each(fn (Agreement $a) => AgreementDesk::refreshStatus($a));
+    }
+
+    /**
+     * Anlaşmayı düzenle: ad, proje, not (kullanıcı 22.10: "proje seçmemişim"). "Gelen malları da taşı" → bu anlaşmadan gelen
+     * alış/satışların projesi de değişir (belge + stok satırları + cari kaydı) — proje maliyeti doğru projeye geçer.
+     */
+    public function editAgreementAction(): Action
+    {
+        return Action::make('editAgreement')
+            ->modalHeading(fn (array $arguments): string => 'Anlaşmayı düzenle · ' . ($this->agreementArg($arguments)?->title ?? ''))
+            ->modalSubmitActionLabel('Kaydet')
+            ->fillForm(function (array $arguments): array {
+                $a = $this->agreementArg($arguments);
+
+                return ['title' => $a->title, 'project_id' => $a->project_id, 'notes' => $a->notes, 'move_deliveries' => true];
+            })
+            ->schema([
+                TextInput::make('title')->label('Anlaşma adı')->required()->maxLength(255),
+                AgreementForm::projectSelect('project_id'),
+                Toggle::make('move_deliveries')
+                    ->label('Gelen malları da bu projeye taşı')
+                    ->helperText('Bu anlaşmadan önceden gelen alış/satışların projesi de değişir.')
+                    ->visible(fn () => (bool) config('modules.projects')),
+                Textarea::make('notes')->label('Not')->rows(2),
+            ])
+            ->action(function (array $data, array $arguments): void {
+                $a = $this->agreementArg($arguments);
+                $projectId = $data['project_id'] ?? null;
+                \Illuminate\Support\Facades\DB::transaction(function () use ($a, $data, $projectId) {
+                    $a->update(['title' => $data['title'], 'project_id' => $projectId, 'notes' => $data['notes'] ?? null]);
+                    if (! ($data['move_deliveries'] ?? false) || ! config('modules.projects')) {
+                        return;
+                    }
+                    $lines = \App\Models\StockMovement::whereIn('agreement_item_id', $a->items()->pluck('id'));
+                    foreach ([Purchase::class => 'purchase_id', Sale::class => 'sale_id'] as $model => $fk) {
+                        foreach ($model::whereIn('id', (clone $lines)->whereNotNull($fk)->pluck($fk)->unique())->get() as $doc) {
+                            $doc->update(['project_id' => $projectId]);
+                            $doc->lines()->update(['project_id' => $projectId]);
+                            PartyLedgerEntry::where($fk, $doc->id)->update(['project_id' => $projectId]);
+                        }
+                    }
+                });
+                Notification::make()->success()->title('Anlaşma güncellendi')->send();
             });
     }
 

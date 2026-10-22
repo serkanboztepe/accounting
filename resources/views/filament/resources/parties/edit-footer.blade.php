@@ -152,6 +152,10 @@
                             @if ($editable)
                                 wire:click="mountAction('editLedgerEntry', { entry: {{ $r['entry_id'] }} })"
                                 class="cursor-pointer transition hover:bg-gray-50 dark:hover:bg-white/5"
+                            @elseif (! empty($r['purchase_id']))
+                                {{-- Alış satırı: tıklayınca düzenleme penceresi (proje, kalemler, Sil) — kullanıcı 22.10. --}}
+                                wire:click="mountAction('editPurchase', { purchase: {{ $r['purchase_id'] }} })"
+                                class="cursor-pointer transition hover:bg-gray-50 dark:hover:bg-white/5"
                             @endif
                         >
                             <td class="py-2 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $r['date'] }}</td>
@@ -176,13 +180,12 @@
                                     </span>
                                 @elseif (! empty($r['purchase_id']))
                                     <span class="ml-2 inline-flex align-middle">
-                                        {{-- Alışlar ekranı kapalı firmada (müteahhit: anlaşmadan gelen mal) "Aç" 403 veriyordu → Sil. --}}
+                                        {{-- Alışlar ekranı yalnız stoklu pakette; kapalıysa "Aç" 403 veriyordu — satıra tıklamak düzenler. --}}
                                         @if (\App\Filament\Resources\Purchases\PurchaseResource::canAccess())
                                             <a href="{{ \App\Filament\Resources\Purchases\PurchaseResource::getUrl('edit', ['record' => $r['purchase_id']]) }}"
-                                                class="text-xs text-primary-600 hover:underline">Aç</a>
+                                                wire:click.stop class="text-xs text-primary-600 hover:underline">Aç</a>
                                         @else
-                                            <button type="button" class="text-xs text-danger-600 hover:underline"
-                                                wire:click="mountAction('deleteDocument', { purchase: {{ $r['purchase_id'] }} })">Sil</button>
+                                            <span class="text-xs text-primary-600">Düzenle</span>
                                         @endif
                                     </span>
                                 @elseif (! empty($r['sale_return_id']))

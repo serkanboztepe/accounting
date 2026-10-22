@@ -95,6 +95,8 @@
                     <button type="button" class="text-primary-600 hover:underline dark:text-primary-400"
                         wire:click="mountAction('addAgreementItems', { agreement: {{ $agreement->id }} })">+ Kalem ekle</button>
                 @endif
+                <button type="button" class="text-primary-600 hover:underline dark:text-primary-400"
+                    wire:click="mountAction('editAgreement', { agreement: {{ $agreement->id }} })">Düzenle</button>
                 <button type="button" class="text-gray-600 hover:underline dark:text-gray-400"
                     wire:click="mountAction('toggleAgreement', { agreement: {{ $agreement->id }} })">
                     {{ $agreement->status === \App\Models\Agreement::STATUS_CLOSED ? 'Yeniden aç' : 'Anlaşmayı kapat' }}

@@ -62,10 +62,10 @@ class AgreementsTest extends TestCase
     }
 
     /**
-     * Müteahhitte Alışlar ekranı kapalı (22.10 firma 7: anlaşmadan gelen tuğla, ekstrede "Aç" → 403). Ekstrede Alışlar bağlantısı yok,
-     * "Sil" var; silince alış + cari kaydı gider, anlaşmadan düşülen miktar geri döner.
+     * Müteahhitte Alışlar ekranı kapalı (22.10 firma 7: anlaşmadan gelen tuğla, ekstrede "Aç" → 403). Alış satırına tıklayınca
+     * düzenleme penceresi: proje değişir (belge + stok satırı + cari kaydı); pencereden silince anlaşmadan düşülen miktar geri döner.
      */
-    public function test_delivery_purchase_without_purchases_screen_can_be_deleted_from_statement(): void
+    public function test_delivery_purchase_is_edited_and_deleted_from_statement(): void
     {
         $this->assertFalse(\App\Filament\Resources\Purchases\PurchaseResource::canAccess());
         $a = $this->agreement([['product_id' => $this->product('Sil Test Tuğla', 'adet')->id, 'quantity' => 1000, 'unit_price' => 8.5]]);
@@ -74,12 +74,42 @@ class AgreementsTest extends TestCase
 
         $page = \Livewire\Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $this->party->getRouteKey()]);
         $page->assertDontSee('/admin/purchases/' . $purchase->id)
-            ->assertSeeHtml("mountAction('deleteDocument', { purchase: " . $purchase->id . ' })');
-        $page->callAction('deleteDocument', arguments: ['purchase' => $purchase->id]);
+            ->assertSeeHtml("mountAction('editPurchase', { purchase: " . $purchase->id . ' })');
 
+        $page->mountAction('editPurchase', ['purchase' => $purchase->id])
+            ->set('mountedActions.0.data.project_id', $this->cumhuriyet->id)
+            ->callMountedAction();
+        $purchase->refresh();
+        $this->assertSame($this->cumhuriyet->id, (int) $purchase->project_id);
+        $this->assertSame($this->cumhuriyet->id, (int) $purchase->lines()->sole()->project_id);
+        $this->assertSame($this->cumhuriyet->id, (int) PartyLedgerEntry::where('purchase_id', $purchase->id)->sole()->project_id);
+        $this->assertEqualsWithDelta(200, $a->fresh()->loadForCard()->items[0]->deliveredQuantity(), 0.001); // anlaşma bağı korundu
+
+        $page->callAction('editPurchase', arguments: ['purchase' => $purchase->id, 'delete' => true]);
         $this->assertNull(Purchase::find($purchase->id));
         $this->assertSame(0.0, $this->balance());
         $this->assertEqualsWithDelta(0, $a->fresh()->loadForCard()->items[0]->deliveredQuantity(), 0.001);
+    }
+
+    /** Anlaşmanın projesi sonradan (kullanıcı 22.10: "proje seçmemişim") — "gelen malları da taşı" ile önceki teslimat da taşınır. */
+    public function test_edit_agreement_project_moves_deliveries(): void
+    {
+        $a = $this->agreement([['product_id' => $this->product('Proje Test Seramik', 'm²')->id, 'quantity' => 100, 'unit_price' => 565]],
+            ['project_id' => null]);
+        AgreementDesk::deliver($this->party, Agreement::DIRECTION_PURCHASE, [['agreement_item_id' => $a->items[0]->id, 'quantity' => 10]], now()->toDateString());
+        $purchase = Purchase::where('party_id', $this->party->id)->sole();
+        $this->assertNull($purchase->project_id);
+
+        \Livewire\Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $this->party->getRouteKey()])
+            ->assertSeeHtml("mountAction('editAgreement', { agreement: " . $a->id . ' })')
+            ->mountAction('editAgreement', ['agreement' => $a->id])
+            ->set('mountedActions.0.data.project_id', $this->yesilyurt->id)
+            ->callMountedAction();
+
+        $this->assertSame($this->yesilyurt->id, (int) $a->fresh()->project_id);
+        $this->assertSame($this->yesilyurt->id, (int) $purchase->fresh()->project_id);
+        $this->assertSame($this->yesilyurt->id, (int) $purchase->lines()->sole()->project_id);
+        $this->assertSame($this->yesilyurt->id, (int) PartyLedgerEntry::where('purchase_id', $purchase->id)->sole()->project_id);
     }
 
     public function test_kinds_are_inferred_and_agreement_writes_no_debt(): void
