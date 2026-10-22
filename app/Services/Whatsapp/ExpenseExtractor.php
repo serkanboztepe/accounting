@@ -139,6 +139,8 @@ class ExpenseExtractor
             . 'anlaşma toplamı arasındaki %1\'den küçük (yuvarlama) fark; malın gelip gelmediği (anlaşma zaten ileride gelecek demek); üstü '
             . 'çizilip yeniden yazılmış ad/tutar (düzeltilmiş hâli geçerli); parayı etkilemeyen kenar notları; fiyatı ~0/1 basılmış kalemin '
             . 'bedelsiz olduğu (free=true yaz). '
+            . 'Belgenin altındaki genel toplamı (indirim / silinen +KDV sonrası ödenecek son rakam) `document_total`\'a AYRICA yaz. Kalem '
+            . 'fiyatı = gerçekte ödenecek birim fiyat: kalemde KDV hariç ve KDV dahil iki sütun varsa genel toplamla TUTAN sütunu al. '
             . 'amount = anlaşılan toplam (miktarlı + götürü; fiyat listesi 0). description = kısa ad ("Seramik ve vitrifiye", "Mermer işçiliği"). '
             . 'date = anlaşma/belge tarihi.',
         self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
@@ -402,8 +404,8 @@ class ExpenseExtractor
                 ->retry(2, 300, fn ($e) => $e instanceof \Illuminate\Http\Client\ConnectionException, throw: false)
                 ->timeout(90)->post(self::ENDPOINT, [
                 'model' => $model,
-                // Belgede (sözleşme: 12 kalem + ödeme planı) 1024 yetmiyor; yalnız kullanılan kadar ödenir.
-                'max_tokens' => $image !== null ? 3000 : 1024,
+                // Belgede (sözleşme: 13 kalem + ödeme planı + sağlama) 3000 sınırda kalıp kalemler boş geldi (22.10 deneme); yalnız kullanılan kadar ödenir.
+                'max_tokens' => $image !== null ? 6000 : 1024,
                 'system' => $system,
                 'tools' => [$this->tool()],
                 'tool_choice' => $forced ? ['type' => 'tool', 'name' => 'save_entry'] : ['type' => 'auto'],
@@ -832,6 +834,8 @@ class ExpenseExtractor
                 'description' => 'Only for kind=agreement_delivery when the item is ambiguous: ids of the matching open items (system asks which)'],
             'query_item_ids' => ['type' => 'array', 'items' => ['type' => 'integer'],
                 'description' => 'Only for kind=agreement_query: ids from AÇIK ANLAŞMALAR of the item(s) asked about; empty if a person or all agreements are asked'],
+            'document_total' => ['type' => ['number', 'null'],
+                'description' => 'Only for kind=agreement from a document: the grand total printed at the bottom (genel toplam — the final amount to be paid, after discounts / struck-out lines), as written; null if none'],
             'has_payments' => ['type' => ['boolean', 'null'],
                 'description' => 'Only for kind=agreement: true if the message/document mentions ANY payment (cash, transfer, check, promissory note, devir/offset), even if amounts are unreadable'],
             'unreadable' => ['type' => 'array', 'items' => ['type' => 'string'],

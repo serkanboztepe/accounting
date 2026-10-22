@@ -79,6 +79,9 @@ class AgreementDraft
             'agreement_payments'  => $payments,
             // Belgede ödeme geçiyor mu (tutar okunamasa da) — liste boş kalırsa sorulur (Seramikpark 22.10: ödemeler sessizce düştü).
             'has_payments'        => ! empty($input['has_payments']),
+            // Belgenin altındaki genel toplam — kalemlerin toplamıyla sağlama (22.10: KDV hariç/dahil iki sütunlu belge).
+            'document_total'      => is_numeric($input['document_total'] ?? null) && (float) $input['document_total'] > 0
+                ? round((float) $input['document_total'], 2) : null,
             // En fazla 3 soru (kullanıcı 21.10: "o kadar ayrıntıya giremeyiz") — AI en önemlisini önce yazar.
             'unreadable'          => array_slice(array_values(array_filter(array_map(fn ($u) => is_string($u) ? mb_substr(trim($u), 0, 200) : '',
                 (array) ($input['unreadable'] ?? [])))), 0, 3),
@@ -106,6 +109,9 @@ class AgreementDraft
             if (! $item['free'] && $item['unit_price'] === null && $item['amount'] === null) {
                 return '"' . $item['description'] . '" için fiyat ya da tutar ne? Yazar mısın?';
             }
+        }
+        if ($gap = self::totalGap($d)) {
+            return self::totalQuestion($d, $gap);
         }
         // Çek planı yazıyla ("şubattan itibaren 11 çek", firma 7 22.10 — cevap anılmadan aynı soru tekrarlandı): bölme kodda.
         if (($d['check_choice'] ?? null) === 'split') {
@@ -140,6 +146,81 @@ class AgreementDraft
             && trim((string) ($d['party_said'] ?? '')) !== '';
     }
 
+    /** KDV oranları — belge toplamı / kalem toplamı bunlardan birine denk gelirse "fiyatlara KDV ekle" seçeneği. */
+    private const VAT_RATES = [0.20, 0.10, 0.01];
+
+    /**
+     * Sağlama (kullanıcı 22.10): belgenin altındaki genel toplam ile kalemlerin toplamı %1'den fazla tutmuyorsa
+     * ['sum', 'doc', 'rate'] — rate: fark tam bir KDV oranıysa (1.187.820 × 1,20 = 1.425.384) o oran, değilse null.
+     * Tutuyorsa, belgede toplam yoksa, fiyat listesiyse ya da kullanıcı "kalemler doğru" dediyse null.
+     */
+    public static function totalGap(array $d): ?array
+    {
+        $doc = (float) ($d['document_total'] ?? 0);
+        $sum = self::agreedTotal($d['agreement_items'] ?? []);
+        if ($doc <= 0 || $sum <= 0 || ! empty($d['total_ok']) || abs($doc - $sum) <= $doc * 0.01) {
+            return null;
+        }
+        $rate = null;
+        foreach (self::VAT_RATES as $r) {
+            if (abs($doc / $sum - (1 + $r)) < 0.002) {
+                $rate = $r;
+                break;
+            }
+        }
+
+        return ['sum' => $sum, 'doc' => $doc, 'rate' => $rate];
+    }
+
+    private static function totalQuestion(array $d, array $gap): string
+    {
+        $head = 'Kalemleri topladım ' . Money::format($gap['sum']) . ', belgenin altında ' . Money::format($gap['doc']) . ' yazıyor';
+        if ($gap['rate'] === null) {
+            return $head . ' — bir satırı yanlış okumuş olabilirim. Doğru rakamı yazar mısın? Kalemler doğruysa *evet*.';
+        }
+        $first = collect($d['agreement_items'])->first(fn ($i) => ! $i['free'] && $i['unit_price'] !== null);
+        $example = $first ? $first['description'] . ' ' . Money::format($first['unit_price']) . ' → '
+            . Money::format(round($first['unit_price'] * (1 + $gap['rate']), 2)) . (count($d['agreement_items']) > 1 ? ' …' : '') . ', ' : '';
+
+        return $head . ' — fark tam %' . (int) round($gap['rate'] * 100) . " KDV.\n"
+            . '*1* Fiyatlara KDV ekle (' . $example . 'toplam ' . Money::format($gap['doc']) . ")\n"
+            . '*2* Kalemler doğru, ' . Money::format($gap['sum']) . ' kalsın';
+    }
+
+    /** KDV seçeneği gösterildi mi (numara cevabı bekleniyor). */
+    public static function awaitsTotalChoice(array $d): bool
+    {
+        return ($gap = self::totalGap($d)) !== null && $gap['rate'] !== null && self::question($d) === self::totalQuestion($d, $gap);
+    }
+
+    /** *1* fiyatlar × (1 + KDV) · *2* kalemler doğru; geçersizse null. */
+    public static function chooseTotal(array $d, int $n): ?array
+    {
+        $gap = self::totalGap($d);
+        if ($gap === null || $gap['rate'] === null || ! in_array($n, [1, 2], true)) {
+            return null;
+        }
+        if ($n === 2) {
+            return ['total_ok' => true] + $d;
+        }
+        $k = 1 + $gap['rate'];
+        foreach ($d['agreement_items'] as $i => $item) {
+            foreach (['unit_price', 'amount'] as $f) {
+                if ($item[$f] !== null) {
+                    $d['agreement_items'][$i][$f] = round($item[$f] * $k, 2);
+                }
+            }
+        }
+
+        return ['total_ok' => true] + $d;
+    }
+
+    /** Toplam uyuşmazlığı (KDV'siz) — *evet* "kalemler doğru" demek. */
+    public static function totalUnclear(array $d): bool
+    {
+        return ($gap = self::totalGap($d)) !== null && $gap['rate'] === null && ! self::partyUnclear($d);
+    }
+
     /**
      * Yazıyla çek planı (`check_plan`: kaç çek, ilk ay, gün, "100'er") → çek ödemeleri. Taban: anlaşılan toplam − diğer ödemeler.
      * Eşit bölüm küsuratlıysa numaralı seçenek (check_choice=split, CheckSplit::options); toplam yoksa (fiyat listesi) tutar sorulur.
@@ -149,7 +230,8 @@ class AgreementDraft
         $d['check_choice'] = null;
         $plan = CheckSplit::normalize($d['check_plan'] ?? null);
         $d['check_plan'] = $plan;
-        if ($plan === null) {
+        // Toplam sağlaması bitmeden bölünmez (taban yanlış olur) — plan bekler.
+        if ($plan === null || self::totalGap($d) !== null) {
             return $d;
         }
         $other = array_values(array_filter($d['agreement_payments'] ?? [], fn ($p) => $p['method'] !== 'check'));

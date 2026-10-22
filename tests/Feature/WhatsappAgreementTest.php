@@ -216,6 +216,58 @@ class WhatsappAgreementTest extends TestCase
         $this->assertEqualsWithDelta(187820, $checks->last()->amount, 0.01);
     }
 
+    /**
+     * Sağlama (kullanıcı 22.10): belgenin altında 1.425.384 (KDV dahil), kalemler KDV hariç (565) okundu → fark tam %20 sorulur;
+     * *1* → fiyatlar × 1,20 (565 → 678), teslimat bu fiyattan yazılır.
+     */
+    public function test_document_total_vat_gap_offers_vat_prices(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma KDV', 'project_id' => $this->project(), 'document_total' => 1425384,
+            'agreement_items' => [['description' => 'WAA9 Core Mat', 'quantity' => 1502, 'unit' => 'm²', 'unit_price' => 565],
+                ['description' => 'WAA9 Yapıştırıcı', 'quantity' => 448, 'unit_price' => 500],
+                ['description' => 'WAA9 Derz', 'quantity' => 1, 'unit_price' => 115190]]]));
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('Kalemleri topladım 1.187.820,00, belgenin altında 1.425.384,00 yazıyor — fark tam %20 KDV.', $ask);
+        $this->assertStringContainsString('*1* Fiyatlara KDV ekle (WAA9 Core Mat 565,00 → 678,00 …, toplam 1.425.384,00)', $ask);
+        $this->assertStringContainsString('*2* Kalemler doğru, 1.187.820,00 kalsın', $ask);
+
+        $card = $this->send('1');
+        $this->assertStringContainsString('WAA9 Core Mat 1.502 m² × 678,00 = 1.018.356,00', $card);
+        $this->assertStringContainsString('Anlaşılan: *1.425.384,00 ₺*', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+        $this->send('evet');
+        $a = Agreement::whereHas('party', fn ($q) => $q->where('name', 'WA Anlaşma KDV'))->sole()->loadForCard();
+        $this->assertEqualsWithDelta(678, $a->items[0]->unit_price, 0.001);
+    }
+
+    /** *2* "kalemler doğru" → fiyatlar değişmez, bir daha sorulmaz. */
+    public function test_document_total_vat_gap_keep_items(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma KDV2', 'project_id' => $this->project(), 'document_total' => 120000,
+            'agreement_items' => [['description' => 'WAA10 Kapı', 'quantity' => 10, 'unit_price' => 10000]]]));
+        $this->sendPhoto();
+        $card = $this->send('2');
+        $this->assertStringContainsString('WAA10 Kapı 10 × 10.000,00 = 100.000,00', $card);
+        $this->assertStringContainsString('Kaydedeyim mi?', $card);
+    }
+
+    /** KDV oranına uymayan fark → "bir satırı yanlış okumuş olabilirim"; *evet* (kalemler doğru) → kart. Tutan toplam hiç sorulmaz. */
+    public function test_document_total_other_gap_and_match(): void
+    {
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Sağlama', 'project_id' => $this->project(), 'document_total' => 1187820,
+            'agreement_items' => [['description' => 'WAA11 Core Mat', 'quantity' => 1502, 'unit' => 'm²', 'unit_price' => 678],
+                ['description' => 'WAA11 Derz', 'quantity' => 1, 'unit_price' => 339190]]]));
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('Kalemleri topladım 1.357.546,00, belgenin altında 1.187.820,00 yazıyor — bir satırı yanlış okumuş olabilirim', $ask);
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('evet'));
+
+        $this->ai($this->agreement(['party_name' => 'WA Anlaşma Sağlama 2', 'project_id' => $this->project(), 'document_total' => 100000,
+            'agreement_items' => [['description' => 'WAA12 Kapı', 'quantity' => 10, 'unit_price' => 10000]]]));
+        $this->send('iptal');
+        $this->assertStringNotContainsString('Kalemleri topladım', $this->sendPhoto());
+    }
+
     /** "geç": ödeme yok sayılır; kart "Ödeme: yok" ile onaya gelir. */
     public function test_missing_payments_can_be_skipped(): void
     {

@@ -625,6 +625,16 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::skipUnreadable($pending->extracted)));
         }
 
+        // Anlaşma: "fark tam %20 KDV. *1* Fiyatlara KDV ekle · *2* Kalemler doğru" → numara (AI'sız).
+        if ($pending && $image === null && ctype_digit($body) && AgreementDraft::handles($pending->extracted)
+            && AgreementDraft::awaitsTotalChoice($pending->extracted)) {
+            $this->inboundKind = 'quick';
+            $chosen = AgreementDraft::chooseTotal($pending->extracted, (int) $body);
+
+            return $this->twiml($chosen === null ? 'Listede o numara yok. ' . AgreementDraft::question($pending->extracted)
+                : $this->saveDraft($pending, $phone, $chosen));
+        }
+
         // Anlaşma: "11 çeke nasıl böleyim? *1* … *3* Eşit" → numara (AI'sız).
         if ($pending && $image === null && ctype_digit($body) && AgreementDraft::handles($pending->extracted)
             && AgreementDraft::awaitsSplit($pending->extracted)) {
@@ -2223,6 +2233,10 @@ class WhatsappWebhookController extends Controller
             if (AgreementDraft::partyUnclear($pending->extracted)) {
                 return $this->saveAgreementDraft($pending, $pending->phone, ['party_confirmed' => true] + $pending->extracted);
             }
+            // "Kalemleri topladım X, belgede Y — kalemler doğruysa *evet*" → toplam teyit.
+            if (AgreementDraft::totalUnclear($pending->extracted)) {
+                return $this->saveAgreementDraft($pending, $pending->phone, ['total_ok' => true] + $pending->extracted);
+            }
             if ($question = AgreementDraft::question($pending->extracted)) {
                 return '❓ ' . $question . "\n\nVazgeçmek için *iptal*.";
             }
@@ -2599,6 +2613,8 @@ class WhatsappWebhookController extends Controller
             $data['party_confirmed'] = ! empty($data['party_confirmed'])
                 || (! empty($prev['party_confirmed']) && ($prev['party_id'] ?? null) === ($data['party_id'] ?? null));
             $data['has_payments'] = ! empty($data['has_payments']) || ! empty($prev['has_payments']);
+            $data['document_total'] = $data['document_total'] ?? $prev['document_total'] ?? null;
+            $data['total_ok'] = ! empty($data['total_ok']) || ! empty($prev['total_ok']);
             $data['payments_skipped'] = ! empty($data['payments_skipped']) || ! empty($prev['payments_skipped']);
             $data['from_document'] = ! empty($data['from_document']) || ! empty($prev['from_document']);
             // AI cevapta projeyi tekrarlamazsa önceki (belgeden / menüden) kalır; "0 = genel" seçimi de kaybolmaz.
