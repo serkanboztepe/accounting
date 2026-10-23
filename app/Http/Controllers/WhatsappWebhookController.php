@@ -1105,6 +1105,10 @@ class WhatsappWebhookController extends Controller
                 // avans) aynı cari için korunur — "nakit" diye düzeltince sözleşme tekrar sorulmasın.
                 if (($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
                     $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true, 'advance_declined' => true]);
+                    // Kendiliğinden seçilen cari ("son aldığın yer") başka cari söylenene kadar öyle görünür.
+                    if (! empty($pending->extracted['party_auto']) && ! empty($data['party_id'])) {
+                        $data['party_auto'] = true;
+                    }
                 }
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
@@ -1484,6 +1488,10 @@ class WhatsappWebhookController extends Controller
                 }
                 if ($pending && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
                     $data += array_intersect_key($pending->extracted, ['contract_id' => true, 'advance' => true, 'payment_purpose' => true, 'advance_declined' => true]);
+                    // Kendiliğinden seçilen cari ("son aldığın yer") başka cari söylenene kadar öyle görünür.
+                    if (! empty($pending->extracted['party_auto']) && ! empty($data['party_id'])) {
+                        $data['party_auto'] = true;
+                    }
                 }
                 // Önce anla: belgeden okunan çekler soru-cevap turunda kaybolmasın.
                 if ($pending && empty($data['checks']) && empty($data['check_plan']) && ! empty($pending->extracted['checks'])) {

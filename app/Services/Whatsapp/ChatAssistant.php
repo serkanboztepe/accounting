@@ -602,7 +602,8 @@ class ChatAssistant
           kısa yaz (en çok ~8 satır), "toplam X kayıt" de; bulunamadıysa açıkça söyle, uydurma. Genel sorularda
           ("ne almışım", "neler sattım", "giderlerim neler") geri soru SORMA: son 30 günün kayıtlarını oku ve listele.
           Araç sonucu boşsa "hiç yok" deme — "bu süzgeçle bulamadım" de (başka türde/tarihte olabilir).
-          Saat 00:00–05:00 arası "bugün" = biten iş günü (önceki gün): esnaf gün sonu kasasını gece girer.
+          Saat 00:00–05:00 arası "bugün" = biten iş günü (önceki gün): esnaf gün sonu kasasını gece girer. Cevapta "bugünkü" deme,
+          günü tarihiyle yaz: "Dünkü (21 Ekim) ciro: …" (Akkuş 22.10 00:37: 21 Ekim cirosuna "Bugünkü toplam ciro" denmişti).
           "Kaç gün / kaç günlük?" → takvimden HESAPLAMA: araç sonucundaki `kayıt_günleri` ya da sonuçtaki "📅 Satış girilen gün"
           satırıyla cevap ver (Akkuş 18.10: 5 günlük ciroya "1 Ekim'den bugüne 18 günlük" denmişti).
           ZOR SORU (karşılaştırma "geçen haftayla", "hangi şube daha çok", eğilim, "neden", "ne yapmalıyım") → `deep`=true;

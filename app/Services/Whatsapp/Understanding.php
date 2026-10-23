@@ -440,8 +440,12 @@ final class Understanding
                 : "Günün peşin satışı (kasa) {$amount}"
                     . (($d['cash_amount'] ?? null) !== null || ($d['card_amount'] ?? null) !== null
                         ? ' (nakit ' . Money::format((float) ($d['cash_amount'] ?? 0)) . ', kart ' . Money::format((float) ($d['card_amount'] ?? 0)) . ')' : '') . '.',
-            ExpenseExtractor::KIND_TRADE_PURCHASE => ($hasParty ? "{$name}'den" : 'Tedarikçisiz') . " {$amount} mal geldi ve stoğa giriyor"
-                . ($paid ? ', parası ödendi.' : ($hasParty ? ', parası ödenmedi; ona borçlusunuz.' : '.')),
+            // Kullanıcının söylemediği, kodun kartta açıkça yazdığı varsayımlar (son alınan yer, veresiye) iddia gibi yazılmaz — süzgeç
+            // "borç kimde?" çelişkisi sanıp ayrıca soruyordu (Çiftlik 22.10 "40 adet besi yemi geldi" → "daha önce peşin mi ödediniz?").
+            ExpenseExtractor::KIND_TRADE_PURCHASE => ($hasParty ? "{$name}'den" . (! empty($d['party_auto']) ? ' (kimden söylenmedi; son alındığı yer, kartta yazıyor)' : '') : 'Tedarikçisiz')
+                . " {$amount} mal geldi ve stoğa giriyor"
+                . ($paid ? ', parası ödendi.' : ($hasParty ? (! empty($d['paid_assumed'])
+                    ? '; ödeme konuşulmadı (kartta "veresiye yazılır, peşinse söyle" diye soruluyor).' : ', parası ödenmedi; ona borçlusunuz.') : '.')),
             ExpenseExtractor::KIND_SALARY => "Çalışanınız {$name}'e maaş {$amount}" . ($paid ? ' ödendi.' : ' hak edildi, henüz ödenmedi.'),
             default => null,
         };

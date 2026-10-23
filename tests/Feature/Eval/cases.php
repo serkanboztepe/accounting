@@ -42,7 +42,8 @@ return [
         // Çiftlik (Oktay, firma 9): stoklu, projesiz.
         'oktay' => [
             'profile' => 'trade', 'modules' => ['natural_voice' => true], 'sector' => 'farm',
-            'parties' => ['Damızlık Birliği' => [], 'Akkuş Fırın' => []], 'products' => [['Yem', 'adet'], ['Ezme', 'adet']], 'categories' => ['Çobanlar'],
+            'parties' => ['Damızlık Birliği' => [], 'Akkuş Fırın' => [], 'Boztepe Ticaret' => []],
+            'products' => [['Yem', 'adet'], ['Ezme', 'adet'], ['Besi Yemi', 'adet']], 'categories' => ['Çobanlar'],
         ],
         'muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true], 'sector' => 'construction',
@@ -677,12 +678,24 @@ return [
         ['id' => 'O1-akkus-genel-toplam-ciro', 'firm' => 'akkus', 'group' => 'regression', 'seed' => 'akkus-kasalar',
             'steps' => [['send' => 'Toplam ciro ne kadar'], ['send' => 'Genel toplam']],
             'expect' => ['reply_not' => ['alacağın']]],
+        // 22.10 Akkuş 00:37: biten günün (21 Ekim) cirosuna "Bugünkü toplam ciro" dendi — gece cevabı günü tarihiyle söyler.
+        ['id' => 'O1-akkus-gece-ciro-tarihli', 'firm' => 'akkus', 'group' => 'regression', 'seed' => 'akkus-dunku-kasa', 'now' => '2026-10-23 00:37:00',
+            'steps' => [['send' => 'Toplam ciro ne kadar']],
+            'expect' => ['reply_has' => ['22 Ekim'], 'reply_not' => ['bugün']]],
+        // 22.10 Çiftlik 16:00: "40 adet besi yemi geldi" → AI kendi sorusunu sordu ("daha önce peşin mi ödediniz"); kod zaten
+        // son alınan yeri + veresiye varsayımını kartta söyler. "Pesin alis" sonrası kart cariyi "son aldığın yer" diye göstermeli.
+        ['id' => 'O1-ciftlik-besi-yemi-son-yer', 'firm' => 'oktay', 'group' => 'regression', 'seed' => 'ciftlik-besi-yemi',
+            'steps' => [['send' => '40 adet besi yemi geldi', 'expect' => ['reply_has' => ['son aldığın yer'], 'reply_not' => ['daha önce']]],
+                ['send' => 'Pesin alis']],
+            'expect' => ['reply_has' => ['son aldığın yer', 'parası verildi', '44.000']]],
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
     'seeds' => [
         'abdullah-pesin' => [['ledger', 'Abdullah Uçar', 'tahsilat', 1333000, '-14 days', 'Peşin ödeme']],
         'stok-gecmis' => [['purchase', 'Ak Un', 'Un', 20, 850, '-20 days']],
+        'akkus-dunku-kasa' => [['sale', 'Ergenekon', 22577, '-1 days'], ['sale', 'İzzetpaşa', 23822, '-1 days'], ['sale', 'Araştırma', 46574, '-1 days']],
+        'ciftlik-besi-yemi' => [['purchase', 'Boztepe Ticaret', 'Besi Yemi', 60, 1100, '-2 days']],
         'akkus-iki-hafta' => [['sale', 'Araştırma', 50000, '-1 days'], ['sale', 'Ergenekon', 25000, '-1 days'], ['sale', 'İzzetpaşa', 21000, '-1 days'], ['sale', 'Araştırma', 50000, '-2 days'], ['sale', 'Ergenekon', 25000, '-2 days'], ['sale', 'İzzetpaşa', 21000, '-2 days'], ['sale', 'Araştırma', 50000, '-3 days'], ['sale', 'Ergenekon', 25000, '-3 days'], ['sale', 'İzzetpaşa', 21000, '-3 days'], ['sale', 'Araştırma', 50000, '-4 days'], ['sale', 'Ergenekon', 25000, '-4 days'], ['sale', 'İzzetpaşa', 21000, '-4 days'], ['sale', 'Araştırma', 50000, '-5 days'], ['sale', 'Ergenekon', 25000, '-5 days'], ['sale', 'İzzetpaşa', 21000, '-5 days'], ['sale', 'Araştırma', 50000, '-6 days'], ['sale', 'Ergenekon', 25000, '-6 days'], ['sale', 'İzzetpaşa', 21000, '-6 days'], ['sale', 'Araştırma', 50000, '-7 days'], ['sale', 'Ergenekon', 25000, '-7 days'], ['sale', 'İzzetpaşa', 21000, '-7 days'], ['sale', 'Araştırma', 40000, '-8 days'], ['sale', 'Ergenekon', 27000, '-8 days'], ['sale', 'İzzetpaşa', 21000, '-8 days'], ['sale', 'Araştırma', 40000, '-9 days'], ['sale', 'Ergenekon', 27000, '-9 days'], ['sale', 'İzzetpaşa', 21000, '-9 days'], ['sale', 'Araştırma', 40000, '-10 days'], ['sale', 'Ergenekon', 27000, '-10 days'], ['sale', 'İzzetpaşa', 21000, '-10 days'], ['sale', 'Araştırma', 40000, '-11 days'], ['sale', 'Ergenekon', 27000, '-11 days'], ['sale', 'İzzetpaşa', 21000, '-11 days'], ['sale', 'Araştırma', 40000, '-12 days'], ['sale', 'Ergenekon', 27000, '-12 days'], ['sale', 'İzzetpaşa', 21000, '-12 days'], ['sale', 'Araştırma', 40000, '-13 days'], ['sale', 'Ergenekon', 27000, '-13 days'], ['sale', 'İzzetpaşa', 21000, '-13 days'], ['sale', 'Araştırma', 40000, '-14 days'], ['sale', 'Ergenekon', 27000, '-14 days'], ['sale', 'İzzetpaşa', 21000, '-14 days']],
         'taner-odemeler' => [['ledger', 'Ferhat Yıldız', 'odeme', 5000, '-1 days', 'Proje bedeli'], ['ledger', 'Sinan Sele', 'odeme', 2500000, '-1 days', '2026 bağlantısı']],
         'akkus-hikmet-hatirlatma' => [['out', 'reminder', "⏰ Hatırlatma: Bugün: Hikmet maaş günü — maaş 62.000,00 ₺ ödeyeceksin. Ödeyince *Hikmet maaşı ödendi* yaz", '-141 minutes']],

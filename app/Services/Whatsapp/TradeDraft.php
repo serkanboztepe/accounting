@@ -194,7 +194,8 @@ class TradeDraft
     private static function normalizePurchase(array $d): array
     {
         $hasParty = ! empty($d['party_id']) || ! empty($d['party_name']);
-        $d['party_auto'] = false;
+        // Düzeltme turunda (Çiftlik 22.10 "Pesin alis") cari önceki taslaktan gelir: kendiliğinden seçildiyse işaret kalsın.
+        $d['party_auto'] = ! empty($d['party_auto']) && ! empty($d['party_id']);
         if (! $hasParty && ($d['paid'] ?? null) !== true) {
             $product = self::productFromItems($d['items'] ?? []) ?? self::firstMatchedItem($d['items'] ?? []);
             if ($supplierId = $product?->lastSupplierId()) {
@@ -1072,7 +1073,7 @@ class TradeDraft
                 $local = now(Reminder::TIMEZONE);
                 $day = ($local->hour < 5 ? $local->copy()->subDay() : $local->copy())->startOfDay();
                 $revenue = MonthlyResult::forRange($day, $day, $branch)['revenue'];
-                $text = '📅 *Bugün (' . $day->locale('tr')->translatedFormat('j F') . ')*: ciro '
+                $text = '📅 *' . ($local->hour < 5 ? 'Dün' : 'Bugün') . ' (' . $day->locale('tr')->translatedFormat('j F') . ')*: ciro '
                     . ($revenue > 0 ? Money::format($revenue) . ' ₺' : 'henüz girilmedi') . "\n\n" . $text;
             }
 

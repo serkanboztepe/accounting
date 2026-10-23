@@ -125,6 +125,9 @@ class AssistantEvalTest extends TestCase
             'api.twilio.com/eval-media/*' => fn ($r) => Http::response((string) file_get_contents(__DIR__ . '/fixtures/' . basename($r->url())), 200),
             'api.twilio.com/*' => Http::response(['sid' => 'SMtest'], 201),
         ]); // AI çağrıları gerçek
+        if (isset($case['now'])) {
+            \Illuminate\Support\Carbon::setTestNow($case['now']); // gece vakaları (00:37 kasa/ciro); parent::tearDown sıfırlar
+        }
         $this->fixtures($firm);
         foreach ($data['seeds'][$case['seed'] ?? ''] ?? [] as $row) {
             $this->seedRow($row);

@@ -121,6 +121,26 @@ class WhatsappBakeryFlowTest extends TestCase
         $this->assertEqualsWithDelta(-(17000 + 31500), PartyStatement::build($this->boztepe)['balance'], 0.01);
     }
 
+    /** Çiftlik 22.10: "40 adet besi yemi geldi" → "Pesin alis" — düzeltme kartında cari kullanıcı söylemiş gibi görünüyordu. */
+    public function test_auto_supplier_stays_marked_after_correction(): void
+    {
+        $this->earlierPurchase();
+        $this->fakeAi(
+            $this->entry(['kind' => 'trade_purchase', 'paid' => null, 'items' => [$this->item('un', 10, productId: $this->flour->id)]]),
+            $this->entry(['kind' => 'trade_purchase', 'party_id' => $this->boztepe->id, 'paid' => true,
+                'items' => [$this->item('un', 10, productId: $this->flour->id)]]),
+        );
+
+        $this->assertStringContainsString('Boztepe Un (son aldığın yer)', $this->send('10 çuval un geldi'));
+        $summary = $this->send('peşin ödedim');
+        $this->assertStringContainsString('Boztepe Un (son aldığın yer) · parası verildi', $summary);
+        $this->assertStringContainsString('Başka yerden aldıysan adını yaz.', $summary);
+        $this->send('evet');
+
+        $purchase = Purchase::latest('id')->first();
+        $this->assertSame([$this->boztepe->id, true, '8500.00'], [$purchase->party_id, $purchase->paid, $purchase->total_amount]);
+    }
+
     public function test_said_paid_without_supplier_is_cash_purchase_without_party(): void
     {
         $this->earlierPurchase();
