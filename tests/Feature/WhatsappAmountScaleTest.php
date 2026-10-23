@@ -26,6 +26,12 @@ class WhatsappAmountScaleTest extends TestCase
 
     private const PHONE = 'whatsapp:+905557770041';
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['modules.assistant_pilot' => true]);
+    }
+
     /** @return array<string, array{0: string, 1: float, 2: bool}> mesaj, modelin tutarı, ölçek sorusu sorulmalı mı */
     public static function cases(): array
     {
@@ -57,7 +63,7 @@ class WhatsappAmountScaleTest extends TestCase
 
     public function test_hakan_message_records_50000_without_question(): void
     {
-        config(['modules' => ModuleProfiles::resolve('alacak_verecek', ['smart_assistant' => true]), 'app.profile' => 'alacak_verecek',
+        config(['modules' => ModuleProfiles::resolve('alacak_verecek', ['smart_assistant' => true, 'assistant_pilot' => true]), 'app.profile' => 'alacak_verecek',
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 777 00 41']]);
         Http::fake();
         WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);

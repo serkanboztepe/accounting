@@ -533,6 +533,9 @@ class ExpenseExtractor
 
         $refine = '';
         if ($previous !== null) {
+            if (! Understanding::pilot()) {
+                unset($previous['question_about']);
+            }
             $prevJson = json_encode($previous, JSON_UNESCAPED_UNICODE);
             // "Ne için verdin? → malzeme aldım": cariye verilen para gider değil, peşin alış (Burak 11 Ekim, Taner 13 Ekim).
             $doneWork = ! in_array(self::KIND_PURCHASE, self::aiKinds(), true)
@@ -577,7 +580,7 @@ class ExpenseExtractor
         $lastPartyBlock = $lastParty !== null ? $this->lastPartyContext($lastParty) : '';
         // Faz 3.3: fotoğraf/belge konuşmanın devamı olabilir ("Osman'a çekleri verdim" → çek fotoğrafı) — okuyucu konuşmayı görsün.
         $lastPartyBlock .= $phone !== null ? self::recentConversation($phone) : '';
-        $understand = Understanding::RULES;
+        $understand = Understanding::rules();
 
         $rules = <<<PROMPT
         {$intro} Kullanıcı sana

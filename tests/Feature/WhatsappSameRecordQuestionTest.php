@@ -33,7 +33,7 @@ class WhatsappSameRecordQuestionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['modules' => ModuleProfiles::resolve('mimar', ['smart_assistant' => true, 'cari_supplier' => true]), 'app.profile' => 'mimar',
+        config(['modules' => ModuleProfiles::resolve('mimar', ['smart_assistant' => true, 'cari_supplier' => true, 'assistant_pilot' => true]), 'app.profile' => 'mimar',
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 777 00 31']]);
         Http::fake();
         WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
@@ -170,7 +170,7 @@ class WhatsappSameRecordQuestionTest extends TestCase
         $this->assertNull(Understanding::normalize(['question' => 'x?', 'question_about' => 'neden'])['question_about'], 'bilinmeyen değer → tür yok');
         $this->assertNull(Understanding::normalize(['question' => null, 'question_about' => 'purpose'])['question_about'], 'soru yoksa tür yok');
         $this->assertContains('purpose', Understanding::schema()['question_about']['enum']);
-        $this->assertStringContainsString('`question_about`', Understanding::RULES);
+        $this->assertStringContainsString('`question_about`', Understanding::rules());
     }
 
     /** Eşdeğerlik: alacak içindeki tahsilatta "avans" ile düz tahsilat aynı bakiye/vade/proje, açık peşin para yok; fark yalnız etiket. */

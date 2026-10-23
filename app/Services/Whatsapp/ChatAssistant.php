@@ -469,6 +469,9 @@ class ChatAssistant
         $today = $now->format('Y-m-d') . ' (' . $now->translatedFormat('l') . ', saat ' . $now->format('H:i') . ')';
         $kinds = ExpenseExtractor::kindGuide();
         $context = ExpenseContext::build($phone);
+        if (! Understanding::pilot() && $pending !== null) {
+            unset($pending['question_about']);
+        }
         // Stok kartı kodun iç türüdür; AI onu sayım olarak görür (düzeltmede stock_items ile yeniden önerir).
         if ($pending !== null && ($pending['kind'] ?? null) === ExpenseExtractor::KIND_STOCK_UPDATE) {
             $pending['kind'] = ExpenseExtractor::KIND_STOCK_COUNT;
@@ -520,7 +523,7 @@ class ChatAssistant
         }
         $modules[] = '- Listede olmayan kişi için yeni cari SEN açabilirsin: `party_name` yaz, onayla birlikte açılır. "Cariye ekle" bunu ister — "panelden ekle" deme.';
         $cannot = $stock ? 'hayvan sayımı, hayvan listesi' : 'hayvan sayımı, stok listesi';
-        $understand = Understanding::RULES;
+        $understand = Understanding::rules();
         $modules = "BU HESAPTA:\n" . implode("\n", $modules) . "\n";
 
         $rules = <<<PROMPT

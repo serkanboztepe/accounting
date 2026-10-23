@@ -6,6 +6,11 @@ use App\Http\Controllers\WhatsappWebhookController;
 use App\Models\HubFirm;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\DeferTurn;
+use App\Services\Whatsapp\ExpenseExtractor;
+use App\Services\Whatsapp\Understanding;
+use App\Models\Party;
+use App\Models\PartyLedgerEntry;
+use App\Models\WhatsappPendingExpense;
 use App\Tenancy\FirmProvisioner;
 use App\Tenancy\Tenancy;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -97,6 +102,47 @@ class WhatsappTurnTraceTenancyTest extends TestCase
     }
 
     /** Pilot: iz yalnız seçilen firmada. A seçili, B değil → B için dosya ve klasör yok; A'nın ertelenen bölümü de yazılır. */
+    public function test_behavior_pilot_and_model_requests_are_isolated_between_firms(): void
+    {
+        $settings = $this->a->settings;
+        $settings['modules']['assistant_pilot'] = true;
+        $this->a->update(['settings' => $settings]);
+        $requests = [];
+        Http::fake(function ($request) use (&$requests) {
+            if (! str_contains($request->url(), 'api.anthropic.com')) {
+                return Http::response(['sid' => 'SMpilot'], 201);
+            }
+            $firmId = Tenancy::current()->id;
+            $requests[$firmId][] = $request->data();
+            $party = Party::where('name', 'Pilot Müşteri')->sole();
+
+            return Http::response(['content' => [['type' => 'tool_use', 'id' => 'tool-pilot', 'name' => 'propose_entry', 'input' => [
+                'kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => 25000, 'party_id' => $party->id, 'is_new_entry' => true,
+                'question' => 'Bu ödeme hangi iş için?', 'question_about' => 'purpose', 'work_status_known' => false, 'party_certain' => true,
+            ]]]], 200);
+        });
+        foreach ([$this->a, $this->b] as $i => $firm) {
+            Tenancy::run($firm, function () use ($i) {
+                $this->assertSame($i === 0, Understanding::pilot());
+                $party = Party::create(['name' => 'Pilot Müşteri']);
+                PartyLedgerEntry::create(['party_id' => $party->id, 'type' => PartyLedgerEntry::TYPE_SALE,
+                    'amount' => 120000, 'entry_date' => now()->toDateString()]);
+                $this->webhook('Pilot Müşteri 25 bin gönderdi', 'SMpilot' . $i);
+                $pending = WhatsappPendingExpense::latest('id')->first();
+                $this->assertNotNull($pending);
+                $i === 0 ? $this->assertNull($pending->extracted['question'])
+                    : $this->assertSame('Bu ödeme hangi iş için?', $pending->extracted['question']);
+                $scale = Understanding::amountScaleQuestion(['kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => 50000],
+                    "Kalan 80 binin 50'sini gönderdi");
+                $i === 0 ? $this->assertNull($scale) : $this->assertNotNull($scale);
+            });
+        }
+        $this->assertStringContainsString('question_about', json_encode($requests[$this->a->id]));
+        $this->assertStringNotContainsString('question_about', json_encode($requests[$this->b->id]));
+        $this->assertNull(Tenancy::current());
+    }
+
+    /** Pilot: iz yalnız seçilen firmada. */
     public function test_trace_is_written_only_for_selected_firms(): void
     {
         config(['services.whatsapp.trace_firms' => [(string) $this->a->id]]);

@@ -38,8 +38,29 @@ final class Understanding
     public const STATUSES = [self::DONE, self::NOT_YET, self::PARTIAL, self::AGREEMENT, self::NO_WORK, self::OLD_DEBT];
 
     /** Prompt kuralı — sohbet asistanı ve belge okuyucu aynı ilkeyle çalışsın. */
-    /** AI sorusunun dayandığı eksik bilgi (`question_about`). */
+    /** AI sorusunun dayandığı eksik bilgi (`question_about`) — yalnız assistant_pilot modülü açıkken. */
     public const QUESTION_ABOUT = ['party', 'amount', 'direction', 'date', 'project', 'contract', 'purpose', 'other'];
+
+    /** Pilot talimatı: RULES'ta bu satırın hemen ardına eklenir (modül kapalıyken RULES aynen gider — istek pilot öncesiyle aynı). */
+    private const PILOT_ANCHOR = "  Değilse TAHMİN ETME: false yap ve `question`'a TEK kısa soru yaz.\n";
+
+    private const PILOT_RULES = <<<'TXT'
+    - `question` yazdığında `question_about`'a sorunun dayandığı TEK eksik bilgiyi yaz: party (kim) · amount (tutar) · direction (kim kime
+      ödedi / borç kimde) · date · project · contract (hangi sözleşme/anlaşma) · purpose (YALNIZ paranın neye karşılık olduğu: önceki bir iş mi,
+      peşin/kapora mı, borç mu) · other. Soru birden fazla bilgiye dayanıyorsa ya da emin değilsen other.
+    TXT;
+
+    /** Pilot (assistant_pilot): soru türü, amaç sorusu süzgeci, "80 binin 50'si" ölçek kuralı. Varsayılan kapalı, hub'dan firma firma. */
+    public static function pilot(): bool
+    {
+        return (bool) config('modules.assistant_pilot');
+    }
+
+    /** Modele giden ÖNCE ANLA talimatı: modül kapalıyken RULES'un kendisi. */
+    public static function rules(): string
+    {
+        return self::pilot() ? str_replace(self::PILOT_ANCHOR, self::PILOT_ANCHOR . self::PILOT_RULES . "\n", self::RULES) : self::RULES;
+    }
 
     public const RULES = <<<'TXT'
     ÖNCE ANLA, SONRA KAYDET (en önemli kural — yanlış kayıttansa soru):
@@ -55,9 +76,6 @@ final class Understanding
       `work_status_known`: true YALNIZ kullanıcı söylediyse ya da işin doğası kesin gösteriyorsa ("sıvayı bitirdi", "beton geldi", "un aldım",
       fiş/fatura = mal alındı, "avans/kapora/peşin", inşaatta "bağlantı ödendi" = fiyatı sabit peşin mal alımı, dekontta "borç iade").
       Değilse TAHMİN ETME: false yap ve `question`'a TEK kısa soru yaz.
-    - `question` yazdığında `question_about`'a sorunun dayandığı TEK eksik bilgiyi yaz: party (kim) · amount (tutar) · direction (kim kime
-      ödedi / borç kimde) · date · project · contract (hangi sözleşme/anlaşma) · purpose (YALNIZ paranın neye karşılık olduğu: önceki bir iş mi,
-      peşin/kapora mı, borç mu) · other. Soru birden fazla bilgiye dayanıyorsa ya da emin değilsen other.
     - Bunlar işin bittiğini SÖYLEMEZ → sor: "X bedeli ödendi / proje bedeli / asansör bedeli", "X'e ödedim" (ne için belli değil),
       ustaya/firmaya "borcum var" (iş bitti de para mı verilmedi, yapacağı işe mi anlaşıldı, borç para mı?),
       "alınan / aldığımız / sipariş edilen X'e ödenen" (satın almayı anlatır, TESLİMİ/MONTAJI değil — asansör, kapı, pencere,
@@ -98,13 +116,23 @@ final class Understanding
     /** Şema alanları (propose_entry / save_entry). */
     public static function schema(): array
     {
+        $pilot = self::pilot() ? [
+            'question_about' => ['type' => ['string', 'null'], 'enum' => [...self::QUESTION_ABOUT, null], 'description' => 'Required when `question` is set: the ONE missing fact the question depends on (see ÖNCE ANLA); other if several or unsure; null if no question.'],
+        ] : [];
+        $identity = [
+            'check_direction_known' => ['type' => ['boolean', 'null'], 'description' => 'Only when the record has cheques: true if the user\'s words or the recent conversation say whether WE GAVE these cheques or RECEIVED them ("Osman\'a verdim", "Ahmet\'ten aldım"); false if it is only a cheque photo and nobody said it — the printed drawer name does NOT decide it. null if no cheques.'],
+            'party_certain' => ['type' => ['boolean', 'null'], 'description' => 'false if matched to an existing party with a DIFFERENT name that may be another person; true if same name / memory alias; null if no person.'],
+        ];
+        // Kapalı pilot: 44f6222 sırası; açık pilot: daha önce ölçülen yeni şemanın sırası.
+        if (self::pilot()) {
+            $identity = array_reverse($identity, true);
+        }
+
         return CheckSplit::schema() + [
             'meaning' => ['type' => ['string', 'null'], 'description' => 'Plain everyday Turkish sentence of what HAPPENED, with names (no accounting words). Required for every money/debt record.'],
             'work_status' => ['type' => ['string', 'null'], 'enum' => [...self::STATUSES, null], 'description' => 'Money/debt with a person: state of the work/goods behind it (see ÖNCE ANLA). null if not applicable.'],
             'work_status_known' => ['type' => ['boolean', 'null'], 'description' => 'true only if the user said it or it is certain from the trade meaning; false if guessing → write `question`.'],
-            'question_about' => ['type' => ['string', 'null'], 'enum' => [...self::QUESTION_ABOUT, null], 'description' => 'Required when `question` is set: the ONE missing fact the question depends on (see ÖNCE ANLA); other if several or unsure; null if no question.'],
-            'party_certain' => ['type' => ['boolean', 'null'], 'description' => 'false if matched to an existing party with a DIFFERENT name that may be another person; true if same name / memory alias; null if no person.'],
-            'check_direction_known' => ['type' => ['boolean', 'null'], 'description' => 'Only when the record has cheques: true if the user\'s words or the recent conversation say whether WE GAVE these cheques or RECEIVED them ("Osman\'a verdim", "Ahmet\'ten aldım"); false if it is only a cheque photo and nobody said it — the printed drawer name does NOT decide it. null if no cheques.'],
+        ] + $pilot + $identity + [
             'checks' => ['type' => ['array', 'null'], 'description' => 'Every cheque visible in the image/document, one row each (number, due date as written, amount) — never empty when cheques are visible; also cheques listed one by one in text.', 'items' => [
                 'type' => 'object',
                 'properties' => [
@@ -127,15 +155,24 @@ final class Understanding
             }
         }
 
+        $pilot = self::pilot() ? [
+            // Soru yoksa tür de yok; bilinmeyen değer → null (tür belirsiz = soru korunur).
+            'question_about' => ! empty($input['question']) && in_array($input['question_about'] ?? null, self::QUESTION_ABOUT, true) ? $input['question_about'] : null,
+        ] : [];
+        $details = [
+            'check_direction_known' => isset($input['check_direction_known']) ? (bool) $input['check_direction_known'] : null,
+            'checks' => $checks ?: null,
+        ];
+        if (self::pilot()) {
+            $details = array_reverse($details, true);
+        }
+
         return [
             'meaning' => is_string($input['meaning'] ?? null) && trim($input['meaning']) !== '' ? mb_substr(trim($input['meaning']), 0, 300) : null,
             'work_status' => in_array($input['work_status'] ?? null, self::STATUSES, true) ? $input['work_status'] : null,
             'work_status_known' => isset($input['work_status_known']) ? (bool) $input['work_status_known'] : null,
             'party_certain' => isset($input['party_certain']) ? (bool) $input['party_certain'] : null,
-            // Soru yoksa tür de yok; bilinmeyen değer → null (tür belirsiz = soru korunur).
-            'question_about' => ! empty($input['question']) && in_array($input['question_about'] ?? null, self::QUESTION_ABOUT, true) ? $input['question_about'] : null,
-            'checks' => $checks ?: null,
-            'check_direction_known' => isset($input['check_direction_known']) ? (bool) $input['check_direction_known'] : null,
+        ] + $pilot + $details + [
             'check_plan' => CheckSplit::normalize($input['check_plan'] ?? null),
         ];
     }
@@ -296,7 +333,7 @@ final class Understanding
      */
     public static function purposeQuestionIsMoot(array $d): bool
     {
-        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_COLLECTION || ($d['question_about'] ?? null) !== 'purpose'
+        if (! self::pilot() || ($d['kind'] ?? null) !== ExpenseExtractor::KIND_COLLECTION || ($d['question_about'] ?? null) !== 'purpose'
             || trim((string) ($d['question'] ?? '')) === '' || ($d['party_certain'] ?? null) === false || ! empty($d['payment_purpose'])
             || ! empty($d['contract_id']) || (float) ($d['amount'] ?? 0) <= 0 || ! ($party = self::party($d))) {
             return false;
@@ -407,7 +444,7 @@ final class Understanding
         // Parça bütünün birimini alır (23.10 deneme: "kalan 80 binin 50 sini gönderdi" → 50.000, "50 TL mi?" diye soruluyordu):
         // "<sayı> binin" + hemen ardından iyelik ekli sayı ("80 binin 50'sini"). Yalnız bin: "1 milyonun 300'ü" günlük dilde 300 bindir,
         // birim bütünden çıkmaz → sorulmaya devam eder. "80 binin 50 lirasını" (birim yazılı), "80 binin yüzde 50'sini" (oran) girmez.
-        if (preg_match_all("/(\d[\d.,]*)\s*bin['’]?in\s+(\d[\d.,]*)\s*['’]?(?:s|y)?[ıiuü](?:n[ıiuü])?(?![\p{L}])/u",
+        if (self::pilot() && preg_match_all("/(\d[\d.,]*)\s*bin['’]?in\s+(\d[\d.,]*)\s*['’]?(?:s|y)?[ıiuü](?:n[ıiuü])?(?![\p{L}])/u",
             mb_strtolower($text), $parts, PREG_SET_ORDER)) {
             foreach ($parts as $p) {
                 $written[] = round(Money::parse($p[2]) * 1000, 2);

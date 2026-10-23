@@ -1,0 +1,30 @@
+{
+    "input": {
+        "meaning": "Deneme",
+        "work_status": "done",
+        "work_status_known": true,
+        "party_certain": true,
+        "check_direction_known": true,
+        "checks": [
+            {
+                "number": "123",
+                "due_date_text": "31.12.2026",
+                "amount": 25000
+            }
+        ],
+        "question": "Hangi iş için?",
+        "question_about": "purpose"
+    },
+    "off": {
+        "commit": "44f6222",
+        "rules": "fa4c6ec5a550644da94633ab1f49c07ae16d4b30c76a11832fe65897ba917d25",
+        "schema": "0b142693a43e7c41991ea3df016a7f83e6149deaa671fb27cc49f788b34bb98e",
+        "normalized": "e38edf709c68ac542f61fb60f0f226f0324d56b5fef2ffb1336dbb87b0041883"
+    },
+    "on": {
+        "commit": "9b2eaff",
+        "rules": "a57ddfb68cb70022edb376359cf5a3386dc843e3471d68c59f1f1d2a9ca01b91",
+        "schema": "f39af231bf676446cc3f479a7bbe976227235983f6a974a8bd3d512d0c10087d",
+        "normalized": "fe481880fd6e2edd58a4d5050ddf4050379bd6d00d1d8278c64b3e950797b22f"
+    }
+}
