@@ -151,6 +151,9 @@ class AssistantEvalTest extends TestCase
                     'MediaContentType0' => str_ends_with($step['media'], '.pdf') ? 'application/pdf' : 'image/jpeg'] + $form;
             }
             $res = $this->post('/whatsapp/webhook', $form);
+            // Test uygulaması istek sonrası geri çağrıları her istekte baştan çalıştırır: arka plana bırakılan tur sonraki adımda
+            // tekrar çalışıp ikinci taslak açıyordu (23.10 ölçümü). Canlıdaki gibi her istek kendi işlerini bir kez çalıştırsın.
+            (fn () => $this->terminatingCallbacks = [])->call($this->app);
             $replies[] = trim(strip_tags(html_entity_decode((string) $res->getContent(), ENT_QUOTES | ENT_XML1)));
             // "🔎 Bakıyorum" → asıl cevap istek sonrası ayrı mesajla gitti (konuşma kaydında son giden mesaj).
             if (str_contains(end($replies), 'Bakıyorum')) {
