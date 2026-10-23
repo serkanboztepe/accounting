@@ -38,6 +38,9 @@ final class Understanding
     public const STATUSES = [self::DONE, self::NOT_YET, self::PARTIAL, self::AGREEMENT, self::NO_WORK, self::OLD_DEBT];
 
     /** Prompt kuralı — sohbet asistanı ve belge okuyucu aynı ilkeyle çalışsın. */
+    /** AI sorusunun dayandığı eksik bilgi (`question_about`). */
+    public const QUESTION_ABOUT = ['party', 'amount', 'direction', 'date', 'project', 'contract', 'purpose', 'other'];
+
     public const RULES = <<<'TXT'
     ÖNCE ANLA, SONRA KAYDET (en önemli kural — yanlış kayıttansa soru):
     - Kişiyle para/borç içeren her kayıtta (ödeme, alış, borç, carili gider) önce olayı anla: kime, para ne oldu, İŞ/MAL ne durumda.
@@ -52,6 +55,9 @@ final class Understanding
       `work_status_known`: true YALNIZ kullanıcı söylediyse ya da işin doğası kesin gösteriyorsa ("sıvayı bitirdi", "beton geldi", "un aldım",
       fiş/fatura = mal alındı, "avans/kapora/peşin", inşaatta "bağlantı ödendi" = fiyatı sabit peşin mal alımı, dekontta "borç iade").
       Değilse TAHMİN ETME: false yap ve `question`'a TEK kısa soru yaz.
+    - `question` yazdığında `question_about`'a sorunun dayandığı TEK eksik bilgiyi yaz: party (kim) · amount (tutar) · direction (kim kime
+      ödedi / borç kimde) · date · project · contract (hangi sözleşme/anlaşma) · purpose (YALNIZ paranın neye karşılık olduğu: önceki bir iş mi,
+      peşin/kapora mı, borç mu) · other. Soru birden fazla bilgiye dayanıyorsa ya da emin değilsen other.
     - Bunlar işin bittiğini SÖYLEMEZ → sor: "X bedeli ödendi / proje bedeli / asansör bedeli", "X'e ödedim" (ne için belli değil),
       ustaya/firmaya "borcum var" (iş bitti de para mı verilmedi, yapacağı işe mi anlaşıldı, borç para mı?),
       "alınan / aldığımız / sipariş edilen X'e ödenen" (satın almayı anlatır, TESLİMİ/MONTAJI değil — asansör, kapı, pencere,
@@ -96,6 +102,7 @@ final class Understanding
             'meaning' => ['type' => ['string', 'null'], 'description' => 'Plain everyday Turkish sentence of what HAPPENED, with names (no accounting words). Required for every money/debt record.'],
             'work_status' => ['type' => ['string', 'null'], 'enum' => [...self::STATUSES, null], 'description' => 'Money/debt with a person: state of the work/goods behind it (see ÖNCE ANLA). null if not applicable.'],
             'work_status_known' => ['type' => ['boolean', 'null'], 'description' => 'true only if the user said it or it is certain from the trade meaning; false if guessing → write `question`.'],
+            'question_about' => ['type' => ['string', 'null'], 'enum' => [...self::QUESTION_ABOUT, null], 'description' => 'Required when `question` is set: the ONE missing fact the question depends on (see ÖNCE ANLA); other if several or unsure; null if no question.'],
             'party_certain' => ['type' => ['boolean', 'null'], 'description' => 'false if matched to an existing party with a DIFFERENT name that may be another person; true if same name / memory alias; null if no person.'],
             'check_direction_known' => ['type' => ['boolean', 'null'], 'description' => 'Only when the record has cheques: true if the user\'s words or the recent conversation say whether WE GAVE these cheques or RECEIVED them ("Osman\'a verdim", "Ahmet\'ten aldım"); false if it is only a cheque photo and nobody said it — the printed drawer name does NOT decide it. null if no cheques.'],
             'checks' => ['type' => ['array', 'null'], 'description' => 'Every cheque visible in the image/document, one row each (number, due date as written, amount) — never empty when cheques are visible; also cheques listed one by one in text.', 'items' => [
@@ -125,6 +132,8 @@ final class Understanding
             'work_status' => in_array($input['work_status'] ?? null, self::STATUSES, true) ? $input['work_status'] : null,
             'work_status_known' => isset($input['work_status_known']) ? (bool) $input['work_status_known'] : null,
             'party_certain' => isset($input['party_certain']) ? (bool) $input['party_certain'] : null,
+            // Soru yoksa tür de yok; bilinmeyen değer → null (tür belirsiz = soru korunur).
+            'question_about' => ! empty($input['question']) && in_array($input['question_about'] ?? null, self::QUESTION_ABOUT, true) ? $input['question_about'] : null,
             'checks' => $checks ?: null,
             'check_direction_known' => isset($input['check_direction_known']) ? (bool) $input['check_direction_known'] : null,
             'check_plan' => CheckSplit::normalize($input['check_plan'] ?? null),
@@ -274,6 +283,31 @@ final class Understanding
             ExpenseExtractor::KIND_DEBT_NOTE => $name . ' işi bitirdi de parası mı verilmedi, yoksa yapacağı iş için mi anlaştınız?',
             default => $name . ' işi bitirdi / mal geldi mi, yoksa önceden mi ödediniz?',
         };
+    }
+
+    /**
+     * Tahsilatta AI'ın AMAÇ sorusu ("önceki bir iş mi, peşin mi?") cevabı kaydı değiştirmiyorsa sorulmaz (23.10 yeniden oynatma: borcu
+     * 120.000 olan müşteriden "25000 eft geldi" → her seferinde "hangi iş için?").
+     *
+     * Sorunun türünü YALNIZ AI söyler (`question_about`=purpose); kod tahmin etmez. Tür yoksa/başkaysa ya da AI kişiden emin değilse
+     * (party_certain=false — tür çelişkili) soru kalır. Kayıt aynı mı: amaç söylenmemiş, cari sözleşme/anlaşmaya bağlı değil ve tutar
+     * açık alacağı aşmıyor → her cevap aynı tahsilat satırını, aynı bakiyeyi yazar; vade yok, proje sorulmaz, bakiye eksiye inmediği için
+     * açık peşin para doğmaz (AdvanceOffset::open, sabah haberi). Alacak yoksa / tutar aşıyorsa "peşin" cevabı kaydı değiştirir → sorulur.
+     */
+    public static function purposeQuestionIsMoot(array $d): bool
+    {
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_COLLECTION || ($d['question_about'] ?? null) !== 'purpose'
+            || trim((string) ($d['question'] ?? '')) === '' || ($d['party_certain'] ?? null) === false || ! empty($d['payment_purpose'])
+            || ! empty($d['contract_id']) || (float) ($d['amount'] ?? 0) <= 0 || ! ($party = self::party($d))) {
+            return false;
+        }
+        if (DraftGaps::activeContracts($party)->isNotEmpty()
+            || TurnTrace::read('Understanding::purposeQuestionIsMoot.agreements', fn () => \App\Models\Agreement::open()->where('party_id', $party->id)->exists(),
+                ['party_id' => $party->id])) {
+            return false;
+        }
+
+        return (float) $d['amount'] <= (float) TurnTrace::statement('Understanding::purposeQuestionIsMoot', $party)['balance'] + 0.01;
     }
 
     /**

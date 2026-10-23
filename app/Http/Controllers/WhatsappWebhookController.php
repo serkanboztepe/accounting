@@ -2055,6 +2055,12 @@ class WhatsappWebhookController extends Controller
         if ((float) ($data['amount'] ?? 0) >= self::WORDS_FROM && ! str_starts_with($summary, '❓')) {
             $summary .= "\n💬 Yazıyla: *" . Money::words((float) $data['amount']) . ' lira*';
         }
+        // Tahsilatta cevabı kaydı değiştirmeyen AMAÇ sorusu (türünü AI söyler) sorulmaz; diğer sorular aynen.
+        if (Understanding::purposeQuestionIsMoot($data)) {
+            TurnTrace::note('question_dropped', ['reason' => 'collection_purpose_same_record', 'text' => $data['question']]);
+            $data['question'] = null;
+            $data['question_about'] = null;
+        }
         // AI şüphelendiyse ("Bu borç ona mı, ondan mı?") alanlar dolu olsa bile soruyu göster — tahmin sessizce geçmesin.
         if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data) && ! DraftGaps::needsSaleOrPurchase($data)
             && ! str_contains($summary, $data['question'])) {
