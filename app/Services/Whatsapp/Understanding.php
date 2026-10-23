@@ -404,6 +404,15 @@ final class Understanding
                 $written[] = round($n * $mult, 2);
             }
         }
+        // Parça bütünün birimini alır (23.10 deneme: "kalan 80 binin 50 sini gönderdi" → 50.000, "50 TL mi?" diye soruluyordu):
+        // "<sayı> binin" + hemen ardından iyelik ekli sayı ("80 binin 50'sini"). Yalnız bin: "1 milyonun 300'ü" günlük dilde 300 bindir,
+        // birim bütünden çıkmaz → sorulmaya devam eder. "80 binin 50 lirasını" (birim yazılı), "80 binin yüzde 50'sini" (oran) girmez.
+        if (preg_match_all("/(\d[\d.,]*)\s*bin['’]?in\s+(\d[\d.,]*)\s*['’]?(?:s|y)?[ıiuü](?:n[ıiuü])?(?![\p{L}])/u",
+            mb_strtolower($text), $parts, PREG_SET_ORDER)) {
+            foreach ($parts as $p) {
+                $written[] = round(Money::parse($p[2]) * 1000, 2);
+            }
+        }
         if ($written === []) {
             return null;
         }
