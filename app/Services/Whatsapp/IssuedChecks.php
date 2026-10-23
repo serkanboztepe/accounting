@@ -12,18 +12,20 @@ use Carbon\Carbon;
  * Verdiğimiz çekler (Faz F, 16.10 — Taner'in asansör çekleri): asistan çekli ödemeyi kaydedince her çek ayrı satır,
  * ödeme satırına bağlı, durum "verildi" → cari sayfasının Çekler bölümünde görünür, vadeden önce hatırlatılır
  * (CheckReminders). Borç ödeme anında düşer (alınan çekteki kuralın aynısı); vade takibi çekte.
+ * Aldığımız çekler aynı yoldan (Yıldız 23.10): tahsilat satırına bağlı, durum "alındı" (portfolio).
  */
 final class IssuedChecks
 {
     /** @return int oluşan çek sayısı */
-    public static function store(array $d, Party $party, ?int $projectId = null): int
+    public static function store(array $d, Party $party, ?int $projectId = null, bool $received = false): int
     {
         $checks = array_values(array_filter((array) ($d['checks'] ?? []), 'is_array'));
         if ($checks === []) {
             return 0;
         }
-        // Çeklerin bağlanacağı ödeme: bu kayıtta yazılan son ödeme satırı (ödeme ya da peşin alışın ödemesi).
-        $entry = PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)->latest('id')->first();
+        // Çeklerin bağlanacağı satır: bu kayıtta yazılan son ödeme (ödeme ya da peşin alışın ödemesi) / tahsilat satırı.
+        $entry = PartyLedgerEntry::where('party_id', $party->id)
+            ->where('type', $received ? PartyLedgerEntry::TYPE_COLLECTION : PartyLedgerEntry::TYPE_PAYMENT)->latest('id')->first();
         if (! $entry) {
             return 0;
         }
@@ -40,7 +42,7 @@ final class IssuedChecks
                 'issue_date' => $d['date'] ?? now()->toDateString(),
                 'due_date' => $due,
                 'amount' => Money::store((float) ($c['amount'] ?? 0) > 0 ? (float) $c['amount'] : $each),
-                'status' => 'issued',
+                'status' => $received ? 'portfolio' : 'issued',
                 'description' => mb_substr((string) ($d['description'] ?? ''), 0, 255) ?: null,
                 'notes' => trim('WhatsApp üzerinden girildi. ' . $note),
             ]);

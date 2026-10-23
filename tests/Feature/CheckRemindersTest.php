@@ -93,17 +93,35 @@ class CheckRemindersTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_received_customer_checks_are_not_reminded(): void
+    /** Yıldız 23.10: müşteriden aldığımız çek de vadesinde hatırlatılır (bankaya vermeyi unutmasın); tahsil edilmişse hatırlatılmaz. */
+    public function test_received_customer_checks_are_reminded(): void
     {
         $entry = \App\Models\PartyLedgerEntry::create([
             'party_id' => $this->party->id, 'entry_date' => now(), 'type' => \App\Models\PartyLedgerEntry::TYPE_COLLECTION,
             'payment_type' => 'check', 'amount' => 8000, 'description' => 'Müşteri çeki',
         ]);
-        $this->check(0, 8000, 'issued', ['party_ledger_entry_id' => $entry->id]);
+        $this->check(0, 8000, 'portfolio', ['party_ledger_entry_id' => $entry->id]);
+        $this->check(0, 500, 'collected');   // tahsil edildi → sayılmaz
 
         $this->artisan('checks:remind')->assertSuccessful();
 
-        Http::assertNothingSent();
+        Http::assertSentCount(1);
+        Http::assertSent(fn (ClientRequest $r) => json_decode($r['ContentVariables'], true)['3'] === '8.000,00');
+    }
+
+    public function test_cekler_reply_separates_given_and_received(): void
+    {
+        $this->check(2, 3000);
+        $this->check(5, 45000, 'portfolio');
+
+        $res = $this->post('/whatsapp/webhook', ['From' => 'whatsapp:+905453606783', 'Body' => 'Çekler', 'NumMedia' => 0])
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('Verdiğin çekler', $res);
+        $this->assertStringContainsString('Aldığın çekler', $res);
+        $this->assertStringContainsString('3.000,00', $res);
+        $this->assertStringContainsString('45.000,00', $res);
+        $this->assertTrue(mb_strpos($res, '3.000,00') < mb_strpos($res, 'Aldığın çekler'), 'verilen çek kendi bölümünde');
     }
 
     public function test_cekler_reply_lists_upcoming_and_overdue_checks(): void

@@ -160,6 +160,11 @@ class AssistantEvalTest extends TestCase
                     $replies[count($replies) - 1] = '🔎 Bakıyorum… ⏩ ' . $later;
                 }
             }
+            // Geç kalan cevap (LATE_SECONDS) Twilio'ya boş döner, kendisi API ile gider → konuşma kaydındaki son giden mesaj.
+            if (end($replies) === '') {
+                $replies[count($replies) - 1] = (string) \App\Models\WhatsappMessage::where('phone', \App\Support\Phone::normalize($this->phone))
+                    ->where('direction', 'out')->latest('id')->value('body');
+            }
             if (getenv('EVAL_SHOW')) {
                 fwrite(STDERR, "\n> " . (isset($step['media']) ? '[📎 ' . $step['media'] . '] ' : '') . ($step['send'] ?? '') . "\n< " . end($replies) . "\n");
             }
@@ -216,6 +221,9 @@ class AssistantEvalTest extends TestCase
             if ($got !== $expect['draft_checks']) {
                 $fails[] = 'çekler: beklenen ' . json_encode($expect['draft_checks']) . ', gelen ' . json_encode($got);
             }
+        }
+        if (isset($expect['draft_kind_not']) && $draft && ($draft->extracted['kind'] ?? null) === $expect['draft_kind_not']) {
+            $fails[] = 'taslak türü ' . $expect['draft_kind_not'] . ' olmamalı';
         }
         if (isset($expect['draft'])) {
             if (! $draft) {

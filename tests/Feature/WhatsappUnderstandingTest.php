@@ -304,6 +304,31 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertFalse(\App\Support\CheckReminders::pending()->pluck('id')->contains($received->id));
     }
 
+    /** Yıldız 23.10: "Ahmet'ten 3 çek aldım" → tahsilata bağlı "alındı" çekler, vadeleriyle; borç hemen düşer, vadesinde hatırlatılır. */
+    public function test_cheque_collection_stores_received_cheques(): void
+    {
+        $ahmet = Party::create(['name' => 'Anlama Testi Ahmet']);
+        PartyLedgerEntry::create(['party_id' => $ahmet->id, 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 300000,
+            'entry_date' => now()->toDateString()]);
+        $this->ai($this->d(['kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => 300000, 'party_id' => $ahmet->id,
+            'payment_type' => 'other', 'description' => 'Çekle tahsilat',
+            'checks' => [['number' => null, 'due_date_text' => '30.11.2026', 'amount' => 100000],
+                ['number' => null, 'due_date_text' => '30.12.2026', 'amount' => 100000],
+                ['number' => null, 'due_date_text' => '30.01.2027', 'amount' => 100000]]]));
+        $this->send("Ahmet'ten 3 çek aldım 100'er bin, vadeler 30.11, 30.12, 30.01");
+
+        $this->assertStringContainsString('3 çek kaydedildi', $this->send('evet'));
+        $checks = \App\Models\Check::where('party_id', $ahmet->id)->orderBy('due_date')->get();
+        $this->assertSame(['portfolio', 'portfolio', 'portfolio'], $checks->pluck('status')->all());
+        $this->assertSame(['2026-11-30', '2026-12-30', '2027-01-30'], $checks->map(fn ($c) => $c->due_date->toDateString())->all());
+        $collection = PartyLedgerEntry::find($checks[0]->party_ledger_entry_id);
+        $this->assertSame(PartyLedgerEntry::TYPE_COLLECTION, $collection->type);
+        $this->assertSame('check', $collection->payment_type);
+        $this->assertEqualsWithDelta(0, PartyStatement::build($ahmet)['balance'], 0.01, 'çek alınınca borç düşer');
+        $this->assertTrue(\App\Support\CheckReminders::upcoming()->pluck('id')->contains($checks[0]->id), 'alınan çek hatırlatılır');
+        $this->assertFalse(\App\Support\CheckReminders::pending()->pluck('id')->contains($checks[0]->id), '"çek ödendi" eşleşmesine girmez');
+    }
+
     /** Firma 7, 20.10 23:54: 11 çekin tek tek listesi açıklamayı 255'ten uzun yaptı, "evet" kaydı düşürdü (cevap yok). */
     public function test_many_cheques_keep_description_short_and_save(): void
     {
@@ -446,6 +471,9 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertSame('01.11.2026', $f('kasım başı'));
         $this->assertSame('15.02.2026', $f('15 şubat 2026'), 'yıl yazıldıysa aynen');
         $this->assertNull($f('31-02-2027'));
+        $this->assertSame('30.11.2026', $f('30.11'), 'yılsız gün.ay → en yakın gelecek (Sonnet 23.10)');
+        $this->assertSame('30.01.2027', $f('30.01'));
+        $this->assertSame('28.02.2027', $f('31.02'), 'ayda olmayan gün ayın sonuna');
 
         $yusuf = Party::create(['name' => 'Anlama Testi Yusuf']);
         $this->ai($this->d(['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 300000, 'party_id' => $yusuf->id,
@@ -460,6 +488,23 @@ class WhatsappUnderstandingTest extends TestCase
         $this->assertStringContainsString('Çekin vadesini gün.ay.yıl olarak yazar mısın?', $this->send('Yusufa 300 bin çek verdim'));
         $this->assertStringContainsString('❓', $this->send('evet'));
         $this->assertSame(0, \App\Models\Check::where('party_id', $yusuf->id)->count());
+    }
+
+    /** Yıldız 23.10: yalnız çek fotoğrafı (kim verdi/kime verildi söylenmedi) → verdin mi aldın mı bir kez sorulur, tahmin edilmez. */
+    public function test_bare_cheque_photo_asks_direction_once(): void
+    {
+        $base = ['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 100000, 'from_document' => true,
+            'checks' => [['number' => '1001', 'due_date_text' => '30.11.2026', 'amount' => 100000]]];
+        $CheckSplit = \App\Services\Whatsapp\CheckSplit::class;
+
+        $asked = $CheckSplit::prepare($base + ['check_direction_known' => false]);
+        $this->assertSame('direction', $asked['check_choice']);
+        $this->assertStringContainsString('birine mi verdin, birinden mi aldın', $CheckSplit::question($asked));
+
+        $this->assertNull($CheckSplit::prepare($base + ['check_direction_known' => true])['check_choice'], 'söylendiyse sorulmaz');
+        $this->assertNull($CheckSplit::prepare(['from_document' => false] + $base + ['check_direction_known' => false])['check_choice'], 'yazıyla anlatılan');
+        $this->assertNull($CheckSplit::prepare(['kind' => ExpenseExtractor::KIND_COLLECTION, 'check_direction_known' => false] + $base, $asked)['check_choice'],
+            'cevaptan sonra yeniden sorulmaz');
     }
 
     /** Firma 7, 21.10: çek sayfası okunamadı → çeksiz ödeme yazıldı; aynı sayfa tekrar → önceki sayfanın numaraları yazıldı. */

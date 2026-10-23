@@ -172,20 +172,43 @@ class EditParty extends EditRecord
             Select::make('payment_type')->label('Ödeme yöntemi')
                 ->options(['cash' => 'Nakit', 'eft' => 'EFT', 'bank_transfer' => 'Havale', 'check' => 'Çek', 'other' => 'Diğer'])
                 ->default('cash')->live(),
-            Repeater::make('cheques')->label('Çekler')
-                ->schema([
-                    TextInput::make('check_number')->label('Çek no'),
-                    TextInput::make('bank_name')->label('Banka'),
-                    DatePicker::make('due_date')->label('Vade')->required(),
-                    MoneyInput::make('amount', 'Tutar'),
-                ])
-                ->columns(4)
-                ->addActionLabel('Çek ekle')
-                ->defaultItems(1)
-                ->helperText('Çeklerin toplamı ödeme tutarına eşit olmalı. Her çek vadesinden önce WhatsApp\'tan hatırlatılır.')
-                ->visible(fn (Get $get) => $get('payment_type') === 'check')
-                ->columnSpanFull(),
+            $this->chequesRepeater('Çeklerin toplamı ödeme tutarına eşit olmalı. Her çek vadesinden önce WhatsApp\'tan hatırlatılır.'),
         ];
+    }
+
+    /** Çoklu çek satırları (no, banka, vade, tutar) — Ödeme Yaptım ve Ödeme Aldım aynı yapıyı kullanır. */
+    private function chequesRepeater(string $help): Repeater
+    {
+        return Repeater::make('cheques')->label('Çekler')
+            ->schema([
+                TextInput::make('check_number')->label('Çek no'),
+                TextInput::make('bank_name')->label('Banka'),
+                DatePicker::make('due_date')->label('Vade')->required(),
+                MoneyInput::make('amount', 'Tutar'),
+            ])
+            ->columns(4)
+            ->addActionLabel('Çek ekle')
+            ->defaultItems(1)
+            ->helperText($help)
+            ->visible(fn (Get $get) => $get('payment_type') === 'check')
+            ->columnSpanFull();
+    }
+
+    /**
+     * Çeklerin toplamı tutarı tutmuyorsa uyarıp kaydı durdurur; tutuyorsa vadesi girilmiş çekleri döner.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function chequesOrHalt(array $data, Action $action, string $what): array
+    {
+        $cheques = array_values(array_filter((array) ($data['cheques'] ?? []), fn ($c) => ! empty($c['due_date'])));
+        if (($data['payment_type'] ?? null) === 'check' && $cheques !== []
+            && abs(array_sum(array_map(fn ($c) => Money::parse($c['amount'] ?? 0), $cheques)) - Money::parse($data['amount'] ?? 0)) > 0.01) {
+            Notification::make()->danger()->title("Çeklerin toplamı {$what} tutarını tutmuyor")->send();
+            $action->halt();
+        }
+
+        return ($data['payment_type'] ?? null) === 'check' ? $cheques : [];
     }
 
     /** Üstteki Satış/Tahsilat/Alış/Ödeme butonları bu aksiyonu tip argümanıyla mount eder. */
@@ -213,14 +236,9 @@ class EditParty extends EditRecord
                 if ($delivered && Money::parse($data['amount'] ?? null) <= 0) {
                     return;
                 }
-                $cheques = array_values(array_filter((array) ($data['cheques'] ?? []), fn ($c) => ! empty($c['due_date'])));
-                unset($data['cheques']);
                 // Çekle ödeme (Faz 2.3): çeklerin toplamı ödeme tutarını tutmalı — tutmazsa kaydetmeden uyar.
-                if (($data['payment_type'] ?? null) === 'check' && $cheques !== []
-                    && abs(array_sum(array_map(fn ($c) => Money::parse($c['amount'] ?? 0), $cheques)) - (float) $data['amount']) > 0.01) {
-                    Notification::make()->danger()->title('Çeklerin toplamı ödeme tutarını tutmuyor')->send();
-                    $action->halt();
-                }
+                $cheques = $this->chequesOrHalt($data, $action, 'ödeme');
+                unset($data['cheques']);
                 $entry = $this->record->ledgerEntries()->create([
                     ...$data,
                     'type' => $arguments['type'] ?? null,
@@ -605,14 +623,8 @@ class EditParty extends EditRecord
                     ->default('cash')
                     ->required()
                     ->live(),
-                // Çek alanları — yalnız "Çek" seçilince.
-                TextInput::make('check_number')->label('Çek No')
-                    ->visible(fn (Get $get) => $get('payment_type') === 'check'),
-                TextInput::make('bank_name')->label('Banka')
-                    ->visible(fn (Get $get) => $get('payment_type') === 'check'),
-                DatePicker::make('due_date')->label('Vade')
-                    ->visible(fn (Get $get) => $get('payment_type') === 'check')
-                    ->required(fn (Get $get) => $get('payment_type') === 'check'),
+                // Çekler — yalnız "Çek" seçilince; müşteri farklı vadeli birden çok çek verebilir (Yıldız 23.10).
+                $this->chequesRepeater('Çeklerin toplamı tahsilat tutarına eşit olmalı. Her çek vadesinden önce WhatsApp\'tan hatırlatılır.'),
                 Select::make('project_id')
                     ->label(Labels::project() . ' (opsiyonel)')
                     ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
@@ -622,7 +634,8 @@ class EditParty extends EditRecord
                 TextInput::make('description')->label('Açıklama')->maxLength(255)->columnSpanFull(),
                 Textarea::make('notes')->label('Not')->rows(2)->columnSpanFull(),
             ])
-            ->action(function (array $data): void {
+            ->action(function (array $data, Action $action): void {
+                $cheques = $this->chequesOrHalt($data, $action, 'tahsilat');
                 $entry = $this->record->ledgerEntries()->create([
                     'entry_date'   => $data['entry_date'],
                     'amount'       => $data['amount'],
@@ -633,16 +646,18 @@ class EditParty extends EditRecord
                     'payment_type' => $data['payment_type'] ?? null,
                 ]);
 
-                if (($data['payment_type'] ?? null) === 'check') {
+                foreach ($cheques as $c) {
                     Check::create([
                         'party_id'              => $this->record->id,
                         'project_id'            => $data['project_id'] ?? null,
                         'party_ledger_entry_id' => $entry->id,
-                        'check_number'          => $data['check_number'] ?? null,
-                        'bank_name'             => $data['bank_name'] ?? null,
-                        'due_date'              => $data['due_date'] ?? $data['entry_date'],
-                        'amount'                => $data['amount'],
-                        'status'                => 'portfolio',
+                        'check_number'          => $c['check_number'] ?? null,
+                        'bank_name'             => $c['bank_name'] ?? null,
+                        'issue_date'            => $data['entry_date'],
+                        'due_date'              => $c['due_date'],
+                        'amount'                => Money::store($c['amount'] ?? 0),
+                        'status'                => 'portfolio',   // aldığım çek — vadesinde hatırlatılır, "Tahsil edildi" ile kapanır
+                        'description'           => $data['description'] ?? null,
                     ]);
                 }
             });

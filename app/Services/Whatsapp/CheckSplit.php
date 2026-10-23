@@ -62,6 +62,7 @@ final class CheckSplit
     public static function prepare(array $d, ?array $previous = null, string $body = ''): array
     {
         $d['check_choice'] = null;
+        $d['check_asked'] = $previous['check_asked'] ?? null;   // bir kez sorulan soru taslak boyunca bir daha sorulmaz
         $amount = (float) ($d['amount'] ?? 0);
         $plan = self::normalize($d['check_plan'] ?? null);
         $d['check_plan'] = $plan;
@@ -89,11 +90,21 @@ final class CheckSplit
         }
         // Fotoğraf çek ama hiçbir çek okunmadıysa çeksiz ödeme yazılmaz (firma 7, 21.10 09:15: 4 çeklik sayfa → ödeme kaydedildi, çek yok).
         // Soru bir kez sorulduysa açıklamada "çek" kalmasa da çek gelene kadar sürer (21.10: düzeltme turunda açıklama değişti).
-        if (! empty($d['from_document']) && in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE], true)
+        if (! empty($d['from_document']) && in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_COLLECTION], true)
             && empty($d['checks'])
             && (($d['payment_type'] ?? null) === 'check' || preg_match('/\bçek/iu', (string) ($d['description'] ?? ''))
                 || ($previous['check_choice'] ?? null) === 'unread')) {
             $d['check_choice'] = 'unread';
+
+            return $d;
+        }
+        // Yalnız çek fotoğrafı geldiyse verdik mi aldık mı belli değildir — tahmin edilmez, bir kez sorulur (Yıldız 23.10: müşteriden
+        // çek alıyor; okuyucu matbu keşideciyi "bizim şirket" sayıp verilmiş çek yazabiliyordu).
+        if (! empty($d['from_document']) && ! empty($d['checks']) && ($d['check_direction_known'] ?? null) === false
+            && in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_COLLECTION], true)
+            && ! in_array('direction', (array) ($previous['check_asked'] ?? []), true)) {
+            $d['check_choice'] = 'direction';
+            $d['check_asked'] = ['direction'];
 
             return $d;
         }
@@ -172,11 +183,21 @@ final class CheckSplit
 
     /**
      * Yazıyla vade → "15.02.2027": "15 şubat (2027)", "şubat ortası" (15), "şubat başı" (1), "şubat sonu" / yalnız "şubat" (ay sonu).
-     * Yıl yoksa en yakın gelecek. Rakamla yazılmışsa (31-02-2027) ya da ay adı yoksa null — olduğu gibi kalır.
+     * Yıl yoksa en yakın gelecek; yılsız "30.11" de. Yıllı rakam (31-02-2027) ya da ay adı yoksa null — olduğu gibi kalır.
      */
     public static function dueText(string $text): ?string
     {
         $t = mb_strtolower(strtr(trim($text), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        // Yılsız gün.ay ("30.11", Sonnet 23.10 Yıldız: "vadeler 30.11, 30.12, 30.01") → en yakın gelecek.
+        if (preg_match('/^(\d{1,2})\s*[.\/-]\s*(\d{1,2})$/', $t, $dm) && (int) $dm[2] >= 1 && (int) $dm[2] <= 12) {
+            $date = Carbon::create(now()->year, (int) $dm[2], 1)->startOfDay();
+            $date = $date->setDay(min(max(1, (int) $dm[1]), $date->daysInMonth));
+            while ($date->lt(now()->startOfDay())) {
+                $date = $date->addYearNoOverflow();
+            }
+
+            return $date->format('d.m.Y');
+        }
         if ($t === '' || preg_match('/\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2,4}/', $t)
             || ! preg_match('/(' . implode('|', array_keys(self::MONTHS)) . ')/u', $t, $m)) {
             return null;
@@ -245,9 +266,10 @@ final class CheckSplit
             if ($last > 0) {
                 $opts[] = '*1* Son çek ' . Money::format($last) . ' ₺ olsun';
             }
-            $opts[] = '*' . (count($opts) + 1) . '* Ödeme ' . Money::format($sum) . ' ₺ olsun';
+            $word = ($d['kind'] ?? null) === ExpenseExtractor::KIND_COLLECTION ? 'Tahsilat' : 'Ödeme';
+            $opts[] = '*' . (count($opts) + 1) . '* ' . $word . ' ' . Money::format($sum) . ' ₺ olsun';
 
-            return 'Çeklerin toplamı ' . Money::format($sum) . ' ₺, ödeme ' . Money::format((float) $d['amount']) . ' ₺ — '
+            return 'Çeklerin toplamı ' . Money::format($sum) . ' ₺, ' . mb_strtolower($word) . ' ' . Money::format((float) $d['amount']) . ' ₺ — '
                 . Money::format(abs($diff)) . ' ₺ ' . ($diff > 0 ? 'eksik' : 'fazla') . ".\n" . implode(' · ', $opts);
         }
         if (($d['check_choice'] ?? null) === 'unread') {
@@ -256,6 +278,9 @@ final class CheckSplit
         if (($d['check_choice'] ?? null) === 'dup') {
             return ($d['check_duplicate'] ?? 'Bu') . ' numaralı çek zaten kayıtlı — aynı çek iki kez yazılmasın. '
                 . 'Fotoğraf yanlış okunduysa tekrar gönder ya da çekleri yaz; gerek yoksa *iptal*.';
+        }
+        if (($d['check_choice'] ?? null) === 'direction') {
+            return 'Bu çeki birine mi verdin, birinden mi aldın? Kimden aldığını ya da kime verdiğini yazar mısın? (ör. *Ahmet\'ten aldım*)';
         }
         if (($d['check_choice'] ?? null) === 'due') {
             return 'Çekin vadesini gün.ay.yıl olarak yazar mısın? (ör. 15.02.2027)';

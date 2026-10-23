@@ -90,6 +90,46 @@ class ChecksScreenTest extends TestCase
         $this->assertStringContainsString('vade 31.03.2027', $desc, 'ekstrede çek vadesi');
     }
 
+    /** Yıldız 23.10: "Ödeme Aldım" + birden çok çek → tahsilata bağlı "alındı" çekler, her biri kendi vadesiyle; bakiye toplam kadar düşer. */
+    public function test_collection_with_cheques_from_party_page(): void
+    {
+        $party = Party::create(['name' => 'Çek Ekranı Müşteri Ahmet']);
+        \App\Models\PartyLedgerEntry::create(['party_id' => $party->id, 'type' => \App\Models\PartyLedgerEntry::TYPE_SALE,
+            'amount' => 300000, 'entry_date' => '2026-10-01']);
+
+        Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $party->getKey()])
+            ->mountAction('newCollection')
+            ->setActionData(['entry_date' => '2026-10-23', 'amount' => '300.000', 'payment_type' => 'check',
+                'cheques' => [['check_number' => '1001', 'bank_name' => 'Ziraat', 'due_date' => '2026-11-30', 'amount' => '100.000'],
+                    ['check_number' => '1002', 'bank_name' => 'Ziraat', 'due_date' => '2026-12-30', 'amount' => '100.000'],
+                    ['check_number' => '1003', 'bank_name' => 'Ziraat', 'due_date' => '2027-01-30', 'amount' => '100.000']]])
+            ->callMountedAction()
+            ->assertHasNoActionErrors();
+
+        $entry = \App\Models\PartyLedgerEntry::where('party_id', $party->id)->where('type', \App\Models\PartyLedgerEntry::TYPE_COLLECTION)->sole();
+        $this->assertSame('check', $entry->payment_type);
+        $checks = $entry->checks()->orderBy('check_number')->get();
+        $this->assertSame(['1001', '1002', '1003'], $checks->pluck('check_number')->all());
+        $this->assertSame(['portfolio', 'portfolio', 'portfolio'], $checks->pluck('status')->all());
+        $this->assertSame(['2026-11-30', '2026-12-30', '2027-01-30'], $checks->map(fn ($c) => $c->due_date->toDateString())->all());
+        $this->assertEqualsWithDelta(100000, (float) $checks[0]->amount, 0.01);
+        $this->assertEqualsWithDelta(0, \App\Support\PartyStatement::build($party)['balance'], 0.01, 'çek alınınca borç hemen düşer');
+    }
+
+    public function test_collection_cheque_total_mismatch_is_not_saved(): void
+    {
+        $party = Party::create(['name' => 'Çek Ekranı Müşteri Uyuşmaz']);
+
+        Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $party->getKey()])
+            ->mountAction('newCollection')
+            ->setActionData(['entry_date' => '2026-10-23', 'amount' => '300.000', 'payment_type' => 'check',
+                'cheques' => [['due_date' => '2026-11-30', 'amount' => '100.000']]])
+            ->callMountedAction();
+
+        $this->assertSame(0, \App\Models\PartyLedgerEntry::where('party_id', $party->id)->count());
+        $this->assertSame(0, Check::where('party_id', $party->id)->count());
+    }
+
     public function test_cheque_total_mismatch_is_not_saved(): void
     {
         $party = Party::create(['name' => 'Çek Ekranı Uyuşmaz']);

@@ -39,9 +39,9 @@ class Agenda
         }
 
         if (config('modules.checks')) {
-            foreach (CheckReminders::pending()->with('party')->whereBetween('due_date', [$from->toDateString(), $to->toDateString()])->get() as $c) {
+            foreach (CheckReminders::upcoming()->with(['party', 'ledgerEntry'])->whereBetween('due_date', [$from->toDateString(), $to->toDateString()])->get() as $c) {
                 $items->push(['date' => $c->due_date->toDateString(), 'time' => null,
-                    'text' => 'Çek: ' . ($c->party?->name ?? 'cari yok') . ' ' . Money::format((float) $c->amount) . ' ₺', 'type' => 'check', 'phone' => null]);
+                    'text' => (CheckReminders::isReceived($c) ? 'Alınan çek: ' : 'Çek: ') . ($c->party?->name ?? 'cari yok') . ' ' . Money::format((float) $c->amount) . ' ₺', 'type' => 'check', 'phone' => null]);
             }
         }
 

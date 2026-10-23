@@ -58,6 +58,12 @@ return [
             'parties' => ['Kuşak Beton' => [], 'Ali Usta' => [], 'Kamuran Narçin' => []],
             'categories' => ['Yakıt'],
         ],
+        // Yıldız (firma 1) çek modülü açık hâli — müşteriden çoğunlukla çek alır (23.10).
+        'ferhat_cek' => [
+            'profile' => 'mimar', 'modules' => ['projects' => true, 'checks' => true], 'sector' => 'architecture',
+            'projects' => ['EROL ALTINER'],
+            'parties' => ['BAHADIR PİR' => [], 'FUAT ALKAN' => [], 'RAMADA OTEL' => [], 'YAKUP TAŞ' => []],
+        ],
         'stok' => [
             'profile' => 'trade', 'modules' => [],
             'parties' => ['Ak Un' => [], 'Mehmet Kaya' => []],
@@ -688,6 +694,25 @@ return [
             'steps' => [['send' => '40 adet besi yemi geldi', 'expect' => ['reply_has' => ['son aldığın yer'], 'reply_not' => ['daha önce']]],
                 ['send' => 'Pesin alis']],
             'expect' => ['reply_has' => ['son aldığın yer', 'parası verildi', '44.000']]],
+        // 23.10 Yıldız çek modülü: müşteriden alınan çekler tahsilat + çek kaydı; yalnız çek fotoğrafında yön sorulur (tahmin yok).
+        ['id' => 'Y-cek-aldim-uc-vade', 'firm' => 'ferhat_cek', 'group' => 'regression',
+            'steps' => [['send' => "Fuat Alkan'dan 3 çek aldım 100'er bin, vadeler 30.11, 30.12, 30.01"]],
+            'expect' => ['ready' => true, 'reply_not' => ['ödedin', 'verdin'],
+                'draft' => ['kind' => 'collection', 'party_id' => '@party:FUAT ALKAN', 'amount' => 300000]]],
+        ['id' => 'Y-cek-foto-yalniz-yon-sorar', 'firm' => 'ferhat_cek', 'group' => 'regression',
+            'steps' => [['media' => 'cek-asansor.jpg']],
+            'expect' => ['asks' => true, 'reply_any' => ['birinden mi aldın', 'kimden aldın', 'aldın mı'], 'saved' => ['ledger' => 0]]],
+        ['id' => 'Y-cek-foto-sonra-kimden', 'firm' => 'ferhat_cek', 'group' => 'regression',
+            'steps' => [['media' => 'cek-asansor.jpg'], ['send' => "Yakup Taş'tan aldım"]],
+            'expect' => ['reply_not' => ['birinden mi aldın'], 'draft_checks' => ['8037566', '8037567', '8037568'],
+                'draft' => ['kind' => 'collection', 'party_id' => '@party:YAKUP TAŞ']]],
+        ['id' => 'Y-cek-foto-aldim', 'firm' => 'ferhat_cek', 'group' => 'regression',
+            'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Yakup Taş verdi bu çekleri']],
+            'expect' => ['reply_not' => ['birinden mi aldın'], 'draft' => ['kind' => 'collection', 'party_id' => '@party:YAKUP TAŞ']]],
+        // Mimar paketinde cari ödeme kapalı: verilen çek kaydedilmez — ama tahsilat da sayılmamalı.
+        ['id' => 'Y-cek-verdim-tahsilat-olmaz', 'firm' => 'ferhat_cek', 'group' => 'regression',
+            'steps' => [['send' => 'Bahadır Pire 50 bin çek verdim vadesi 15.12.2026']],
+            'expect' => ['reply_not' => ['birinden mi aldın', 'sana*: 50.000'], 'draft_kind_not' => 'collection']],
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).

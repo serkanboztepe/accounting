@@ -976,7 +976,7 @@ class WhatsappWebhookController extends Controller
             // Numaralı iş durumu sorusu ("*1* Mal geldi · *2* Bağlantı / peşin · *3* Eski borcu ödedim") → seçim kayda çevrilir. Eski
             // "*1* iş/mal aldım, *2* avans" menüsünden ÖNCE (yoksa "2" orada yakalanıp kayıt yarım kalıyordu).
             // Çek okunamadı / tekrar çek / vade yok: numara bu sorunun cevabı değil (21.10: "2" iş durumu sanıldı, çeksiz kaydetti).
-            if (in_array($pending->extracted['check_choice'] ?? null, ['unread', 'dup', 'due'], true) && ctype_digit($body)) {
+            if (in_array($pending->extracted['check_choice'] ?? null, ['unread', 'dup', 'due', 'direction'], true) && ctype_digit($body)) {
                 return $this->twiml('❓ ' . CheckSplit::question($pending->extracted) . "\nVazgeçmek için *iptal*.");
             }
             // Çek bölme / toplam sorusu ("*1* 10 × 100.000 + son çek 187.000 · …") → kod çekleri yazar.
@@ -2783,8 +2783,13 @@ class WhatsappWebhookController extends Controller
         }
 
         // Çekle ödeme (Faz F): her çek ödeme satırına bağlı "verildi" — cari Çekler bölümünde, vadeden önce hatırlatılır.
-        $checksSaved = in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE], true)
-            ? IssuedChecks::store($d, $party, $projectId) : 0;
+        // Çekle tahsilat (Yıldız 23.10): aynı yapı, tahsilat satırına bağlı "alındı".
+        $checksSaved = match (true) {
+            in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE], true) => IssuedChecks::store($d, $party, $projectId),
+            $kind === ExpenseExtractor::KIND_COLLECTION, $kind === ExpenseExtractor::KIND_SALE && ! empty($d['paid'])
+                => IssuedChecks::store($d, $party, $projectId, received: true),
+            default => 0,
+        };
 
         // Dekonttaki banka masrafı (FAST + BSMV): gider açıksa ayrı gider; kapalıysa özette söylendi, yazılmaz.
         if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0 && config('modules.expenses')) {

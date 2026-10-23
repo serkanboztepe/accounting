@@ -97,6 +97,7 @@ final class Understanding
             'meaning' => ['type' => ['string', 'null'], 'description' => 'Plain everyday Turkish sentence of what HAPPENED, with names (no accounting words). Required for every money/debt record.'],
             'work_status' => ['type' => ['string', 'null'], 'enum' => [...self::STATUSES, null], 'description' => 'Money/debt with a person: state of the work/goods behind it (see ÖNCE ANLA). null if not applicable.'],
             'work_status_known' => ['type' => ['boolean', 'null'], 'description' => 'true only if the user said it or it is certain from the trade meaning; false if guessing → write `question`.'],
+            'check_direction_known' => ['type' => ['boolean', 'null'], 'description' => 'Only when the record has cheques: true if the user\'s words or the recent conversation say whether WE GAVE these cheques or RECEIVED them ("Osman\'a verdim", "Ahmet\'ten aldım"); false if it is only a cheque photo and nobody said it — the printed drawer name does NOT decide it. null if no cheques.'],
             'party_certain' => ['type' => ['boolean', 'null'], 'description' => 'false if matched to an existing party with a DIFFERENT name that may be another person; true if same name / memory alias; null if no person.'],
             'checks' => ['type' => ['array', 'null'], 'description' => 'Every cheque visible in the image/document, one row each (number, due date as written, amount) — never empty when cheques are visible; also cheques listed one by one in text.', 'items' => [
                 'type' => 'object',
@@ -125,6 +126,7 @@ final class Understanding
             'work_status' => in_array($input['work_status'] ?? null, self::STATUSES, true) ? $input['work_status'] : null,
             'work_status_known' => isset($input['work_status_known']) ? (bool) $input['work_status_known'] : null,
             'party_certain' => isset($input['party_certain']) ? (bool) $input['party_certain'] : null,
+            'check_direction_known' => isset($input['check_direction_known']) ? (bool) $input['check_direction_known'] : null,
             'checks' => $checks ?: null,
             'check_plan' => CheckSplit::normalize($input['check_plan'] ?? null),
         ];
