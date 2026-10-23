@@ -424,6 +424,49 @@ class WhatsappTurnTraceTest extends TestCase
         $this->assertContains('uncaptured_reads:parties', $manual['replay']['reasons']);
     }
 
+    /** Elle açılan tek tur: değer not olarak yazılır, iz dosyası döner. */
+    private function noteTrace(string $turn, mixed $value): array
+    {
+        config(['services.whatsapp.trace' => true]);
+        TurnTrace::begin($turn, self::PHONE);
+        TurnTrace::note('veri', $value);
+        TurnTrace::finish([], background: true);
+
+        return collect($this->traces())->firstWhere('turn_id', $turn);
+    }
+
+    /** Pilot şartı: kısaltılmış iz "tam" sayılmaz. Karşı örnek: 201 elemandan yalnız 200'ü yazılır → complete=false. */
+    public function test_item_limit_marks_trace_incomplete_201_vs_200(): void
+    {
+        $over = $this->noteTrace('eleman201', range(1, 201));
+        $this->assertFalse($over['replay']['complete']);
+        $this->assertContains('truncated_items', $over['replay']['reasons']);
+        $note = $over['segments']['1']['notes'][0]['value'];
+        $this->assertCount(201, $note, '200 eleman + kalan sayısı');
+        $this->assertSame(1, $note['…'], 'yazılmayan 1 eleman');
+        $this->assertSame(200, $note[199]);
+
+        // Pozitif kontrol: tam 200 eleman kısaltılmaz.
+        $exact = $this->noteTrace('eleman200', range(1, 200));
+        $this->assertNotContains('truncated_items', $exact['replay']['reasons']);
+        $this->assertCount(200, $exact['segments']['1']['notes'][0]['value']);
+    }
+
+    public function test_collection_text_and_depth_limits_mark_trace_incomplete(): void
+    {
+        $this->assertContains('truncated_items', $this->noteTrace('koleksiyon', collect(range(1, 201)))['replay']['reasons']);
+        $this->assertNotContains('truncated_items', $this->noteTrace('koleksiyon200', collect(range(1, 200)))['replay']['reasons']);
+
+        $text = $this->noteTrace('metin', str_repeat('ş', 20001));
+        $this->assertContains('truncated_text', $text['replay']['reasons']);
+        $this->assertFalse($text['replay']['complete']);
+        $this->assertNotContains('truncated_text', $this->noteTrace('metin20000', str_repeat('ş', 20000))['replay']['reasons'], 'çok baytlı harf: sınır karakter sayısı');
+
+        $deep = ['a' => ['b' => ['c' => ['d' => ['e' => ['f' => ['g' => ['h' => 1]]]]]]]];
+        $this->assertContains('truncated_depth', $this->noteTrace('derin', $deep)['replay']['reasons']);
+        $this->assertNotContains('truncated_depth', $this->noteTrace('sig', ['a' => ['b' => ['c' => 1]]])['replay']['reasons']);
+    }
+
     // ------------------------------------------------------------------ 3. hata yalıtımı
 
     public function test_diagnostic_failures_never_change_the_turn(): void

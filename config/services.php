@@ -68,6 +68,8 @@ return [
         // Tur teşhis kaydı (TurnTrace): modele giden/gelen, işlem hattı adımları, karar okumaları. Davranışı değiştirmez.
         'trace' => (bool) env('WHATSAPP_TRACE', false),
         'trace_path' => env('WHATSAPP_TRACE_PATH'), // boşsa storage/app/wa-trace
+        // Pilot: iz yalnız bu firma kimliklerinde ("12,7"); boşsa (firma sistemi açıkken) hiçbir firmada.
+        'trace_firms' => array_values(array_filter(array_map('trim', explode(',', (string) env('WHATSAPP_TRACE_FIRMS', ''))), 'strlen')),
         'check_reminder_content_sid' => env('WHATSAPP_CHECK_REMINDER_SID'), // Twilio Content SID (HX…)
         // Kullanıcının kurduğu hatırlatmalar (şablon "hatirlatma", {{1}} = metin). Onaylı değilse serbest metin (yalnız 24 saat içinde teslim).
         'reminder_content_sid' => env('WHATSAPP_REMINDER_SID'),

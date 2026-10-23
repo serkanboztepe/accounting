@@ -66,6 +66,7 @@ class WhatsappTurnTraceTenancyTest extends TestCase
             });
         }
         self::$prepared = true;
+        config(['services.whatsapp.trace_firms' => [(string) $this->a->id, (string) $this->b->id]]); // pilot: seçili firmalar
         $this->originalDefault = DB::getDefaultConnection();
         config(['database.default' => 'tenant']);
         DB::setDefaultConnection('tenant');
@@ -93,6 +94,47 @@ class WhatsappTurnTraceTenancyTest extends TestCase
         $request->attributes->set('via_hub', true);
         $request->server->set('REQUEST_TIME_FLOAT', microtime(true));
         app()->call([app()->make(WhatsappWebhookController::class), '__invoke'], ['request' => $request]);
+    }
+
+    /** Pilot: iz yalnız seçilen firmada. A seçili, B değil → B için dosya ve klasör yok; A'nın ertelenen bölümü de yazılır. */
+    public function test_trace_is_written_only_for_selected_firms(): void
+    {
+        config(['services.whatsapp.trace_firms' => [(string) $this->a->id]]);
+        $this->deferredAThenB();
+
+        $this->assertNotEmpty(glob("{$this->dir}/{$this->a->id}/*/*.json"));
+        $this->assertDirectoryDoesNotExist("{$this->dir}/{$this->b->id}");
+        $a = json_decode((string) file_get_contents(glob("{$this->dir}/{$this->a->id}/*/*.json")[0]), true);
+        $this->assertSame(['1', '2'], array_map('strval', array_keys($a['segments'])), "A'nın arka plan bölümü de yazıldı");
+        $this->assertStringNotContainsString('B firmasının', (string) json_encode($a, JSON_UNESCAPED_UNICODE));
+    }
+
+    public function test_empty_firm_list_traces_no_firm_even_when_switch_is_on(): void
+    {
+        config(['services.whatsapp.trace_firms' => []]);
+        $this->deferredAThenB();
+
+        $this->assertDirectoryDoesNotExist($this->dir, 'hiçbir firmada iz yok');
+    }
+
+    /** A'da ertelenen tur, ardından B'de tur, sonra arka plan işleri. */
+    private function deferredAThenB(): void
+    {
+        $results = [new DeferTurn('test'), ['type' => 'reply', 'text' => 'B firmasının cevabı'], ['type' => 'reply', 'text' => 'A ertelenen cevap']];
+        $chat = Mockery::mock(ChatAssistant::class);
+        $chat->shouldReceive('respond')->andReturnUsing(function () use (&$results) {
+            $r = array_shift($results);
+            if ($r instanceof \Throwable) {
+                throw $r;
+            }
+
+            return $r;
+        });
+        $this->app->instance(ChatAssistant::class, $chat);
+
+        Tenancy::run($this->a, fn () => $this->webhook('A firmasının mesajı', 'SMa1'));
+        Tenancy::run($this->b, fn () => $this->webhook('B firmasının mesajı', 'SMb1'));
+        app()->terminate();
     }
 
     public function test_deferred_turn_of_firm_a_does_not_mix_with_firm_b(): void

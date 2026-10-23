@@ -72,6 +72,22 @@ final class TurnTrace
         return (bool) config('services.whatsapp.trace');
     }
 
+    /**
+     * Bu firmada iz tutulur mu (pilot: yalnız seçilen firmalar). Firma sistemi açıkken yalnız WHATSAPP_TRACE_FIRMS listesindeki
+     * kimlikler; liste boşsa hiçbir firma. Firma sistemi kapalı (yerel / tek firma) → genel anahtar yeter. Firma seçilmemişse yok.
+     */
+    public static function enabledFor(?string $firmId): bool
+    {
+        if (! self::enabled()) {
+            return false;
+        }
+        if (! config('tenancy.enabled')) {
+            return true;
+        }
+
+        return $firmId !== null && in_array($firmId, array_map('strval', (array) config('services.whatsapp.trace_firms', [])), true);
+    }
+
     public static function active(): bool
     {
         return self::$seg !== null;
@@ -108,13 +124,13 @@ final class TurnTrace
         self::$collector = null;
         self::$readDepth = 0;
         self::$coverDepth = 0;
-        if (! self::enabled()) {
+        $firm = \App\Tenancy\Tenancy::current();
+        if (! self::enabledFor($firm ? (string) $firm->id : null)) {
             return;
         }
         $t = hrtime(true);
         try {
             self::hook('begin');
-            $firm = \App\Tenancy\Tenancy::current();
             self::$ctx = new TraceContext($firm ? (string) $firm->id : 'local', preg_replace('/[^A-Za-z0-9_-]/', '_', $turnId) ?: 'tur',
                 Phone::normalize($phone), now('Europe/Istanbul')->toDateString());
             self::open('request');
@@ -174,7 +190,7 @@ final class TurnTrace
         self::$collector = null;
         self::$readDepth = 0;
         self::$coverDepth = 0;
-        if ($ctx === null || ! self::enabled()) {
+        if ($ctx === null || ! self::enabledFor($ctx->firmId === 'local' ? null : $ctx->firmId)) {
             return $prev;
         }
         try {
@@ -416,14 +432,14 @@ final class TurnTrace
                 [$text, $why] = self::readStream($response->getBody());
                 $json = $text !== null ? json_decode($text, true) : null;
                 $rec['status'] = $response->getStatusCode();
-                $rec['response'] = is_array($json) ? self::externalize($json) : ($text !== null ? mb_substr($text, 0, 20000) : null);
+                $rec['response'] = is_array($json) ? self::externalize($json) : ($text !== null ? self::cut($text, 20000) : null);
                 if ($why !== null) {
                     $rec['response_unreadable'] = $why;
                     self::reason($why);
                 }
             }
             if ($error !== null) {
-                $rec['error'] = is_object($error) ? get_class($error) . ': ' . mb_substr((string) ($error instanceof \Throwable ? $error->getMessage() : ''), 0, 300) : (string) $error;
+                $rec['error'] = is_object($error) ? get_class($error) . ': ' . self::cut((string) ($error instanceof \Throwable ? $error->getMessage() : ''), 300) : (string) $error;
             }
             self::push('calls', $rec);
         } catch (\Throwable $e) {
@@ -774,18 +790,35 @@ final class TurnTrace
         return $out;
     }
 
+    /** Metni sınırda keser; kesildiyse iz tam yeniden oynatılamaz (truncated_text). */
+    private static function cut(string $text, int $max): string
+    {
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+        self::reason('truncated_text');
+
+        return mb_substr($text, 0, $max) . '…';
+    }
+
+    /** Değer özeti. Her kısaltma (metin, eleman sayısı, derinlik) replay.complete=false yapar — kısaltılmış veri tam değildir. */
     private static function summarize(mixed $v, int $depth): mixed
     {
         if ($v === null || is_scalar($v)) {
-            return is_string($v) && strlen($v) > 20000 ? mb_substr($v, 0, 20000) . '…' : $v;
+            return is_string($v) ? self::cut($v, 20000) : $v;
         }
         if ($depth > 6) {
+            self::reason('truncated_depth');
+
             return '…';
         }
         if ($v instanceof \Illuminate\Database\Eloquent\Model) {
             return ['@' => class_basename($v), 'id' => $v->getKey(), 'attrs' => $v->attributesToArray()];
         }
         if ($v instanceof \Illuminate\Support\Collection) {
+            if ($v->count() > 200) {
+                self::reason('truncated_items');
+            }
             $items = $v->take(200)->map(fn ($x) => self::summarize($x, $depth + 1))->all();
 
             return ['@' => 'Collection', 'count' => $v->count(), 'items' => $items];
@@ -796,6 +829,7 @@ final class TurnTrace
             foreach ($v as $k => $x) {
                 if (++$i > 200) {
                     $out['…'] = count($v) - 200;
+                    self::reason('truncated_items');
                     break;
                 }
                 $out[$k] = self::summarize($x, $depth + 1);
