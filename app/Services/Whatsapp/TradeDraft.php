@@ -13,7 +13,6 @@ use App\Models\Unit;
 use App\Support\Money;
 use App\Support\MonthlyResult;
 use App\Support\PartyBalances;
-use App\Support\PartyStatement;
 use App\Support\StockUsage;
 use App\Support\TradeDesk;
 use Illuminate\Support\Carbon;
@@ -490,7 +489,7 @@ class TradeDraft
             $lines[] = '• Ödeme tarihi: ' . Carbon::parse($d['due_date'])->locale('tr')->translatedFormat('j F Y');
         }
         if (empty($d['paid']) && $party) {
-            $before = PartyStatement::build($party)['balance'];
+            $before = TurnTrace::statement('TradeDraft::saleSummary', $party)['balance'];
             $lines[] = '• Bakiye: ' . self::balancePhrase($before) . ' → ' . self::balancePhrase($before + (float) $d['amount']);
         }
 
@@ -525,7 +524,7 @@ class TradeDraft
             $lines[] = '• Tarih: ' . Carbon::parse($d['date'])->format('d.m.Y');
         }
         if ($party) {
-            $before = PartyStatement::build($party)['balance'];
+            $before = TurnTrace::statement('TradeDraft::purchaseSummary', $party)['balance'];
             $after = ! empty($d['paid']) ? $before : $before - (float) $d['amount'];
             $lines[] = '• Bakiye: ' . self::balancePhrase($before) . ' → ' . self::balancePhrase($after);
         }
@@ -732,7 +731,7 @@ class TradeDraft
                 . ' (stok tutulmuyor)';
         }
         if ($party) {
-            $text .= "\n" . PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
+            $text .= "\n" . PartyBalances::line($party->name, TurnTrace::statement('TradeDraft::commitSale', $party)['balance']);
         }
         // Akşam cirosu (ürünsüz peşin): günün tek mesajlık özeti — panele girmeden günü görsün.
         if (! $party && $lines === []) {
@@ -803,7 +802,7 @@ class TradeDraft
             . ($created !== [] ? "\n🆕 Ürün kartı açıldı: " . implode(', ', $created) : '');
         $text .= self::stockAfterLines($lines);
         if ($party) {
-            $text .= "\n" . PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
+            $text .= "\n" . PartyBalances::line($party->name, TurnTrace::statement('TradeDraft::commitPurchase', $party)['balance']);
         }
 
         return [$text, $party?->id];

@@ -47,6 +47,7 @@ use App\Services\Whatsapp\RecurringDraft;
 use App\Services\Whatsapp\ReturnDraft;
 use App\Services\Whatsapp\WhatsappSender;
 use App\Services\Whatsapp\ProjectChoice;
+use App\Services\Whatsapp\TurnTrace;
 use App\Support\Agenda;
 use App\Support\Announcements;
 use App\Support\DailyNudge;
@@ -56,7 +57,6 @@ use App\Support\ConversationContext;
 use App\Support\ExpenseSummary;
 use App\Support\Money;
 use App\Support\PartyBalances;
-use App\Support\PartyStatement;
 use App\Support\Reminders;
 use App\Support\Phone;
 use App\Tenancy\Tenancy;
@@ -176,9 +176,14 @@ class WhatsappWebhookController extends Controller
             $firstContact = $this->firstContact = $this->isFirstContact($phone);
             // İkinci okuma aynı gelen mesajdır — konuşma kaydına tekrar yazılmaz.
             $incoming = $request->attributes->get('reread') ? null : $this->logMessage($phone, 'in', $body, $numMedia > 0);
+            // Teşhis kaydı (WHATSAPP_TRACE): tur kimliği = gelen mesaj; davranışı değiştirmez.
+            TurnTrace::begin((string) ($incoming?->id ?? ($sid !== '' ? $sid : uniqid('tur', true))), $phone, ['body' => $body,
+                'num_media' => $numMedia, 'media_type' => $request->input('MediaContentType0'), 'message_sid' => $sid,
+                'queued' => (bool) $request->attributes->get('queued'), 'reread' => (bool) $request->attributes->get('reread'),
+                'button_payload' => $request->input('ButtonPayload')]);
             // "Müşteriye sor" (Faz 3): ona sorulmuş soru varsa bu mesaj cevabıdır → derse yazılır (akış aynen sürer).
             \App\Models\AssistantLesson::captureAnswer($phone, $body);
-            \App\Models\RecordReview::captureAnswer($phone, $body);
+            TurnTrace::read('RecordReview::captureAnswer', fn () => \App\Models\RecordReview::captureAnswer($phone, $body));
 
             $response = $this->respond($request, $extractor, $phone, $body, $numMedia);
             $this->tagReviewDrafts($phone);
@@ -195,7 +200,7 @@ class WhatsappWebhookController extends Controller
             // Bekleyen duyuru: ilk mesajda iptal (hoş geldin yeter, ikisi birden asla); değilse iş bitince bir kez.
             if ($firstContact) {
                 $this->cancelAnnouncement($phone);
-            } elseif ($this->replies !== [] && ($announcement = $this->announcementToSend($phone))) {
+            } elseif ($this->replies !== [] && ($announcement = TurnTrace::read('announcementToSend', fn () => $this->announcementToSend($phone)))) {
                 $response = $this->twimlMany([...$this->replies, $announcement->body]);
                 $announcement->update(['status' => 'sent', 'sent_at' => now()]);
             }
@@ -203,7 +208,7 @@ class WhatsappWebhookController extends Controller
             if ($this->touchedPartyId) {
                 // Hatırlatmaya cevap olarak tahsilat/ödeme onaylandıysa ("aldım" → evet) hatırlatma kapanır.
                 if ($this->committedPartyId
-                    && ($reminder = Reminder::awaitingReply(Phone::normalize($phone), $this->committedPartyId))) {
+                    && ($reminder = TurnTrace::read('Reminder::awaitingReply', fn () => Reminder::awaitingReply(Phone::normalize($phone), $this->committedPartyId)))) {
                     $reminder->acknowledge();
                 }
                 ConversationContext::remember($phone, $this->touchedPartyId);
@@ -247,6 +252,8 @@ class WhatsappWebhookController extends Controller
 
             return $response;
         } finally {
+            TurnTrace::finish(['replies' => $this->replies, 'inbound_kind' => $this->inboundKind, 'deferred' => $deferred],
+                background: (bool) $request->attributes->get('queued'));
             ChatAssistant::$deadline = null;
             Cache::forget($this->photoBusyKey($phone));
             if (! $deferred) {
@@ -309,33 +316,42 @@ class WhatsappWebhookController extends Controller
         $firm = Tenancy::current();
         $turn = $this->deferredTurn;
         $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
+        // Teşhis: arka plandaki devam aynı turun ikinci bölümüdür — kimlik açıkça taşınır (başka turla karışmasın).
+        $trace = TurnTrace::context();
+        TurnTrace::expectContinuation('deferred');
 
-        app()->terminating(function () use ($firm, $turn, $phone, $incoming, $lockName, $lockOwner) {
-            $work = function () use ($turn, $phone, $incoming) {
-                ChatAssistant::$deadline = null;
-                $this->deferredTurn = null;
-                $this->replies = [];
-                $pending = $turn['pending_id'] ? WhatsappPendingExpense::whereKey($turn['pending_id'])
-                    ->where('status', 'awaiting_confirmation')->first() : null;
-                if (! empty($turn['source'])) {
-                    $this->inboundBody = $turn['source']; // sıradaki kalem: emniyetler asıl mesajı görsün
-                }
+        app()->terminating(function () use ($firm, $turn, $phone, $incoming, $lockName, $lockOwner, $trace) {
+            $work = function () use ($turn, $phone, $incoming, $trace) {
+                $traced = TurnTrace::resume($trace, 'deferred');
+                $out = null;
                 try {
-                    $out = $this->chatTurn($pending, $phone, $turn['body']);
-                } catch (\Throwable $e) {
-                    Log::error('WhatsApp ertelenen tur hatası', ['msg' => $e->getMessage()]);
-                    $this->inboundKind = 'error';
-                    $out = 'Şu an toparlayamadım, birazdan tekrar yazar mısın? 🙏';
-                }
-                $this->deliver($phone, $out);
-                if ($this->touchedPartyId) {
-                    if ($this->committedPartyId
-                        && ($reminder = Reminder::awaitingReply(Phone::normalize($phone), $this->committedPartyId))) {
-                        $reminder->acknowledge();
+                    ChatAssistant::$deadline = null;
+                    $this->deferredTurn = null;
+                    $this->replies = [];
+                    $pending = $turn['pending_id'] ? TurnTrace::read('deferred.pending', fn () => WhatsappPendingExpense::whereKey($turn['pending_id'])
+                        ->where('status', 'awaiting_confirmation')->first()) : null;
+                    if (! empty($turn['source'])) {
+                        $this->inboundBody = $turn['source']; // sıradaki kalem: emniyetler asıl mesajı görsün
                     }
-                    ConversationContext::remember($phone, $this->touchedPartyId);
+                    try {
+                        $out = $this->chatTurn($pending, $phone, $turn['body']);
+                    } catch (\Throwable $e) {
+                        Log::error('WhatsApp ertelenen tur hatası', ['msg' => $e->getMessage()]);
+                        $this->inboundKind = 'error';
+                        $out = 'Şu an toparlayamadım, birazdan tekrar yazar mısın? 🙏';
+                    }
+                    $this->deliver($phone, $out);
+                    if ($this->touchedPartyId) {
+                        if ($this->committedPartyId
+                            && ($reminder = TurnTrace::read('Reminder::awaitingReply', fn () => Reminder::awaitingReply(Phone::normalize($phone), $this->committedPartyId)))) {
+                            $reminder->acknowledge();
+                        }
+                        ConversationContext::remember($phone, $this->touchedPartyId);
+                    }
+                    $incoming?->update(['kind' => $this->inboundKind]);
+                } finally {
+                    TurnTrace::suspend($traced, ['replies' => [$out], 'inbound_kind' => $this->inboundKind]);
                 }
-                $incoming?->update(['kind' => $this->inboundKind]);
             };
             try {
                 $firm ? Tenancy::run($firm, $work) : $work();
@@ -639,12 +655,12 @@ class WhatsappWebhookController extends Controller
         // Birden fazla açık taslak olabilir (yeni kayıt eskisini kapatmaz, yarım kalan olarak takip edilir):
         // en son dokunulan etkindir — hatırlatılan yarım kayıt da bu yüzden cevabı alır.
         // Hatırlatması gönderilmiş yarım kayıt 24 saat etkin kalır: geç gelen cevap ("8500") ona bağlansın.
-        $pending = WhatsappPendingExpense::where('phone', $phone)
+        $pending = TurnTrace::read('respond.pending', fn () => WhatsappPendingExpense::where('phone', $phone)
             ->where('status', 'awaiting_confirmation')
             ->where(fn ($q) => $q->where('updated_at', '>=', now()->subMinutes(30))
                 ->orWhere('followed_up_at', '>=', now()->subHours(24)))
             ->orderByDesc('updated_at')->orderByDesc('id')
-            ->first();
+            ->first());
         // Toplu düzeltme yalnız net cevapla: "evet" (hepsi), numara ("1 3") ya da "iptal". Başka her mesaj normal işlenir, öneri
         // dokunulmadan bekler — "süt iptal olmasın, gerisi tamam" hepsini yaptırmasın (yanlış anladıysak hiçbir şey kendiliğinden olmaz).
         if ($pending && ($pending->extracted['kind'] ?? null) === BundleDraft::KIND) {
@@ -698,10 +714,10 @@ class WhatsappWebhookController extends Controller
         // Açık kayıt kontrolüne kısa cevap ("evet" / "hayır"): 👍 ile geçmesin — asistan soruyla birlikte yorumlar
         // ("kurayım mı?" → evet → önerilen işlemin kartı).
         $reviewReply = ! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body))
-            && \App\Models\RecordReview::activeFor($phone) !== null;
+            && TurnTrace::read('RecordReview::activeFor', fn () => \App\Models\RecordReview::activeFor($phone)) !== null;
 
         if (! $reviewReply && ! $pending && $image === null && $this->isConfirm($body)
-            && ($seen = Reminder::allAwaitingReply(Phone::normalize($phone)))->isNotEmpty()) {
+            && ($seen = TurnTrace::read('Reminder::allAwaitingReply', fn () => Reminder::allAwaitingReply(Phone::normalize($phone))))->isNotEmpty()) {
             $this->inboundKind = 'reminder_ack';
             $lines = $seen->map(function (Reminder $r) {
                 $r->markSeen();
@@ -982,6 +998,7 @@ class WhatsappWebhookController extends Controller
             // Çek bölme / toplam sorusu ("*1* 10 × 100.000 + son çek 187.000 · …") → kod çekleri yazar.
             if (ctype_digit($body) && CheckSplit::shown($pending->extracted)) {
                 $data = CheckSplit::choose($pending->extracted, (int) $body);
+                TurnTrace::note('choice', 'check_split:' . $body);
                 if ($data !== null) {
                     $this->inboundKind = 'quick';
 
@@ -994,6 +1011,7 @@ class WhatsappWebhookController extends Controller
             // Müşteriden alış mı, müşteri adına ödeme mi? ("*1* onun adına ödedim · *2* ondan aldım") — Yıldız 22.10.
             if (ctype_digit($body) && OnBehalfChoice::shown($pending->extracted)) {
                 $data = OnBehalfChoice::choose($pending->extracted, (int) $body);
+                TurnTrace::note('choice', 'on_behalf:' . $body);
                 if ($data !== null) {
                     $this->inboundKind = 'quick';
 
@@ -1005,6 +1023,7 @@ class WhatsappWebhookController extends Controller
 
             // Stok sorusu ("*1* Geldi — kaç? · *2* tedarikçide · *0* stok tutmuyorum"): "1 20 çuval", "20 çuval", "2", "0".
             if (StockChoice::shown($pending->extracted) && ($res = StockChoice::answer($pending->extracted, $body)) !== null) {
+                TurnTrace::note('choice', 'stock:' . $body);
                 if (isset($res['ask'])) {
                     $data = $pending->extracted;
                     $data['stock_need_qty'] = str_starts_with($res['ask'], 'Kaç');
@@ -1020,6 +1039,7 @@ class WhatsappWebhookController extends Controller
             if (WorkChoice::shown($pending->extracted)
                 && (ctype_digit($body) || ($typed = WorkChoice::match($pending->extracted, $body)) !== null)) {
                 $data = WorkChoice::choose($pending->extracted, ctype_digit($body) ? (int) $body : $typed);
+                TurnTrace::note('choice', 'work:' . $body);
                 if ($data !== null) {
                     $this->inboundKind = 'quick';
 
@@ -1062,7 +1082,9 @@ class WhatsappWebhookController extends Controller
             if (ctype_digit($body) && ProjectChoice::applies($pending->extracted) && ProjectChoice::menuShown($pending->extracted)
                 && empty($pending->extracted['settles_expense_id'])) {
                 $data = ProjectChoice::choose($pending->extracted, (int) $body);
+                TurnTrace::note('choice', 'project:' . $body);
                 if ($data !== null) {
+                    TurnTrace::step('choice:project', $data);
                     $pending->update(['extracted' => $data]);
 
                     return $this->twiml($this->commitThenNext($pending, $phone));
@@ -1232,7 +1254,7 @@ class WhatsappWebhookController extends Controller
         }
         $done = $this->commit($pending);
         $next = $pending->extracted['next_items'] ?? null;
-        if ($pending->fresh()?->status !== 'confirmed') {
+        if (TurnTrace::read('commitThenNext.status', fn () => $pending->fresh()?->status) !== 'confirmed') {
             return $done;
         }
         // Kayıttan sonra kalıcı bilgi önerisi (Faz 2): "🧠 Bir de şunu hatırlayayım mı?" — sıradaki kalem yoksa.
@@ -1322,8 +1344,8 @@ class WhatsappWebhookController extends Controller
     {
         try {
             $mine = Phone::normalize($phone);
-            $rows = WhatsappPendingExpense::where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))
-                ->latest('updated_at')->limit(10)->get()
+            $rows = TurnTrace::read('otherPhonesPending', fn () => WhatsappPendingExpense::where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))
+                ->latest('updated_at')->limit(10)->get())
                 ->filter(fn ($p) => Phone::normalize((string) $p->phone) !== $mine && in_array($this->kind($p->extracted), [ExpenseExtractor::KIND_TRADE_SALE,
                     ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_EXPENSE], true)
                     && (float) ($p->extracted['amount'] ?? 0) > 0);
@@ -1406,8 +1428,8 @@ class WhatsappWebhookController extends Controller
             $fresh = true;
         }
         // Kayıt kontrolü cevabı: bu turda açılan taslak o kontrole bağlanır (onaylanınca "Düzeltildi").
-        $this->turnReview = \App\Models\RecordReview::activeFor($phone);
-        $this->pendingBefore = (int) WhatsappPendingExpense::max('id');
+        $this->turnReview = TurnTrace::read('RecordReview::activeFor', fn () => \App\Models\RecordReview::activeFor($phone));
+        $this->pendingBefore = (int) TurnTrace::read('chatTurn.pendingBefore', fn () => WhatsappPendingExpense::max('id'));
         try {
             $result = app(ChatAssistant::class)->respond($phone, $body, $pending?->extracted, $fresh ?? false);
         } catch (DeferTurn $e) {
@@ -1566,19 +1588,20 @@ class WhatsappWebhookController extends Controller
             || str_contains($out, '❓') || str_contains($out, '⚠️')) {
             return $out;
         }
-        $draft = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first();
+        $draft = TurnTrace::read('fastSave.draft', fn () => WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first());
         if (! $draft || trim((string) $draft->summary) === '' || ! str_contains($out, trim((string) $draft->summary))
             || DraftGaps::reason($draft->extracted)['code'] !== DraftGaps::CONFIRM || ! empty($draft->extracted['party_check'])
             || ProjectChoice::menuShown($draft->extracted)) {
             return $out;
         }
         $this->fastSaving = true;
+        TurnTrace::note('fast_save', $draft->id);
         try {
             $done = $this->commitThenNext($draft, $phone);
         } finally {
             $this->fastSaving = false;
         }
-        if (! is_string($done) || $draft->fresh()?->status !== 'confirmed') {
+        if (! is_string($done) || TurnTrace::read('fastSave.status', fn () => $draft->fresh()?->status) !== 'confirmed') {
             return $done;
         }
         $card = rtrim(mb_substr(rtrim($out), 0, mb_strlen(rtrim($out)) - mb_strlen(self::CONFIRM_FOOTER)));
@@ -1590,7 +1613,7 @@ class WhatsappWebhookController extends Controller
     /** Gelen mesajda projenin adı geçiyor mu (en az 4 harfli bir kelimesi — "Fatih'e" ↔ "Deneme Fatih"). */
     private function mentionsProject(int $projectId): bool
     {
-        $name = (string) Project::whereKey($projectId)->value('name');
+        $name = (string) TurnTrace::read('mentionsProject', fn () => Project::whereKey($projectId)->value('name'), ['project_id' => $projectId]);
         $said = PartyNameCheck::words($this->inboundBody);
         foreach (PartyNameCheck::words($name) as $w) {
             if (mb_strlen($w) >= 4 && collect($said)->contains(fn ($s) => str_starts_with($s, $w) || str_starts_with($w, $s) && mb_strlen($s) >= 4)) {
@@ -1611,28 +1634,38 @@ class WhatsappWebhookController extends Controller
 
     private function saveDraft(?WhatsappPendingExpense $pending, string $phone, array $data, ?string $mediaUrl = null): string|array
     {
-        $out = $this->saveDraftInner($pending, $phone, $data, $mediaUrl);
+        // Teşhis: bu taslak hangi satırdan geldi (numaralı seçim, kısa cevap, asistan…), önceki taslak, gelen veri.
+        if (TurnTrace::active()) {
+            TurnTrace::note('saveDraft.from', 'WhatsappWebhookController:' . (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 1)[0]['line'] ?? '?'));
+            if ($pending) {
+                TurnTrace::step('baseline:pending_before', $pending->extracted);
+            }
+        }
+        $out = $this->saveDraftInner($pending, $phone, TurnTrace::step('saveDraft.input', $data), $mediaUrl);
         // Faz 4: çift kayıt / olağandışı tutar uyarısı — özete ⚠️ satırı (kayıt yine onayla; engellemez).
         if (is_string($out) && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
-            && ($draftNow = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
+            && ($draftNow = TurnTrace::read('saveDraft.draftNow', fn () => WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first()))
             && trim((string) $draftNow->summary) !== '' && str_contains($out, trim((string) $draftNow->summary))
-            && ($warnings = DraftWarnings::for($draftNow->extracted))) {
+            && ($warnings = TurnTrace::read('DraftWarnings::for', fn () => DraftWarnings::for($draftNow->extracted)))) {
             $out = self::insertBeforeFooter($out, implode("\n", $warnings));
+            TurnTrace::note('warnings', $warnings);
         }
         $out = $this->fastSave($out, $phone);
         // Doğal konuşma (modül): taslak özetini AI insan gibi yazar; rakam güvenliği tutmazsa kalıp aynen gider.
         // Anlaşma kartı hariç: numaralı seçenek + "okuyamadım" sorusu yeniden yazılınca bozuluyordu (firma 7 22.10: "çek mi, yoksa geç mi diyeyim?").
         if (is_string($out) && NaturalVoice::enabled() && ! in_array($this->inboundKind, self::ANSWER_KINDS, true)
-            && ($open = WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first())
+            && ($open = TurnTrace::read('saveDraft.naturalVoiceDraft', fn () => WhatsappPendingExpense::where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('updated_at')->first()))
             && ! AgreementDraft::handles($open->extracted) && ! AgreementDeliveryDraft::handles($open->extracted)
             && trim((string) $open->summary) !== '' && str_contains($out, trim((string) $open->summary))) {
+            $before = $out;
             $out = NaturalVoice::render($out, $this->inboundBody, (float) ($open->extracted['amount'] ?? 0) ?: null);
+            TurnTrace::note('natural_voice', ['before' => $before, 'after' => $out]);
         }
         // Soru cevabı: firmanın başka numarasında onay bekleyen kasa/satış/gider de söylenir (Akkuş 18.10 22:46).
         if (in_array($this->inboundKind, self::ANSWER_KINDS, true) && ($others = $this->otherPhonesPending($phone)) !== '') {
             $out = is_array($out) ? [$out[0] . $others, $out[1] ?? null] : $out . $others;
         }
-        $draft = $this->openDraft?->fresh();
+        $draft = TurnTrace::read('saveDraft.openDraft', fn () => $this->openDraft?->fresh());
         if (! in_array($this->inboundKind, self::ANSWER_KINDS, true) || ! $draft || $draft->status !== 'awaiting_confirmation') {
             return $out;
         }
@@ -1664,21 +1697,23 @@ class WhatsappWebhookController extends Controller
         if ($pending && ! empty($pending->extracted['supplier_name']) && empty($data['party_id']) && empty($data['party_name'])) {
             $data['supplier_name'] = $pending->extracted['supplier_name'];
         }
-        $data = ExpenseExtractor::guardUndeliveredSale(ExpenseExtractor::fitToModules($data), $this->inboundBody);
-        $data = ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody);
-        $data = ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody);
-        $data = ExpenseExtractor::guardNightTill($data, $this->inboundBody);
+        $data = TurnTrace::step('fitToModules(2)', ExpenseExtractor::fitToModules($data));
+        $data = TurnTrace::step('guardUndeliveredSale', ExpenseExtractor::guardUndeliveredSale($data, $this->inboundBody));
+        $data = TurnTrace::step('guardDebtRepayment', ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody));
+        $data = TurnTrace::step('guardSaleWithExpense', ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody));
+        $data = TurnTrace::step('guardNightTill', ExpenseExtractor::guardNightTill($data, $this->inboundBody));
         if ($pending === null) {
-            $data = ExpenseExtractor::guardAssumedQuantity($data, $this->inboundBody); // yeni kayıtta; düzeltmede miktar önceki mesajda
+            $data = TurnTrace::step('guardAssumedQuantity', ExpenseExtractor::guardAssumedQuantity($data, $this->inboundBody)); // yeni kayıtta; düzeltmede miktar önceki mesajda
         }
-        $data = ExpenseExtractor::guardStatedQuantity($data, $this->inboundBody);
+        $data = TurnTrace::step('guardStatedQuantity', ExpenseExtractor::guardStatedQuantity($data, $this->inboundBody));
         // Kişi bizim çalışanımız mı — AI anlamdan karar verir (is_staff: personel, çoban, şoför, "maaşından"…). Düzeltme turunda korunur.
         if ($this->kind($data) === ExpenseExtractor::KIND_PAYMENT && (! empty($data['is_staff']) || ! empty($pending?->extracted['staff_hint']))) {
             $data['staff_hint'] = true;
         }
-        $data = ExpenseExtractor::guardSelfParty($data, ExpenseContext::selfNames($phone), $this->inboundBody);
+        $data = TurnTrace::step('guardSelfParty', ExpenseExtractor::guardSelfParty(TurnTrace::step('staff_hint', $data),
+            TurnTrace::read('ExpenseContext::selfNames', fn () => ExpenseContext::selfNames($phone)), $this->inboundBody));
         if ($pending === null && ChatAssistant::enabled()) {
-            $data = ExpenseExtractor::guardSwap($data, $this->inboundBody); // yeni kayıtta; düzeltmede AI kuralı yeterli
+            $data = TurnTrace::step('guardSwap', ExpenseExtractor::guardSwap($data, $this->inboundBody)); // yeni kayıtta; düzeltmede AI kuralı yeterli
         }
         // Tutar ikinci mesajda gelince AI kişinin yazılışını tekrarlamıyor — "aynı kişi mi?" kaybolmasın.
         if ($pending && empty($data['party_said']) && ! empty($pending->extracted['party_said'])
@@ -1692,14 +1727,14 @@ class WhatsappWebhookController extends Controller
             $data['bank_fee'] = $data['bank_fee'] ?? ($pending->extracted['bank_fee'] ?? null);
             $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
         }
-        $data = $this->applyReceiptPayment($pending, $data);
-        $data = $this->askCheckParty($data);
+        $data = TurnTrace::step('applyReceiptPayment', $this->applyReceiptPayment($pending, TurnTrace::step('carry_party_said_debt_fee', $data)));
+        $data = TurnTrace::step('askCheckParty', $this->askCheckParty($data));
         if ($this->kind($data) === self::KIND_CHECK_CLEARED) {
             return $this->saveCheckClearedDraft($pending, $phone, $data);
         }
         // "📦 Ne aldın?" sorusunun cevabı ("20 çuval un") malın alındığını söyler — "mal elinize geçti mi?" diye ayrıca sorulmaz.
         if ($pending && ! empty($pending->extracted['supplier_name']) && $this->kind($data) === ExpenseExtractor::KIND_TRADE_PURCHASE) {
-            $data = ['work_status' => Understanding::DONE, 'work_status_known' => true, 'question' => null] + $data;
+            $data = TurnTrace::step('supplier_answer_done', ['work_status' => Understanding::DONE, 'work_status_known' => true, 'question' => null] + $data);
         }
         // Önce anla: iş durumu sorulmuştu, AI cevabı "biliyorum"a çevirdi → cevap soruyu gerçekten cevaplıyor mu (ikinci göz)?
         // "asansör bedeli" cevap değildir — soru tekrar (tahmin yok). Yalnız kişiyle para/borç kaydında, soru-cevap anında.
@@ -1709,6 +1744,7 @@ class WhatsappWebhookController extends Controller
             && ! Understanding::answerSettles((string) ($pending->extracted['work_question'] ?? $pending->extracted['question']), $this->inboundBody)) {
             $data['work_status_known'] = false;
             $data['question'] = $pending->extracted['question'];
+            $data = TurnTrace::step('answerSettles:not_answered', $data);
         }
         // "Borçtan mı, yeni iş mi?" bir kez sorulur — cevap turunda aynı kişiyse tekrar sorulmaz.
         if ($pending && ! empty($pending->extracted['debt_asked']) && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
@@ -1720,9 +1756,9 @@ class WhatsappWebhookController extends Controller
             $data['party_id'] = $same->id;
         }
         // Önce anla (16.10): AI'ın anladığı iş durumu kayda çevrilir ("başlamadı, anlaştık" → borç DEĞİL); çekler açıklamaya.
-        $data = Understanding::apply($data);
+        $data = TurnTrace::step('Understanding::apply', Understanding::apply(TurnTrace::step('debt_asked+exactParty', $data)));
         // Çek bölme hesabı kodda; toplam ödemeyle tutmazsa soru (firma 7, 20.10 Yusuf Dündar 11 çek).
-        $data = CheckSplit::prepare($data, $pending?->extracted, $this->inboundBody);
+        $data = TurnTrace::step('CheckSplit::prepare', CheckSplit::prepare($data, $pending?->extracted, $this->inboundBody));
         if (($checks = Understanding::checksNote($data)) && ! str_contains((string) ($data['description'] ?? ''), $checks)) {
             // Düzeltmede önceki çek notu açıklamada kalmışsa yenisiyle değişir (iki liste olmasın).
             $desc = preg_replace('/\s*—\s*\d+ çek: .*$/u', '', (string) ($data['description'] ?? ''));
@@ -1743,8 +1779,8 @@ class WhatsappWebhookController extends Controller
             && (int) $data['project_id'] !== (int) ($pending?->extracted['project_id'] ?? 0) && ! $this->mentionsProject((int) $data['project_id'])) {
             $data['project_id'] = null;
         }
-        $data = ProjectChoice::prepare($data, $phone);
-        $data = AdvanceOffset::apply($data, $this->inboundBody);
+        $data = TurnTrace::step('ProjectChoice::prepare', ProjectChoice::prepare(TurnTrace::step('checks_note+project_carry', $data), $phone));
+        $data = TurnTrace::step('AdvanceOffset::apply', AdvanceOffset::apply($data, $this->inboundBody));
         $party = in_array($this->kind($data), self::PARTY_KINDS, true) ? $this->existingParty($data) : null;
         $differs = $party && PartyNameCheck::differs($party, $data['party_said'] ?? null)
             && ! MemoryDraft::isKnownAlias($party->id, $data['party_said'] ?? null); // öğretilmiş takma ad: sorma
@@ -1754,7 +1790,7 @@ class WhatsappWebhookController extends Controller
         $data['party_check'] = $differs && ! $documentSame;
         $data['document_name'] = $documentSame ? $data['party_said'] : null;
         $this->inboundKind = $this->kind($data);
-        if (! empty($data['party_id']) && Party::whereKey($data['party_id'])->exists()) {
+        if (! empty($data['party_id']) && TurnTrace::read('saveDraftInner.partyExists', fn () => Party::whereKey($data['party_id'])->exists(), ['party_id' => $data['party_id']])) {
             $this->touchedPartyId = (int) $data['party_id']; // bakiye / ekstre / taslak — sınırlı bağlam
         }
 
@@ -1787,11 +1823,12 @@ class WhatsappWebhookController extends Controller
         $data['party_confirmed'] = ! empty($data['party_confirmed']) || (! empty($pending?->extracted['party_confirmed'])
             && ($pending->extracted['party_id'] ?? null) === ($data['party_id'] ?? null));
         // Yazılandan farklı tutar ("65 tl" → 65.000) sessizce geçmesin (17.10, Emre).
-        $data['scale_question'] = Understanding::amountScaleQuestion($data, $this->inboundBody);
+        $data['scale_question'] = Understanding::amountScaleQuestion(TurnTrace::step('party_check+settles+advance+confirmed', $data), $this->inboundBody);
         // Aynı soru az önce soruldu ve cevapta tutar değişmediyse ("65 TL doğru") kullanıcı teyit etti — tekrar sorulmaz.
         if ($data['scale_question'] !== null && $data['scale_question'] === ($pending?->extracted['scale_question'] ?? null)) {
             $data['scale_question'] = null;
         }
+        $data = TurnTrace::step('scale_question', $data);
         // Çapraz kontrol (17.10): kaydın anlamı kullanıcının anlattığıyla çelişiyorsa ("borcum ödendi" ↔ "borçlusunuz") dur, sor.
         // Taslak başına bir kez; cevap gelince yeniden önerilen kayıt yine kontrol edilmez (döngü yok).
         // Kayıt DEĞİŞTİYSE (cevaptan sonra başka tür/tutar) yeniden süzülür; aynı kayıt bir daha sorulmaz; taslak başına en çok 2 soru.
@@ -1799,7 +1836,15 @@ class WhatsappWebhookController extends Controller
             $data['payment_purpose'] ?? '', var_export($data['paid'] ?? null, true)]);
         $crossDone = array_values(array_filter((array) ($pending?->extracted['cross_asked'] ?? []), 'is_string'));
         $data['cross_asked'] = $crossDone;
-        $ask = $data['scale_question'] ?? CheckSplit::question($data) ?? Understanding::gap($data);
+        // Soru kaynağı teşhis kaydına (aynı sıra, aynı değerlendirme: ölçek → çek bölme → anlama boşluğu).
+        $ask = $data['scale_question'] ?? null;
+        $askSource = $ask !== null ? 'scale' : null;
+        if ($ask === null && ($ask = CheckSplit::question($data)) !== null) {
+            $askSource = 'check_split';
+        }
+        if ($ask === null && ($ask = Understanding::gap($data)) !== null) {
+            $askSource = 'understanding_gap';
+        }
         // Taslak başına EN ÇOK BİR kez (19.10 Yeni Yapı: cevap sonrası kayıt biraz değişince yeniden süzülüp aynı soru tekrar soruldu).
         // Önceki ödemeden düşülen iş süzülmez: tek belirsizlik "ayrıca para verdin mi?" — kart bunu zaten söylüyor, ayrıca para
         // verdiyse kullanıcı yazar (firma 7, 20.10: "Asansörcü 250 binlik iş yaptı" → her seferinde "avanstan mı, ayrıca mı?").
@@ -1808,6 +1853,7 @@ class WhatsappWebhookController extends Controller
         if ($ask === null && $crossDone === [] && AdvanceOffset::used($data) <= 0 && empty($data['stock_choice_done'])
             && ($cross = Understanding::crossCheck($data, $this->inboundBody, $phone)) !== null) {
             $ask = $cross;
+            $askSource = 'cross_check';
             $data['cross_asked'] = [...$crossDone, $crossSig];
             $data['cross_question'] = $cross;
         }
@@ -1818,6 +1864,7 @@ class WhatsappWebhookController extends Controller
             $data['work_status_known'] = false;
             $data['work_loan_option'] = true;
             $ask = 'Bu ödeme ne için: iş/mal geldi mi, önceden mi ödüyorsun, yoksa eski bir borç mu?';
+            $askSource = 'payment_purpose';
         }
         // Aynı taslağın devamında (kişi cevabı, düzeltme) AI malın adını bazen düşürüyor → stok sorusu kayboluyordu (eval 21.10):
         // önceki taslağın malı ve "stok sorusu cevaplandı" bilgisi korunur. Yeni kayıtta taşınmaz.
@@ -1834,6 +1881,7 @@ class WhatsappWebhookController extends Controller
             && CheckSplit::question($data) === null && WorkChoice::applies($data);
         if (($ask === null || $workAsk) && StockChoice::applies($data)) {
             $ask = StockChoice::question($data);
+            $askSource = 'stock_choice';
             $data['stock_choice'] = true;
             $workAsk = false;
         }
@@ -1842,6 +1890,7 @@ class WhatsappWebhookController extends Controller
         $data['on_behalf_choice'] = null;
         if (($ask === null || $workAsk) && empty($data['stock_choice']) && OnBehalfChoice::applies($data)) {
             $ask = OnBehalfChoice::question($data);
+            $askSource = 'on_behalf_choice';
             $data['on_behalf_choice'] = true;
             $workAsk = false;
         }
@@ -1852,8 +1901,11 @@ class WhatsappWebhookController extends Controller
             // karşılaştırır — numaralı başlık ("— ne için?") cevabı anlamsız gösteriyordu (eval 21.10, soru döngüsü).
             $data['work_question'] = str_contains($ask, '*1* ') ? ($pending?->extracted['work_question'] ?? $ask) : $ask;
             $ask = WorkChoice::question($data);
+            $askSource = 'work_choice:' . $askSource;
             $data['work_choice'] = true;
         }
+        $data = TurnTrace::step('question_chain', $data);
+        TurnTrace::note('question', ['source' => $askSource, 'text' => $ask]);
         if ($ask !== null) {
             $data['question'] = $ask;
             $data['party_asked'] = Understanding::partyUnclear($data) ? ($data['party_id'] ?? null) : null;
@@ -2027,6 +2079,8 @@ class WhatsappWebhookController extends Controller
             ChatAssistant::enabled() => "\n\n" . self::CONFIRM_FOOTER,
             default => "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz.",
         };
+        TurnTrace::step('card', $data);
+        TurnTrace::note('card', ['summary' => $summary, 'footer' => trim($footer)]);
 
         if ($pending) {
             $pending->update(['extracted' => $data, 'summary' => $summary]);
@@ -2127,6 +2181,7 @@ class WhatsappWebhookController extends Controller
             return '❓ ' . OnBehalfChoice::question($pending->extracted) . "\nVazgeçmek için *iptal*.";
         }
 
+        TurnTrace::step('snapshot:commit', (array) $pending->extracted);
         // Bu onayla oluşan gider / cari satırları taslağa yazılır → "son kaydı sil" tam olarak bunları siler.
         self::listenForCreatedRecords();
         self::$recording = [];
@@ -2137,7 +2192,8 @@ class WhatsappWebhookController extends Controller
             $created = self::$recording;
             self::$recording = null;
         }
-        if ($created !== [] && $pending->fresh()?->status === 'confirmed') {
+        TurnTrace::note('created_records', $created);
+        if ($created !== [] && TurnTrace::read('commit.status', fn () => $pending->fresh()?->status) === 'confirmed') {
             $pending->update(['extracted' => ['created_records' => $created] + $pending->extracted]);
         }
         $this->closeReviewFor($pending);
@@ -2463,7 +2519,7 @@ class WhatsappWebhookController extends Controller
 
         $settled = collect((array) ($pending->extracted['targets'] ?? []))->contains(fn ($t) => ($t[0] ?? null) === 'settle');
 
-        return ($settled ? '↩️ Ödeme geri alındı, borç tekrar açık.' : '🗑️ Silindi.') . ($party ? ' ' . $this->balanceLine($party->name, PartyStatement::build($party)['balance']) : '')
+        return ($settled ? '↩️ Ödeme geri alındı, borç tekrar açık.' : '🗑️ Silindi.') . ($party ? ' ' . $this->balanceLine($party->name, TurnTrace::statement('WhatsappWebhookController::commitUndoInner', $party)['balance']) : '')
             . "\nDoğrusunu yazarsan hemen kaydederim.";
     }
 
@@ -2471,7 +2527,7 @@ class WhatsappWebhookController extends Controller
     {
         // Çift kayıt emniyeti (review 2): taslak hâlâ onay bekliyor mu — satır kilitli okunur (commit() işlemi içinde). Mesaj kilidi
         // dolsa ya da aynı onay iki kez gelse bile ikinci "evet" yeni kayıt açmaz. Mesaj tekrarından (SID) bağımsız.
-        $locked = WhatsappPendingExpense::whereKey($pending->id)->lockForUpdate()->first();
+        $locked = TurnTrace::read('commitDraft.locked', fn () => WhatsappPendingExpense::whereKey($pending->id)->lockForUpdate()->first());
         if (! $locked || $locked->status !== 'awaiting_confirmation') {
             return $locked?->status === 'confirmed' ? '✅ Bu kayıt zaten kaydedildi.' : 'Bu kayıt artık açık değil. Yeni bir işlem yazabilirsin.';
         }
@@ -2811,7 +2867,7 @@ class WhatsappWebhookController extends Controller
             ? "\n\n👷 " . $party->name . " personel olarak kayıtlı. Aylık maaşı ne kadar, ayın kaçında ödüyorsun? (ör. *45 bin, ayın 5'i*) — avansları maaşından düşer, maaş gününde hatırlatırım."
             : '';
 
-        $balance = PartyStatement::build($party)['balance'];
+        $balance = TurnTrace::statement('WhatsappWebhookController::commitLedger', $party)['balance'];
         // Personelde "sana borcu" değil, avans dili: kaç avans aldı, maaşından ne kaldı.
         $line = $party->is_employee && $balance > 0.009
             ? $party->name . ' toplam ' . Money::format($balance) . ' ₺ avans aldı — maaşından düşülecek'
@@ -3143,7 +3199,7 @@ class WhatsappWebhookController extends Controller
     /** Hâlâ ödenmemiş (unpaid / partial) gider; değilse null. */
     private function openExpense(int $id): ?Expense
     {
-        return Expense::whereKey($id)->whereIn('payment_status', ['unpaid', 'partial'])->first();
+        return TurnTrace::read('openExpense', fn () => Expense::whereKey($id)->whereIn('payment_status', ['unpaid', 'partial'])->first(), ['expense_id' => $id]);
     }
 
     /** "Kirayı ödedim" → açık borcun ödemesi (yeni gider açılmaz); kısmi ödemede kalan gösterilir. */
@@ -3344,7 +3400,7 @@ class WhatsappWebhookController extends Controller
             return '📦 ' . $label . ': ' . Money::format($amount) . ' ₺' . (! empty($d['description']) ? ', ' . $d['description'] : '')
                 . " — *kim kime verdi?*\n• Sen mi ona götürdün (*sattım* → " . $name . ' sana borçlanır), yoksa ondan mı aldın (*aldım* → sen ona borçlanırsın)?';
         }
-        $before = $party ? PartyStatement::build($party)['balance'] : 0.0;
+        $before = $party ? TurnTrace::statement('WhatsappWebhookController::buildLedgerSummary', $party)['balance'] : 0.0;
         $used = AdvanceOffset::used($d);
         // Ekstre konvansiyonu: bakiye > 0 → cari bize borçlu, < 0 → biz cariye borçluyuz.
         $after = match ($kind) {
@@ -3545,7 +3601,7 @@ class WhatsappWebhookController extends Controller
                 : 'Hangi carinin bakiyesini soruyorsun?';
         }
 
-        $cari = $this->balanceLine($party->name, PartyStatement::build($party)['balance']);
+        $cari = $this->balanceLine($party->name, TurnTrace::statement('WhatsappWebhookController::balanceAnswer', $party)['balance']);
         $contracts = config('modules.contracts') ? ContractStatus::lines($party) : [];
 
         if ($contracts === []) {
@@ -3580,7 +3636,7 @@ class WhatsappWebhookController extends Controller
             'date_to' => $d['date_to'] ?? null,
             'project_id' => $d['project_id'] ?? null,
         ]);
-        $statement = PartyStatement::build($party, $filters);
+        $statement = TurnTrace::statement('WhatsappWebhookController::statementAnswer', $party, $filters);
 
         $lines = ['📄 ' . $party->name . ' — Cari Ekstresi'];
         if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {

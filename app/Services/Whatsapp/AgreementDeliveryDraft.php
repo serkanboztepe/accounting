@@ -9,7 +9,6 @@ use App\Models\Project;
 use App\Support\AgreementDesk;
 use App\Support\Money;
 use App\Support\PartyBalances;
-use App\Support\PartyStatement;
 
 /**
  * WhatsApp'tan anlaşmadan teslim (21.10): "Kuşaktan 44,5 m³ beton geldi" / "Ali Usta tesisatın yarısını bitirdi" → açık anlaşma
@@ -259,7 +258,7 @@ class AgreementDeliveryDraft
         if (! empty($d['paid'])) {
             $lines[] = $isSale ? '💰 Parası alındı (peşin) — bakiye değişmez' : '💸 Peşin ödendi — bakiye değişmez';
         } elseif ($party) {
-            $before = (float) PartyStatement::build($party)['balance'];
+            $before = (float) TurnTrace::statement('AgreementDeliveryDraft::summary', $party)['balance'];
             $after = $isSale ? $before + $total : $before - $total;
             $lines[] = PartyBalances::line('Sonra', $after);
         }
@@ -314,7 +313,7 @@ class AgreementDeliveryDraft
         $text = '✅ Kaydedildi: ' . Money::format($total) . ' ₺ ' . ($direction === Agreement::DIRECTION_SALE ? 'satış' : 'alış') . ' — anlaşmadan düşüldü.'
             . ($rest !== '' ? "\n" . $rest : '')
             . ($result['over'] ? "\n⚠ " . implode("\n⚠ ", $result['over']) : '')
-            . "\n" . PartyBalances::line($party->name, (float) PartyStatement::build($party->fresh())['balance']);
+            . "\n" . PartyBalances::line($party->name, (float) TurnTrace::statement('AgreementDeliveryDraft::commit', $party->fresh())['balance']);
 
         return [$text, $result['documents']];
     }

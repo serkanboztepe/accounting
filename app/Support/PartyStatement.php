@@ -25,6 +25,8 @@ class PartyStatement
     public static function build(Party $party, array $filters = []): array
     {
         $rows = [];
+        // WhatsApp teşhis kaydı açıkken bakiyeyi oluşturan kaynak kayıtlar (hesap aynı; bkz. TurnTrace::statement).
+        $trace = \App\Services\Whatsapp\TurnTrace::collecting();
 
         // --- Sözleşmeler + ödemeleri ---
         $contracts = Contract::withoutGlobalScope('purchase')
@@ -35,6 +37,9 @@ class PartyStatement
         foreach ($contracts as $contract) {
             $isSale = $contract->isSale();
             $total  = (float) $contract->reportableTotal();
+            if ($trace) {
+                \App\Services\Whatsapp\TurnTrace::collect('contracts', $contract->id, ['sale' => $isSale, 'total' => $total, 'project_id' => $contract->project_id]);
+            }
 
             $rows[] = self::row(
                 $contract->contract_date ?? $contract->created_at,
@@ -49,6 +54,9 @@ class PartyStatement
             foreach ($contract->payments as $payment) {
                 $amount = (float) $payment->amount;
                 $label  = ContractPayment::PAYMENT_TYPES[$payment->payment_type] ?? $payment->payment_type;
+                if ($trace) {
+                    \App\Services\Whatsapp\TurnTrace::collect('contract_payments', $payment->id, ['amount' => $amount, 'type' => $payment->payment_type]);
+                }
 
                 $rows[] = self::row(
                     $payment->payment_date ?? $payment->created_at,
@@ -70,6 +78,10 @@ class PartyStatement
         foreach ($expenses as $expense) {
             $amount = (float) $expense->amount;
             $desc   = $expense->description ?: ($expense->category?->name ?? 'Gider');
+            if ($trace) {
+                \App\Services\Whatsapp\TurnTrace::collect('expenses', $expense->id, ['amount' => $amount, 'status' => $expense->payment_status,
+                    'date' => $expense->expense_date?->toDateString()]);
+            }
 
             $rows[] = self::row(
                 $expense->expense_date,
@@ -105,6 +117,10 @@ class PartyStatement
         foreach ($ledgerEntries as $entry) {
             $amount  = (float) $entry->amount;
             $isDebit = $entry->direction === PartyLedgerEntry::DIRECTION_DEBIT;
+            if ($trace) {
+                \App\Services\Whatsapp\TurnTrace::collect('party_ledger_entries', $entry->id, ['type' => $entry->type, 'direction' => $entry->direction,
+                    'amount' => $amount, 'date' => $entry->entry_date?->toDateString(), 'description' => $entry->description]);
+            }
             $isSaleRow = $entry->type === PartyLedgerEntry::TYPE_SALE;
 
             // Çekli ödeme/tahsilat: çeklerin no ve vadesi açıklamanın yanında (Faz 2.3).

@@ -1,0 +1,136 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Http\Controllers\WhatsappWebhookController;
+use App\Models\HubFirm;
+use App\Services\Whatsapp\ChatAssistant;
+use App\Services\Whatsapp\DeferTurn;
+use App\Tenancy\FirmProvisioner;
+use App\Tenancy\Tenancy;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Mockery;
+use Tests\TestCase;
+
+/**
+ * Tur teşhis kaydı iki firmada (TurnTrace): A firmasının arka plana bırakılan turu, arada B firmasının turu çalışsa da kendi
+ * firmasının kendi tur dosyasına yazılır — firma ve tur kimliği closure ile açıkça taşınır. İki ayrı test veritabanı
+ * (TenancyTest ile aynı: hesap_test_a / hesap_test_b); iki firmada gelen mesajın kimliği aynı (1) — yalnız firma ayırır.
+ */
+class WhatsappTurnTraceTenancyTest extends TestCase
+{
+    use DatabaseTransactions;
+
+    protected $connectionsToTransact = ['central'];
+
+    private const DB_A = 'hesap_test_a';
+
+    private const DB_B = 'hesap_test_b';
+
+    private const PHONE = 'whatsapp:+905556660002';
+
+    private static bool $prepared = false;
+
+    private string $originalDefault;
+
+    private string $dir;
+
+    private HubFirm $a;
+
+    private HubFirm $b;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->dir = sys_get_temp_dir() . '/wa-trace-tenancy-' . bin2hex(random_bytes(4));
+        config(['tenancy.enabled' => true, 'services.twilio.verify_signature' => false, 'services.twilio.sid' => 'ACtest',
+            'services.twilio.token' => 'tok', 'services.whatsapp.from' => '+14786665916',
+            'services.whatsapp.trace' => true, 'services.whatsapp.trace_path' => $this->dir]);
+        $settings = ['profile' => 'mimar', 'modules' => ['smart_assistant' => true]];
+        $this->a = HubFirm::create(['name' => 'A İz', 'database' => self::DB_A, 'settings' => $settings]);
+        $this->b = HubFirm::create(['name' => 'B İz', 'database' => self::DB_B, 'settings' => $settings]);
+        foreach ([$this->a, $this->b] as $firm) {
+            if (! self::$prepared && ! FirmProvisioner::databaseExists($firm->database)) {
+                Schema::connection(FirmProvisioner::adminConnection())->createDatabase($firm->database);
+            }
+            Tenancy::run($firm, function () {
+                if (! self::$prepared) {
+                    Artisan::call('migrate', ['--database' => 'tenant', '--force' => true]);
+                }
+                DB::statement('TRUNCATE parties, party_ledger_entries, whatsapp_pending_expenses, whatsapp_messages, usage_logs RESTART IDENTITY CASCADE');
+            });
+        }
+        self::$prepared = true;
+        $this->originalDefault = DB::getDefaultConnection();
+        config(['database.default' => 'tenant']);
+        DB::setDefaultConnection('tenant');
+        Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SMx'], 201)]);
+    }
+
+    protected function tearDown(): void
+    {
+        Tenancy::end();
+        config(['database.default' => $this->originalDefault]);
+        DB::setDefaultConnection($this->originalDefault);
+        if (is_dir($this->dir)) {
+            foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($this->dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $f) {
+                $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
+            }
+            rmdir($this->dir);
+        }
+        parent::tearDown();
+    }
+
+    /** Hub'ın firmayı açıp kontrolcüyü çağırması (HubRouter / fotoğraf sırası ile aynı yol). */
+    private function webhook(string $body, string $sid): void
+    {
+        $request = Request::create('/whatsapp/webhook', 'POST', ['From' => self::PHONE, 'Body' => $body, 'NumMedia' => 0, 'MessageSid' => $sid]);
+        $request->attributes->set('via_hub', true);
+        $request->server->set('REQUEST_TIME_FLOAT', microtime(true));
+        app()->call([app()->make(WhatsappWebhookController::class), '__invoke'], ['request' => $request]);
+    }
+
+    public function test_deferred_turn_of_firm_a_does_not_mix_with_firm_b(): void
+    {
+        $results = [new DeferTurn('test'), ['type' => 'reply', 'text' => 'B firmasının cevabı'], ['type' => 'reply', 'text' => 'A ertelenen cevap']];
+        $chat = Mockery::mock(ChatAssistant::class);
+        $chat->shouldReceive('respond')->andReturnUsing(function () use (&$results) {
+            $r = array_shift($results);
+            if ($r instanceof \Throwable) {
+                throw $r;
+            }
+
+            return $r;
+        });
+        $this->app->instance(ChatAssistant::class, $chat);
+
+        Tenancy::run($this->a, fn () => $this->webhook('A firmasının mesajı', 'SMa1'));
+        Tenancy::run($this->b, fn () => $this->webhook('B firmasının mesajı', 'SMb1'));
+        app()->terminate(); // A'nın arka plan turu + iki firmanın iz yazımı
+
+        $day = now('Europe/Istanbul')->toDateString();
+        $fileA = "{$this->dir}/{$this->a->id}/{$day}/1.json";
+        $fileB = "{$this->dir}/{$this->b->id}/{$day}/1.json";
+        $this->assertFileExists($fileA);
+        $this->assertFileExists($fileB);
+        $a = json_decode((string) file_get_contents($fileA), true);
+        $b = json_decode((string) file_get_contents($fileB), true);
+
+        $this->assertSame(['1', '2'], array_map('strval', array_keys($a['segments'])), 'A: istek + arka plan bölümü aynı turda');
+        $this->assertNotContains('missing_segment', $a['replay']['reasons']);
+        $this->assertSame(['1'], array_map('strval', array_keys($b['segments'])));
+        $this->assertSame((string) $this->a->id, $a['firm_id']);
+        $this->assertSame((string) $this->b->id, $b['firm_id']);
+        $rawA = (string) file_get_contents($fileA);
+        $rawB = (string) file_get_contents($fileB);
+        $this->assertStringContainsString('A ertelenen cevap', $rawA);
+        $this->assertStringNotContainsString('B firmasının', $rawA, 'A dosyasında B yok');
+        $this->assertStringNotContainsString('A firmasının', $rawB, 'B dosyasında A yok');
+        $this->assertStringNotContainsString('A ertelenen', $rawB);
+    }
+}

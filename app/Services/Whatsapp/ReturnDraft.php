@@ -10,7 +10,6 @@ use App\Models\StockMovement;
 use App\Models\WhatsappPendingExpense;
 use App\Support\Money;
 use App\Support\PartyBalances;
-use App\Support\PartyStatement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -135,7 +134,7 @@ final class ReturnDraft
 
         $party = $partyId ? Party::find($partyId) : null;
 
-        return '✅ İade kaydedildi.' . ($party ? ' ' . PartyBalances::line($party->name, PartyStatement::build($party)['balance']) : '');
+        return '✅ İade kaydedildi.' . ($party ? ' ' . PartyBalances::line($party->name, TurnTrace::statement('ReturnDraft::commit', $party)['balance']) : '');
     }
 
     /** Son 60 günün satış/alış belgeleri + belgesiz basit satış/alış satırları, en yeni önce. */
@@ -286,7 +285,7 @@ final class ReturnDraft
             if ($plan['money_back']) {
                 $out[] = '💵 Parası ' . ($sale ? 'ona geri verildi' : 'senden geri alındı') . ' — bakiye değişmez.';
             } else {
-                $balance = PartyStatement::build($party)['balance'] + ($sale ? -$amount : $amount);
+                $balance = TurnTrace::statement('ReturnDraft::summary', $party)['balance'] + ($sale ? -$amount : $amount);
                 $out[] = '📒 Sonra ' . PartyBalances::line($party->name, $balance);
                 $out[] = '_Parası geri ' . ($sale ? 'verildiyse' : 'alındıysa') . ' *parası ' . ($sale ? 'verildi' : 'alındı') . '* yaz._';
             }

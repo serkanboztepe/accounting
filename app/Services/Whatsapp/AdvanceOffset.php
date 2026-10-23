@@ -4,7 +4,6 @@ namespace App\Services\Whatsapp;
 
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
-use App\Support\PartyStatement;
 
 /**
  * Önceden avans alınmış/verilmiş cariye teslim: satış (alış) avanstan düşülür, para ikinci kez yazılmaz.
@@ -21,15 +20,15 @@ final class AdvanceOffset
     /** Carinin henüz mal/iş karşılığı verilmemiş avansı (yalnız "Avans" açıklamalı para hareketleri; borç verme hariç). */
     public static function open(Party $party, string $kind): float
     {
-        $balance = PartyStatement::build($party)['balance']; // > 0: cari bize borçlu, < 0: biz cariye borçluyuz
+        $balance = TurnTrace::statement('AdvanceOffset::open', $party)['balance']; // > 0: cari bize borçlu, < 0: biz cariye borçluyuz
         [$type, $owed] = $kind === ExpenseExtractor::KIND_SALE
             ? [PartyLedgerEntry::TYPE_COLLECTION, -$balance] // müşteri avansı → mal borcu bizde
             : [PartyLedgerEntry::TYPE_PAYMENT, $balance];    // ustaya avans → iş borcu onda
         if ($owed <= 0.01) {
             return 0.0;
         }
-        $advances = (float) PartyLedgerEntry::where('party_id', $party->id)->where('type', $type)
-            ->advance()->sum('amount');
+        $advances = (float) TurnTrace::read('AdvanceOffset::open.advances', fn () => PartyLedgerEntry::where('party_id', $party->id)->where('type', $type)
+            ->advance()->sum('amount'), ['party_id' => $party->id, 'type' => $type]);
 
         return round(min($owed, $advances), 2);
     }

@@ -31,11 +31,11 @@ final class DraftFollowUp
     /** ① Bu numaranın en eski yarım kaydı (az önce onaylanan hariç); kopyası zaten kaydedilmişse kapatılır. */
     public static function inlineCandidate(string $phone, int $exceptId): ?WhatsappPendingExpense
     {
-        $drafts = self::open($phone)
+        $drafts = TurnTrace::read('DraftFollowUp::inlineCandidate', fn () => self::open($phone)
             ->where('id', '!=', $exceptId)
             ->where('updated_at', '>=', now()->subDays(self::INLINE_DAYS))
             ->orderBy('id')
-            ->get();
+            ->get());
 
         return $drafts->first(fn (WhatsappPendingExpense $p) => ! self::closeIfDuplicate($p));
     }

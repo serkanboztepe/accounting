@@ -9,7 +9,6 @@ use App\Models\Reminder;
 use App\Support\Phone;
 use App\Support\Reminders;
 use App\Support\Money;
-use App\Support\PartyStatement;
 use Illuminate\Support\Carbon;
 
 /**
@@ -173,7 +172,7 @@ final class EmployeeDraft
                 'amount' => Money::store($paid), 'notes' => 'WhatsApp üzerinden girildi.',
             ]);
         }
-        $balance = PartyStatement::build($party)['balance'];
+        $balance = TurnTrace::statement('EmployeeDraft::commit', $party)['balance'];
 
         return ['✅ Kaydedildi. ' . $party->name . ': ' . match (true) {
             abs($balance) < 0.01 => 'hesap kapalı.',

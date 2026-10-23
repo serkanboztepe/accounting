@@ -287,7 +287,7 @@ class ExpenseExtractor
         if (TradeDraft::enabled() && config('modules.expenses') && empty($d['from_document']) && empty($d['party_id']) && empty($d['party_name'])
             && empty($d['supplier_name']) && ! empty($d['seller_name']) && empty($d['items']) && empty($d['settles_expense_id'])) {
             $seller = trim((string) $d['seller_name']);
-            if (($d['paid'] ?? null) === false || \App\Models\Party::where('name', $seller)->exists()) {
+            if (($d['paid'] ?? null) === false || TurnTrace::read('fitToModules.sellerIsParty', fn () => \App\Models\Party::where('name', $seller)->exists(), ['name' => $seller])) {
                 $d['party_name'] = $seller;
             } else {
                 $desc = trim((string) ($d['description'] ?? ''));
@@ -355,7 +355,7 @@ class ExpenseExtractor
             && ($d['paid'] ?? null) === true && empty($d['paid_from_habit']) && empty($d['items'])
             && empty($d['settles_expense_id']) && empty($d['debt_repayment']) && empty($d['contract_id'])
             && empty($d['is_staff']) && empty($d['staff_hint']) && empty($d['payment_purpose'])
-            && ! \App\Models\Party::where('name', trim((string) $d['party_name']))->exists();
+            && ! TurnTrace::read('paidSupplierAsExpense.partyExists', fn () => \App\Models\Party::where('name', trim((string) $d['party_name']))->exists(), ['name' => $d['party_name']]);
     }
 
     /**
@@ -408,7 +408,8 @@ class ExpenseExtractor
         // Yeni nesil modeller (Opus 5.5 — fotoğraf okuma 20.10) zorunlu araç seçimini kabul etmez (400): auto + gerekirse bir hatırlatma.
         $forced = ChatAssistant::forcesTools((string) $model);
         $messages = [['role' => 'user', 'content' => $content]];
-        $system = $this->systemPrompt($previous, $lastParty, $phone);
+        // Bu okumaların çıktısı modele giden talimatta (teşhis kaydı onu zaten saklıyor).
+        $system = TurnTrace::cover('extractor.systemPrompt', fn () => $this->systemPrompt($previous, $lastParty, $phone));
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $response = Http::withHeaders([
                 'x-api-key' => $apiKey,
@@ -1170,7 +1171,7 @@ class ExpenseExtractor
         $toUs = (bool) preg_match('/(bana|hesab[ıi]ma|bize|hesab[ıi]m[ıi]za) (geldi|g[öo]nderdi|yat[ıi]rd[ıi]|att[ıi]|havale etti|eft yapt[ıi])/u', $t);
 
         $candidates = array_filter([
-            ! empty($d['party_id']) ? \App\Models\Party::whereKey($d['party_id'])->value('name') : null,
+            ! empty($d['party_id']) ? TurnTrace::read('guardSelfParty.partyName', fn () => \App\Models\Party::whereKey($d['party_id'])->value('name'), ['party_id' => $d['party_id']]) : null,
             $d['party_name'] ?? null,
             $d['party_said'] ?? null,
         ]);
@@ -1244,7 +1245,11 @@ class ExpenseExtractor
 
     private function normalize(array $input): array
     {
-        return self::fitToModules(self::dropUnknownIds($this->normalizeRaw($input)));
+        // Teşhis kaydı: modelin ham araç girdisi ve her normalizasyon adımında değişen alanlar (TurnTrace; veri aynen döner).
+        $d = TurnTrace::step('normalizeRaw', $this->normalizeRaw(TurnTrace::step('ai_input', $input)));
+        $d = TurnTrace::step('dropUnknownIds', self::dropUnknownIds($d));
+
+        return TurnTrace::step('fitToModules', self::fitToModules($d));
     }
 
     /** Sohbet asistanı (ChatAssistant) aynı kayıt şemasını ve temizliği kullanır. */
@@ -1311,7 +1316,7 @@ class ExpenseExtractor
     {
         foreach ([['project_id', \App\Models\Project::class], ['party_id', \App\Models\Party::class],
             ['category_id', \App\Models\ExpenseCategory::class]] as [$field, $model]) {
-            if (! empty($d[$field]) && ! $model::whereKey($d[$field])->exists()) {
+            if (! empty($d[$field]) && ! TurnTrace::read('ExpenseExtractor::dropUnknownIds', fn () => $model::whereKey($d[$field])->exists(), [$field => $d[$field]])) {
                 Log::warning('AI olmayan kayıt numarası verdi', [$field => $d[$field]]);
                 $d[$field] = null;
             }

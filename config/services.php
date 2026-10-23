@@ -65,6 +65,9 @@ return [
     // WhatsApp'tan bizim başlattığımız mesajlar (Meta onaylı şablonla).
     'whatsapp' => [
         'from' => env('WHATSAPP_FROM'),                                     // +14786665916
+        // Tur teşhis kaydı (TurnTrace): modele giden/gelen, işlem hattı adımları, karar okumaları. Davranışı değiştirmez.
+        'trace' => (bool) env('WHATSAPP_TRACE', false),
+        'trace_path' => env('WHATSAPP_TRACE_PATH'), // boşsa storage/app/wa-trace
         'check_reminder_content_sid' => env('WHATSAPP_CHECK_REMINDER_SID'), // Twilio Content SID (HX…)
         // Kullanıcının kurduğu hatırlatmalar (şablon "hatirlatma", {{1}} = metin). Onaylı değilse serbest metin (yalnız 24 saat içinde teslim).
         'reminder_content_sid' => env('WHATSAPP_REMINDER_SID'),

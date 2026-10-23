@@ -16,6 +16,8 @@ Artisan::command('inspire', function () {
 Schedule::command('backup:clean')->daily()->at('02:30');
 Schedule::command('backup:run')->daily()->at('03:00');   // tek panelde: merkez veritabanı
 Schedule::command('backup:monitor')->daily()->at('04:00');
+// WhatsApp tur teşhis izleri (TurnTrace) 30 günden eskiyse silinir; artık kullanılmayan bloblar da.
+Schedule::command('whatsapp:trace-prune')->daily()->at('04:50');
 
 if (config('tenancy.enabled')) {
     // Tek panel: her firma veritabanı ayrı yedeklenir (firma-<id> klasörü), hatırlatmalar firma firma.

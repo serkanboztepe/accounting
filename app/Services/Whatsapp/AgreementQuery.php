@@ -7,7 +7,6 @@ use App\Models\AgreementItem;
 use App\Models\Party;
 use App\Support\Money;
 use App\Support\PartyBalances;
-use App\Support\PartyStatement;
 
 /**
  * Anlaşma sorusu (21.10): "fayansta ne kaldı" → ilgili kalemler; "Ali Usta'yla ne durumdayız" → carinin açık anlaşmaları + bakiye;
@@ -39,7 +38,7 @@ class AgreementQuery
         if (! empty($d['party_id']) && ($party = Party::find($d['party_id']))) {
             $agreements = Agreement::where('party_id', $party->id)->where('status', Agreement::STATUS_OPEN)->orderBy('agreement_date')->get()
                 ->each(fn (Agreement $a) => $a->loadForCard());
-            $balance = PartyBalances::line('Bakiye', (float) PartyStatement::build($party)['balance']);
+            $balance = PartyBalances::line('Bakiye', (float) TurnTrace::statement('AgreementQuery::answer', $party)['balance']);
             if ($agreements->isEmpty()) {
                 return $party->name . " ile açık anlaşma yok.\n" . $balance;
             }

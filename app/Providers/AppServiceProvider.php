@@ -39,6 +39,8 @@ class AppServiceProvider extends ServiceProvider
 
         $this->bootTenantFromEnvironment();
         $this->bootCariLock();
+        // WhatsApp tur teşhis kaydının kancaları (iz kapalıyken hiçbir şey yapmaz).
+        \App\Services\Whatsapp\TurnTrace::register();
     }
 
     /**

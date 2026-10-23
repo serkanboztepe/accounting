@@ -4,7 +4,6 @@ namespace App\Services\Whatsapp;
 
 use App\Models\Party;
 use App\Support\Money;
-use App\Support\PartyStatement;
 
 /**
  * "Önce anla, sonra kaydet" (plan once-anla-sonra-kaydet.md, 16.10).
@@ -97,8 +96,8 @@ final class Understanding
             'meaning' => ['type' => ['string', 'null'], 'description' => 'Plain everyday Turkish sentence of what HAPPENED, with names (no accounting words). Required for every money/debt record.'],
             'work_status' => ['type' => ['string', 'null'], 'enum' => [...self::STATUSES, null], 'description' => 'Money/debt with a person: state of the work/goods behind it (see ÖNCE ANLA). null if not applicable.'],
             'work_status_known' => ['type' => ['boolean', 'null'], 'description' => 'true only if the user said it or it is certain from the trade meaning; false if guessing → write `question`.'],
-            'check_direction_known' => ['type' => ['boolean', 'null'], 'description' => 'Only when the record has cheques: true if the user\'s words or the recent conversation say whether WE GAVE these cheques or RECEIVED them ("Osman\'a verdim", "Ahmet\'ten aldım"); false if it is only a cheque photo and nobody said it — the printed drawer name does NOT decide it. null if no cheques.'],
             'party_certain' => ['type' => ['boolean', 'null'], 'description' => 'false if matched to an existing party with a DIFFERENT name that may be another person; true if same name / memory alias; null if no person.'],
+            'check_direction_known' => ['type' => ['boolean', 'null'], 'description' => 'Only when the record has cheques: true if the user\'s words or the recent conversation say whether WE GAVE these cheques or RECEIVED them ("Osman\'a verdim", "Ahmet\'ten aldım"); false if it is only a cheque photo and nobody said it — the printed drawer name does NOT decide it. null if no cheques.'],
             'checks' => ['type' => ['array', 'null'], 'description' => 'Every cheque visible in the image/document, one row each (number, due date as written, amount) — never empty when cheques are visible; also cheques listed one by one in text.', 'items' => [
                 'type' => 'object',
                 'properties' => [
@@ -126,8 +125,8 @@ final class Understanding
             'work_status' => in_array($input['work_status'] ?? null, self::STATUSES, true) ? $input['work_status'] : null,
             'work_status_known' => isset($input['work_status_known']) ? (bool) $input['work_status_known'] : null,
             'party_certain' => isset($input['party_certain']) ? (bool) $input['party_certain'] : null,
-            'check_direction_known' => isset($input['check_direction_known']) ? (bool) $input['check_direction_known'] : null,
             'checks' => $checks ?: null,
+            'check_direction_known' => isset($input['check_direction_known']) ? (bool) $input['check_direction_known'] : null,
             'check_plan' => CheckSplit::normalize($input['check_plan'] ?? null),
         ];
     }
@@ -169,6 +168,8 @@ final class Understanding
             && in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_PURCHASE,
                 ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_DEBT_NOTE], true);
         if (! $agreement && (! self::applies($d) || empty($d['work_status_known']) || empty($d['work_status']))) {
+            TurnTrace::note('apply', 'unchanged');
+
             return $d;
         }
         $kind = $d['kind'];
@@ -177,6 +178,7 @@ final class Understanding
 
         // Yalnız anlaşma: iş başlamadı, para verilmedi → borç YOK. Hafızaya "anlaşma" olarak önerilir (onaylı).
         if ($status === self::AGREEMENT || ($status === self::NOT_YET && ! $paidNow)) {
+            TurnTrace::note('apply', 'agreement_to_memory');
             $name = self::partyName($d);
 
             return ['kind' => ExpenseExtractor::KIND_REMEMBER, 'memory_kind' => 'agreement', 'memory_subject' => mb_substr($name . ' anlaşması', 0, 120),
@@ -186,20 +188,28 @@ final class Understanding
         }
         // Para önceden verildi, iş/mal sonra → avans (o bize iş/mal borçlu).
         if ($status === self::NOT_YET && $paidNow) {
+            TurnTrace::note('apply', 'not_yet_paid_to_advance');
+
             return array_merge($d, ['kind' => ExpenseExtractor::KIND_PAYMENT, 'payment_purpose' => 'advance', 'advance' => true, 'paid' => null]);
         }
         // Düz para verildi (iş yok) → borç verdim.
         if ($status === self::NO_WORK && $kind === ExpenseExtractor::KIND_PAYMENT) {
+            TurnTrace::note('apply', 'no_work_to_loan');
+
             return array_merge($d, ['payment_purpose' => 'loan', 'advance' => true]);
         }
         // İş bitti + para verildi ama ona zaten borcumuz var (review 3, 18.10: "usta işi geçen hafta bitirmişti, bugün parasını
         // verdim" → işin borcu kayıtlıyken yeni alış açılıyor, maliyet iki kez yazılıyordu): ödeme borca sığıyorsa borçtan düşer
         // (açık borca ödeme kuralı); borçtan büyükse sorulur — bir kısmı yeni iş olabilir. Cevaptan sonra (debt_asked) "iş bitti" = yeni iş.
         if ($status === self::DONE && $kind === ExpenseExtractor::KIND_PAYMENT && empty($d['debt_asked']) && ($party = self::party($d))
-            && ($owed = -PartyStatement::build($party)['balance']) > 0.01) {
+            && ($owed = -TurnTrace::statement('Understanding::apply', $party)['balance']) > 0.01) {
             if ((float) ($d['amount'] ?? 0) <= $owed + 0.01) {
+                TurnTrace::note('apply', ['branch' => 'done_payment_to_debt_repayment', 'owed' => $owed]);
+
                 return array_merge($d, ['debt_repayment' => true, 'payment_purpose' => null, 'advance' => false]);
             }
+
+            TurnTrace::note('apply', ['branch' => 'done_payment_over_debt_ask', 'owed' => $owed]);
 
             return array_merge($d, ['work_status_known' => false, 'debt_asked' => true,
                 'question' => $party->name . "'e zaten " . Money::format($owed) . ' ₺ borcun görünüyor. Bu ' . Money::format((float) $d['amount'])
@@ -207,12 +217,17 @@ final class Understanding
         }
         // İş bitti + para verildi → alış + ödeme (bakiye değişmez). "Ne için verdin?" kalıbı sorulmaz.
         if ($status === self::DONE && $kind === ExpenseExtractor::KIND_PAYMENT) {
+            TurnTrace::note('apply', 'done_payment_to_purchase');
+
             return array_merge($d, ['kind' => ExpenseExtractor::KIND_PURCHASE, 'paid' => true, 'payment_purpose' => null, 'advance' => false]);
         }
         // Eski borcun ödemesi → borçtan düşer.
         if ($status === self::OLD_DEBT && $kind === ExpenseExtractor::KIND_PAYMENT) {
+            TurnTrace::note('apply', 'old_debt_to_debt_repayment');
+
             return array_merge($d, ['debt_repayment' => true, 'payment_purpose' => null, 'advance' => false]);
         }
+        TurnTrace::note('apply', 'no_branch');
 
         return $d;
     }
@@ -228,6 +243,7 @@ final class Understanding
         $name = self::partyName($d);
         // Kişi eşleşmesi belirsiz: "Sinan usta" → "Sinan Sele" sessizce olmasın (AI söyler ya da unvan+yalnız ad kuralı).
         if (self::partyUnclear($d)) {
+            TurnTrace::note('gap', ! empty($d['question']) ? 'party_unclear:ai_question' : 'party_unclear:code_fallback');
             // Kişi sorusu kısa kalır: AI'ın parantezli eki ("(Açık avansı 20.000 ₺ olan … için yazıyorum, değilse adını söyle.)") atılır (Yeni Yapı 20.10).
             $q = ($q = self::question($d)) !== null ? trim(preg_replace('/\s*\([^)]*\)/u', '', $q)) : null;
 
@@ -236,6 +252,8 @@ final class Understanding
         // Borç kaydında yalnız iş bitti / anlaşma / borç para anlamlı; "eski borç ödemesi" vb. → bilinmiyor say, sor.
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_DEBT_NOTE && ! empty($d['work_status'])
             && ! in_array($d['work_status'], [self::DONE, self::AGREEMENT, self::NO_WORK], true)) {
+            TurnTrace::note('gap', self::question($d) !== null ? 'debt_note_status:ai_question' : 'debt_note_status:code_fallback');
+
             return self::question($d) ?? ($name . ' işi bitirdi de parası mı verilmedi, yoksa yapacağı iş için mi anlaştınız?');
         }
         // Yalnız AI açıkça "bilmiyorum" dediyse (false). Alan yoksa (eski taslak / eski yol) eski davranış sürer;
@@ -245,9 +263,12 @@ final class Understanding
         }
         // Ödeme + açık borcu olan kişi: ödeme o borca gider (eski davranış) — sorulmaz. Borçtan büyük ödemede apply() sorar.
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT && empty($d['debt_asked']) && ($party = self::party($d))
-            && PartyStatement::build($party)['balance'] < -0.01) {
+            && TurnTrace::statement('Understanding::gap', $party)['balance'] < -0.01) {
+            TurnTrace::note('gap', 'unknown_work_but_open_debt:no_question');
+
             return null;
         }
+        TurnTrace::note('gap', self::question($d) !== null ? 'work_status:ai_question' : 'work_status:code_fallback');
 
         return self::question($d) ?? match ($d['kind'] ?? null) {
             ExpenseExtractor::KIND_DEBT_NOTE => $name . ' işi bitirdi de parası mı verilmedi, yoksa yapacağı iş için mi anlaştınız?',
@@ -502,7 +523,7 @@ final class Understanding
                     'same' => ['type' => 'boolean'], 'question' => ['type' => ['string', 'null']],
                 ], 'required' => ['same']]]],
                 'tool_choice' => ['type' => 'tool', 'name' => 'check'],
-                'messages' => [['role' => 'user', 'content' => self::crossContext($d, $phone)
+                'messages' => [['role' => 'user', 'content' => TurnTrace::cover('crossContext', fn () => self::crossContext($d, $phone))
                     . "\n\nKULLANICI ŞİMDİ YAZDI: " . mb_substr($userText, 0, 600)
                     . "\nASİSTAN ANLADI: " . ($meaning !== '' ? $meaning : '-') . "\nKAYDIN ANLAMI: " . $record]],
             ]);
@@ -540,7 +561,7 @@ final class Understanding
             }
         }
         if ($party = self::party($d)) {
-            $lines[] = 'CARİ ' . $party->name . ': ' . \App\Support\PartyBalances::line($party->name, PartyStatement::build($party)['balance'])
+            $lines[] = 'CARİ ' . $party->name . ': ' . \App\Support\PartyBalances::line($party->name, TurnTrace::statement('Understanding::crossContext', $party)['balance'])
                 . ($party->is_employee ? ' (çalışan)' : '');
             foreach (\App\Models\PartyLedgerEntry::where('party_id', $party->id)->latest('entry_date')->latest('id')->limit(5)->get() as $e) {
                 $lines[] = '  ' . $e->entry_date?->format('d.m') . ' ' . $e->type . ' ' . Money::format((float) $e->amount) . ' ' . mb_substr((string) $e->description, 0, 60);
@@ -607,7 +628,7 @@ final class Understanding
 
     private static function party(array $d): ?Party
     {
-        return ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+        return ! empty($d['party_id']) ? TurnTrace::read('Understanding::party', fn () => Party::find($d['party_id']), ['party_id' => $d['party_id']]) : null;
     }
 
     private static function partyName(array $d): string

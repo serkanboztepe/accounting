@@ -5,7 +5,6 @@ namespace App\Services\Whatsapp;
 use App\Models\Contract;
 use App\Models\Party;
 use App\Support\Money;
-use App\Support\PartyStatement;
 use Illuminate\Support\Collection;
 
 /**
@@ -145,7 +144,7 @@ final class DraftGaps
 
     public static function party(array $d): ?Party
     {
-        return ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+        return ! empty($d['party_id']) ? TurnTrace::read('DraftGaps::party', fn () => Party::find($d['party_id']), ['party_id' => $d['party_id']]) : null;
     }
 
     /**
@@ -160,9 +159,11 @@ final class DraftGaps
         if ($want === '') {
             return null;
         }
-        $same = Party::get(['id', 'name'])->filter(fn (Party $p) => $key($p->name) === $want);
+        $same = TurnTrace::read('DraftGaps::exactParty.names', fn () => Party::get(['id', 'name']), ['name' => $name],
+            fn ($all) => ['count' => $all->count(), 'matches' => $all->filter(fn (Party $p) => $key($p->name) === $want)->pluck('id')->all()])
+            ->filter(fn (Party $p) => $key($p->name) === $want);
 
-        return $same->count() === 1 ? Party::find($same->first()->id) : null;
+        return $same->count() === 1 ? TurnTrace::read('DraftGaps::exactParty', fn () => Party::find($same->first()->id)) : null;
     }
 
     public static function missingParty(array $d): bool
@@ -178,7 +179,7 @@ final class DraftGaps
         if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || empty($d['debt_repayment'])) {
             return 0.0;
         }
-        $owed = ($party = self::party($d)) ? max(0.0, -PartyStatement::build($party)['balance']) : 0.0;
+        $owed = ($party = self::party($d)) ? max(0.0, -TurnTrace::statement('DraftGaps::unrecordedDebt', $party)['balance']) : 0.0;
 
         return round(max(0.0, (float) ($d['amount'] ?? 0) - $owed), 2);
     }
@@ -240,7 +241,8 @@ final class DraftGaps
             return collect();
         }
 
-        return Contract::where('party_id', $party->id)->where('status', 'active')->orderBy('id')->get()->values();
+        return TurnTrace::read('DraftGaps::activeContracts', fn () => Contract::where('party_id', $party->id)->where('status', 'active')->orderBy('id')->get()->values(),
+            ['party_id' => $party->id]);
     }
 
     public static function needsContractChoice(array $d): bool
@@ -263,7 +265,7 @@ final class DraftGaps
         }
         $party = self::party($d);
 
-        return ! $party || PartyStatement::build($party)['balance'] > -0.01;
+        return ! $party || TurnTrace::statement('DraftGaps::needsPaymentChoice', $party)['balance'] > -0.01;
     }
 
     /** @return array{code:string,ask:string,why:string} */

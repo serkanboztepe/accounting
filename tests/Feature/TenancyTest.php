@@ -70,7 +70,8 @@ class TenancyTest extends TestCase
                 if (! self::$prepared) {
                     Artisan::call('migrate', ['--database' => 'tenant', '--force' => true]);
                 }
-                DB::statement('TRUNCATE users, parties, party_ledger_entries, whatsapp_pending_expenses, usage_logs RESTART IDENTITY CASCADE');
+                // whatsapp_messages da: "ilk kez yazan" (karşılama) önceki koşulardan kalan mesaja bağlı kalmasın (23.10 aralıklı düşüş).
+                DB::statement('TRUNCATE users, parties, party_ledger_entries, whatsapp_pending_expenses, whatsapp_messages, usage_logs RESTART IDENTITY CASCADE');
             });
         }
         self::$prepared = true;
@@ -230,7 +231,10 @@ class TenancyTest extends TestCase
             ->assertOk()->getContent();
 
         $this->assertStringContainsString('👍', $res); // bekleyen kayıt yok → sohbet kapanışı (19.10)
-        $this->assertSame(2, HubMessageLog::where('hub_firm_id', $this->b->id)->count());
+        $this->assertStringContainsString('Hoş geldin', $res, 'B firmasında ilk mesaj → karşılama');
+        // Gelen + iki giden (👍, karşılama) — hepsi telefonun firmasında; A firmasına hiçbir kayıt düşmez.
+        $this->assertSame(['in', 'out', 'out'], HubMessageLog::where('hub_firm_id', $this->b->id)->orderBy('id')->pluck('direction')->all());
+        $this->assertSame(0, HubMessageLog::where('hub_firm_id', $this->a->id)->count());
         $this->assertNull(Tenancy::current(), 'istek bitince firma bağlamı kapanmalı');
     }
 

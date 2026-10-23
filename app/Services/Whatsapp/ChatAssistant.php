@@ -78,8 +78,9 @@ class ChatAssistant
 
         $model = config('services.anthropic.chat_model') ?: config('services.anthropic.model');
         // $fresh: mesaj kendi başına tam bir kayıt (kasa) — geçmişteki soru ("Hangi şube?") ona cevap sanılmasın.
-        $messages = $fresh ? [['role' => 'user', 'content' => $text]] : $this->history($phone, $text);
-        $system = $this->systemPrompt($pending, $phone);
+        // Geçmiş ve talimat bağlamının okumaları modele giden istekte saklanıyor (teşhis kaydı: TurnTrace).
+        $messages = $fresh ? [['role' => 'user', 'content' => $text]] : TurnTrace::cover('chat.history', fn () => $this->history($phone, $text));
+        $system = TurnTrace::cover('chat.systemPrompt', fn () => $this->systemPrompt($pending, $phone));
 
         $maxTokens = 1024;
         $deep = false;
@@ -135,6 +136,7 @@ class ChatAssistant
             }
 
             $input = (array) ($call['input'] ?? []);
+            TurnTrace::note('assistant_tool', $call['name']);
             switch ($call['name']) {
                 case 'propose_entry':
                     $data = $this->extractor->normalizeEntry($input);
@@ -253,7 +255,9 @@ class ChatAssistant
                     foreach ($content as $block) {
                         if (($block['type'] ?? null) === 'tool_use' && in_array($block['name'] ?? '', ['query_records', 'search_conversations'], true)) {
                             try {
-                                $data = $block['name'] === 'query_records' ? RecordsQuery::run((array) ($block['input'] ?? [])) : ConversationLookup::run((array) ($block['input'] ?? []));
+                                // Sonuç modele araç sonucu olarak gider (teşhis kaydında istek gövdesinde).
+                                $data = TurnTrace::cover('chat.' . $block['name'], fn () => $block['name'] === 'query_records'
+                                    ? RecordsQuery::run((array) ($block['input'] ?? [])) : ConversationLookup::run((array) ($block['input'] ?? [])));
                             } catch (\Throwable $e) {
                                 \Illuminate\Support\Facades\Log::error('Okuma aracı hatası', ['tool' => $block['name'], 'msg' => $e->getMessage()]);
                                 $data = ['hata' => 'Okuma yapılamadı; kullanıcıya şu an bakamadığını söyle.'];

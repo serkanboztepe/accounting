@@ -33,10 +33,12 @@ final class OnBehalfChoice
         if ($party === null) {
             return false;
         }
-        $types = PartyLedgerEntry::where('party_id', $party->id)->distinct()->pluck('type')->all();
+        $types = TurnTrace::read('OnBehalfChoice::applies.types', fn () => PartyLedgerEntry::where('party_id', $party->id)->distinct()->pluck('type')->all(),
+            ['party_id' => $party->id]);
         $customer = array_intersect($types, [PartyLedgerEntry::TYPE_COLLECTION, PartyLedgerEntry::TYPE_SALE]) !== [];
         $supplier = array_intersect($types, [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PURCHASE_RETURN]) !== []
-            || (config('modules.purchases') && Purchase::where('party_id', $party->id)->exists());
+            || (config('modules.purchases') && TurnTrace::read('OnBehalfChoice::applies.purchases', fn () => Purchase::where('party_id', $party->id)->exists(),
+                ['party_id' => $party->id]));
 
         return $customer && ! $supplier;
     }

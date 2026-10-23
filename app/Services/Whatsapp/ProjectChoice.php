@@ -75,7 +75,7 @@ final class ProjectChoice
     public static function projects(): Collection
     {
         // Eski gider menüsüyle aynı sıra (müteahhit "2" yazma alışkanlığı bozulmasın): iptal hariç, eklenme sırası.
-        return Project::whereNotIn('status', ['cancelled'])->orderBy('id')->take(30)->get(['id', 'name'])->values();
+        return TurnTrace::read('ProjectChoice::projects', fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('id')->take(30)->get(['id', 'name'])->values());
     }
 
     /** Taslağa şube bilgisini yerleştir (mesajdan / tek şube / öneri / soru). */
