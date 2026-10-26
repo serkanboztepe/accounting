@@ -32,7 +32,7 @@ class QuoteResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.quotes');
+        return \App\Support\Features::quotes();
     }
 
     public static function form(Schema $schema): Schema

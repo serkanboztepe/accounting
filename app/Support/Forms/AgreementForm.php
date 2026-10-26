@@ -87,7 +87,7 @@ class AgreementForm
                     'cash'          => 'Nakit',
                     'eft'           => 'EFT',
                     'bank_transfer' => 'Havale',
-                    'check'         => config('modules.checks') ? 'Çek' : null,
+                    'check'         => \App\Support\Features::checks() ? 'Çek' : null,
                     'other'         => 'Diğer',
                 ]))
                 ->default('cash')
@@ -125,7 +125,7 @@ class AgreementForm
     public static function withAgreementTabs(array $components, string $direction, ?Party $party, array $keep = [],
         ?\Illuminate\Support\Collection $items = null, bool $projectField = true): array
     {
-        $items ??= $party && config('modules.agreements') ? AgreementDesk::openItems($party, $direction) : collect();
+        $items ??= $party && \App\Support\Features::agreements() ? AgreementDesk::openItems($party, $direction) : collect();
         if ($items->isEmpty()) {
             return $components;
         }
@@ -200,7 +200,7 @@ class AgreementForm
 
             // Projesiz (Genel) anlaşmadan gelen mal: proje SEÇİLMEDEN kaydedilmez — "Anlaşmadaki proje" sessizce Genel oluyordu
             // (firma 7 22.10: iki projelik seramik anlaşması, 85.710 ₺ teslimat Genel'e gitti). Genel de açık seçenek.
-            $projectField && config('modules.projects') ? Select::make('agreement_project')
+            $projectField && \App\Support\Features::places() ? Select::make('agreement_project')
                 ->label(Labels::project())
                 ->options(fn (Get $get) => (self::takenWithoutProject($get) ? [] : ['agreement' => 'Anlaşmadaki ' . mb_strtolower(Labels::project())])
                     + Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id')->all()
@@ -299,9 +299,9 @@ class AgreementForm
             ->label(fn () => Labels::project())
             ->options(fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id')->all()
                 + [self::GENERAL => 'Genel (projesiz)'])
-            ->required(fn () => (bool) config('modules.projects'))
+            ->required(fn () => (bool) \App\Support\Features::places())
             ->validationMessages(['required' => 'Projeyi seç (ya da Genel).'])
-            ->visible(fn () => (bool) config('modules.projects'));
+            ->visible(fn () => (bool) \App\Support\Features::places());
     }
 
     /** İşaretli kalemlerden biri projesiz anlaşmada mı. */
@@ -325,7 +325,7 @@ class AgreementForm
     public static function extract(array $data): array
     {
         $lines = array_values(array_filter((array) ($data['agreement_lines'] ?? []), fn ($l) => ! empty($l['take'])));
-        $project = config('modules.projects') ? ($data['agreement_project'] ?? null) : 'agreement';
+        $project = \App\Support\Features::places() ? ($data['agreement_project'] ?? null) : 'agreement';
         $project = $project === self::GENERAL ? null : $project;
         $priceToRest = (bool) ($data['agreement_price_to_rest'] ?? false);
         unset($data['agreement_lines'], $data['agreement_project'], $data['agreement_price_to_rest']);
@@ -341,7 +341,7 @@ class AgreementForm
             ->placeholder('Genel')
             ->searchable()
             ->live()
-            ->visible(fn () => (bool) config('modules.projects'));
+            ->visible(fn () => (bool) \App\Support\Features::places());
     }
 
     /** Bu cariyle son anlaşmanın yönü (yoksa alış) — pencere o seçili açılır. */
@@ -393,7 +393,7 @@ class AgreementForm
                             ->maxLength(50),
                         Radio::make('type')->label('Tür')->options(Product::TYPE_LABELS)
                             ->default(Product::TYPE_PRODUCT)->inline()
-                            ->visible(fn () => (bool) config('modules.stock')),
+                            ->visible(fn () => (bool) \App\Support\Features::stock()),
                     ])
                     ->createOptionModalHeading('Yeni ürün / iş')
                     ->createOptionUsing(fn (array $data, Get $get): int => self::quickProduct($data['name'], $data,
@@ -451,7 +451,7 @@ class AgreementForm
 
         return TradeLines::createProduct([
             'name'    => $name,
-            'type'    => config('modules.stock') ? ($data['type'] ?? Product::TYPE_PRODUCT) : Product::TYPE_SERVICE,
+            'type'    => \App\Support\Features::stock() ? ($data['type'] ?? Product::TYPE_PRODUCT) : Product::TYPE_SERVICE,
             'unit_id' => $unitId,
         ], $buy ? 'in' : 'out');
     }

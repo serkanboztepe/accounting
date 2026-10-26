@@ -54,7 +54,7 @@ class ProjectResource extends Resource
     /** Projesiz kurulum (ör. alacak-verecek esnafı): menüde yok, adresle de açılmaz. */
     public static function canAccess(): bool
     {
-        return config('modules.projects');
+        return \App\Support\Features::places();
     }
 
     public static function form(Schema $schema): Schema
@@ -70,7 +70,7 @@ class ProjectResource extends Resource
     public static function getRelations(): array
     {
         return array_values(array_filter([
-            config('modules.land_share') ? LandShareStudiesRelationManager::class : null,
+            \App\Support\Features::landShare() ? LandShareStudiesRelationManager::class : null,
         ]));
     }
 

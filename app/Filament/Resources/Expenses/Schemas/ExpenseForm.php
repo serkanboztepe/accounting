@@ -28,7 +28,7 @@ class ExpenseForm
                 ->searchable()
                 ->preload()
                 ->helperText('Boş bırakılırsa genel gider olarak değerlendirilir.')
-                ->visible(fn () => config('modules.projects')),
+                ->visible(fn () => \App\Support\Features::places()),
             // Gider = carisiz harcama; bir kişiden/firmadan alım Cariler'den "Alış" olarak girilir.
             // Alan yalnız eskiden cariye bağlanmış kayıtta görünür (o veri bozulmasın).
             Select::make('party_id')

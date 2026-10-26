@@ -13,7 +13,7 @@ class CreateProduct extends CreateRecord
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         // Stok kapalıyken tür seçimi gösterilmez → yeni kart daima "Hizmet".
-        if (! config('modules.stock')) {
+        if (! \App\Support\Features::stock()) {
             $data['type'] = Product::TYPE_SERVICE;
         }
 

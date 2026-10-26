@@ -45,7 +45,7 @@ final class MorningAlerts
             }
         }
         // Haftalık özet "ciro − alış − gider" hesabını kullanır: yalnız Ay Sonucu'nu kullanan firmada (müteahhitte yanıltır).
-        if ($today->isMonday() && config('modules.report_monthly') && ($weekly = self::weekly($today))) {
+        if ($today->isMonday() && \App\Support\Features::monthlyResult() && ($weekly = self::weekly($today))) {
             foreach ($phones as $p) {
                 $out[$p][] = $weekly;
             }
@@ -57,12 +57,12 @@ final class MorningAlerts
     /** @return list<array{0:string,1:?string}> [satır, o kasayı giren numara] */
     public static function missingTills(Carbon $day): array
     {
-        if (! config('modules.sales_desk')) {
+        if (! \App\Support\Features::salesDesk()) {
             return [];
         }
         $from = $day->copy()->subDays(self::HABIT_DAYS)->toDateString();
         $to = $day->copy()->subDay()->toDateString();
-        $branches = config('modules.projects') ? Project::whereNotIn('status', ['cancelled'])->get(['id', 'name']) : collect([null]);
+        $branches = \App\Support\Features::places() ? Project::whereNotIn('status', ['cancelled'])->get(['id', 'name']) : collect([null]);
         $lines = [];
         foreach ($branches as $branch) {
             // "Kasa" = ürünsüz günlük ciro (peşin, kalemsiz: "Ergenekon kasa nakit … pos …"). Ürünlü peşin satış (saman, yem,
@@ -91,10 +91,10 @@ final class MorningAlerts
         }
         $lines = ['📅 *Geçen hafta (' . MonthlyResult::rangeLabel($from, $to) . ')*',
             'Ciro: ' . Money::format($r['revenue']) . ' ₺ · Alış: ' . Money::format($r['purchases']) . ' ₺'
-                . (config('modules.expenses') ? ' · Gider: ' . Money::format($r['expenses']) . ' ₺' : '')
+                . (\App\Support\Features::expenses() ? ' · Gider: ' . Money::format($r['expenses']) . ' ₺' : '')
                 . (($r['personnel'] ?? 0) > 0 ? ' · Personel: ' . Money::format($r['personnel']) . ' ₺' : ''),
             ($r['result'] >= 0 ? '✅ Kalan: ' : '🔻 Eksi: ') . Money::format(abs($r['result'])) . ' ₺'];
-        if (config('modules.projects')) {
+        if (\App\Support\Features::places()) {
             $byBranch = Project::whereNotIn('status', ['cancelled'])->get(['id', 'name'])
                 ->map(fn ($p) => [$p->name, MonthlyResult::forRange($from, $to, $p->id)['revenue']])
                 ->filter(fn ($x) => $x[1] > 0)->sortByDesc(fn ($x) => $x[1]);
@@ -154,7 +154,7 @@ final class MorningAlerts
         $items = PartyLedgerEntry::with('party:id,name')->whereNotNull('due_date')
             ->whereBetween('due_date', [$monday->toDateString(), $end])->orderBy('due_date')->limit(5)->get()
             ->map(fn ($e) => ($e->party?->name ?? '—') . ' ' . Money::format((float) $e->amount) . ' (' . Carbon::parse($e->due_date)->format('d.m') . ')');
-        if (config('modules.expenses')) {
+        if (\App\Support\Features::expenses()) {
             $items = $items->merge(Expense::whereIn('payment_status', ['unpaid', 'partial'])->whereNotNull('due_date')
                 ->whereBetween('due_date', [$monday->toDateString(), $end])->orderBy('due_date')->limit(5)->get()
                 ->map(fn ($e) => ($e->description ?: 'gider') . ' ' . Money::format((float) $e->amount) . ' (' . $e->due_date->format('d.m') . ')'));

@@ -19,7 +19,7 @@ class CountStockAction
             ->label('Sayım')
             ->icon(Heroicon::OutlinedCalculator)
             ->color('gray')
-            ->visible(fn (Product $record) => config('modules.stock') && $record->isProduct())
+            ->visible(fn (Product $record) => \App\Support\Features::stock() && $record->isProduct())
             ->modalHeading(fn (Product $record) => 'Sayım · ' . $record->name)
             ->modalDescription(fn (Product $record) => 'Sistemde: ' . StockUsage::quantity($record->currentStock()) . ' ' . ($record->unit?->name ?? '')
                 . '. Elindekini yaz, fark düzeltme olarak kaydedilir.')

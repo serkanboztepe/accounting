@@ -26,7 +26,7 @@ class PurchaseOverviewCard extends Widget
 
         // Sözleşmesiz firma (sade müteahhit): maliyet = gider + cari alış (Proje Raporu ile aynı hesap); ödenecek =
         // carilere açık borç (ekstre) + bekleyen çek. Çek verildiği an cari borcu düşer → ikisi çift sayılmaz.
-        if (! config('modules.contracts')) {
+        if (! \App\Support\Features::contracts()) {
             $pending = (float) Check::query()->where('status', 'issued')->sum('amount');
             $overdue = Check::query()->where('status', 'issued')->whereDate('due_date', '<', $today);
             $overdueCount = (clone $overdue)->count();

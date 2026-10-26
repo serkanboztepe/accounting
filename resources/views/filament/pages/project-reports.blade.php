@@ -25,8 +25,8 @@
             @endphp
             @php
                 // Sözleşmesiz firma (sade müteahhit): maliyet = direkt gider + cari alış; sözleşme/fatura bölümleri gizli.
-                $withContracts = (bool) config('modules.contracts');
-                $withChecks = (bool) config('modules.checks');
+                $withContracts = (bool) \App\Support\Features::contracts();
+                $withChecks = (bool) \App\Support\Features::checks();
             @endphp
 
             {{-- Defter tablo özet — kendi style bloğuyla, Tailwind derlemesinden bağımsız --}}

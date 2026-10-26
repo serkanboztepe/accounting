@@ -35,18 +35,18 @@ class ProductResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return config('modules.sales_desk') ? 'Ürünler' : 'Hizmet / Ürün';
+        return \App\Support\Features::salesDesk() ? 'Ürünler' : 'Hizmet / Ürün';
     }
 
     public static function getNavigationGroup(): ?string
     {
-        return config('modules.sales_desk') || config('modules.purchases') ? 'Alış-Satış' : 'Ürün & Stok';
+        return \App\Support\Features::salesDesk() || \App\Support\Features::stockPurchases() ? 'Alış-Satış' : 'Ürün & Stok';
     }
 
     public static function canAccess(): bool
     {
         // Katalog: direkt satış VEYA stok açıksa görünür.
-        return config('modules.direct_sales') || config('modules.stock');
+        return \App\Support\Features::stockSales() || \App\Support\Features::stock();
     }
 
     public static function form(Schema $schema): Schema

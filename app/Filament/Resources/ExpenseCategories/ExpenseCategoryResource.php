@@ -37,7 +37,7 @@ class ExpenseCategoryResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.expenses');
+        return \App\Support\Features::expenses();
     }
 
     public static function form(Schema $schema): Schema

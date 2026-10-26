@@ -34,7 +34,7 @@ class PropertyTaxBlockResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.property_tax');
+        return \App\Support\Features::propertyTax();
     }
 
     public static function form(Schema $schema): Schema

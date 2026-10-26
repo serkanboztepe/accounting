@@ -38,7 +38,7 @@ class StockMovementResource extends Resource
      */
     public static function readOnly(): bool
     {
-        return (bool) config('modules.purchases');
+        return (bool) \App\Support\Features::stockPurchases();
     }
 
     public static function getNavigationGroup(): ?string
@@ -53,7 +53,7 @@ class StockMovementResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.stock');
+        return \App\Support\Features::stock();
     }
 
     public static function canCreate(): bool

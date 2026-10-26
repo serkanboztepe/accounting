@@ -25,7 +25,7 @@ class MonthlyResultReport extends Page
 
     public static function canAccess(): bool
     {
-        return (bool) config('modules.report_monthly');
+        return (bool) \App\Support\Features::monthlyResult();
     }
 
     public function getMonths(): array

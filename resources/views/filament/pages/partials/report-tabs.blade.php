@@ -1,10 +1,10 @@
 @php
     // Etkin modüllere göre rapor sekmeleri — tek "Raporlar" bölümü hissi.
     $reportTabs = array_values(array_filter([
-        config('modules.report_project')
+        \App\Support\Features::placeReports()
             ? ['key' => 'project', 'label' => \App\Support\Labels::project() . ' Raporları', 'url' => \App\Filament\Pages\ProjectReports::getUrl()]
             : null,
-        (config('modules.stock') && config('modules.report_stock'))
+        (\App\Support\Features::stock() && \App\Support\Features::stockReport())
             ? ['key' => 'stock', 'label' => 'Stok Raporu', 'url' => \App\Filament\Pages\StockReport::getUrl()]
             : null,
         \App\Filament\Pages\SalesSummary::canAccess()

@@ -48,7 +48,7 @@ class LedgerEntriesRelationManager extends RelationManager
                 ->searchable()
                 ->preload()
                 ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
-                ->visible(fn () => config('modules.projects')),
+                ->visible(fn () => \App\Support\Features::places()),
 
             TextInput::make('description')
                 ->label('Açıklama')
@@ -104,10 +104,10 @@ class LedgerEntriesRelationManager extends RelationManager
                 $this->entryAction('satis', 'Satış', Heroicon::OutlinedShoppingCart, 'info', 'Satış — Cariyi Borçlandır'),
                 $this->entryAction('tahsilat', 'Tahsilat', Heroicon::OutlinedArrowDownCircle, 'success', 'Tahsilat — Para Girişi'),
                 // Bizden doğru (cari tedarikçi): Alış + Ödeme — tedarikçi modülü kapalıysa gizli
-                config('modules.cari_supplier')
+                \App\Support\Features::supplierSide()
                     ? $this->entryAction('alis', 'Alış / Hizmet', Heroicon::OutlinedShoppingBag, 'warning', 'Alış / Hizmet — Cariye Borçlan')
                     : null,
-                config('modules.cari_supplier')
+                \App\Support\Features::supplierSide()
                     ? $this->entryAction('odeme', 'Ödeme', Heroicon::OutlinedArrowUpCircle, 'danger', 'Ödeme — Para Çıkışı')
                     : null,
             ])))

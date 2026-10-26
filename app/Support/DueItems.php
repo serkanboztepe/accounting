@@ -31,7 +31,7 @@ class DueItems
             return $balances[$party->id] ??= PartyStatement::build($party)['balance'];
         };
 
-        if (config('modules.expenses')) {
+        if (\App\Support\Features::expenses()) {
             foreach (Expense::query()->with(['party', 'category'])->whereIn('payment_status', ['unpaid', 'partial'])
                 ->whereBetween('due_date', [$from, $to])->get() as $e) {
                 if ($e->party && $balance($e->party) > -0.01) {
@@ -43,7 +43,7 @@ class DueItems
             }
         }
 
-        if (config('modules.contracts')) {
+        if (\App\Support\Features::contracts()) {
             foreach (ContractPayment::query()->with('contract.party')->where('status', 'unpaid')->where('payment_type', '!=', 'check')
                 ->whereBetween('due_date', [$from, $to])->get() as $p) {
                 $items->push(self::item($p->due_date, 'pay', 'Sözleşme ödemesi: ' . ($p->contract?->party?->name ?? '')

@@ -29,7 +29,7 @@ class SendMorningAlerts extends Command
 
     public function handle(WhatsappSender $sender): int
     {
-        if (! config('modules.proactive_alerts')) {
+        if (! \App\Support\Features::proactiveAlerts()) {
             $this->info('Kendiliğinden haber modülü kapalı.');
 
             return self::SUCCESS;

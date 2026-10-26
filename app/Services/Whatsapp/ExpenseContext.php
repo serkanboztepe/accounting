@@ -68,7 +68,7 @@ class ExpenseContext
             return self::$override;
         }
 
-        $projects = ! config('modules.projects') ? collect() : self::scoped(Project::query(), 'projects')
+        $projects = ! \App\Support\Features::places() ? collect() : self::scoped(Project::query(), 'projects')
             ->whereNotIn('status', ['cancelled'])
             ->orderBy('name')
             ->get(['id', 'name', 'cadastral_parcel']);
@@ -106,7 +106,7 @@ class ExpenseContext
             $lines[] = '';
         }
 
-        if (config('modules.projects')) {
+        if (\App\Support\Features::places()) {
             $one = \App\Support\Labels::project();
             // Mimar (Ferhat): eski başlık aynen — davranışı değişmesin (kullanıcı kararı 15.10).
             $lines[] = config('app.profile') === 'mimar'
@@ -132,7 +132,7 @@ class ExpenseContext
                 . (! $c->is_employee && $withAdvance->has($c->id) ? self::advanceNote($c) : ''))->implode("\n");
 
         // Açık anlaşma kalemleri (21.10): "beton geldi" hangi kaleme düşer — anlamdan AI seçer (agreement_delivery).
-        if (config('modules.agreements') && ($open = AgreementDeliveryDraft::contextLines()) !== []) {
+        if (\App\Support\Features::agreements() && ($open = AgreementDeliveryDraft::contextLines()) !== []) {
             $lines[] = '';
             $lines[] = 'AÇIK ANLAŞMALAR (kalem id: cari — anlaşma — kalem — kalan × fiyat; mal geldi / iş yapıldı / teslim edildi → agreement_delivery):';
             array_push($lines, ...$open);
@@ -145,7 +145,7 @@ class ExpenseContext
             : $categories->map(fn ($k) => sprintf('  %d: %s', $k->id, $k->name))->implode("\n");
 
         // Stoklu satış paketi: ürün kataloğu (satış/alış/sayım bu listeden eşleşir). Eski firmalarda gösterilmez.
-        if (config('modules.sales_desk') || config('modules.purchases')) {
+        if (\App\Support\Features::salesDesk() || \App\Support\Features::stockPurchases()) {
             $products = self::scoped(\App\Models\Product::active(), 'products')->with('unit')->orderBy('name')->get();
             $lines[] = '';
             $lines[] = 'ÜRÜNLER (id: ad [birim] — satış fiyatı / alış fiyatı — stok — otomatik düşme / uyarı ayarı; yazmayan ayar YOKTUR):';
@@ -163,7 +163,7 @@ class ExpenseContext
 
         // Ödenmemiş giderler: "kirayı ödedim" yeni gider açıp aynı kirayı ikinci kez saymasın — AI
         // ödemeyi buradaki açık borçla eşleştirir (settles_expense_id), kullanıcı teyit eder.
-        if (config('modules.expenses')) {
+        if (\App\Support\Features::expenses()) {
             $open = self::scoped(Expense::query(), 'expenses')
                 ->whereIn('payment_status', ['unpaid', 'partial'])
                 ->with('party:id,name')

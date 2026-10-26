@@ -28,7 +28,7 @@ class ContractForm
                         return Contract::DIRECTION_PURCHASE;
                     }
 
-                    return config('modules.purchase_contracts', true)
+                    return \App\Support\Features::purchaseContracts()
                         ? Contract::DIRECTION_PURCHASE
                         : Contract::DIRECTION_SALE;
                 }),

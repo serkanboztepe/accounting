@@ -202,14 +202,14 @@ class ExpenseExtractor
     public static function allowedKinds(): array
     {
         return array_values(array_filter([
-            config('modules.expenses') ? self::KIND_EXPENSE : null,
-            config('modules.cari_supplier') ? self::KIND_PAYMENT : null,
-            config('modules.direct_sales') ? null : self::KIND_SALE,
+            \App\Support\Features::expenses() ? self::KIND_EXPENSE : null,
+            \App\Support\Features::supplierSide() ? self::KIND_PAYMENT : null,
+            \App\Support\Features::stockSales() ? null : self::KIND_SALE,
             self::KIND_COLLECTION,
             self::KIND_BALANCE_QUERY,
             self::KIND_STATEMENT,
             self::KIND_TOTALS_QUERY,
-            config('modules.expenses') ? self::KIND_EXPENSE_SUMMARY : null,
+            \App\Support\Features::expenses() ? self::KIND_EXPENSE_SUMMARY : null,
             self::KIND_DEBT_NOTE,
             self::KIND_PARTY_LIST,
             self::KIND_HELP,
@@ -218,28 +218,28 @@ class ExpenseExtractor
             self::KIND_REMEMBER,
             self::KIND_FORGET,
             self::KIND_MEMORY_LIST,
-            config('modules.expenses') ? self::KIND_RECURRING_EXPENSE : null,
-            config('modules.expenses') ? self::KIND_RECURRING_LIST : null,
-            config('modules.expenses') ? self::KIND_RECURRING_STOP : null,
+            \App\Support\Features::expenses() ? self::KIND_RECURRING_EXPENSE : null,
+            \App\Support\Features::expenses() ? self::KIND_RECURRING_LIST : null,
+            \App\Support\Features::expenses() ? self::KIND_RECURRING_STOP : null,
             // Personel: maaş/avans ödemesi var → ödeme açık firmalarda (mimar paketi değişmez — Ferhat kararı).
-            config('modules.cari_supplier') ? self::KIND_EMPLOYEE_SETTING : null,
-            config('modules.cari_supplier') ? self::KIND_SALARY : null,
+            \App\Support\Features::supplierSide() ? self::KIND_EMPLOYEE_SETTING : null,
+            \App\Support\Features::supplierSide() ? self::KIND_SALARY : null,
             // Tedarikçi tarafı açık: "Ahmet'ten mal aldım" alış olur (cari hesabı), gider değil — gider yalnız carisiz
             // harcama. Gider kapalı firmada yoksa en yakın kalıp "ödeme" seçiliyor, yön ters çıkıyordu (Burak, 2026-10-10).
-            config('modules.cari_supplier') ? self::KIND_PURCHASE : null,
+            \App\Support\Features::supplierSide() ? self::KIND_PURCHASE : null,
             // Stoklu satış paketi: yalnız Satışlar/Alışlar tezgahı açık firmada (mevcut firmalarda hiçbiri yok).
-            config('modules.sales_desk') ? self::KIND_TRADE_SALE : null,
-            config('modules.purchases') && config('modules.stock') ? self::KIND_TRADE_PURCHASE : null,
+            \App\Support\Features::salesDesk() ? self::KIND_TRADE_SALE : null,
+            \App\Support\Features::stockPurchases() && \App\Support\Features::stock() ? self::KIND_TRADE_PURCHASE : null,
             self::tradeStock() ? self::KIND_STOCK_COUNT : null,
             self::tradeStock() ? self::KIND_STOCK_QUERY : null,
             self::tradeStock() ? self::KIND_STOCK_SETTING : null,
             self::tradeStock() ? self::KIND_PRODUCT_ADD : null,
             self::tradeStock() ? self::KIND_PRODUCT_RENAME : null,
             self::tradeStock() ? self::KIND_PRODUCTION : null,
-            config('modules.report_monthly') ? self::KIND_MONTH_RESULT : null,
-            config('modules.agreements') ? self::KIND_AGREEMENT : null,
-            config('modules.agreements') ? self::KIND_AGREEMENT_DELIVERY : null,
-            config('modules.agreements') ? self::KIND_AGREEMENT_QUERY : null,
+            \App\Support\Features::monthlyResult() ? self::KIND_MONTH_RESULT : null,
+            \App\Support\Features::agreements() ? self::KIND_AGREEMENT : null,
+            \App\Support\Features::agreements() ? self::KIND_AGREEMENT_DELIVERY : null,
+            \App\Support\Features::agreements() ? self::KIND_AGREEMENT_QUERY : null,
         ]));
     }
 
@@ -263,7 +263,7 @@ class ExpenseExtractor
     /** Stok türleri (sayım / soru / ayar) yalnız stoklu satış paketinde — Yeni Yapı gibi eski stoklu firmada değişiklik yok. */
     private static function tradeStock(): bool
     {
-        return config('modules.stock') && (config('modules.sales_desk') || config('modules.purchases'));
+        return \App\Support\Features::stock() && (\App\Support\Features::salesDesk() || \App\Support\Features::stockPurchases());
     }
 
     /**
@@ -284,7 +284,7 @@ class ExpenseExtractor
         // alındığı belli değil → gider (carisiz, açıklamada firma adı) — her toptancı için cari açılmaz. Ödenmedi denirse ("ödenmedi"
         // düzeltmesi dahil) cariye döner (bir şey alındı, borç var). Mevcut cari, gider kapalı firma, stoksuz firmalar: eskisi gibi alış.
         // Yazılı giderde firma adı (seller_name, stoklu firma): mevcut cariyse ya da ödenmediyse cari alış; değilse gider + firma adı.
-        if (TradeDraft::enabled() && config('modules.expenses') && empty($d['from_document']) && empty($d['party_id']) && empty($d['party_name'])
+        if (TradeDraft::enabled() && \App\Support\Features::expenses() && empty($d['from_document']) && empty($d['party_id']) && empty($d['party_name'])
             && empty($d['supplier_name']) && ! empty($d['seller_name']) && empty($d['items']) && empty($d['settles_expense_id'])) {
             $seller = trim((string) $d['seller_name']);
             if (($d['paid'] ?? null) === false || TurnTrace::read('fitToModules.sellerIsParty', fn () => \App\Models\Party::where('name', $seller)->exists(), ['name' => $seller])) {
@@ -318,7 +318,7 @@ class ExpenseExtractor
             && empty($d['settles_expense_id'])) {
             $d['kind'] = self::KIND_PURCHASE;
             $d['category_id'] = $d['category_name'] = $d['settles_expense_id'] = null;
-            if (! config('modules.projects')) {
+            if (! \App\Support\Features::places()) {
                 $d['project_id'] = $d['project_name'] = null;
             }
             $d['paid'] = (bool) ($d['paid'] ?? false); // carili ve ödendiği söylenmemiş → ona borçlandın
@@ -326,7 +326,7 @@ class ExpenseExtractor
             return $d;
         }
 
-        if (config('modules.expenses')) {
+        if (\App\Support\Features::expenses()) {
             return $d;
         }
 
@@ -351,7 +351,7 @@ class ExpenseExtractor
     /** Peşin ödenmiş, içeriği belirsiz, yeni firmadan alış → gider mi (yalnız stoklu paket + gider takibi açık). */
     private static function paidSupplierAsExpense(array $d): bool
     {
-        return TradeDraft::enabled() && config('modules.expenses') && empty($d['party_id']) && ! empty($d['party_name'])
+        return TradeDraft::enabled() && \App\Support\Features::expenses() && empty($d['party_id']) && ! empty($d['party_name'])
             && ($d['paid'] ?? null) === true && empty($d['paid_from_habit']) && empty($d['items'])
             && empty($d['settles_expense_id']) && empty($d['debt_repayment']) && empty($d['contract_id'])
             && empty($d['is_staff']) && empty($d['staff_hint']) && empty($d['payment_purpose'])
@@ -800,7 +800,7 @@ class ExpenseExtractor
     /** Anlaşma alanları (yalnız anlaşma modülü açıkken şemaya eklenir — diğer firmalarda şema değişmez). */
     private static function agreementProperties(): array
     {
-        if (! config('modules.agreements')) {
+        if (! \App\Support\Features::agreements()) {
             return [];
         }
 
@@ -881,7 +881,7 @@ class ExpenseExtractor
     /** Stoklu satış paketi açık mı (ek şema alanları ve ürün listesi yalnız o zaman). */
     public static function tradeEnabled(): bool
     {
-        return (bool) (config('modules.sales_desk') || config('modules.purchases'));
+        return (bool) (\App\Support\Features::salesDesk() || \App\Support\Features::stockPurchases());
     }
 
     /** Kalem şeması — eski firmalarda AYNEN eskisi (iş kalemi: açıklama + tutar). */
@@ -924,7 +924,7 @@ class ExpenseExtractor
     /** Düzenli gider alanları (gider takibi açıkken). */
     private static function recurringProperties(): array
     {
-        if (! config('modules.expenses')) {
+        if (! \App\Support\Features::expenses()) {
             return [];
         }
 
@@ -1090,7 +1090,7 @@ class ExpenseExtractor
 
     public static function guardSaleWithExpense(array $d, string $text): array
     {
-        if (! in_array(self::KIND_TRADE_SALE, self::allowedKinds(), true) || ! config('modules.expenses') || trim($text) === '') {
+        if (! in_array(self::KIND_TRADE_SALE, self::allowedKinds(), true) || ! \App\Support\Features::expenses() || trim($text) === '') {
             return $d;
         }
         $t = mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
@@ -1273,13 +1273,13 @@ class ExpenseExtractor
         $guide = implode("\n", array_map(fn (string $k) => self::KIND_HINTS[$k], self::aiKinds()));
         // Stoklu firma (19.10): firmadan alışta adı yazılsın — peşin + içerik belirsizse gider, veresiyeyse cari olduğuna KOD karar
         // verir ve "ne aldın?" diye sorar. Yalnız bu pakette: diğer firmalarda "Migros 500" carili alışa dönmesin.
-        if (TradeDraft::enabled() && config('modules.expenses')) {
+        if (TradeDraft::enabled() && \App\Support\Features::expenses()) {
             $guide .= "\n" . '- FİRMADAN ALIŞ (stoklu işletme): "gider" olarak yazılan harcamada bir firma / toptancı / dükkan adı geçiyorsa ("Bizim toptan '
                 . '18.261 tl gider", "Metro\'dan 5 bin gider") kind "expense" kalsın, firma adını `seller_name`\'e yaz (`party_name`\'e DEĞİL); '
                 . 'peşin mi veresiye mi, gider mi cari mi olacağına sistem karar verir ve ne alındığını sorar. Mazot, kira, fatura gibi firma adı '
                 . 'geçmeyen harcamada seller_name boş.';
         }
-        if (config('modules.agreements')) {
+        if (\App\Support\Features::agreements()) {
             // Anlaşmalar açıkken "X'le Y'yi Z'ye anlaştık" kayıttır (kart, kalan), hafıza notu değil (21.10).
             $guide .= "\n" . '- ANLAŞMA ÖNCELİĞİ: cariyle ileride gelecek mal/iş için fiyat ya da tutar kararlaştırıldıysa ("…\'ye anlaştık", '
                 . '"…den anlaştık", sözleşme / sipariş belgesi) kind "agreement" — "remember" DEĞİL. remember yalnız para/mal kararı olmayan bilgi için.'
@@ -1290,7 +1290,7 @@ class ExpenseExtractor
                 . 'kalemler (adı ve miktarıyla, ör. "Kapı" 8 adet; fiyatı söylenmediyse unit_price null), agreement_payments BOŞ. Bunu '
                 . 'listedeki kalemin miktarı SANMA, fiyat SORMA.';
         }
-        if (config('modules.cari_supplier')) {
+        if (\App\Support\Features::supplierSide()) {
             // Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" sorulmadan alış sayıldı, satıştı.
             $guide .= "\n" . '- YÖN BELİRSİZSE (sale mi purchase mı): malın ona mı gittiği, ondan mı geldiği cümleden anlaşılmıyorsa '
                 . '(kişi adında "-e/-a" ya da "-den/-dan" eki yok ve fiil iki yöne de okunuyor: "getirdim", "götürdüm", "geldi"; '
@@ -1404,11 +1404,11 @@ class ExpenseExtractor
                 ? self::validDate($input['due_date'] ?? null) : null,
             'description' => (string) ($input['description'] ?? ''),
             // Projesiz kurulum: AI proje uydurup yeni proje açtırmasın.
-            'project_id' => config('modules.projects') && isset($input['project_id']) ? (int) $input['project_id'] : null,
-            'project_name' => config('modules.projects') && ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
+            'project_id' => \App\Support\Features::places() && isset($input['project_id']) ? (int) $input['project_id'] : null,
+            'project_name' => \App\Support\Features::places() && ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
             'party_id' => isset($input['party_id']) ? (int) $input['party_id'] : null,
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
-            'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE], true) && config('modules.cari_supplier')
+            'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE], true) && \App\Support\Features::supplierSide()
                 && ! empty($input['direction_unclear']),
             'debt_repayment' => $kind === self::KIND_PAYMENT && ! empty($input['debt_repayment']),
             // Banka masrafı yalnız parayı BİZ gönderdiysek bizim gider (bize gelen dekontta masrafı gönderen öder — Fuat→Ferhat).

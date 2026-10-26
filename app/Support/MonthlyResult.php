@@ -96,7 +96,7 @@ class MonthlyResult
                 ->whereBetween('entry_date', [$from, $to]))->sum('amount');
         $purchases = $purchaseDocs + $purchaseLedger + $goodsInAmount - $purchaseReturns;
 
-        $expenses = config('modules.expenses')
+        $expenses = \App\Support\Features::expenses()
             ? (float) $p(Expense::whereBetween('expense_date', [$from, $to]))->sum('amount')
             : 0.0;
 
@@ -173,7 +173,7 @@ class MonthlyResult
         if (($r['personnel'] ?? 0) > 0 && ! $oneDay) {
             $lines[] = 'Personel' . $own . ': ' . Money::format($r['personnel']) . ' ₺';
         }
-        if (config('modules.expenses')) {
+        if (\App\Support\Features::expenses()) {
             $lines[] = 'Gider' . $own . ': ' . Money::format($r['expenses']) . ' ₺';
         }
         if (isset($r['allocated']) && $r['general_cost'] > 0) {

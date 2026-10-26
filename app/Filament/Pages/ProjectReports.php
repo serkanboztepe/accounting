@@ -43,7 +43,7 @@ class ProjectReports extends Page implements HasSchemas
 
     public static function canAccess(): bool
     {
-        return config('modules.report_project');
+        return \App\Support\Features::placeReports();
     }
 
     public ?int $projectId = null;
@@ -264,7 +264,7 @@ class ProjectReports extends Page implements HasSchemas
             ->orderBy('entry_date')
             ->get();
 
-        $deliveryKeys = config('modules.contracts')
+        $deliveryKeys = \App\Support\Features::contracts()
             ? ContractDelivery::query()->with('contract')->where('project_id', $project->id)->get()
                 ->map(fn (ContractDelivery $d) => ($d->contract?->party_id ?? 0) . '|' . round((float) $d->amount, 2))
                 ->flip()->all()

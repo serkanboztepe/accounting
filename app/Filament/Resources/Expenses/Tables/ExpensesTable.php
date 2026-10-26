@@ -23,7 +23,7 @@ class ExpensesTable
                     ->label(Labels::project())
                     ->placeholder('Genel Gider')
                     ->searchable()
-                    ->visible(fn () => config('modules.projects')),
+                    ->visible(fn () => \App\Support\Features::places()),
                 TextColumn::make('category.name')
                     ->label('Kategori')
                     ->searchable(),
@@ -63,7 +63,7 @@ class ExpensesTable
                     ->searchable()
                     ->preload()
                     ->placeholder('Tüm ' . Labels::projects())
-                    ->visible(fn () => config('modules.projects')),
+                    ->visible(fn () => \App\Support\Features::places()),
 
                 SelectFilter::make('payment_status')
                     ->label('Ödeme Durumu')

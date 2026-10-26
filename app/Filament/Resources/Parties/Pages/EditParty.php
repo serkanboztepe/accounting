@@ -151,7 +151,7 @@ class EditParty extends EditRecord
                 ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
-                ->visible(fn () => config('modules.projects')),
+                ->visible(fn () => \App\Support\Features::places()),
 
             TextInput::make('description')
                 ->label('Açıklama')
@@ -279,7 +279,7 @@ class EditParty extends EditRecord
                             'cash'          => 'Nakit',
                             'bank_transfer' => 'Havale',
                             'eft'           => 'EFT',
-                            'check'         => config('modules.checks') ? 'Çek' : null,
+                            'check'         => \App\Support\Features::checks() ? 'Çek' : null,
                             'other'         => 'Diğer',
                         ]))
                         ->default('cash')
@@ -384,7 +384,7 @@ class EditParty extends EditRecord
                     ->options(fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
                     ->helperText('Ürünsüz alışın maliyeti bu şubeye yazılır.')
-                    ->visible(fn (Get $get) => config('modules.projects') && empty($get('lines'))),
+                    ->visible(fn (Get $get) => \App\Support\Features::places() && empty($get('lines'))),
                 MoneyInput::make('manual_amount', 'Ürünsüz tutar')
                     ->required(false)
                     ->helperText('Ürün seçmeden alış (ör. nakliye, usta, stok tutmadığın bir malzeme).'),
@@ -588,7 +588,7 @@ class EditParty extends EditRecord
     /** Cari sayfasındaki kartlar: açıklar üstte, bitenler/kapatılanlar ayrı. */
     private function getAgreementCards(): array
     {
-        if (! config('modules.agreements')) {
+        if (! \App\Support\Features::agreements()) {
             return ['open' => collect(), 'finished' => collect()];
         }
         $all = Agreement::where('party_id', $this->record->id)->orderByDesc('agreement_date')->orderByDesc('id')->get()
@@ -617,7 +617,7 @@ class EditParty extends EditRecord
                         'cash'          => 'Nakit',
                         'bank_transfer' => 'Havale',
                         'eft'           => 'EFT',
-                        'check'         => config('modules.checks') ? 'Çek' : null,
+                        'check'         => \App\Support\Features::checks() ? 'Çek' : null,
                         'other'         => 'Diğer',
                     ]))
                     ->default('cash')
@@ -630,7 +630,7 @@ class EditParty extends EditRecord
                     ->options(fn () => Project::orderBy('name')->pluck('name', 'id'))
                     ->searchable()
                     ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
-                    ->visible(fn () => config('modules.projects')),
+                    ->visible(fn () => \App\Support\Features::places()),
                 TextInput::make('description')->label('Açıklama')->maxLength(255)->columnSpanFull(),
                 Textarea::make('notes')->label('Not')->rows(2)->columnSpanFull(),
             ])
@@ -836,7 +836,7 @@ class EditParty extends EditRecord
                 Toggle::make('move_deliveries')
                     ->label('Gelen malları da bu projeye taşı')
                     ->helperText('Bu anlaşmadan önceden gelen alış/satışların projesi de değişir.')
-                    ->visible(fn () => (bool) config('modules.projects')),
+                    ->visible(fn () => (bool) \App\Support\Features::places()),
                 Textarea::make('notes')->label('Not')->rows(2),
             ])
             ->action(function (array $data, array $arguments): void {
@@ -844,7 +844,7 @@ class EditParty extends EditRecord
                 $projectId = $data['project_id'] ?? null;
                 \Illuminate\Support\Facades\DB::transaction(function () use ($a, $data, $projectId) {
                     $a->update(['title' => $data['title'], 'project_id' => $projectId, 'notes' => $data['notes'] ?? null]);
-                    if (! ($data['move_deliveries'] ?? false) || ! config('modules.projects')) {
+                    if (! ($data['move_deliveries'] ?? false) || ! \App\Support\Features::places()) {
                         return;
                     }
                     $lines = \App\Models\StockMovement::whereIn('agreement_item_id', $a->items()->pluck('id'));
@@ -1038,7 +1038,7 @@ class EditParty extends EditRecord
      */
     private function getStatementProjects(): array
     {
-        if (! config('modules.projects')) {
+        if (! \App\Support\Features::places()) {
             return []; // projesiz kurulum: ekstrede proje filtresi yok
         }
 
@@ -1164,7 +1164,7 @@ class EditParty extends EditRecord
         $grouped = [];
         foreach ($expenses as $expense) {
             $key  = $expense->project_id ?? 0;
-            $name = $expense->project?->name ?? (config('modules.projects') ? 'Projesiz' : 'Giderler');
+            $name = $expense->project?->name ?? (\App\Support\Features::places() ? 'Projesiz' : 'Giderler');
 
             if (! isset($grouped[$key])) {
                 $grouped[$key] = ['project' => $name, 'total' => 0, 'items' => []];

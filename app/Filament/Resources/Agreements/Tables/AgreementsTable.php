@@ -54,7 +54,7 @@ class AgreementsTable
                 TextColumn::make('project.name')
                     ->label(fn () => Labels::project())
                     ->default('—')
-                    ->visible(fn () => (bool) config('modules.projects'))
+                    ->visible(fn () => (bool) \App\Support\Features::places())
                     ->toggleable(),
 
                 TextColumn::make('agreement_date')->label('Tarih')->date('d.m.Y')->sortable()->toggleable(),
@@ -85,7 +85,7 @@ class AgreementsTable
                 SelectFilter::make('project_id')
                     ->label(fn () => Labels::project())
                     ->relationship('project', 'name')
-                    ->visible(fn () => (bool) config('modules.projects')),
+                    ->visible(fn () => (bool) \App\Support\Features::places()),
             ])
             ->emptyStateHeading('Anlaşma yok')
             ->emptyStateDescription('Carinin sayfasında "🤝 Anlaşma yap" ya da yukarıdaki "Yeni anlaşma" ile eklersin.');

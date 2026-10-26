@@ -44,11 +44,11 @@ class SalesTable
                     ->state(fn (Sale $record) => $record->paymentLabel() ?? 'Veresiye')
                     ->badge()
                     ->color(fn (Sale $record) => $record->isCash() ? 'success' : 'warning')
-                    ->visible(fn () => (bool) config('modules.sales_desk')),
+                    ->visible(fn () => (bool) \App\Support\Features::salesDesk()),
 
                 TextColumn::make('project.name')
                     ->label(Labels::project() === 'Proje' ? 'Şantiye' : Labels::project())
-                    ->visible(fn () => (bool) config('modules.projects'))
+                    ->visible(fn () => (bool) \App\Support\Features::places())
                     ->toggleable(),
 
                 TextColumn::make('lines_count')
@@ -73,7 +73,7 @@ class SalesTable
                 ? 'bg-primary-50 dark:bg-primary-500/10'
                 : null)
             ->filters(array_values(array_filter([
-                config('modules.sales_desk') ? SelectFilter::make('period')
+                \App\Support\Features::salesDesk() ? SelectFilter::make('period')
                     ->label('Dönem')
                     ->options(['today' => 'Bugün', 'month' => 'Bu ay', 'all' => 'Tümü'])
                     ->default('today')

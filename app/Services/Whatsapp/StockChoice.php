@@ -32,7 +32,7 @@ final class StockChoice
     {
         $goods = self::goods($d);
         if ($goods === null || ! empty($d['stock_choice_done']) || ! TradeDraft::enabled()
-            || ! config('modules.stock') || ! config('modules.purchases')) {
+            || ! \App\Support\Features::stock() || ! \App\Support\Features::stockPurchases()) {
             return false;
         }
         if (! in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PAYMENT], true)

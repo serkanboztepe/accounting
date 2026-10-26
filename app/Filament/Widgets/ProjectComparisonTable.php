@@ -19,7 +19,7 @@ class ProjectComparisonTable extends TableWidget
     public function table(Table $table): Table
     {
         // Sözleşmesiz firma: sözleşme / ödenen / teslimat / kalan sütunları yerine maliyet (gider + cari alış) — Proje Raporu ile aynı.
-        $contracts = (bool) config('modules.contracts');
+        $contracts = (bool) \App\Support\Features::contracts();
 
         return $table
             ->query(

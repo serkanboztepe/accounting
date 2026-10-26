@@ -38,7 +38,7 @@ class ContractPaymentResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.contracts');
+        return \App\Support\Features::contracts();
     }
 
     public static function form(Schema $schema): Schema

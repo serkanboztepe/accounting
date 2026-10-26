@@ -32,7 +32,7 @@ class SendRevenuePrompt extends Command
 
     public function handle(WhatsappSender $sender): int
     {
-        if (! config('modules.revenue_prompt') || ! config('modules.sales_desk')) {
+        if (! \App\Support\Features::revenuePrompt() || ! \App\Support\Features::salesDesk()) {
             $this->info('Akşam ciro sorusu kapalı.');
 
             return self::SUCCESS;

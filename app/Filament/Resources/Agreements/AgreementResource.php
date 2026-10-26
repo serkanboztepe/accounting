@@ -33,7 +33,7 @@ class AgreementResource extends Resource
 
     public static function canAccess(): bool
     {
-        return (bool) config('modules.agreements');
+        return (bool) \App\Support\Features::agreements();
     }
 
     public static function table(Table $table): Table

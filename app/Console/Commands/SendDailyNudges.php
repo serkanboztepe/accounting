@@ -27,7 +27,7 @@ class SendDailyNudges extends Command
 
             return self::SUCCESS;
         }
-        if (! config('modules.daily_nudge')) {
+        if (! \App\Support\Features::dailyNudge()) {
             $this->line('Akşam mesajı bu firmada kapalı.');
 
             return self::SUCCESS;

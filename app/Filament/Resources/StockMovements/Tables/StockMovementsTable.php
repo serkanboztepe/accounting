@@ -67,7 +67,7 @@ class StockMovementsTable
 
                 TextColumn::make('project.name')
                     ->label(Labels::project())
-                    ->visible(fn () => (bool) config('modules.projects'))
+                    ->visible(fn () => (bool) \App\Support\Features::places())
                     ->toggleable(),
 
                 TextColumn::make('notes')

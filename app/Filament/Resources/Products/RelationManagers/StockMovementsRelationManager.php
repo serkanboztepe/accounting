@@ -24,7 +24,7 @@ class StockMovementsRelationManager extends RelationManager
 
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
-        return (bool) config('modules.stock');
+        return (bool) \App\Support\Features::stock();
     }
 
     public function table(Table $table): Table

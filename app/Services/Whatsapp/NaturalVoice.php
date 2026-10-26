@@ -38,7 +38,7 @@ final class NaturalVoice
 
     public static function enabled(): bool
     {
-        return (bool) config('modules.natural_voice') && (bool) config('services.anthropic.api_key');
+        return (bool) \App\Support\Features::naturalVoice() && (bool) config('services.anthropic.api_key');
     }
 
     /** @param  string  $summary  kodun hazırladığı özet + alt satır (kalıp) */

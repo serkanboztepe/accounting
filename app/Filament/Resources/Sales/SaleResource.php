@@ -33,7 +33,7 @@ class SaleResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.direct_sales');
+        return \App\Support\Features::stockSales();
     }
 
     /**
@@ -43,17 +43,17 @@ class SaleResource extends Resource
     public static function shouldRegisterNavigation(): bool
     {
         // Satışlar tezgahı açık firmada menüde; diğerlerinde (Yeni Yapı) eskisi gibi gizli.
-        return (bool) config('modules.sales_desk');
+        return (bool) \App\Support\Features::salesDesk();
     }
 
     public static function getNavigationGroup(): ?string
     {
-        return config('modules.sales_desk') ? 'Alış-Satış' : 'Ürün & Stok';
+        return \App\Support\Features::salesDesk() ? 'Alış-Satış' : 'Ürün & Stok';
     }
 
     public static function getNavigationLabel(): string
     {
-        return config('modules.sales_desk') ? 'Satışlar' : 'Direkt Satış';
+        return \App\Support\Features::salesDesk() ? 'Satışlar' : 'Direkt Satış';
     }
 
     public static function form(Schema $schema): Schema

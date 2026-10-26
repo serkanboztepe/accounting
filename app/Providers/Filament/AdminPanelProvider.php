@@ -89,7 +89,7 @@ class AdminPanelProvider extends PanelProvider
 
         return $panel
             // Dashboard kapalıysa giriş/ana sayfa Cariler'e gitsin
-            ->homeUrl(fn (): ?string => config('modules.dashboard')
+            ->homeUrl(fn (): ?string => \App\Support\Features::dashboard()
                 ? null
                 : \App\Filament\Resources\Parties\PartyResource::getUrl('index'))
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')

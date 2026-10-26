@@ -37,7 +37,7 @@ class LandShareStudyResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.land_share');
+        return \App\Support\Features::landShare();
     }
 
     /**

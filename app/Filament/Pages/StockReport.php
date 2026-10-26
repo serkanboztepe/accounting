@@ -22,13 +22,13 @@ class StockReport extends Page
 
     public static function canAccess(): bool
     {
-        return config('modules.stock') && config('modules.report_stock');
+        return \App\Support\Features::stock() && \App\Support\Features::stockReport();
     }
 
     // Proje Raporları açıksa menüde gizli, oradaki sekmeden açılır; kapalıysa (Stoklu satış) Raporlar menüsünde.
     public static function shouldRegisterNavigation(): bool
     {
-        return ! config('modules.report_project') && static::canAccess();
+        return ! \App\Support\Features::placeReports() && static::canAccess();
     }
 
     public function getRows(): array

@@ -53,7 +53,7 @@ final class Understanding
     /** Pilot (assistant_pilot): soru türü, amaç sorusu süzgeci, "80 binin 50'si" ölçek kuralı. Varsayılan kapalı, hub'dan firma firma. */
     public static function pilot(): bool
     {
-        return (bool) config('modules.assistant_pilot');
+        return (bool) \App\Support\Features::assistantPilot();
     }
 
     /** Modele giden ÖNCE ANLA talimatı: modül kapalıyken RULES'un kendisi. */

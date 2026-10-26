@@ -100,7 +100,7 @@ class Calendar extends Page
         $fill = fn () => ['event_date' => Carbon::now(Reminder::TIMEZONE)->toDateString(), 'phone' => $this->phoneOptions()->keys()->first()];
 
         return array_values(array_filter([
-            config('modules.expenses') ? Action::make('addExpense')
+            \App\Support\Features::expenses() ? Action::make('addExpense')
                 ->label('Düzenli gider ekle')
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->modalHeading('Düzenli gider ekle')
@@ -183,7 +183,7 @@ class Calendar extends Page
             $expense ? MoneyInput::make('amount', 'Her seferinde tutar') : null,
             $expense ? Select::make('expense_category_id')->label('Kategori')
                 ->options(fn () => ExpenseCategory::orderBy('name')->pluck('name', 'id'))->searchable() : null,
-            $expense && config('modules.projects')
+            $expense && \App\Support\Features::places()
                 ? Select::make('project_id')->label(Labels::project())->options(fn () => Project::orderBy('name')->pluck('name', 'id'))->searchable()
                 : null,
             DatePicker::make('event_date')->label($expense ? 'İlk gün' : 'Tarih')->required(),

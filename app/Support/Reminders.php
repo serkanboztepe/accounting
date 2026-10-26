@@ -122,7 +122,7 @@ class Reminders
     {
         $note = PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
 
-        if (config('modules.contracts')) {
+        if (\App\Support\Features::contracts()) {
             $remaining = Contract::query()->where('party_id', $party->id)->where('status', 'active')->get()
                 ->sum(fn (Contract $c) => $c->remainingPaymentAmount());
             if ($remaining >= 0.01) {

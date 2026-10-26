@@ -206,7 +206,7 @@ final class RecordsQuery
                 }
             }
         }
-        if (in_array('gider', $t, true) && config('modules.expenses')) {
+        if (in_array('gider', $t, true) && \App\Support\Features::expenses()) {
             $q = self::apply(Expense::with(['party:id,name', 'project:id,name', 'category:id,name']), $f, 'expense_date', 'amount', ['description', 'notes'])
                 ->when($f['category_id'], fn ($q, $id) => $q->where('expense_category_id', $id));
             foreach (self::rows($q) as $e) {

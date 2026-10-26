@@ -40,7 +40,7 @@ class UnitResource extends Resource
     public static function canAccess(): bool
     {
         // Birimler sözleşme/teslimat ve stok/satışta kullanılır.
-        return config('modules.contracts') || config('modules.direct_sales') || config('modules.stock');
+        return \App\Support\Features::contracts() || \App\Support\Features::stockSales() || \App\Support\Features::stock();
     }
 
     public static function form(Schema $schema): Schema

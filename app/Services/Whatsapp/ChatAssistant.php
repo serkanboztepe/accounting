@@ -61,7 +61,7 @@ class ChatAssistant
     public static function enabled(): bool
     {
         // Firma bazında hub → Modüller → "Akıllı WhatsApp asistanı"; .env bayrağı yerel deneme için.
-        return (bool) config('modules.smart_assistant') || (bool) config('services.anthropic.chat_assistant');
+        return (bool) \App\Support\Features::smartAssistant() || (bool) config('services.anthropic.chat_assistant');
     }
 
     /**
@@ -491,14 +491,14 @@ class ChatAssistant
             ])), JSON_UNESCAPED_UNICODE)
             : 'yok';
         $modules = [];
-        if (! config('modules.expenses')) {
+        if (! \App\Support\Features::expenses()) {
             $modules[] = '- Harcama (gider) takibi KAPALI: kişisiz harcamayı kaydedemezsin; birinden mal/hizmet alındıysa "purchase".';
         }
-        if (! config('modules.cari_supplier')) {
+        if (! \App\Support\Features::supplierSide()) {
             $modules[] = '- Tedarikçi tarafı KAPALI: yalnız müşteri tarafı (yaptığımız işler, bize gelen paralar, alacaklar) tutulur; birine ödeme ya da birinden alış kaydedilemez — bunu söyle.';
         }
         // Fiilsiz mesajın varsayılan anlamı işletmeye göre (eski çıkarıcıdaki kural): müteahhitte maliyet, mimarda satış.
-        $modules[] = config('modules.expenses')
+        $modules[] = \App\Support\Features::expenses()
             ? '- Fiil YOKSA ("Abdullah Uçar 2 milyon kaba inşaat", "Ahmet 50 bin sıva") → yaptırdığımız iş = "expense". "sale" yalnız açık fiille ("yaptım", "sattım", "fatura kestim").'
             : '- Fiil YOKSA ya da "… ekle / … yaz" ise ("Bahadır Pir 20000 EKB belgesi ekle", "Ali Bey 80 bin proje") → müşteriye yaptığımız iş = "sale".';
         // Stoklu firmada "stok tutamıyorum" demesin (Çiftlik, 15 Ekim: "elimde ne kadar saman var" reddedildi).
@@ -507,10 +507,10 @@ class ChatAssistant
             $modules[] = '- Stok takibi AÇIK: "ne kadar kaldı" (stock_query), "elimde X var" (stock_count), günlük kullanım / "kaç kalınca haber ver" (stock_setting), ürün tanıtma (product_add) kaydedilir — "stok tutamıyorum" deme. Üretim girişi ("ürettim", "sağdım", "kaldırdım") henüz yok: elde kalan miktarı söylemesini iste, sayım (stock_count) olarak kaydet.';
         }
         // Kartı olmayan mal alışında stok sorusunu KOD sorar (StockChoice, 21.10 Akkuş "börek unu ödemesi" stoğa girmedi).
-        if ($stock && config('modules.purchases')) {
+        if ($stock && \App\Support\Features::stockPurchases()) {
             $modules[] = '- Alış ya da ödeme TEK bir mal içinse (un, yağ, susam, şeker, lastik…) `goods_name` alanına malın adını yaz — adet/fiyat söylenmese de, cari olsun olmasın, gider olarak yazsan bile ("25.000 börek unu ödemesi yapıldı" → "Börek unu"; "3000 tl susam aldım nakit" → "Susam"; "Tokgöz\'e yağ parası verdim" → "Yağ"). Hizmet, işçilik, nakliye, kira, fatura, yakıt, yemek ve karışık market/toptancı alışverişinde null. Malın nerede olduğunu ya da kaç tane geldiğini SEN sorma — kod numaralı soruyla sorar.';
         }
-        if (config('modules.agreements')) {
+        if (\App\Support\Features::agreements()) {
             // 21.10: anlaşma kayıttır (kart, kalan); hafızadaki "X'le Y'den anlaştık → remember" kuralını bu hesapta ezer.
             $modules[] = '- ANLAŞMALAR AÇIK: cariyle ileride gelecek mal / yapılacak iş için fiyat ya da tutar kararlaştırıldıysa ("Ali Usta\'yla '
                 . 'tesisatı 1 milyona anlaştık", "Kuşakla 500 m³ betonu 3800\'den anlaştık", "tuğlanın adedini 8,5\'ten anlaştık") → propose_entry '

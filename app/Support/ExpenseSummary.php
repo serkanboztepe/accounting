@@ -42,7 +42,7 @@ class ExpenseSummary
             ->all();
 
         // Rapor sayfasındaki "Teslimat Maliyeti" ile aynı kaynak (contract_deliveries.project_id).
-        $deliveries = config('modules.contracts')
+        $deliveries = \App\Support\Features::contracts()
             ? (float) ContractDelivery::query()
                 ->whereBetween('delivery_date', [$from, $to])
                 ->when($projectId, fn ($q) => $q->where('project_id', $projectId))
@@ -88,7 +88,7 @@ class ExpenseSummary
         }
         // Müteahhitte projesiz soru ("toplam maliyetim ne", "ne kadar harcadım") da aynı mantık: gider + cari alış, dönem yoksa
         // şu ana kadar, proje proje döküm — Ana sayfadaki "Toplam maliyet" ile aynı (kullanıcı 20.10: "müteahhitte günlük bir şey yok").
-        if (! $projectId && config('app.profile') === 'muteahhit' && config('modules.projects')) {
+        if (! $projectId && config('app.profile') === 'muteahhit' && \App\Support\Features::places()) {
             return self::firmCostText($from, $to);
         }
         $s = self::build($from, $to, $projectId);
@@ -136,7 +136,7 @@ class ExpenseSummary
         if ($from === null && $to === null) {
             $expenses = ProjectCost::expenses($project->id);
             $purchases = ProjectCost::purchases($project->id);
-            $deliveries = config('modules.contracts') ? (float) ContractDelivery::where('project_id', $project->id)->sum('amount') : 0.0;
+            $deliveries = \App\Support\Features::contracts() ? (float) ContractDelivery::where('project_id', $project->id)->sum('amount') : 0.0;
             $label = 'şu ana kadar';
         } else {
             $s = self::build($from, $to, $project->id);
@@ -168,14 +168,14 @@ class ExpenseSummary
 
             return $s['expenses'] + $s['purchases'] + $s['deliveries'];
         };
-        $total = $cost(null) + ($all && config('modules.contracts') ? (float) ContractDelivery::sum('amount') : 0.0);
+        $total = $cost(null) + ($all && \App\Support\Features::contracts() ? (float) ContractDelivery::sum('amount') : 0.0);
         if ($total < 0.01) {
             return '📊 ' . ucfirst($label) . ' maliyet kaydı yok.';
         }
         $lines = ['📊 *Toplam maliyet (' . $label . '): ' . Money::format($total) . ' ₺*'];
         $sum = 0.0;
         foreach (Project::orderBy('id')->get(['id', 'name']) as $p) {
-            $c = $cost($p->id) + ($all && config('modules.contracts') ? (float) ContractDelivery::where('project_id', $p->id)->sum('amount') : 0.0);
+            $c = $cost($p->id) + ($all && \App\Support\Features::contracts() ? (float) ContractDelivery::where('project_id', $p->id)->sum('amount') : 0.0);
             if ($c >= 0.01) {
                 $lines[] = '• ' . $p->name . ': ' . Money::format($c) . ' ₺';
                 $sum += $c;

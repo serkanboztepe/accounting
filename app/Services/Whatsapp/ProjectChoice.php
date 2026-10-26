@@ -57,7 +57,7 @@ final class ProjectChoice
             return false;
         }
 
-        return (bool) config('modules.projects') && in_array($kind, self::KINDS, true);
+        return (bool) \App\Support\Features::places() && in_array($kind, self::KINDS, true);
     }
 
     private static function hasStockItem(array $d): bool

@@ -42,7 +42,7 @@ class ItemsRelationManager extends RelationManager
             ->components([
                 Select::make('product_id')
                     ->label('Katalog (Hizmet / Ürün)')
-                    ->visible(fn () => config('modules.direct_sales') || config('modules.stock'))
+                    ->visible(fn () => \App\Support\Features::stockSales() || \App\Support\Features::stock())
                     ->options(fn () => Product::active()->orderBy('name')->pluck('name', 'id'))
                     ->searchable()
                     ->preload()

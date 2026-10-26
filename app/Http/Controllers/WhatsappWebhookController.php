@@ -641,7 +641,7 @@ class WhatsappWebhookController extends Controller
 
         // "çekler" — vadesi yaklaşan çek listesi (hatırlatmanın devamı). AI'sız, doğrudan veriden.
         // Tek "çek" bekleyen sorunun cevabı olabilir (firma 7 22.10: "el yazısı kelime çek mi?" → "çek" → çek listesi geldi) — o zaman komut değil.
-        if ($numMedia === 0 && config('modules.checks')
+        if ($numMedia === 0 && \App\Support\Features::checks()
             && in_array($this->word($body), ['çekler', 'cekler', 'çeklerim', 'ceklerim', 'çek', 'cek'], true)
             && ! (in_array($this->word($body), ['çek', 'cek'], true) && $this->draftAsking($phone))) {
             $this->inboundKind = 'checks';
@@ -1583,7 +1583,7 @@ class WhatsappWebhookController extends Controller
      */
     private function fastSave(string|array $out, string $phone): string|array
     {
-        if (! is_string($out) || $this->fastSaving || ! config('modules.fast_save') || ! ChatAssistant::enabled()
+        if (! is_string($out) || $this->fastSaving || ! \App\Support\Features::fastSave() || ! ChatAssistant::enabled()
             || in_array($this->inboundKind, self::ANSWER_KINDS, true) || ! str_ends_with(rtrim($out), self::CONFIRM_FOOTER)
             || str_contains($out, '❓') || str_contains($out, '⚠️')) {
             return $out;
@@ -1972,11 +1972,11 @@ class WhatsappWebhookController extends Controller
             return $this->partyListAnswer();
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_DEBT_NOTE
-            && ($data['debt_side'] ?? null) === 'unclear' && ! config('modules.cari_supplier')) {
+            && ($data['debt_side'] ?? null) === 'unclear' && ! \App\Support\Features::supplierSide()) {
             $data['debt_side'] = 'receivable'; // tedarikçi tarafı kapalı: tek olası yön
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_DEBT_NOTE
-            && ($data['debt_side'] ?? null) === 'payable' && ! config('modules.cari_supplier')) {
+            && ($data['debt_side'] ?? null) === 'payable' && ! \App\Support\Features::supplierSide()) {
             // Düzeltmeyle yön "biz borçluyuz" çıktı: eski (ters yönlü) taslak açık kalıp sonra "kaydedeyim mi?"
             // diye hatırlatılmasın (Ferhat, 14 Ekim: Akın Dil borcu alacak olarak hatırlatıldı).
             $pending?->update(['status' => 'superseded']);
@@ -2147,7 +2147,7 @@ class WhatsappWebhookController extends Controller
         }
         $kind = $this->kind($data);
         if ($kind === ExpenseExtractor::KIND_EXPENSE && ($data['paid'] ?? null) === false && ! empty($data['seller_name'])
-            && config('modules.cari_supplier')) {
+            && \App\Support\Features::supplierSide()) {
             $data['kind'] = ExpenseExtractor::KIND_PURCHASE;
             $data['party_id'] = Party::where('name', $data['seller_name'])->value('id');
             $data['party_name'] = $data['party_id'] ? null : $data['seller_name'];
@@ -2160,7 +2160,7 @@ class WhatsappWebhookController extends Controller
             $data['party_id'] = $existing; // aynı adlı cari zaten var — yeni açma, geçmişi buradan
             $data['party_name'] = null;
         }
-        if ($kind === ExpenseExtractor::KIND_PURCHASE && ! config('modules.expenses') && ($data['paid'] ?? null) === null) {
+        if ($kind === ExpenseExtractor::KIND_PURCHASE && ! \App\Support\Features::expenses() && ($data['paid'] ?? null) === null) {
             $habit = DraftGaps::purchaseHabit($this->existingParty($data));
             if ($habit !== null) {
                 $data['paid'] = $habit;
@@ -2854,7 +2854,7 @@ class WhatsappWebhookController extends Controller
         };
 
         // Dekonttaki banka masrafı (FAST + BSMV): gider açıksa ayrı gider; kapalıysa özette söylendi, yazılmaz.
-        if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0 && config('modules.expenses')) {
+        if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0 && \App\Support\Features::expenses()) {
             Expense::create([
                 'expense_category_id' => ExpenseCategory::firstOrCreate(['name' => 'Banka masrafı'])->id,
                 'expense_date' => $d['date'] ?? now()->format('Y-m-d'),
@@ -3541,7 +3541,7 @@ class WhatsappWebhookController extends Controller
                 : 'ℹ️ Önceki alışlar gibi *veresiye* yazdım; ödediysen *ödedim* yaz.';
         }
         if (($fee = (float) ($d['bank_fee'] ?? 0)) > 0) {
-            $lines[] = config('modules.expenses')
+            $lines[] = \App\Support\Features::expenses()
                 ? '🏦 Banka masrafı ' . Money::format($fee) . ' ₺ → gider olarak yazarım (Banka masrafı)'
                 : 'ℹ️ Dekontta ' . Money::format($fee) . ' ₺ banka masrafı var, gider takibi açık olmadığı için kaydetmedim.';
         }
@@ -3608,7 +3608,7 @@ class WhatsappWebhookController extends Controller
         }
 
         $cari = $this->balanceLine($party->name, TurnTrace::statement('WhatsappWebhookController::balanceAnswer', $party)['balance']);
-        $contracts = config('modules.contracts') ? ContractStatus::lines($party) : [];
+        $contracts = \App\Support\Features::contracts() ? ContractStatus::lines($party) : [];
 
         if ($contracts === []) {
             return '📊 ' . $cari;
@@ -3719,7 +3719,7 @@ class WhatsappWebhookController extends Controller
     /** @return \Illuminate\Support\Collection<int, Expense> */
     private function unpaidExpensesWithoutParty(array $filters): \Illuminate\Support\Collection
     {
-        if (! config('modules.expenses')) {
+        if (! \App\Support\Features::expenses()) {
             return collect();
         }
 
@@ -3832,7 +3832,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_STOCK_COUNT => "• Sayım: \"un 9 çuval kaldı\"",
             ExpenseExtractor::KIND_STOCK_SETTING => "• Uyarı / fiyat: \"unu günde 3 kullanıyorum, 6 kala haber ver\", \"unu çuvalı 850'den alıyorum\"",
             ExpenseExtractor::KIND_DEBT_NOTE => "• Alacak / borç: \"Ali'den 40 bin alacağım var\""
-                . (config('modules.cari_supplier') ? ", \"Mehmet'e 15 bin borcum var\"" : ''),
+                . (\App\Support\Features::supplierSide() ? ", \"Mehmet'e 15 bin borcum var\"" : ''),
         ];
         $ask = [
             ExpenseExtractor::KIND_BALANCE_QUERY => "• \"Ahmet'in borcu ne?\"",
@@ -3853,7 +3853,7 @@ class WhatsappWebhookController extends Controller
         $lines[] = '';
         $lines[] = '*Sormak için:*';
         array_push($lines, ...$pick($ask));
-        if (config('modules.checks')) {
+        if (\App\Support\Features::checks()) {
             $lines[] = '• "çekler" (vadesi yaklaşan çeklerin)';
         }
         $lines[] = '';

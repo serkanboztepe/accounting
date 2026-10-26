@@ -76,7 +76,7 @@ class CheckForm
                         ->relationship('project', 'name')
                         ->searchable()
                         ->preload()
-                        ->visible(fn () => (bool) config('modules.projects')),
+                        ->visible(fn () => (bool) \App\Support\Features::places()),
                     // Sözleşme ödemesi: yalnız sözleşme modülünde; okunur ad ("Beton · Kuşak · 20.11.2026 · 1.050.000 ₺").
                     Select::make('contract_payment_id')
                         ->label('Sözleşme ödemesi')
@@ -85,7 +85,7 @@ class CheckForm
                         ->searchable()
                         ->preload()
                         ->live()
-                        ->visible(fn () => (bool) config('modules.contracts'))
+                        ->visible(fn () => (bool) \App\Support\Features::contracts())
                         ->afterStateUpdated(function ($state, Set $set) {
                             if (! $state || ! ($payment = ContractPayment::with('contract')->find($state))) {
                                 return;

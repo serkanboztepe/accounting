@@ -30,7 +30,7 @@ class SendStockReminders extends Command
 
     public function handle(WhatsappSender $sender): int
     {
-        if (! config('modules.stock')) {
+        if (! \App\Support\Features::stock()) {
             $this->info('Stok modülü kapalı.');
 
             return self::SUCCESS;

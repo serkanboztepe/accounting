@@ -143,7 +143,7 @@ class TradeLines
     private static function stockHint(mixed $productId, float $qty, string $direction): ?string
     {
         $product = $productId ? Product::with('unit')->find($productId) : null;
-        if (! $product || ! $product->isProduct() || ! config('modules.stock')) {
+        if (! $product || ! $product->isProduct() || ! \App\Support\Features::stock()) {
             return null;
         }
 

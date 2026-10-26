@@ -228,7 +228,7 @@ class ConversationAnalyzer
         $kinds = implode(', ', array_map(fn ($k) => self::KIND_LABELS[$k] ?? $k, ExpenseExtractor::allowedKinds()));
 
         $lines = ['### Firma: ' . ($firm?->name ?? config('app.name')) . ' (sektör: ' . (config('app.profile') ?: 'hepsi açık') . ')',
-            'Bu firmada asistanın yapabildikleri: ' . $kinds . (config('modules.checks') ? ', "çekler" listesi' : '') . ', "nasıl" rehberi.'];
+            'Bu firmada asistanın yapabildikleri: ' . $kinds . (\App\Support\Features::checks() ? ', "çekler" listesi' : '') . ', "nasıl" rehberi.'];
 
         foreach ($messages->groupBy('phone') as $phone => $rows) {
             $lines[] = '';

@@ -37,7 +37,7 @@ final class OnBehalfChoice
             ['party_id' => $party->id]);
         $customer = array_intersect($types, [PartyLedgerEntry::TYPE_COLLECTION, PartyLedgerEntry::TYPE_SALE]) !== [];
         $supplier = array_intersect($types, [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PURCHASE_RETURN]) !== []
-            || (config('modules.purchases') && TurnTrace::read('OnBehalfChoice::applies.purchases', fn () => Purchase::where('party_id', $party->id)->exists(),
+            || (\App\Support\Features::stockPurchases() && TurnTrace::read('OnBehalfChoice::applies.purchases', fn () => Purchase::where('party_id', $party->id)->exists(),
                 ['party_id' => $party->id]));
 
         return $customer && ! $supplier;

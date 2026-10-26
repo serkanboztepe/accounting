@@ -54,7 +54,7 @@ class TradeDraft
 
         // Gider sanılan katalog malı ("20 çuval un aldım") → alış belgesi (stoğa girsin).
         if (in_array($kind, [ExpenseExtractor::KIND_EXPENSE, ExpenseExtractor::KIND_PURCHASE], true)
-            && config('modules.purchases') && config('modules.stock') && empty($d['settles_expense_id'])) {
+            && \App\Support\Features::stockPurchases() && \App\Support\Features::stock() && empty($d['settles_expense_id'])) {
             $product = self::productFromItems($d['items'] ?? []) ?? (empty($d['items']) ? self::mentionedProduct((string) ($d['description'] ?? '')) : null);
             // AI'ın adlandırdığı mal kartın adını niteliyorsa ("Börek unu" ↔ "Un") başka üründür — stok sorusu (StockChoice) yürür.
             if ($product && ($goods = trim((string) ($d['goods_name'] ?? ''))) !== '' && ! self::goodsMatch($goods)) {
@@ -74,7 +74,7 @@ class TradeDraft
         // Alış ama katalogda mal yok: adetle sayılan mal ("20 çuval un") → yeni ürün kartı önerilir (onayla);
         // adetsiz masraf (mazot, kira) → gider (gider takibi açıksa); kapalıysa ürünsüz alış.
         if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && ! self::hasCatalogItem($d['items'] ?? [])
-            && ! self::hasNewProductItem($d['items'] ?? []) && config('modules.expenses')) {
+            && ! self::hasNewProductItem($d['items'] ?? []) && \App\Support\Features::expenses()) {
             $d['kind'] = ExpenseExtractor::KIND_EXPENSE;
             $d['items'] = [];
 
@@ -82,7 +82,7 @@ class TradeDraft
         }
 
         // Basit cari satış / "alacak" sanılan mal satışı → satış belgesi.
-        if (config('modules.sales_desk') && in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true)
+        if (\App\Support\Features::salesDesk() && in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE], true)
             && ($kind === ExpenseExtractor::KIND_SALE || ($d['debt_side'] ?? null) === 'receivable')
             && (self::hasCatalogItem($d['items'] ?? []) || (empty($d['items']) && self::mentionedProduct((string) ($d['description'] ?? ''))))) {
             $d['kind'] = $kind = ExpenseExtractor::KIND_TRADE_SALE;
@@ -363,7 +363,7 @@ class TradeDraft
     /** Alışta kartta olmayan mal var mı ("gider" cevabıyla gidere çevrilebilir). */
     public static function canBecomeExpense(array $d): bool
     {
-        return ($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE && config('modules.expenses')
+        return ($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE && \App\Support\Features::expenses()
             && self::hasNewProductItem($d['items'] ?? []);
     }
 
@@ -710,7 +710,7 @@ class TradeDraft
 
         // K4: aynı mesajdaki gider ayrı kayıt.
         $extraText = '';
-        if (($extra = (float) ($d['extra_expense']['amount'] ?? 0)) > 0 && config('modules.expenses')) {
+        if (($extra = (float) ($d['extra_expense']['amount'] ?? 0)) > 0 && \App\Support\Features::expenses()) {
             Expense::create([
                 'expense_date' => $d['date'] ?? now()->toDateString(),
                 'amount' => Money::store($extra),
@@ -751,7 +751,7 @@ class TradeDraft
         if ($purchases['total'] > 0) {
             $parts[] = 'alış ' . Money::format($purchases['total']);
         }
-        if (config('modules.expenses') && ($exp = (float) Expense::whereDate('expense_date', $date)->sum('amount')) > 0) {
+        if (\App\Support\Features::expenses() && ($exp = (float) Expense::whereDate('expense_date', $date)->sum('amount')) > 0) {
             $parts[] = 'gider ' . Money::format($exp);
         }
         $lines = ['📊 *' . ($isToday ? 'Bugün' : Carbon::parse($date)->locale('tr')->translatedFormat('j F')) . ':* ' . implode(' · ', $parts) . ' ₺'];
@@ -1026,7 +1026,7 @@ class TradeDraft
     /** Proje / şube: seçilen ya da mesajda adı geçen (yeni ad ise açılır). */
     private static function projectId(array $d): ?int
     {
-        if (! config('modules.projects')) {
+        if (! \App\Support\Features::places()) {
             return null;
         }
         if (! empty($d['project_id'])) {
@@ -1044,7 +1044,7 @@ class TradeDraft
     {
         if ($d['kind'] === ExpenseExtractor::KIND_MONTH_RESULT) {
             // Şube sorusu ("dünkü Ergenekon ciro") — yalnız mevcut şube; soru cevabında yeni şube açılmaz.
-            $branch = config('modules.projects') && ! empty($d['project_id']) ? (int) $d['project_id'] : null;
+            $branch = \App\Support\Features::places() && ! empty($d['project_id']) ? (int) $d['project_id'] : null;
             if (! empty($d['date_from'])) {
                 $from = Carbon::parse($d['date_from']);
                 $to = ! empty($d['date_to']) ? Carbon::parse($d['date_to']) : $from->copy();

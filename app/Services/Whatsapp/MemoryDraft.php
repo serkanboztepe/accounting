@@ -68,7 +68,7 @@ final class MemoryDraft
         // Hafıza bir şeyi kendiliğinden YAPMAZ (Çiftlik 18.10: "her gün ekmek gideri ekle" hafızaya söz olarak yazıldı, hiç girilmedi).
         if (self::promisesAction((string) $d['memory_fact'])) {
             return 'Bunu hafızaya söz olarak yazmayayım — hafıza kendiliğinden kayıt açmaz. '
-                . (config('modules.expenses') ? 'Her gün/ay tekrarlanan gider için *her gün çobanlara ekmek 34,60 gider yaz* gibi yazarsan düzenli gider olarak kurarım; ' : '')
+                . (\App\Support\Features::expenses() ? 'Her gün/ay tekrarlanan gider için *her gün çobanlara ekmek 34,60 gider yaz* gibi yazarsan düzenli gider olarak kurarım; ' : '')
                 . 'stoktan her gün düşmek için *yem günde 16 gidiyor* yazman yeterli.';
         }
 

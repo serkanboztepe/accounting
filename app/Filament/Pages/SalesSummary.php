@@ -27,7 +27,7 @@ class SalesSummary extends Page
     {
         // Satışlar ekranı açıkken yok: bu özet yalnız ürün satırlarını sayar (ürünsüz satış / akşam cirosu
         // dışarıda kalır) ve Ay Sonucu'ndan farklı ciro gösterirdi. Ciro orada + Satışlar'ın Bugün / Bu ay özetinde.
-        return config('modules.direct_sales') && config('modules.report_sales') && ! config('modules.sales_desk');
+        return \App\Support\Features::stockSales() && \App\Support\Features::salesReport() && ! \App\Support\Features::salesDesk();
     }
 
     // Menüde gizli — "Raporlar" (Proje Raporları) sayfasındaki sekmeden açılır.

@@ -70,7 +70,7 @@ class CheckResource extends Resource
 
     public static function canAccess(): bool
     {
-        return config('modules.checks');
+        return \App\Support\Features::checks();
     }
 
     public static function form(Schema $schema): Schema

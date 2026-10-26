@@ -38,7 +38,7 @@ class Agenda
             $items->push(['date' => $due['date'], 'time' => null, 'text' => DueItems::line($due), 'type' => $due['kind'], 'phone' => null]);
         }
 
-        if (config('modules.checks')) {
+        if (\App\Support\Features::checks()) {
             foreach (CheckReminders::upcoming()->with(['party', 'ledgerEntry'])->whereBetween('due_date', [$from->toDateString(), $to->toDateString()])->get() as $c) {
                 $items->push(['date' => $c->due_date->toDateString(), 'time' => null,
                     'text' => (CheckReminders::isReceived($c) ? 'Alınan çek: ' : 'Çek: ') . ($c->party?->name ?? 'cari yok') . ' ' . Money::format((float) $c->amount) . ' ₺', 'type' => 'check', 'phone' => null]);

@@ -76,12 +76,12 @@ class SaleForm
                 ->columnSpanFull()
                 // Satışlar tezgahı açıkken ürünsüz satış olabilir (toplu ciro).
                 // "Anlaşmadan" sekmesinde kalem işaretliyse (cari Satış Yaptım) kalemsiz de kaydedilir.
-                ->minItems(fn (Get $get) => config('modules.sales_desk') || AgreementForm::anyTaken($get) ? 0 : 1)
+                ->minItems(fn (Get $get) => \App\Support\Features::salesDesk() || AgreementForm::anyTaken($get) ? 0 : 1)
                 ->schema([
                     Select::make('product_id')
                         ->label('Ürün')
                         ->options(fn () => Product::active()
-                            ->when(! config('modules.sales_desk'), fn ($q) => $q->where('type', Product::TYPE_PRODUCT))
+                            ->when(! \App\Support\Features::salesDesk(), fn ($q) => $q->where('type', Product::TYPE_PRODUCT))
                             ->orderBy('name')
                             ->pluck('name', 'id'))
                         ->searchable()
@@ -131,7 +131,7 @@ class SaleForm
                         ->columnSpan(3),
                 ]),
 
-            config('modules.sales_desk') ? MoneyInput::make('manual_amount', 'Ürünsüz tutar')
+            \App\Support\Features::salesDesk() ? MoneyInput::make('manual_amount', 'Ürünsüz tutar')
                 ->required(false)
                 ->helperText('Ürün seçmeden satış / toplu ciro.') : null,
 

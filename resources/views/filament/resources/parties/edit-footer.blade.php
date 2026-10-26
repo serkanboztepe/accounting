@@ -1,7 +1,7 @@
 <div class="space-y-6 -mt-[30px]">
 
     {{-- Anlaşmalar — modül açık ve bu caride anlaşma varsa; ekstrenin üstünde (kalanı tek bakışta) --}}
-    @if (config('modules.agreements') && ($agreements['open']->isNotEmpty() || $agreements['finished']->isNotEmpty()))
+    @if (\App\Support\Features::agreements() && ($agreements['open']->isNotEmpty() || $agreements['finished']->isNotEmpty()))
         @include('filament.resources.parties.agreements')
     @endif
 
@@ -19,7 +19,7 @@
         {{-- Yeni hareket girişi — tek sıra. Düğmeler esnafın ağzından; ekstre/PDF tarafsız dilde kalır
              (Satış / Tahsilat / Alış / Ödeme) — müşteriye giden belge. --}}
         <div class="mb-4 flex flex-wrap gap-2">
-            @if (config('modules.direct_sales'))
+            @if (\App\Support\Features::stockSales())
                 {{-- Takipli: kalemli satış (stok düşer + cari borç) --}}
                 <x-filament::button color="info" icon="heroicon-o-shopping-cart"
                     wire:click="mountAction('newSale')">
@@ -36,32 +36,32 @@
                 wire:click="mountAction('newCollection')">
                 Ödeme Aldım
             </x-filament::button>
-            @if (config('modules.direct_sales'))
+            @if (\App\Support\Features::stockSales())
                 {{-- Müşteri-merkezli iade: tüm satışlarının iade edilebilir kalemleri tek listede --}}
                 <x-filament::button color="warning" icon="heroicon-o-arrow-uturn-left"
                     wire:click="mountAction('returnEntry')">
                     İade Al
                 </x-filament::button>
             @endif
-            @if (config('modules.purchases'))
+            @if (\App\Support\Features::stockPurchases())
                 {{-- Stoklu: ürünler stoğa girer (ürünsüz tutar da yazılabilir) — Alışlar tezgahıyla aynı kayıt --}}
                 <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
                     wire:click="mountAction('newPurchase')">
                     Alım Yaptım
                 </x-filament::button>
-            @elseif (config('modules.cari_supplier'))
+            @elseif (\App\Support\Features::supplierSide())
                 <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
                     wire:click="mountAction('newLedgerEntry', { type: 'alis' })">
                     Alım Yaptım
                 </x-filament::button>
             @endif
-            @if (config('modules.cari_supplier'))
+            @if (\App\Support\Features::supplierSide())
                 <x-filament::button color="danger" icon="heroicon-o-arrow-up-circle"
                     wire:click="mountAction('newLedgerEntry', { type: 'odeme' })">
                     Ödeme Yaptım
                 </x-filament::button>
             @endif
-            @if (config('modules.agreements'))
+            @if (\App\Support\Features::agreements())
                 <x-filament::button color="gray" icon="heroicon-o-hand-raised"
                     wire:click="mountAction('newAgreement')">
                     🤝 Anlaşma yap
@@ -233,7 +233,7 @@
     @endif
 
     {{-- Sözleşmeler — sözleşme modülü kapalıysa gizli --}}
-    @if (config('modules.contracts'))
+    @if (\App\Support\Features::contracts())
     <x-filament::section heading="Sözleşmeler">
         <div class="space-y-3">
             @forelse ($contracts as $row)

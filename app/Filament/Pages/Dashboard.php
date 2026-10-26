@@ -37,12 +37,12 @@ class Dashboard extends BaseDashboard
      */
     public static function shouldRegisterNavigation(): bool
     {
-        return config('modules.dashboard');
+        return \App\Support\Features::dashboard();
     }
 
     public function mount(): void
     {
-        if (! config('modules.dashboard')) {
+        if (! \App\Support\Features::dashboard()) {
             $this->redirect(\App\Filament\Resources\Parties\PartyResource::getUrl('index'));
 
             return;
@@ -100,15 +100,15 @@ class Dashboard extends BaseDashboard
 
         // Sözleşmesiz firma (sade müteahhit): aynı ana sayfa, sözleşmeye dayanan bölümler yok; tedarikçi/taşeron
         // Top 5 (sözleşmeden okur) yerine cari alışından "En çok alış yapılan 5 cari".
-        if (! config('modules.contracts')) {
+        if (! \App\Support\Features::contracts()) {
             return array_values(array_filter([
                 PurchaseOverviewCard::class,
                 PayablesReminderWidget::class,
-                config('modules.checks') ? MonthlyCheckPaymentsChart::class : null,
-                config('modules.projects') ? ProjectComparisonTable::class : null,
+                \App\Support\Features::checks() ? MonthlyCheckPaymentsChart::class : null,
+                \App\Support\Features::places() ? ProjectComparisonTable::class : null,
                 TopPurchasePartiesTable::class,
-                config('modules.checks') ? UpcomingChecksTable::class : null,
-                config('modules.checks') ? OverdueChecksTable::class : null,
+                \App\Support\Features::checks() ? UpcomingChecksTable::class : null,
+                \App\Support\Features::checks() ? OverdueChecksTable::class : null,
             ]));
         }
 

@@ -36,7 +36,7 @@ class PurchaseResource extends Resource
 
     public static function canAccess(): bool
     {
-        return (bool) config('modules.purchases');
+        return (bool) \App\Support\Features::stockPurchases();
     }
 
     public static function form(Schema $schema): Schema

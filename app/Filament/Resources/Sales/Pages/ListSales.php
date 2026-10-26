@@ -50,7 +50,7 @@ class ListSales extends ListRecords
 
     public static function deskEnabled(): bool
     {
-        return (bool) config('modules.sales_desk');
+        return (bool) \App\Support\Features::salesDesk();
     }
 
     public function mount(): void
@@ -110,7 +110,7 @@ class ListSales extends ListRecords
                     ->label(fn () => Labels::project())
                     ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
-                    ->visible(fn () => (bool) config('modules.projects'))
+                    ->visible(fn () => (bool) \App\Support\Features::places())
                     ->required(fn (Get $get) => $get('mode') === 'cash' && \App\Models\Project::whereNotIn('status', ['cancelled'])->count() > 1),
 
                 Select::make('party_id')

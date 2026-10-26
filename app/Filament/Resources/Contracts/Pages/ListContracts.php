@@ -19,7 +19,7 @@ class ListContracts extends ListRecords
             Action::make('createPurchase')
                 ->label('Alım Sözleşmesi')
                 ->icon(Heroicon::OutlinedShoppingBag)
-                ->visible(fn () => (bool) config('modules.purchase_contracts'))
+                ->visible(fn () => (bool) \App\Support\Features::purchaseContracts())
                 ->url(ContractResource::getUrl('create', ['direction' => Contract::DIRECTION_PURCHASE])),
 
             // Satış butonu — sadece alım yapan firmada gizlenebilir (liste yine satışları gösterir).
@@ -27,7 +27,7 @@ class ListContracts extends ListRecords
                 ->label('Satış Sözleşmesi')
                 ->icon(Heroicon::OutlinedBanknotes)
                 ->color('success')
-                ->visible(fn () => (bool) config('modules.sales_contracts'))
+                ->visible(fn () => (bool) \App\Support\Features::salesContracts())
                 ->url(ContractResource::getUrl('create', ['direction' => Contract::DIRECTION_SALE])),
         ];
     }

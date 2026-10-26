@@ -115,7 +115,7 @@ class ListPurchases extends ListRecords
                     ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
                     ->helperText(fn () => 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
-                    ->visible(fn (Get $get) => config('modules.projects') && empty($get('lines')))
+                    ->visible(fn (Get $get) => \App\Support\Features::places() && empty($get('lines')))
                     ->columnSpan(['default' => 1, 'md' => 2]),
 
                 MoneyInput::make('manual_amount', 'Ürünsüz tutar')

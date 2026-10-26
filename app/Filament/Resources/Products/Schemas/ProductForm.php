@@ -25,12 +25,12 @@ class ProductForm
             Radio::make('type')
                 ->label('Tür')
                 ->options(Product::TYPE_LABELS)
-                ->default(fn () => config('modules.stock') ? Product::TYPE_PRODUCT : Product::TYPE_SERVICE)
+                ->default(fn () => \App\Support\Features::stock() ? Product::TYPE_PRODUCT : Product::TYPE_SERVICE)
                 ->inline()
                 ->required()
                 ->live()
                 ->dehydrated(true)
-                ->visible(fn () => (bool) config('modules.stock'))
+                ->visible(fn () => (bool) \App\Support\Features::stock())
                 ->helperText('Ürün stoktan takip edilir; Hizmet stoksuzdur (sadece varsayılan fiyat).')
                 ->columnSpanFull(),
 
@@ -51,14 +51,14 @@ class ProductForm
                 ->preload(),
 
             MoneyInput::make('default_price', 'Varsayılan fiyat')
-                ->label(fn () => config('modules.purchases') ? 'Satış fiyatı' : 'Varsayılan fiyat')
+                ->label(fn () => \App\Support\Features::stockPurchases() ? 'Satış fiyatı' : 'Varsayılan fiyat')
                 ->required(false)
                 ->helperText('Teslimat/satışta seçilince otomatik gelir; düzenlenebilir.'),
 
             // Alışlar ekranı açık firmada: alışta gelen fiyat (her alışta kendiliğinden güncellenir).
             MoneyInput::make('purchase_price', 'Alış fiyatı')
                 ->required(false)
-                ->visible(fn () => (bool) config('modules.purchases'))
+                ->visible(fn () => (bool) \App\Support\Features::stockPurchases())
                 ->helperText('Alışta fiyat yazılmazsa bu kullanılır; her alışta son fiyatla güncellenir.'),
 
             Toggle::make('is_active')
@@ -69,7 +69,7 @@ class ProductForm
             // isteğe bağlı (fırın: "günde 3 çuval un kullanıyorum").
             Section::make('Stok uyarısı')
                 ->description('Stok azalınca sabah 08:00\'de WhatsApp\'tan haber verilir.')
-                ->visible(fn (Get $get) => config('modules.stock') && $get('type') === Product::TYPE_PRODUCT)
+                ->visible(fn (Get $get) => \App\Support\Features::stock() && $get('type') === Product::TYPE_PRODUCT)
                 ->schema([
                     TextInput::make('reorder_level')
                         ->label('Kaç tane kalınca haber verilsin?')
