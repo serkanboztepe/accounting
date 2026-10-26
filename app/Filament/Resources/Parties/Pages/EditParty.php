@@ -144,7 +144,9 @@ class EditParty extends EditRecord
             },
 
             // "Anlaşmadan" sekmesinde kalem işaretlendiyse anlaşma dışı tutar boş bırakılabilir.
-            MoneyInput::make('amount', 'Tutar')->required(fn (Get $get) => ! AgreementForm::anyTaken($get)),
+            MoneyInput::make('amount', 'Tutar')->required(fn (Get $get) => ! AgreementForm::anyTaken($get))
+                // "Hangisi için?" cümleleri tutara göre güncellensin (ödeme ve düzenleme).
+                ->live(onBlur: in_array($type, [null, PartyLedgerEntry::TYPE_PAYMENT], true)),
 
             Select::make('project_id')
                 ->label(Labels::project() . ' (opsiyonel)')
@@ -226,8 +228,10 @@ class EditParty extends EditRecord
             ->modalSubmitActionLabel('Kaydet')
             ->schema(fn (array $arguments): array => $this->withAgreementTabs(self::AGREEMENT_TYPES[$arguments['type'] ?? ''] ?? null, [
                 ...$this->ledgerFormSchema($arguments['type'] ?? null),
-                ...(($arguments['type'] ?? null) === PartyLedgerEntry::TYPE_PAYMENT ? $this->paymentMethodSchema() : []),
+                ...(($arguments['type'] ?? null) === PartyLedgerEntry::TYPE_PAYMENT
+                    ? [...$this->paymentMethodSchema(), $this->agreementChoiceField(PartyLedgerEntry::TYPE_PAYMENT)] : []),
             ], keep: ['entry_date']))
+            ->mountUsing(fn (?Schema $schema, array $arguments) => $this->fillWithAgreement($schema, $arguments))
             ->action(function (array $data, array $arguments, Action $action): void {
                 // "Anlaşmadan" sekmesinde işaretlenenler (Alım/Satış Yaptım) önce; anlaşma dışı tutar boşsa başka kayıt yok.
                 [$agreementLines, $agreementProject, $priceToRest, $data] = AgreementForm::extract($data);
@@ -238,10 +242,12 @@ class EditParty extends EditRecord
                 }
                 // Çekle ödeme (Faz 2.3): çeklerin toplamı ödeme tutarını tutmalı — tutmazsa kaydetmeden uyar.
                 $cheques = $this->chequesOrHalt($data, $action, 'ödeme');
-                unset($data['cheques']);
+                $agreementId = \App\Support\Forms\AgreementPaymentChoice::agreementId($data['agreement_choice'] ?? null, $this->record->id);
+                unset($data['cheques'], $data['agreement_choice']);
                 $entry = $this->record->ledgerEntries()->create([
                     ...$data,
                     'type' => $arguments['type'] ?? null,
+                    'agreement_id' => ($arguments['type'] ?? null) === PartyLedgerEntry::TYPE_PAYMENT ? $agreementId : null,
                 ]);
                 foreach ($cheques as $c) {
                     Check::create([
@@ -300,8 +306,10 @@ class EditParty extends EditRecord
                     $data['sale_date'], $action);
                 // Peşin: anlaşmadan teslim edilenin tahsilatı da (satış penceresiyle aynı kural).
                 if ($delivered && ! empty($data['collected_now'])) {
-                    $this->collectNow($delivered['documents']->sum(fn ($d) => (float) $d->total_amount), $data, $data['sale_date'],
-                        'Peşin tahsilat — anlaşma teslimatı');
+                    foreach ($delivered['documents'] as $doc) {
+                        $this->collectNow((float) $doc->total_amount, $data, $data['sale_date'], 'Peşin tahsilat — anlaşma teslimatı',
+                            \App\Support\AgreementBalances::agreementOfDocument('sale_id', $doc->id));
+                    }
                 }
                 if ($delivered && ! TradeLines::hasLines($data['lines'] ?? []) && Money::parse($data['manual_amount'] ?? null) <= 0) {
                     return; // yalnız anlaşma teslimatı
@@ -325,12 +333,13 @@ class EditParty extends EditRecord
     }
 
     /** Peşin tahsilat satırı (+ çekse portföye) — Satış Yaptım'ın "Tahsil edildi" seçeneği. */
-    private function collectNow(float $amount, array $data, string $date, string $description): void
+    private function collectNow(float $amount, array $data, string $date, string $description, ?int $agreementId = null): void
     {
         if ($amount <= 0) {
             return;
         }
         $entry = $this->record->ledgerEntries()->create([
+            'agreement_id' => $agreementId,
             'entry_date'   => $date,
             'amount'       => $amount,
             'project_id'   => $data['project_id'] ?? null,
@@ -585,18 +594,95 @@ class EditParty extends EditRecord
                 ->find($arguments['item']);
     }
 
-    /** Cari sayfasındaki kartlar: açıklar üstte, bitenler/kapatılanlar ayrı. */
+    /**
+     * Cari sayfasındaki anlaşma tablosu (26.10): Anlaşılan · Gelen · Ödenen · Borç · Gelecek mal + "Diğer alışlar / satışlar" satırı.
+     * Bitmiş / kapatılmış ve borcu kalmamış anlaşma arşive iner (görünmez, "Arşiv (N)" ile açılır).
+     */
     private function getAgreementCards(): array
     {
         if (! \App\Support\Features::agreements()) {
-            return ['open' => collect(), 'finished' => collect()];
+            return ['active' => [], 'archived' => [], 'other' => []];
         }
-        $all = Agreement::where('party_id', $this->record->id)->orderByDesc('agreement_date')->orderByDesc('id')->get()
-            ->each(fn (Agreement $a) => $a->loadForCard());
+        $data = \App\Support\AgreementBalances::forParty($this->record);
+        $rows = collect($data['rows']);
+        $directions = $rows->map(fn ($r) => $r['agreement']->direction)->unique();
+
         return [
-            'open'     => $all->where('status', Agreement::STATUS_OPEN)->values(),
-            'finished' => $all->where('status', '!=', Agreement::STATUS_OPEN)->values(),
+            'active'   => $rows->reject(fn ($r) => $r['archived'])->values()->all(),
+            'archived' => $rows->filter(fn ($r) => $r['archived'])->values()->all(),
+            // Diğer satırı yalnız o yönde anlaşma varsa (alış anlaşması yoksa "Diğer alışlar" anlamsız).
+            'other'    => collect([Agreement::DIRECTION_PURCHASE, Agreement::DIRECTION_SALE])
+                ->filter(fn ($d) => $directions->contains($d))
+                ->mapWithKeys(fn ($d) => [$d => $data['other'][$d]])->all(),
         ];
+    }
+
+    /** "Hangisi için?" — bu carinin anlaşmaları (Ödeme Yaptım / Ödeme Aldım / hareketi düzenle / Bağla). */
+    private function agreementChoiceField(\Closure|string $ledgerType, ?\Closure $editing = null): \Filament\Forms\Components\Radio
+    {
+        return \App\Support\Forms\AgreementPaymentChoice::field(fn () => $this->record, $ledgerType, 'amount', $editing);
+    }
+
+    /** Özetten "Ödeme yap / al" ile açılınca anlaşma seçili gelir; diğer alanlar varsayılanlarıyla. */
+    private function fillWithAgreement(?Schema $schema, array $arguments): void
+    {
+        $schema?->fill();
+        if ($schema && ! empty($arguments['agreement'])) {
+            $schema->fill([...$schema->getRawState(), 'agreement_choice' => (string) $arguments['agreement']]);
+        }
+    }
+
+    /** Argümandaki cari hareketi — yalnız bu carinin. */
+    private function ledgerEntryArg(array $arguments): ?PartyLedgerEntry
+    {
+        return empty($arguments['entry']) ? null : PartyLedgerEntry::where('party_id', $this->record->id)->find($arguments['entry']);
+    }
+
+    /** Ekstrede anlaşmaya bağlı olmayan ödemenin yanındaki "Bağla": aynı "Hangisi için?" listesi. */
+    public function linkAgreementAction(): Action
+    {
+        return Action::make('linkAgreement')
+            ->modalHeading(fn (array $arguments): string => ($e = $this->ledgerEntryArg($arguments))
+                ? $e->typeLabel() . ' ' . \App\Support\AgreementBalances::money((float) $e->amount) . ' ₺ · ' . $e->entry_date?->format('d.m.Y') : 'Bağla')
+            ->modalSubmitActionLabel('Kaydet')
+            ->modalWidth('2xl')
+            ->fillForm(fn (array $arguments): array => [
+                'amount' => $this->ledgerEntryArg($arguments)?->amount,
+                'agreement_choice' => $this->ledgerEntryArg($arguments)?->agreement_id,
+            ])
+            ->schema(fn (array $arguments): array => [
+                Hidden::make('amount'),
+                $this->agreementChoiceField((string) $this->ledgerEntryArg($arguments)?->type, fn () => $this->ledgerEntryArg($arguments)),
+            ])
+            ->action(function (array $data, array $arguments): void {
+                $entry = $this->ledgerEntryArg($arguments);
+                if (! $entry || ! \App\Support\AgreementBalances::directionFor((string) $entry->type)) {
+                    return;
+                }
+                $entry->update(['agreement_id' => \App\Support\Forms\AgreementPaymentChoice::agreementId($data['agreement_choice'] ?? null, $this->record->id)]);
+                Notification::make()->success()->title('Kaydedildi')->send();
+            });
+    }
+
+    /** Anlaşma özeti — yandan açılır: anlaşılan, gelen, ödenen, bekleyen çek, borç, gelecek mal + teslimat ve ödeme listeleri. */
+    public function agreementSummaryAction(): Action
+    {
+        return Action::make('agreementSummary')
+            ->modalHeading(fn (array $arguments): string => ($a = $this->agreementArg($arguments)) ? \App\Support\AgreementBalances::label($a) : 'Anlaşma')
+            ->slideOver()
+            ->modalWidth('2xl')
+            ->modalContent(fn (array $arguments) => view('filament.resources.parties.agreement-summary',
+                \App\Support\AgreementSummary::build($this->agreementArg($arguments))))
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Kapat')
+            ->extraModalFooterActions(fn (array $arguments): array => ($a = $this->agreementArg($arguments)) ? [
+                Action::make('payFromSummary')
+                    ->label($a->isPurchase() ? 'Ödeme yap' : 'Ödeme al')
+                    ->color('primary')
+                    ->action(fn () => $a->isPurchase()
+                        ? $this->replaceMountedAction('newLedgerEntry', ['type' => PartyLedgerEntry::TYPE_PAYMENT, 'agreement' => $a->id])
+                        : $this->replaceMountedAction('newCollection', ['agreement' => $a->id])),
+            ] : []);
     }
 
     /**
@@ -608,9 +694,10 @@ class EditParty extends EditRecord
         return Action::make('newCollection')
             ->modalHeading(fn (): string => 'Ödeme Aldım · ' . $this->record->name . ' borcu azalır')
             ->modalSubmitActionLabel('Kaydet')
+            ->mountUsing(fn (?Schema $schema, array $arguments) => $this->fillWithAgreement($schema, $arguments))
             ->schema([
                 DatePicker::make('entry_date')->label('Tarih')->default(now())->required(),
-                MoneyInput::make('amount', 'Tutar'),
+                MoneyInput::make('amount', 'Tutar')->live(onBlur: true),
                 Select::make('payment_type')
                     ->label('Ödeme Yöntemi')
                     ->options(array_filter([
@@ -631,12 +718,14 @@ class EditParty extends EditRecord
                     ->searchable()
                     ->helperText('Etiket/çıktı içindir — proje maliyet raporuna girmez.')
                     ->visible(fn () => \App\Support\Features::places()),
+                $this->agreementChoiceField(PartyLedgerEntry::TYPE_COLLECTION),
                 TextInput::make('description')->label('Açıklama')->maxLength(255)->columnSpanFull(),
                 Textarea::make('notes')->label('Not')->rows(2)->columnSpanFull(),
             ])
             ->action(function (array $data, Action $action): void {
                 $cheques = $this->chequesOrHalt($data, $action, 'tahsilat');
                 $entry = $this->record->ledgerEntries()->create([
+                    'agreement_id' => \App\Support\Forms\AgreementPaymentChoice::agreementId($data['agreement_choice'] ?? null, $this->record->id),
                     'entry_date'   => $data['entry_date'],
                     'amount'       => $data['amount'],
                     'project_id'   => $data['project_id'] ?? null,
@@ -828,15 +917,20 @@ class EditParty extends EditRecord
             ->fillForm(function (array $arguments): array {
                 $a = $this->agreementArg($arguments);
 
-                return ['title' => $a->title, 'project_id' => $a->project_id, 'notes' => $a->notes, 'move_deliveries' => true];
+                return ['title' => $a->title, 'project_id' => $a->project_id, 'notes' => $a->notes, 'move_deliveries' => true,
+                    'original_project_id' => $a->project_id, 'has_deliveries' => $a->hasDeliveries()];
             })
             ->schema([
                 TextInput::make('title')->label('Anlaşma adı')->required()->maxLength(255),
                 AgreementForm::projectSelect('project_id'),
+                // Yalnız proje değişince ve önceden mal geldiyse (kullanıcı 26.10: proje aynıyken görünmesi kafa karıştırıyordu).
                 Toggle::make('move_deliveries')
                     ->label('Gelen malları da bu projeye taşı')
                     ->helperText('Bu anlaşmadan önceden gelen alış/satışların projesi de değişir.')
-                    ->visible(fn () => (bool) \App\Support\Features::places()),
+                    ->visible(fn (Get $get) => \App\Support\Features::places() && $get('has_deliveries')
+                        && (int) $get('project_id') !== (int) $get('original_project_id')),
+                Hidden::make('original_project_id')->dehydrated(false),
+                Hidden::make('has_deliveries')->dehydrated(false),
                 Textarea::make('notes')->label('Not')->rows(2),
             ])
             ->action(function (array $data, array $arguments): void {
@@ -928,9 +1022,13 @@ class EditParty extends EditRecord
                     'notes'       => $entry->notes,
                     'due_date'    => $entry->due_date,
                     'type'        => $entry->type,
+                    'agreement_choice' => $entry->agreement_id ?? \App\Support\Forms\AgreementPaymentChoice::OTHER,
                 ];
             })
-            ->schema($this->ledgerFormSchema())
+            ->schema(fn (array $arguments): array => [
+                ...$this->ledgerFormSchema(),
+                $this->agreementChoiceField(fn (Get $get) => $get('type'), fn () => $this->ledgerEntryArg($arguments)),
+            ])
             ->action(function (array $data, array $arguments): void {
                 $entry = PartyLedgerEntry::findOrFail($arguments['entry']);
                 // Satışa/iadeye bağlı satırlar buradan değiştirilemez.
@@ -942,6 +1040,11 @@ class EditParty extends EditRecord
                     return;
                 }
 
+                if (array_key_exists('agreement_choice', $data)) {
+                    $data['agreement_id'] = \App\Support\AgreementBalances::directionFor((string) $entry->type)
+                        ? \App\Support\Forms\AgreementPaymentChoice::agreementId($data['agreement_choice'], $this->record->id) : null;
+                }
+                unset($data['agreement_choice']);
                 $entry->update($data);
             })
             ->extraModalFooterActions(fn (Action $action): array => [
@@ -1030,6 +1133,10 @@ class EditParty extends EditRecord
             'expenses'         => $this->getExpenseRows(),
             'checks'           => $this->getCheckRows(),
             'agreements'       => $this->getAgreementCards(),
+            // "Bağla" düğmesi yalnız o yönde seçilecek anlaşma varsa.
+            'linkableTypes'    => \App\Support\Features::agreements() ? array_values(array_filter(
+                [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION],
+                fn ($t) => \App\Support\AgreementBalances::choices($this->record, $t) !== [])) : [],
         ]);
     }
 

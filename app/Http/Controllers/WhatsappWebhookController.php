@@ -46,6 +46,7 @@ use App\Services\Whatsapp\NaturalVoice;
 use App\Services\Whatsapp\RecurringDraft;
 use App\Services\Whatsapp\ReturnDraft;
 use App\Services\Whatsapp\WhatsappSender;
+use App\Services\Whatsapp\PaymentAgreementChoice;
 use App\Services\Whatsapp\ProjectChoice;
 use App\Services\Whatsapp\TurnTrace;
 use App\Support\Agenda;
@@ -1060,6 +1061,20 @@ class WhatsappWebhookController extends Controller
                 return $this->twiml($this->saveDraft($pending, $phone, $res['data']));
             }
 
+            // "Hangisi için?" — anlaşması olan cariye ödeme / tahsilat (26.10): numara ya da yazıyla ("demir için", "diğer").
+            if (PaymentAgreementChoice::shown($pending->extracted)
+                && (ctype_digit($body) || ($typedAgreement = PaymentAgreementChoice::match($pending->extracted, $body)) !== null)) {
+                $data = PaymentAgreementChoice::choose($pending->extracted, ctype_digit($body) ? (int) $body : $typedAgreement);
+                TurnTrace::note('choice', 'agreement:' . $body);
+                if ($data !== null) {
+                    $this->inboundKind = 'quick';
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+
+                return $this->twiml('Listede o numara yok. ' . PaymentAgreementChoice::question($pending->extracted));
+            }
+
             if (WorkChoice::shown($pending->extracted)
                 && (ctype_digit($body) || ($typed = WorkChoice::match($pending->extracted, $body)) !== null)) {
                 $data = WorkChoice::choose($pending->extracted, ctype_digit($body) ? (int) $body : $typed);
@@ -1906,6 +1921,15 @@ class WhatsappWebhookController extends Controller
             $data['cross_asked'] = [...$crossDone, $crossSig];
             $data['cross_question'] = $cross;
         }
+        // "Hangisi için?" cevabı aynı taslağın devamında (düzeltme, başka soru) korunur — AI yeniden okuyunca alan düşüyordu.
+        if ($pending && empty($data['is_new_entry']) && ! empty($pending->extracted['agreement_choice_done'])
+            && ($data['party_id'] ?? null) == ($pending->extracted['party_id'] ?? null) && ($data['kind'] ?? null) === ($pending->extracted['kind'] ?? null)) {
+            $data['agreement_choice_done'] = true;
+            $data['agreement_id'] = ($data['agreement_id'] ?? null) ?: ($pending->extracted['agreement_id'] ?? null);
+            if (! empty($data['agreement_id'])) {
+                $data = array_merge($data, ['work_chosen' => true, 'work_status_known' => null, 'debt_repayment' => false]);
+            }
+        }
         // Açık borcu olmayan cariye ödeme: eski serbest "Ne için verdin?" menüsü yerine aynı numaralı soru (21.10).
         // Personel ödemesi eski soruda kalır ("Maaş mı, avans mı?").
         if ($ask === null && DraftGaps::needsPaymentChoice($data) && empty($data['work_chosen']) && empty($data['party_check'])
@@ -1941,6 +1965,15 @@ class WhatsappWebhookController extends Controller
             $ask = OnBehalfChoice::question($data);
             $askSource = 'on_behalf_choice';
             $data['on_behalf_choice'] = true;
+            $workAsk = false;
+        }
+        // Anlaşması olan cariye ödeme / tahsilat: "Hangisi için?" (kullanıcı 26.10: hep sorulur). İş durumu / "ne için verdin?"
+        // sorusunun YERİNE — anlaşma seçilirse o sorunun cevabı belli, "Diğer" seçilirse sonraki turda eski soru gelir.
+        $data['agreement_choice'] = null;
+        if (($ask === null || $workAsk || $askSource === 'payment_purpose') && PaymentAgreementChoice::applies($data)) {
+            $data = PaymentAgreementChoice::prepare($data);
+            $ask = PaymentAgreementChoice::question($data);
+            $askSource = 'agreement_choice';
             $workAsk = false;
         }
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
@@ -2284,6 +2317,9 @@ class WhatsappWebhookController extends Controller
         }
         if (OnBehalfChoice::shown($pending->extracted)) {
             return '❓ ' . OnBehalfChoice::question($pending->extracted) . "\nVazgeçmek için *iptal*.";
+        }
+        if (PaymentAgreementChoice::shown($pending->extracted)) {
+            return '❓ ' . PaymentAgreementChoice::question($pending->extracted) . "\nVazgeçmek için *iptal*.";
         }
 
         TurnTrace::step('snapshot:commit', (array) $pending->extracted);
@@ -2898,10 +2934,12 @@ class WhatsappWebhookController extends Controller
             ? $d['items']
             : [['description' => $description, 'amount' => (float) ($d['amount'] ?? 0)]];
 
+        $agreementId = PaymentAgreementChoice::agreementIdFor($d, $party);
         foreach ($rows as $row) {
             PartyLedgerEntry::create([
                 'party_id' => $party->id,
                 'project_id' => $projectId,
+                'agreement_id' => $agreementId, // yalnız ödeme / tahsilatta dolu ("Hangisi için?")
                 'entry_date' => $d['date'] ?? now()->format('Y-m-d'),
                 // Ödeme tarihi yalnız satış / alacak-borç kaydında (o sabah hatırlatılır, ödendiyse hatırlatılmaz).
                 'due_date' => in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_DEBT_NOTE, ExpenseExtractor::KIND_PURCHASE], true)
@@ -3691,6 +3729,9 @@ class WhatsappWebhookController extends Controller
             $lines[] = \App\Support\Features::expenses()
                 ? '🏦 Banka masrafı ' . Money::format($fee) . ' ₺ → gider olarak yazarım (Banka masrafı)'
                 : 'ℹ️ Dekontta ' . Money::format($fee) . ' ₺ banka masrafı var, gider takibi açık olmadığı için kaydetmedim.';
+        }
+        if ($agreementLine = PaymentAgreementChoice::cardLine($d)) {
+            $lines[] = $agreementLine;
         }
         $lines[] = '• Bakiye: ' . $this->balancePhrase($before) . ' → ' . $this->balancePhrase($after);
         if (! empty($d['document_name'])) {

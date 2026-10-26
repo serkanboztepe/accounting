@@ -36,6 +36,19 @@ final class CheckLedger
         $check->ledgerEntry ? self::sync($check) : self::attach($check);
     }
 
+    /**
+     * Çekler ekranındaki "Hangisi için?" seçimi (26.10) → çekin cari satırı o anlaşmaya bağlanır. Alan görünmediyse (anlaşma yok)
+     * dokunulmaz. Satırda başka çekler de varsa (WhatsApp'ta birden çok çekli tek ödeme) yalnız tek çekli satır değişir.
+     */
+    public static function applyAgreement(Check $check, mixed $choice): void
+    {
+        $entry = $check->fresh()?->ledgerEntry;
+        if ($choice === null || ! $entry || $entry->checks()->count() !== 1) {
+            return;
+        }
+        $entry->update(['agreement_id' => \App\Support\Forms\AgreementPaymentChoice::agreementId($choice, $entry->party_id)]);
+    }
+
     /** Çeki cari satırına bağla (yoksa açar). */
     public static function attach(Check $check): ?PartyLedgerEntry
     {

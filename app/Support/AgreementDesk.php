@@ -121,15 +121,16 @@ class AgreementDesk
         }
 
         return DB::transaction(function () use ($party, $direction, $prepared, $date, $projectChoice, $notes, $paid, $paymentType) {
-            // Proje başına bir belge (maliyet teslimatın projesine yazılır).
+            // Proje + anlaşma başına bir belge (maliyet teslimatın projesine yazılır; peşin parası tek anlaşmaya bağlanabilsin — 26.10).
             $groups = [];
             foreach ($prepared as $p) {
                 $projectId = $projectChoice === 'agreement' ? $p['item']->agreement->project_id : ($projectChoice ?: null);
-                $groups[(string) $projectId][] = $p;
+                $groups[$projectId . '|' . $p['item']->agreement_id][] = $p;
             }
 
             $documents = collect();
-            foreach ($groups as $projectId => $group) {
+            foreach ($groups as $key => $group) {
+                [$projectId, $agreementId] = explode('|', (string) $key);
                 $titles = collect($group)->map(fn ($p) => $p['item']->agreement->title)->unique()->implode(', ');
                 $docLines = array_map(fn ($p) => [
                     'product_id'        => $p['item']->product_id,
@@ -145,10 +146,16 @@ class AgreementDesk
                     'lines'      => $docLines,
                     'notes'      => trim('Anlaşma: ' . $titles . ($notes ? ' — ' . $notes : '')),
                 ];
-                $documents->push($direction === Agreement::DIRECTION_SALE
+                $document = $direction === Agreement::DIRECTION_SALE
                     ? TradeDesk::saveSale([...$common, 'sale_date' => $date])
                     : TradeDesk::savePurchase([...$common, 'purchase_date' => $date, 'keep_project' => true,
-                        'mode' => $paid ? 'cash' : 'party', 'payment_type' => $paymentType]));
+                        'mode' => $paid ? 'cash' : 'party', 'payment_type' => $paymentType]);
+                // Peşin alışın ödemesi bu anlaşmanın ödemesidir.
+                if ($paid && $direction === Agreement::DIRECTION_PURCHASE) {
+                    PartyLedgerEntry::where('purchase_id', $document->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)
+                        ->update(['agreement_id' => (int) $agreementId]);
+                }
+                $documents->push($document);
             }
 
             $over = [];
@@ -362,6 +369,7 @@ class AgreementDesk
         $paymentType = $data['advance_payment_type'] ?? 'cash';
         $entry = PartyLedgerEntry::create([
             'party_id'     => $agreement->party_id,
+            'agreement_id' => $agreement->id,
             'entry_date'   => $data['entry_date'] ?? $agreement->agreement_date,
             'type'         => $isPurchase ? PartyLedgerEntry::TYPE_PAYMENT : PartyLedgerEntry::TYPE_COLLECTION,
             'amount'       => $amount,

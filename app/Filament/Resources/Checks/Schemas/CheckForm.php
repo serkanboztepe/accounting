@@ -76,7 +76,18 @@ class CheckForm
                     DatePicker::make('due_date')
                         ->label('Vade')
                         ->required(),
-                    MoneyInput::make('amount'),
+                    MoneyInput::make('amount')->live(onBlur: true),
+                    // Carinin anlaşması varsa: bu çek hangi anlaşma için (26.10) — cari satırına yazılır (CheckLedger::applyAgreement).
+                    \App\Support\Forms\AgreementPaymentChoice::field(
+                        fn (Get $get) => blank($get('party_id')) || filled($get('contract_payment_id')) ? null : \App\Models\Party::find($get('party_id')),
+                        fn (Get $get) => in_array($get('status'), ['portfolio', 'collected'], true)
+                            ? \App\Models\PartyLedgerEntry::TYPE_COLLECTION : \App\Models\PartyLedgerEntry::TYPE_PAYMENT,
+                        'amount',
+                        fn (mixed $record) => $record instanceof Check ? $record->ledgerEntry : null,
+                    )
+                        ->dehydrated(false)
+                        ->afterStateHydrated(fn (\Filament\Forms\Components\Radio $component, ?Check $record) => $component->state(
+                            $record?->ledgerEntry ? ($record->ledgerEntry->agreement_id ?? \App\Support\Forms\AgreementPaymentChoice::OTHER) : null)),
                     TextInput::make('check_number')
                         ->label('Çek No')
                         ->maxLength(255),

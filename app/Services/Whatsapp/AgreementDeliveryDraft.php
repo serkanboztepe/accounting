@@ -296,6 +296,7 @@ class AgreementDeliveryDraft
         if ($paid && $direction === Agreement::DIRECTION_SALE) {
             foreach ($result['documents'] as $doc) {
                 \App\Models\PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $doc->sale_date, 'amount' => $doc->total_amount,
+                    'agreement_id' => \App\Support\AgreementBalances::agreementOfDocument('sale_id', $doc->id),
                     'type' => \App\Models\PartyLedgerEntry::TYPE_COLLECTION, 'payment_type' => $d['payment_type'] ?? 'cash',
                     'description' => 'Peşin tahsilat — Satış #' . $doc->id]);
             }

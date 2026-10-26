@@ -1,7 +1,7 @@
 <div class="space-y-6 -mt-[30px]">
 
     {{-- Anlaşmalar — modül açık ve bu caride anlaşma varsa; ekstrenin üstünde (kalanı tek bakışta) --}}
-    @if (\App\Support\Features::agreements() && ($agreements['open']->isNotEmpty() || $agreements['finished']->isNotEmpty()))
+    @if (\App\Support\Features::agreements() && ($agreements['active'] !== [] || $agreements['archived'] !== []))
         @include('filament.resources.parties.agreements')
     @endif
 
@@ -162,6 +162,13 @@
                             <td class="py-2 px-3">
                                 <span class="text-gray-950 dark:text-white">{{ $r['desc'] }}</span>
                                 <span class="text-xs text-gray-400">· {{ $r['label'] }}</span>
+                                {{-- Ödeme / tahsilat hangi anlaşma için (26.10); bağsızsa "Bağla" → aynı "Hangisi için?" listesi. --}}
+                                @if (! empty($r['agreement_title']))
+                                    <span class="ml-1 inline-flex items-center rounded bg-primary-50 px-1.5 py-0.5 text-xs text-primary-700 dark:bg-primary-400/10 dark:text-primary-400">{{ $r['agreement_title'] }}</span>
+                                @elseif ($editable && in_array($r['ledger_type'] ?? null, $linkableTypes ?? [], true))
+                                    <button type="button" class="ml-1 text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
+                                        wire:click.stop="mountAction('linkAgreement', { entry: {{ $r['entry_id'] }} })">Bağla</button>
+                                @endif
                                 @if (! empty($r['sale_id']))
                                     <span class="ml-2 inline-flex gap-3 align-middle">
                                         @if (! ($r['sale_has_returns'] ?? false))

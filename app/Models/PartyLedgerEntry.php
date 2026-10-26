@@ -48,6 +48,7 @@ class PartyLedgerEntry extends Model
             'Ödeme yöntemi' => \App\Models\ActivityLog::PAYMENT_TYPES[$this->payment_type] ?? $this->payment_type,
             'Ödeme günü'    => \App\Models\ActivityLog::date($this->due_date),
             \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
+            'Anlaşma'       => $this->agreement_id ? Agreement::whereKey($this->agreement_id)->value('title') : null,
             'Çekler'        => $checks,
             'Not'           => $this->notes ?? null,
         ]);
@@ -87,6 +88,7 @@ class PartyLedgerEntry extends Model
         'sale_return_id',
         'purchase_id',
         'purchase_return_id',
+        'agreement_id',
         'entry_date',
         'due_date',
         'description',
@@ -143,6 +145,12 @@ class PartyLedgerEntry extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /** Ödeme / tahsilat hangi anlaşma için (boş = anlaşma dışı). Bkz. AgreementBalances. */
+    public function agreement(): BelongsTo
+    {
+        return $this->belongsTo(Agreement::class);
     }
 
     /** Bu tahsilat çekle yapıldıysa bağlı çek (vade/durum ekstrede gösterilebilsin). */

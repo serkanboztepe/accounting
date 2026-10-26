@@ -431,12 +431,25 @@ class TenancyTest extends TestCase
         $this->assertFalse(\App\Console\Commands\TenantsRun::firms()->contains('id', $this->b->id), 'toplu çalışmada pasif yok');
         $this->assertTrue(\App\Console\Commands\TenantsRun::firms((string) $this->b->id)->contains('id', $this->b->id), '--firm pasifi de bulur');
 
-        Tenancy::run($this->b, fn () => Artisan::call('migrate:rollback', ['--database' => 'tenant', '--step' => 2, '--force' => true]));
-        $this->assertFalse(Tenancy::run($this->b, fn () => Schema::connection('tenant')->hasColumn('reminders', 'notify_time')), 'eski veritabanı');
+        // Son migration geri alınır (hangisi olduğuna bakılmaz — yeni migration eklenince test kırılmasın).
+        Tenancy::run($this->b, fn () => Artisan::call('migrate:rollback', ['--database' => 'tenant', '--step' => 1, '--force' => true]));
+        $this->assertNotSame([], $this->pendingMigrations(), 'eski veritabanı');
 
         $this->b->update(['is_active' => true]);
 
-        $this->assertTrue(Tenancy::run($this->b, fn () => Schema::connection('tenant')->hasColumn('reminders', 'notify_time')), 'aktif edilince güncellendi');
+        $this->assertSame([], $this->pendingMigrations(), 'aktif edilince güncellendi');
+    }
+
+    /** @return list<string> firma B'de çalışmamış migration'lar */
+    private function pendingMigrations(): array
+    {
+        return Tenancy::run($this->b, function () {
+            $migrator = app('migrator');
+            $migrator->setConnection('tenant');
+            $files = $migrator->getMigrationFiles([database_path('migrations'), ...$migrator->paths()]);
+
+            return array_values(array_diff(array_keys($files), $migrator->getRepository()->getRan()));
+        });
     }
 
     public function test_convert_command_stops_on_unexpected_difference(): void

@@ -108,7 +108,7 @@ class PartyStatement
         }
 
         // --- Çift yönlü cari hareketleri (elle) ---
-        $ledgerEntries = $party->ledgerEntries()->with(['project', 'checks'])->get();
+        $ledgerEntries = $party->ledgerEntries()->with(['project', 'checks', 'agreement'])->get();
         // İadesi olan satışlar (iade satırları sale_id taşır) → o satış artık düzenlenemez.
         $returnedSaleIds = $ledgerEntries
             ->where('type', PartyLedgerEntry::TYPE_SALE_RETURN)
@@ -128,7 +128,7 @@ class PartyStatement
                 ? 'çek: ' . $entry->checks->map(fn ($c) => trim(($c->check_number ? 'no ' . $c->check_number . ' ' : '') . 'vade ' . $c->due_date?->format('d.m.Y')))->implode(', ')
                 : null;
 
-            $rows[] = self::row(
+            $row = self::row(
                 $entry->entry_date,
                 $entry->typeLabel(),
                 trim(implode(' — ', array_filter([$entry->description, $checkNote]))) ?: null,
@@ -148,6 +148,10 @@ class PartyStatement
                 // Alış belgesinden (Alışlar) gelen satır → belgeyi aç.
                 $entry->purchase_id,
             );
+            // Ödeme / tahsilat hangi anlaşma için (cari sayfasında etiket ya da "Bağla").
+            $row['ledger_type'] = $entry->type;
+            $row['agreement_title'] = $entry->agreement?->title;
+            $rows[] = $row;
         }
 
         // --- Proje filtresi (varsa) ---

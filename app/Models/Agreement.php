@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Anlaşma (Faz 6, 21.10): cariyle "şunu şu fiyattan alacağız / satacağız". Borç YAZMAZ — teslimat normal alış/satış
- * belgesidir, kalemi anlaşma kalemine bağlanır. Kart: Anlaşılan / Gelen / Kalan (ödenen yok; para cari ekstresinde).
+ * belgesidir, kalemi anlaşma kalemine bağlanır. Kart: Anlaşılan / Gelen / Ödenen / Borç / Gelecek mal — ödeme cari satırına
+ * agreement_id ile bağlanır (26.10, AgreementBalances).
  * Muhasebe programlarındaki Sipariş → İrsaliye deseni: teslimde anlaşma değil kalem seçilir. İş mantığı: AgreementDesk.
  */
 class Agreement extends Model
@@ -110,6 +111,12 @@ class Agreement extends Model
     public function items(): HasMany
     {
         return $this->hasMany(AgreementItem::class)->orderBy('sort')->orderBy('id');
+    }
+
+    /** Bu anlaşma için yapılan ödemeler / tahsilatlar (party_ledger_entries.agreement_id). Bkz. AgreementBalances. */
+    public function ledgerEntries(): HasMany
+    {
+        return $this->hasMany(PartyLedgerEntry::class);
     }
 
     public function scopeOpen(Builder $query): Builder

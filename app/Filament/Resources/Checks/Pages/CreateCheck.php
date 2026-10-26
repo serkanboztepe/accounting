@@ -14,5 +14,6 @@ class CreateCheck extends CreateRecord
     protected function afterCreate(): void
     {
         CheckLedger::apply($this->record);
+        CheckLedger::applyAgreement($this->record, $this->data['agreement_choice'] ?? null);
     }
 }

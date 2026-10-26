@@ -177,7 +177,7 @@ final class DraftGaps
     /** Borç ödemesi ("borcum ödendi"): kayıtlı borcun yetmeyen kısmı — eski borç olarak ödemeyle birlikte yazılır, bakiye 0'ın altına inmez. */
     public static function unrecordedDebt(array $d): float
     {
-        if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || empty($d['debt_repayment'])) {
+        if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || empty($d['debt_repayment']) || ! empty($d['agreement_id'])) {
             return 0.0;
         }
         $owed = ($party = self::party($d)) ? max(0.0, -TurnTrace::statement('DraftGaps::unrecordedDebt', $party)['balance']) : 0.0;
@@ -260,7 +260,7 @@ final class DraftGaps
     public static function needsPaymentChoice(array $d): bool
     {
         if (self::kind($d) !== ExpenseExtractor::KIND_PAYMENT || ! empty($d['advance']) || ! empty($d['debt_repayment']) || self::missingParty($d)
-            || OnBehalfChoice::isOnBehalf($d)
+            || OnBehalfChoice::isOnBehalf($d) || ! empty($d['agreement_id'])
             || self::activeContracts(self::party($d))->isNotEmpty()) {
             return false; // sözleşmeli cari: ödeme sözleşmeye gider
         }

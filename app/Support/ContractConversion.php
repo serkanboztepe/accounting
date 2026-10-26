@@ -122,7 +122,8 @@ final class ContractConversion
                     . \Illuminate\Support\Carbon::parse($paidOn)->format('d.m.Y') . ' kullanıldı';
             }
             $entry = PartyLedgerEntry::create([
-                'party_id' => $c->party_id, 'project_id' => $c->project_id, 'entry_date' => \Illuminate\Support\Carbon::parse($paidOn)->toDateString(),
+                'party_id' => $c->party_id, 'project_id' => $c->project_id, 'agreement_id' => $agreement->id,
+                'entry_date' => \Illuminate\Support\Carbon::parse($paidOn)->toDateString(),
                 'type' => $direction === Agreement::DIRECTION_SALE ? PartyLedgerEntry::TYPE_COLLECTION : PartyLedgerEntry::TYPE_PAYMENT,
                 'payment_type' => $p->payment_type, 'amount' => $p->amount, 'due_date' => $p->due_date,
                 'description' => 'Ödeme — ' . $c->title . ($p->notes ? ' (' . $p->notes . ')' : ''),

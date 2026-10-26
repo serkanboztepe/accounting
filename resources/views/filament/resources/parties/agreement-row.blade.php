@@ -1,13 +1,14 @@
-{{-- Tek anlaşma: özet satırı + tıklayınca kalemler (Fiyat / Sil) ve işlemler (Kalem ekle · Kapat · Sil). --}}
+{{-- Tek anlaşma: özet satırı (Anlaşılan · Gelen · Ödenen · Borç · Gelecek mal) + tıklayınca kalemler (Fiyat / Sil) ve işlemler. --}}
 @php
+    $agreement = $row['agreement'];
     $fmt = fn ($v) => \App\Support\Money::format((float) $v);
     $isOpen = $agreement->isOpen();
     $isSale = ! $agreement->isPurchase();
     $agreed = $agreement->agreedTotal();
-    $progress = $agreement->progress();
     $hasDeliveries = $agreement->items->contains(fn ($i) => $i->movements->isNotEmpty());
     $budget = $agreement->budget !== null ? (float) $agreement->budget : null;
     $delivered = $agreement->deliveredTotal();
+    $balance = $row['balance'];
 @endphp
 
 <tbody x-data="{ open: false }" class="border-b border-gray-100 last:border-0 dark:border-white/5">
@@ -16,11 +17,13 @@
             <span class="text-gray-400" x-text="open ? '▾' : '▸'"></span>
             <span class="font-medium text-gray-950 dark:text-white">{{ $isSale ? '📤' : '📥' }} {{ $agreement->title }}</span>
             <span class="ml-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ $isSale ? 'satış' : 'alış' }} · {{ $agreement->agreement_date?->format('d.m.Y') }}
+                {{ $isSale ? 'satış' : 'alış' }}{{ $agreement->project ? ' · ' . $agreement->project->name : '' }} · {{ $agreement->agreement_date?->format('d.m.Y') }}
                 @if ($agreement->status === \App\Models\Agreement::STATUS_DONE) · <span class="text-success-600 dark:text-success-400">bitti</span>
                 @elseif ($agreement->status === \App\Models\Agreement::STATUS_CLOSED) · kapatıldı
                 @endif
             </span>
+            <button type="button" class="ml-2 text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
+                x-on:click.stop wire:click="mountAction('agreementSummary', { agreement: {{ $agreement->id }} })">Özet</button>
         </td>
         <td class="py-2 pr-3 text-right tabular-nums">
             @if ($agreed > 0) {{ $fmt($agreed) }}
@@ -31,22 +34,16 @@
             {{ $fmt($delivered) }}
             @if ($budget !== null && $delivered > $budget) <span class="text-danger-600 dark:text-danger-400" title="Bütçe aşıldı">⚠</span> @endif
         </td>
-        <td class="py-2 pr-3 text-right tabular-nums">{{ $agreed > 0 ? $fmt($agreement->remainingTotal()) : '—' }}</td>
-        <td class="py-2 text-right">
-            @if ($progress !== null)
-                <span class="inline-flex items-center gap-1.5">
-                    <span class="hidden h-1.5 w-12 overflow-hidden rounded-full bg-gray-200 sm:inline-block dark:bg-white/10">
-                        <span class="block h-full rounded-full bg-primary-600" style="width: {{ $progress }}%"></span>
-                    </span>
-                    <span class="text-xs tabular-nums text-gray-500 dark:text-gray-400">{{ $progress }}</span>
-                </span>
-            @endif
+        <td class="py-2 pr-3 text-right tabular-nums">{{ $fmt($row['paid']) }}</td>
+        <td class="py-2 pr-3 text-right tabular-nums font-medium {{ $balance < -0.009 ? 'text-warning-600 dark:text-warning-400' : 'text-gray-950 dark:text-white' }}">
+            {{ \App\Support\AgreementSummary::balanceText($balance, $isSale) }}
         </td>
+        <td class="py-2 text-right tabular-nums">{{ $agreed > 0 && $agreement->remainingTotal() > 0 ? $fmt($agreement->remainingTotal()) : '—' }}</td>
     </tr>
 
     {{-- Kalemler --}}
     <tr x-show="open" x-cloak>
-        <td colspan="5" class="pb-3 pl-6">
+        <td colspan="6" class="pb-3 pl-6">
             <table class="w-full text-xs">
                 <tbody>
                     @foreach ($agreement->items as $item)
