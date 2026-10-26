@@ -31,6 +31,7 @@ class OverdueChecksTable extends TableWidget
                     ->sortable(),
                 Tables\Columns\TextColumn::make('party.name')
                     ->label('Cari')
+                    ->placeholder('Carisiz')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('project.name')
                     ->label('Proje')

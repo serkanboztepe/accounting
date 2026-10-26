@@ -12,8 +12,9 @@ use Illuminate\Support\Facades\DB;
  * tahsilat satırı (çek verildiği/alındığı gün para hareketi sayılır), çek o satıra bağlı; "Çeki sil" (CheckRemoval)
  * ikisini birlikte geri alır.
  *
- * Sözleşme ödemesine bağlı çek cariye yazılmaz (sözleşme kendi ödemesini tutar). Bağsız eski çekler kendiliğinden
- * bağlanmaz — elle "Cari hesabına da yaz" denirse bağlanır (ör. aynı tutar ekstreye elle yazılmışsa çift sayılmasın).
+ * Kural (kullanıcı 26.10 — seçenek YOK): cari seçiliyse yeni çekte ve düzenlemede her zaman; cari kaldırılırsa / çek silinirse
+ * cariden de silinir. Carisiz çek yalnız hatırlatmadır. Sözleşme ödemesine bağlı çek cariye yazılmaz (sözleşme tutar).
+ * Eski bağsız çeklere sistem kendiliğinden dokunmaz — kullanıcı açıp kaydederse kural uygulanır.
  */
 final class CheckLedger
 {
@@ -29,7 +30,13 @@ final class CheckLedger
             : PartyLedgerEntry::TYPE_PAYMENT;
     }
 
-    /** Çeki cari satırına bağla (yoksa açar). Yeni çekte ve "Cari hesabına da yaz" işaretli düzenlemede. */
+    /** Çekler ekranında kayıttan sonra (yeni ve düzenleme): bağlıysa eşitle, carili ve bağsızsa bağla. */
+    public static function apply(Check $check): void
+    {
+        $check->ledgerEntry ? self::sync($check) : self::attach($check);
+    }
+
+    /** Çeki cari satırına bağla (yoksa açar). */
     public static function attach(Check $check): ?PartyLedgerEntry
     {
         if (! self::canWrite($check) || $check->party_ledger_entry_id !== null) {

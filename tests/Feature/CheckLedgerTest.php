@@ -124,51 +124,65 @@ class CheckLedgerTest extends TestCase
         $this->assertSame(0.0, PartyStatement::build($party)['balance']);
     }
 
-    public function test_create_screen_writes_ledger_by_default(): void
+    public function test_create_screen_with_party_always_writes_ledger(): void
     {
         $party = Party::create(['name' => 'Ekrandan Çek']);
 
         Livewire::test(CreateCheck::class)
             ->fillForm(['direction' => 'given', 'status' => 'issued', 'party_id' => $party->id, 'due_date' => '2026-12-01', 'amount' => '12.500,00'])
-            ->assertFormFieldVisible('write_ledger')
+            ->assertSee('Kaydedince cariye ÖDEME olarak işlenir')
             ->call('create')
             ->assertHasNoFormErrors();
 
         $check = Check::where('party_id', $party->id)->first();
-        $this->assertNotNull($check?->party_ledger_entry_id, 'cariye işlendi');
-        $this->assertSame(12500.0, PartyStatement::build($party)['balance'], 'ödeme satırı cariyi borçlandırır (önceki alış yoksa avans gibi)');
+        $this->assertNotNull($check?->party_ledger_entry_id, 'cariye işlendi (seçenek yok, her zaman)');
+        $this->assertSame(12500.0, PartyStatement::build($party)['balance'], 'ödeme satırı cariyi borçlandırır');
     }
 
-    public function test_create_screen_without_toggle_keeps_check_only(): void
+    public function test_create_screen_without_party_is_reminder_only(): void
     {
-        $party = Party::create(['name' => 'Sadece Çek']);
+        $before = PartyLedgerEntry::count();
 
         Livewire::test(CreateCheck::class)
-            ->fillForm(['direction' => 'given', 'status' => 'issued', 'party_id' => $party->id, 'due_date' => '2026-12-01',
-                'amount' => '1.000,00', 'write_ledger' => false])
+            ->fillForm(['direction' => 'received', 'status' => 'portfolio', 'due_date' => '2026-12-01', 'amount' => '1.000,00', 'check_number' => 'CARISIZ-1'])
+            ->assertSee('Carisiz çek — cariye işlenmez')
             ->call('create')
             ->assertHasNoFormErrors();
 
-        $this->assertNull(Check::where('party_id', $party->id)->first()?->party_ledger_entry_id);
-        $this->assertSame(0, PartyLedgerEntry::where('party_id', $party->id)->count());
+        $check = Check::where('check_number', 'CARISIZ-1')->sole();
+        $this->assertNull($check->party_id);
+        $this->assertNull($check->party_ledger_entry_id);
+        $this->assertSame($before, PartyLedgerEntry::count(), 'cariye satır açılmaz');
+        $this->assertTrue(\App\Support\CheckReminders::upcoming()->whereKey($check->id)->exists(), 'hatırlatma olarak durur');
     }
 
-    public function test_old_unlinked_check_is_not_linked_unless_ticked(): void
+    public function test_old_unlinked_check_is_untouched_until_saved(): void
     {
         $party = Party::create(['name' => 'Eski Çek']);
-        $check = $this->given($party, 500000);
+        $check = $this->given($party, 500000);   // sistem kendiliğinden bağlamaz
+
+        $this->assertNull($check->fresh()->party_ledger_entry_id);
 
         Livewire::test(EditCheck::class, ['record' => $check->getKey()])
-            ->assertFormSet(['write_ledger' => false])
             ->fillForm(['description' => 'Mimarsinan'])
             ->call('save')
             ->assertHasNoFormErrors();
-        $this->assertNull($check->fresh()->party_ledger_entry_id, 'işaretlenmedikçe bağlanmaz (çift sayım olmasın)');
+        $this->assertNotNull($check->fresh()->party_ledger_entry_id, 'kullanıcı kaydedince kural uygulanır');
+    }
+
+    public function test_removing_party_on_edit_removes_it_from_ledger(): void
+    {
+        $party = Party::create(['name' => 'Carisi Kaldırılan']);
+        $check = $this->given($party, 7000);
+        $entry = CheckLedger::attach($check);
 
         Livewire::test(EditCheck::class, ['record' => $check->getKey()])
-            ->fillForm(['write_ledger' => true])
+            ->fillForm(['party_id' => null])
             ->call('save')
             ->assertHasNoFormErrors();
-        $this->assertNotNull($check->fresh()->party_ledger_entry_id);
+
+        $this->assertNull(PartyLedgerEntry::find($entry->id), 'cariden silindi');
+        $this->assertNull($check->fresh()->party_ledger_entry_id);
+        $this->assertSame(0.0, PartyStatement::build($party)['balance']);
     }
 }

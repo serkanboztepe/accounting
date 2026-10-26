@@ -12,7 +12,6 @@ use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -61,27 +60,18 @@ class CheckForm
                         ->searchable()
                         ->preload()
                         ->live()
-                        ->required(),
-                    // Çek cariye işlensin (23.10 tasarım hatası düzeltmesi, 26.10): verilen = ödeme, alınan = tahsilat satırı, çek bağlı.
-                    // Yeni çekte işaretli; bağsız ESKİ çekte işaretsiz (aynı tutar ekstreye elle yazıldıysa çift sayılmasın).
-                    Toggle::make('write_ledger')
-                        ->label('Cari hesabına da yaz')
-                        ->default(true)
-                        ->dehydrated(false)
-                        ->afterStateHydrated(fn (Toggle $component, ?Check $record) => $record ? $component->state(false) : null)
-                        ->visible(fn (Get $get, ?Check $record) => filled($get('party_id')) && blank($get('contract_payment_id'))
-                            && ! $record?->party_ledger_entry_id)
-                        ->helperText(fn (Get $get, ?Check $record) => ($record
-                            ? 'Bu çek henüz cari hesabına işlenmemiş. Aynı tutar ekstreye elle yazıldıysa işaretleme (çift sayılır). '
-                            : '')
-                            . (($get('direction') ?: 'given') === 'received'
-                                ? 'Cariye tahsilat olarak yazılır, bakiyesi düşer.'
-                                : 'Cariye ödeme olarak yazılır, ona olan borcun düşer.'))
-                        ->columnSpanFull(),
+                        ->helperText('Boş bırakılırsa çek yalnız çek olarak kaydedilir, cariye işlenmez.'),
+                    // Çek cariye işlenir (23.10 tasarım hatası düzeltmesi; kullanıcı 26.10: seçenek YOK): cari seçiliyse yeni çekte ve
+                    // düzenlemede her zaman — verilen = ödeme, alınan = tahsilat satırı, çek bağlı (CheckLedger::apply). Carisiz = hatırlatma.
                     Placeholder::make('ledger_info')
                         ->hiddenLabel()
-                        ->content('✓ Cari hesabına işli — tutar, cari, tarih değişince ekstre de düzelir; "Çeki sil" ikisini birlikte geri alır.')
-                        ->visible(fn (?Check $record) => (bool) $record?->party_ledger_entry_id)
+                        ->content(fn (Get $get, ?Check $record) => match (true) {
+                            filled($get('contract_payment_id')) => 'Sözleşme ödemesine bağlı — cariye ayrıca yazılmaz, sözleşme ödemesi tutar.',
+                            blank($get('party_id')) => 'Carisiz çek — cariye işlenmez, yalnız vade hatırlatması olarak durur.',
+                            (bool) $record?->party_ledger_entry_id => 'ℹ️ Cariye işli — değişiklik ekstreye de yansır; cari kaldırılır ya da çek silinirse cariden de silinir.',
+                            ($get('direction') ?: 'given') === 'received' => 'ℹ️ Kaydedince cariye TAHSİLAT olarak işlenir — bakiyesi düşer.',
+                            default => 'ℹ️ Kaydedince cariye ÖDEME olarak işlenir — ona olan borcun düşer.',
+                        })
                         ->columnSpanFull(),
                     DatePicker::make('due_date')
                         ->label('Vade')
@@ -126,7 +116,8 @@ class CheckForm
                         ->label('Notlar')
                         ->columnSpanFull(),
                 ])
-                ->columns(2),
+                ->columns(2)
+                ->columnSpanFull(), // sayfa iki sütunlu: tek blok sol yarıda kalıyordu (kullanıcı 26.10)
         ]);
     }
 

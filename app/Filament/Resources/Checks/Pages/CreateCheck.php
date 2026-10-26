@@ -10,11 +10,9 @@ class CreateCheck extends CreateRecord
 {
     protected static string $resource = CheckResource::class;
 
-    /** "Cari hesabına da yaz" işaretliyse çek cariye ödeme / tahsilat olarak işlenir (CheckLedger). */
+    /** Carili çek cariye ödeme / tahsilat olarak işlenir (CheckLedger; carisiz = yalnız hatırlatma). */
     protected function afterCreate(): void
     {
-        if ($this->data['write_ledger'] ?? true) {
-            CheckLedger::attach($this->record);
-        }
+        CheckLedger::apply($this->record);
     }
 }

@@ -14,13 +14,10 @@ class EditCheck extends EditRecord
 {
     protected static string $resource = CheckResource::class;
 
-    /** Cariye işli çek düzenlenince ekstre de düzelir; işlenmemiş eski çek, "Cari hesabına da yaz" işaretlenirse bağlanır. */
+    /** Düzenleme cariye yansır: bağlı çek eşitlenir, carili bağsız (eski) çek kaydedilince bağlanır, cari kalkarsa satır düşer. */
     protected function afterSave(): void
     {
-        CheckLedger::sync($this->record);
-        if ($this->data['write_ledger'] ?? false) {
-            CheckLedger::attach($this->record);
-        }
+        CheckLedger::apply($this->record);
     }
 
     protected function getHeaderActions(): array
