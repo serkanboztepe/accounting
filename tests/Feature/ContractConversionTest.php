@@ -79,6 +79,11 @@ class ContractConversionTest extends TestCase
             'status' => 'paid', 'amount' => 600000, 'due_date' => '2026-08-10']);
         $check = Check::create(['party_id' => $elecParty->id, 'contract_payment_id' => $pay->id, 'amount' => 600000,
             'due_date' => '2026-08-10', 'status' => 'paid', 'check_number' => 'CC-1']);
+        // Tarihsiz çekli ödeme (Muhasebe #100) → çekin düzenleme tarihi.
+        $undated = ContractPayment::create(['contract_id' => $brick->id, 'payment_date' => null, 'payment_type' => 'check',
+            'status' => 'paid', 'amount' => 70000]);
+        Check::create(['party_id' => $brickParty->id, 'contract_payment_id' => $undated->id, 'amount' => 70000, 'issue_date' => '2026-06-15',
+            'due_date' => '2026-09-15', 'status' => 'issued']);
         // Kalemsiz sözleşme (Su Tesisatı 380.000) + havale.
         [$water, $waterParty] = $this->contract('Su Tesisatı', 'subcontract', 380000, []);
         ContractPayment::create(['contract_id' => $water->id, 'payment_date' => '2026-05-12', 'payment_type' => 'bank_transfer',
@@ -130,5 +135,8 @@ class ContractConversionTest extends TestCase
         // Cari bakiyesi: anlaşmada borç teslimatla yazılır (model farkı): 300.000 iş − 600.000 ödeme.
         $this->assertSame(300000.0, PartyStatement::build($elecParty)['balance']);
         $this->assertGreaterThanOrEqual(5, $r['agreements']);
+        $this->assertSame('2026-06-15', PartyLedgerEntry::where('party_id', $brickParty->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)->sole()->entry_date->toDateString(),
+            'tarihsiz ödeme → çekin düzenleme tarihi');
+        $this->assertStringContainsString('tarihi boştu', implode(' ', $r['notes']));
     }
 }
