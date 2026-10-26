@@ -57,6 +57,25 @@ class CariLockTest extends TestCase
             ->assertRedirectContains('/admin/cari-kilidi');
     }
 
+    /** Kullanıcı 26.10: Çekler Cari başlığının altında ve aynı kilitle (PIN varsa PIN) açılır; süre Cariler'le ortak. */
+    public function test_checks_are_locked_with_the_same_pin(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->get('/admin/checks')->assertRedirectContains('/admin/cari-kilidi');
+        $this->actingAs($user)->get('/admin/checks/create')->assertRedirectContains('/admin/cari-kilidi');
+
+        $this->actingAs($user)->withSession([self::KEY => now()->subMinutes(4)->timestamp])
+            ->get('/admin/checks')->assertOk();
+    }
+
+    public function test_checks_open_freely_when_lock_is_off(): void
+    {
+        config(['app.cari_lock' => false]);
+
+        $this->actingAs(User::factory()->create())->get('/admin/checks')->assertOk();
+    }
+
     public function test_statement_print_is_locked_too(): void
     {
         $party = Party::create(['name' => 'Kilit Test Cari']);

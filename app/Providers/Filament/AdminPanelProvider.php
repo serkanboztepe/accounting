@@ -101,7 +101,7 @@ class AdminPanelProvider extends PanelProvider
                 'Genel',
                 'Cari',
                 'Sözleşmeler',
-                'Gider & Çek',
+                'Gider',
                 'Alış-Satış',
                 'Ürün & Stok',
                 'Mimar',

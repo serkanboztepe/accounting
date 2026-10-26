@@ -7,7 +7,9 @@ use App\Filament\Resources\Checks\Pages\EditCheck;
 use App\Filament\Resources\Checks\Pages\ListChecks;
 use App\Filament\Resources\Checks\Schemas\CheckForm;
 use App\Filament\Resources\Checks\Tables\ChecksTable;
+use App\Http\Middleware\RequireCariUnlock;
 use App\Models\Check;
+use App\Support\CariLock;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -22,9 +24,18 @@ class CheckResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Gider & Çek';
+    // Kullanıcı 26.10: çek cariyle ilgili — "Cari" başlığının altında (Cariler, Anlaşmalar, Çekler).
+    protected static string|UnitEnum|null $navigationGroup = 'Cari';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 2;
+
+    // Cari kilidi açık firmada Çekler de PIN ister (kullanıcı 26.10) — Cariler'deki kilidin aynısı, süre ortak.
+    protected static string|array $routeMiddleware = [RequireCariUnlock::class];
+
+    public static function canGloballySearch(): bool
+    {
+        return parent::canGloballySearch() && CariLock::isOpen();
+    }
 
     protected static ?string $navigationLabel = 'Çekler';
 
