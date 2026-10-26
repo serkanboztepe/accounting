@@ -122,10 +122,12 @@ class AgreementsTest extends TestCase
         $this->assertNull($purchase->project_id);
 
         \Livewire\Livewire::test(\App\Filament\Resources\Parties\Pages\EditParty::class, ['record' => $this->party->getRouteKey()])
-            ->assertSeeHtml("mountAction('editAgreement', { agreement: " . $a->id . ' })')
+            ->assertSeeHtml("mountAction('agreementSummary', { agreement: " . $a->id . ' })')
+            ->mountAction('agreementSummary', ['agreement' => $a->id])   // satır → yandan pencere → Düzenle (27.10)
             ->mountAction('editAgreement', ['agreement' => $a->id])
-            ->set('mountedActions.0.data.project_id', $this->yesilyurt->id)
-            ->callMountedAction();
+            ->set('mountedActions.1.data.project_id', $this->yesilyurt->id)
+            ->callMountedAction()
+            ->assertSet('mountedActions.0.name', 'agreementSummary');   // kaydedince pencereye dönülür
 
         $this->assertSame($this->yesilyurt->id, (int) $a->fresh()->project_id);
         $this->assertSame($this->yesilyurt->id, (int) $purchase->fresh()->project_id);

@@ -664,25 +664,30 @@ class EditParty extends EditRecord
             });
     }
 
-    /** Anlaşma özeti — yandan açılır: anlaşılan, gelen, ödenen, bekleyen çek, borç, gelecek mal + teslimat ve ödeme listeleri. */
+    /**
+     * Anlaşma penceresi (kullanıcı 27.10: satıra basınca aşağı açılmak yerine yandan pencere, her şey orada) — rakamlar, kalemler,
+     * gelen mallar, ödemeler + işlem düğmeleri. Düğmeler iç pencere açar (registerModalActions); kaydedince bu pencereye dönülür.
+     */
     public function agreementSummaryAction(): Action
     {
         return Action::make('agreementSummary')
             ->modalHeading(fn (array $arguments): string => ($a = $this->agreementArg($arguments)) ? \App\Support\AgreementBalances::label($a) : 'Anlaşma')
             ->slideOver()
-            ->modalWidth('2xl')
+            ->modalWidth('3xl')
             ->modalContent(fn (array $arguments) => view('filament.resources.parties.agreement-summary',
                 \App\Support\AgreementSummary::build($this->agreementArg($arguments))))
             ->modalSubmitAction(false)
             ->modalCancelActionLabel('Kapat')
-            ->extraModalFooterActions(fn (array $arguments): array => ($a = $this->agreementArg($arguments)) ? [
-                Action::make('payFromSummary')
-                    ->label($a->isPurchase() ? 'Ödeme yap' : 'Ödeme al')
-                    ->color('primary')
-                    ->action(fn () => $a->isPurchase()
-                        ? $this->replaceMountedAction('newLedgerEntry', ['type' => PartyLedgerEntry::TYPE_PAYMENT, 'agreement' => $a->id])
-                        : $this->replaceMountedAction('newCollection', ['agreement' => $a->id])),
-            ] : []);
+            ->registerModalActions([
+                $this->newLedgerEntryAction(),
+                $this->newCollectionAction(),
+                $this->addAgreementItemsAction(),
+                $this->changeAgreementPriceAction(),
+                $this->deleteAgreementItemAction(),
+                $this->editAgreementAction(),
+                $this->toggleAgreementAction(),
+                $this->deleteAgreementAction()->cancelParentActions(),
+            ]);
     }
 
     /**

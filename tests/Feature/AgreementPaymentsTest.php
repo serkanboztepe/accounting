@@ -306,11 +306,17 @@ class AgreementPaymentsTest extends TestCase
         foreach (['24.000 (1 teslimat)', '10.000 (1 ödeme)', 'Bekleyen çek', '10.000 (1 çek, ilk vade', '14.000', '56.000', 'AP Demir'] as $text) {
             $this->assertStringContainsString($text, $html);
         }
-        $page = $this->page()->mountAction('agreementSummary', ['agreement' => $demir->id])->assertHasNoErrors();
-        $page->mountAction('payFromSummary')->callMountedAction();
-        $this->assertSame((string) $demir->id, (string) ($page->instance()->mountedActions[0]['data']['agreement_choice'] ?? null),
+        $page = $this->page()->mountAction('agreementSummary', ['agreement' => $demir->id])->assertHasNoErrors()
+            ->mountAction('newLedgerEntry', ['type' => PartyLedgerEntry::TYPE_PAYMENT, 'agreement' => $demir->id]);
+        $this->assertSame((string) $demir->id, (string) ($page->instance()->mountedActions[1]['data']['agreement_choice'] ?? null),
             'Ödeme yap → anlaşma seçili açılır');
-        $this->assertSame('newLedgerEntry', $page->instance()->mountedActions[0]['name']);
+        $page->set('mountedActions.1.data.amount', '4.000,00')->callMountedAction()->assertHasNoErrors()
+            ->assertSet('mountedActions.0.name', 'agreementSummary');   // kaydedince anlaşma penceresine dönülür
+        $this->assertSame(2, $demir->ledgerEntries()->count());
+
+        $this->page()->mountAction('agreementSummary', ['agreement' => $demir->id])
+            ->mountAction('changeAgreementPrice', ['item' => $demir->items()->first()->id])->assertHasNoErrors()
+            ->assertSet('mountedActions.1.name', 'changeAgreementPrice');
     }
 
     public function test_move_deliveries_toggle_only_when_project_changes_and_goods_came(): void
