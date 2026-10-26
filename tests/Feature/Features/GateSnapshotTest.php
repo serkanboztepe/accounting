@@ -31,6 +31,15 @@ class GateSnapshotTest extends TestCase
         'firm_12' => ['trade', ['smart_assistant' => true, 'projects' => true, 'proactive_alerts' => true, 'natural_voice' => true, 'assistant_pilot' => true]],
     ];
 
+    /** Fotoğraf çekildiği günkü (26.10) anahtar listesi — sonradan eklenen anahtar rastgele durumları kaydırmasın. */
+    private const RANDOM_KEYS = [
+        'land_share', 'direct_sales', 'stock', 'purchase_contracts', 'sales_contracts', 'quotes',
+        'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
+        'report_project', 'report_stock', 'report_sales', 'smart_assistant', 'daily_nudge',
+        'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice', 'proactive_alerts', 'fast_save',
+        'agreements', 'assistant_pilot',
+    ];
+
     /** canAccess (ve menü kaydı) modüle bağlı olan panel sınıfları. */
     private const PANEL = [
         \App\Filament\Pages\MonthlyResultReport::class,
@@ -101,7 +110,7 @@ class GateSnapshotTest extends TestCase
         mt_srand(20261026);
         for ($i = 0; $i < 60; $i++) {
             $overrides = [];
-            foreach (ModuleProfiles::KEYS as $key) {
+            foreach (self::RANDOM_KEYS as $key) {
                 $overrides[$key] = mt_rand(0, 1) === 1;
             }
             $cases["random_{$i}"] = [null, $overrides];

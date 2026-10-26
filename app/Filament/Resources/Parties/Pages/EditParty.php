@@ -378,13 +378,13 @@ class EditParty extends EditRecord
                     ->visible(fn (Get $get) => (bool) $get('paid')),
                 TradeLines::repeater('in'),
                 // Şube/proje yalnız ürünsüz alışta: "Ürün ekle" deyince gizlenir, satır silinince geri gelir
-                // (ürünlü alış işletme geneli, Serkan 16.10).
+                // (ürünlü alış işletme geneli, Serkan 16.10). "Alışı yere yaz" açık firmada (çiftlik) ürünlü alışta da görünür.
                 Select::make('project_id')
                     ->label(fn () => Labels::project())
                     ->options(fn () => Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
-                    ->helperText('Ürünsüz alışın maliyeti bu şubeye yazılır.')
-                    ->visible(fn (Get $get) => \App\Support\Features::places() && empty($get('lines'))),
+                    ->helperText(fn () => \App\Support\Features::placeCost() ? 'Alışın maliyeti bu yere yazılır (ürünler stoğa da girer).' : 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
+                    ->visible(fn (Get $get) => \App\Support\Features::places() && (\App\Support\Features::placeCost() || empty($get('lines')))),
                 MoneyInput::make('manual_amount', 'Ürünsüz tutar')
                     ->required(false)
                     ->helperText('Ürün seçmeden alış (ör. nakliye, usta, stok tutmadığın bir malzeme).'),

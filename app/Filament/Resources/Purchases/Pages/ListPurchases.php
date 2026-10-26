@@ -109,13 +109,13 @@ class ListPurchases extends ListRecords
                 TradeLines::repeater('in'),
 
                 // Proje / Şube (firmada açıksa) yalnız ürünsüz alışta: "Ürün ekle" deyince gizlenir, satır silinince geri gelir
-                // (ürünlü alış işletme geneli, Serkan 16.10).
+                // (ürünlü alış işletme geneli, Serkan 16.10). "Alışı yere yaz" açık firmada (çiftlik) ürünlü alışta da görünür.
                 Select::make('project_id')
                     ->label(fn () => Labels::project())
                     ->options(fn () => \App\Models\Project::whereNotIn('status', ['cancelled'])->orderBy('name')->pluck('name', 'id'))
                     ->placeholder('Genel')
-                    ->helperText(fn () => 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
-                    ->visible(fn (Get $get) => \App\Support\Features::places() && empty($get('lines')))
+                    ->helperText(fn () => \App\Support\Features::placeCost() ? 'Alışın maliyeti bu yere yazılır (ürünler stoğa da girer).' : 'Ürünsüz alışın maliyeti bu şubeye yazılır.')
+                    ->visible(fn (Get $get) => \App\Support\Features::places() && (\App\Support\Features::placeCost() || empty($get('lines'))))
                     ->columnSpan(['default' => 1, 'md' => 2]),
 
                 MoneyInput::make('manual_amount', 'Ürünsüz tutar')

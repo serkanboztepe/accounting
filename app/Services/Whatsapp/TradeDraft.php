@@ -67,7 +67,9 @@ class TradeDraft
                     'unit_price' => null, 'amount' => (float) ($d['amount'] ?? 0) ?: null,
                 ]];
                 $d['category_id'] = $d['category_name'] = null;
-                $d['project_id'] = $d['project_name'] = null;
+                if (! \App\Support\Features::placeCost()) { // çiftlikte söylenen yer kalır (yem → ahır)
+                    $d['project_id'] = $d['project_name'] = null;
+                }
             }
         }
 
@@ -1045,6 +1047,11 @@ class TradeDraft
         if ($d['kind'] === ExpenseExtractor::KIND_MONTH_RESULT) {
             // Şube sorusu ("dünkü Ergenekon ciro") — yalnız mevcut şube; soru cevabında yeni şube açılmaz.
             $branch = \App\Support\Features::places() && ! empty($d['project_id']) ? (int) $d['project_id'] : null;
+            // Çiftlik (alışı yere yaz, 26.10): yer adı geçip dönem söylenmediyse ("Tarla 1 ne kazandırdı") yerin sezon sonucu.
+            if ($branch && \App\Support\Features::placeCost() && empty($d['date_from']) && empty($d['month'])
+                && ($place = \App\Models\Project::find($branch))) {
+                return MonthlyResult::placeText(MonthlyResult::forPlace($place));
+            }
             if (! empty($d['date_from'])) {
                 $from = Carbon::parse($d['date_from']);
                 $to = ! empty($d['date_to']) ? Carbon::parse($d['date_to']) : $from->copy();

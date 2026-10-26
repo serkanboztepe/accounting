@@ -3,22 +3,39 @@
 namespace App\Filament\Resources\Projects\Schemas;
 
 use App\Models\Party;
+use App\Models\Project;
+use App\Support\Features;
+use App\Support\MonthlyResult;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 
 /**
  * Sade proje formu. Durum ve tarihler sorulmaz:
  *  - Başlangıç = oluşturma günü (Project::creating), Durum = aktif
  *  - Bitiş = listede "Tamamlandı" aksiyonunun günü
+ * İstisna: "Alışı yere yaz" açık firmada (çiftlik) sezon başı/sonu düzenlenir ve sezon sonucu görünür.
  */
 class ProjectForm
 {
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
+            // Çiftlik (alışı yere yaz, 26.10): yerin sezon sonucu + sezon tarihleri ("Tarla 1 · 2026").
+            View::make('filament.resources.projects.season-result')
+                ->viewData(fn (?Project $record) => ['r' => $record ? MonthlyResult::forPlace($record) : null])
+                ->visible(fn (?Project $record) => $record !== null && Features::placeCost())
+                ->columnSpanFull(),
             TextInput::make('name')->label('Ad')->required()->maxLength(255),
+            DatePicker::make('start_date')->label('Sezon başı')
+                ->visible(fn () => Features::placeCost())
+                ->helperText('Boşsa açıldığı gün. Daha önce tarihli kayıt varsa sezon oradan başlar.'),
+            DatePicker::make('end_date')->label('Sezon sonu')
+                ->visible(fn () => Features::placeCost())
+                ->helperText('Boş = sürüyor. Listede "Tamamlandı" deyince bugün yazılır.'),
             // Müteahhit kendi projelerini takip eder — müşteri sahipliği sadece satış yapan
             // kurulumlarda anlamlı (cari satışta müşterinin projelerini getirmek için).
             Select::make('party_id')

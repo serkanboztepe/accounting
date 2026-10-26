@@ -87,7 +87,7 @@ class ModuleProfiles
         'property_tax', 'projects', 'contracts', 'checks', 'expenses', 'dashboard', 'cari_supplier',
         'report_project', 'report_stock', 'report_sales', 'smart_assistant', 'daily_nudge',
         'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice', 'proactive_alerts', 'fast_save',
-        'agreements', 'assistant_pilot',
+        'agreements', 'assistant_pilot', 'place_cost',
     ];
 
     /**
@@ -95,7 +95,7 @@ class ModuleProfiles
      * Satışlar/Alışlar tezgahı, Ay Sonucu ve akşam ciro sorusu: canlı firmalarda kendiliğinden AÇILMAZ
      * (yalnız "Stoklu satış" paketinde açık) — mevcut akışlar değişmesin.
      */
-    public const DEFAULT_OFF = ['smart_assistant', 'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice', 'proactive_alerts', 'fast_save', 'agreements', 'assistant_pilot'];
+    public const DEFAULT_OFF = ['smart_assistant', 'sales_desk', 'purchases', 'report_monthly', 'revenue_prompt', 'natural_voice', 'proactive_alerts', 'fast_save', 'agreements', 'assistant_pilot', 'place_cost'];
 
     /** Hub ekranındaki Türkçe adlar. */
     public const LABELS = [
@@ -126,6 +126,7 @@ class ModuleProfiles
         'agreements'         => 'Anlaşmalar (cariyle alış/satış anlaşması: kalem kalem anlaşılan / gelen / kalan)',
         'assistant_pilot'    => 'Asistan pilotu (deneme — soru türü, gereksiz amaç sorusu süzgeci, "80 binin 50\'si" ölçek kuralı)',
         'fast_save'          => 'Hızlı kayıt (soru yoksa onay beklemeden kaydeder: "✅ Kaydedildi… yanlışsa düzelt / geri al")',
+        'place_cost'         => 'Alışı yere yaz (çiftlik: yem ahıra, gübre tarlaya; sezon sonucu)',
     ];
 
     /** Sektör bir şey demiyorsa: açık — DEFAULT_OFF hariç. */

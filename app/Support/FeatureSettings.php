@@ -17,13 +17,14 @@ namespace App\Support;
 final class FeatureSettings
 {
     /** Hub'daki 7 kutu (Faz C'de Hayvanlarım eklenecek). */
-    public const FEATURES = ['expenses', 'places', 'place_reports', 'stock', 'agreements', 'land_share', 'property_tax'];
+    public const FEATURES = ['expenses', 'places', 'place_reports', 'stock', 'place_cost', 'agreements', 'land_share', 'property_tax'];
 
     public const FEATURE_LABELS = [
         'expenses'      => 'Gider',
         'places'        => 'Yerler',
         'place_reports' => 'Raporlar + ana sayfa',
         'stock'         => 'Stok',
+        'place_cost'    => 'Alışı yere yaz',
         'agreements'    => 'Anlaşmalar',
         'land_share'    => 'Hisse Dağılımı',
         'property_tax'  => 'Emlak Beyanı',
@@ -67,6 +68,9 @@ final class FeatureSettings
         if (! $f['places']) {
             $f['place_reports'] = false;
         }
+        if (! $f['places'] || ! $f['stock']) {
+            $f['place_cost'] = false; // Stok + Yerler alt seçimi
+        }
 
         return $f;
     }
@@ -105,6 +109,7 @@ final class FeatureSettings
         foreach (self::STOCK_KEYS as $key) {
             $modules[$key] = $f['stock'];
         }
+        $modules['place_cost'] = $f['place_cost'];
         $modules['agreements'] = $f['agreements'];
         $modules['land_share'] = $f['land_share'];
         $modules['property_tax'] = $f['property_tax'];
@@ -128,6 +133,7 @@ final class FeatureSettings
                 'places'        => (bool) ($modules['projects'] ?? false),
                 'place_reports' => $any(self::PLACE_REPORT_KEYS),
                 'stock'         => $any(self::STOCK_KEYS),
+                'place_cost'    => (bool) ($modules['place_cost'] ?? false),
                 'agreements'    => (bool) ($modules['agreements'] ?? false),
                 'land_share'    => (bool) ($modules['land_share'] ?? false),
                 'property_tax'  => (bool) ($modules['property_tax'] ?? false),

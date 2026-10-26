@@ -91,6 +91,15 @@ final class Features
         return self::on('report_sales');
     }
 
+    /**
+     * Stok alt seçimi "Alışı yere yaz" (çiftlik, 26.10): ürünlü alış da seçilen yere yazılır (yem → ahır), yer sonucu
+     * genel gideri dağıtmaz, yerin sezon sonucu gösterilir. Kapalıyken fırın düzeni: stok işletme geneli (16.10).
+     */
+    public static function placeCost(): bool
+    {
+        return self::on('place_cost') && self::stock() && self::places();
+    }
+
     /** Ay Sonucu (ciro − alış − gider). */
     public static function monthlyResult(): bool
     {

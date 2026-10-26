@@ -71,8 +71,8 @@ class TradeDesk
             $purchase = Purchase::create([
                 'party_id'      => $partyId,
                 // Ürünlü (stoğa giren) alış şubesiz: stok işletme geneli, maliyet şubeye bölünmez (Serkan 16.10).
-                // İstisna: anlaşma teslimatı (keep_project) — maliyet teslimatın projesine yazılır.
-                'project_id'    => Forms\TradeLines::hasLines($data['lines'] ?? []) && empty($data['keep_project'])
+                // İstisnalar: anlaşma teslimatı (keep_project) ve "Alışı yere yaz" açık firma (çiftlik 26.10: yem → ahır).
+                'project_id'    => Forms\TradeLines::hasLines($data['lines'] ?? []) && empty($data['keep_project']) && ! Features::placeCost()
                     ? null : ($data['project_id'] ?? null),
                 'purchase_date' => $data['purchase_date'] ?? now()->toDateString(),
                 'manual_amount' => $manual > 0 ? $manual : null,

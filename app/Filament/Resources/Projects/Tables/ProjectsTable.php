@@ -25,6 +25,13 @@ class ProjectsTable
         return $table
             ->columns([
                 TextColumn::make('name')->label('Ad')->searchable()->sortable(),
+                // Çiftlik (alışı yere yaz, 26.10): yerin sezon sonucu (satış − alış − personel − gider, yalnız bu yere yazılanlar).
+                TextColumn::make('season_result')
+                    ->label('Sezon sonucu')
+                    ->state(fn (\App\Models\Project $record) => \App\Support\MonthlyResult::forPlace($record)['result'])
+                    ->formatStateUsing(fn ($state) => ($state < 0 ? '−' : '') . \App\Support\Money::format(abs((float) $state)) . ' ₺')
+                    ->color(fn ($state) => $state < 0 ? 'danger' : 'success')
+                    ->visible(fn () => \App\Support\Features::placeCost()),
                 TextColumn::make('party.name')
                     ->label('Sahip müşteri')
                     ->placeholder('—')

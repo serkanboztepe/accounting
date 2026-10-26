@@ -4,8 +4,10 @@ namespace App\Support;
 
 use App\Models\Expense;
 use App\Models\PartyLedgerEntry;
+use App\Models\Project;
 use App\Models\Purchase;
 use App\Models\PurchaseReturn;
+use App\Models\Reminder;
 use App\Models\Sale;
 use App\Models\SaleReturn;
 use App\Models\StockMovement;
@@ -44,6 +46,10 @@ class MonthlyResult
         $general = self::compute($fromDate, $toDate, 'none');
         // Tek gün: aylık maaş günün sonucuna (ve şube payına) yazılmaz — bilgi satırı (kullanıcı kararı 19.10).
         $generalCost = $general['purchases'] + ($fromDate->isSameDay($toDate) ? 0.0 : $general['personnel']) + $general['expenses'];
+        // "Alışı yere yaz" (çiftlik, kullanıcı kararı 26.10): genel gider DAĞITILMAZ — ayrı bilgi satırı, sonuca dahil değil.
+        if (Features::placeCost()) {
+            return array_merge($branch, ['general_unallocated' => $generalCost]);
+        }
         $share = $all['revenue'] > 0 ? max(0.0, $branch['revenue'] / $all['revenue']) : 0.0;
         $allocated = round($generalCost * $share, 2);
 
@@ -53,6 +59,90 @@ class MonthlyResult
             'allocated'    => $allocated,
             'result'       => $branch['result'] - $allocated,
         ]);
+    }
+
+    /**
+     * Yerin SEZON sonucu ("Tarla 1 · 2026", çiftlik 26.10): yerin başından (başlangıç tarihi ya da yere yazılan ilk kayıt,
+     * hangisi önceyse) bitişine (tamamlandıysa bitiş günü, yoksa bugün) kadar yalnız O YERE yazılanlar: satış − alış −
+     * personel − gider. Yere yazılmamış genel gider dağıtılmaz, ayrı bilgi (kullanıcı kararı 26.10). Üretim miktarları
+     * (WhatsApp "ürettim", maliyetsiz stok girişi) bilgi olarak eklenir.
+     */
+    public static function forPlace(Project $place): array
+    {
+        $from = self::placeStart($place);
+        $to = $place->end_date ? Carbon::parse($place->end_date)->startOfDay() : now(Reminder::TIMEZONE)->startOfDay();
+        if ($to->lt($from)) {
+            $to = $from->copy();
+        }
+        $own = self::compute($from, $to, $place->id);
+        $general = self::compute($from, $to, 'none');
+
+        $production = StockMovement::query()
+            ->where('reason', StockMovement::REASON_PRODUCTION)->where('project_id', $place->id)
+            ->whereBetween('movement_date', [$from->toDateString(), $to->toDateString()])
+            ->with('product.unit')->get()
+            ->groupBy('product_id')
+            ->map(fn ($rows) => [
+                'name' => $rows->first()->product?->name ?? 'Ürün',
+                'quantity' => (float) $rows->sum('quantity'),
+                'unit' => $rows->first()->product?->unit?->name,
+            ])->values()->all();
+
+        return array_merge($own, [
+            'place'               => $place->name,
+            'closed'              => $place->status === 'completed',
+            'label'               => $place->name,
+            'season_label'        => $from->copy()->locale('tr')->translatedFormat('j F Y') . ' – '
+                . ($place->end_date ? $to->copy()->locale('tr')->translatedFormat('j F Y') : 'bugün'),
+            'general_unallocated' => $general['purchases'] + $general['personnel'] + $general['expenses'],
+            'production'          => $production,
+        ]);
+    }
+
+    /** Sezon başı: başlangıç tarihi ya da yere yazılan ilk kayıt (sonradan açılıp geriye tarihli girilen alış dışarıda kalmasın). */
+    private static function placeStart(Project $place): Carbon
+    {
+        $dates = array_filter([
+            $place->start_date ? Carbon::parse($place->start_date)->toDateString() : null,
+            Sale::where('project_id', $place->id)->min('sale_date'),
+            Purchase::where('project_id', $place->id)->min('purchase_date'),
+            Expense::where('project_id', $place->id)->min('expense_date'),
+            PartyLedgerEntry::where('project_id', $place->id)->min('entry_date'),
+            StockMovement::where('project_id', $place->id)->min('movement_date'),
+        ]);
+        $first = $dates ? min(array_map(fn ($d) => Carbon::parse($d)->toDateString(), $dates)) : null;
+
+        return $first ? Carbon::parse($first)->startOfDay() : Carbon::parse($place->created_at ?? now())->startOfDay();
+    }
+
+    /** WhatsApp / panel: yerin sezon sonucu metni. */
+    public static function placeText(array $r): string
+    {
+        $lines = [
+            '🌾 *' . $r['place'] . ' — sezon sonucu*' . ($r['closed'] ? ' (kapandı)' : ''),
+            '_' . $r['season_label'] . '_',
+            'Satış: ' . Money::format($r['revenue']) . ' ₺',
+            'Alış: ' . Money::format($r['purchases']) . ' ₺',
+        ];
+        if (($r['personnel'] ?? 0) > 0) {
+            $lines[] = 'Personel: ' . Money::format($r['personnel']) . ' ₺';
+        }
+        if (Features::expenses()) {
+            $lines[] = 'Gider: ' . Money::format($r['expenses']) . ' ₺';
+        }
+        $lines[] = ($r['result'] >= 0 ? '✅ Kalan: ' : '🔻 Eksi: ') . Money::format(abs($r['result'])) . ' ₺';
+        if ($r['production'] !== []) {
+            $lines[] = '🌱 Üretim: ' . implode(', ', array_map(
+                fn (array $p) => StockUsage::quantity($p['quantity']) . ($p['unit'] ? ' ' . $p['unit'] : '') . ' ' . $p['name'],
+                $r['production'],
+            ));
+        }
+        if ($r['general_unallocated'] > 0) {
+            $lines[] = 'Yere yazılmamış genel gider: ' . Money::format($r['general_unallocated']) . ' ₺ (bu sonuca dahil değil)';
+        }
+        $lines[] = '_Ödeme ve tahsilatlar sayılmaz; stokta kalan mal düşülmez._';
+
+        return implode("\n", $lines);
     }
 
     /** @param  int|'none'|null  $scope  null = hepsi, int = o şube, 'none' = şubesiz (genel) kayıtlar */
@@ -193,6 +283,9 @@ class MonthlyResult
         }
         if (isset($r['allocated']) && $r['general_cost'] > 0) {
             $lines[] = '_Şubesiz alış/gider (' . Money::format($r['general_cost']) . ' ₺) ciro payına göre dağıtıldı._';
+        }
+        if (($r['general_unallocated'] ?? 0) > 0) {
+            $lines[] = 'Yere yazılmamış genel gider: ' . Money::format($r['general_unallocated']) . ' ₺ (bu sonuca dahil değil)';
         }
         $lines[] = '_Ödeme ve tahsilatlar sayılmaz; stokta kalan mal düşülmez._';
 

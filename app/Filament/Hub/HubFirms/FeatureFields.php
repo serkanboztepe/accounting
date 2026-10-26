@@ -65,6 +65,9 @@ final class FeatureFields
                     Toggle::make('feat_place_reports')->label('Raporlar + ana sayfa')
                         ->visible(fn (Get $get) => (bool) $get('feat_places') || $placesLocked($get))
                         ->helperText('Yere göre rapor (proje raporu) ve ana sayfa özeti.'),
+                    Toggle::make('feat_place_cost')->label('Alışı yere yaz')
+                        ->visible(fn (Get $get) => (bool) $get('feat_stock') && ((bool) $get('feat_places') || $placesLocked($get)))
+                        ->helperText('Kapalı (fırın gibi): stok ortak, ürünlü alış hiçbir yere yazılmaz. Açık (çiftlik gibi): yem ahıra, gübre tarlaya yazılır; her yerin sezon sonucu görünür, genel gider dağıtılmaz.'),
                     Toggle::make('feat_agreements')->label('Anlaşmalar')
                         ->helperText('Cariyle kalem kalem anlaşma, gelen/kalan; WhatsApp\'ta sözleşme fotoğrafı okuma. Stok açıksa gelen mal stoğa girer.'),
                     Toggle::make('feat_land_share')->label('Hisse Dağılımı')->live()->afterStateUpdated($lockPlaces)

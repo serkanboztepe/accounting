@@ -53,6 +53,10 @@ final class ProjectChoice
 
         // Stoklu alış (stoğa giren mal) şube SORMAZ — stok işletme geneli, hammadde tüm şubeler için alınır; şube
         // sorusu "şube stoğu var" sanısı yaratıyordu (Serkan 16.10). Mesajda şube adı geçse de yazılmaz (prepare temizler).
+        // "Alışı yere yaz" açık firmada (çiftlik 26.10) sorulur: yem ahıra, gübre tarlaya; üretim de o yerin.
+        if (\App\Support\Features::placeCost()) {
+            return in_array($kind, [...self::KINDS, ExpenseExtractor::KIND_PRODUCTION], true);
+        }
         if ($kind === ExpenseExtractor::KIND_TRADE_PURCHASE && self::hasStockItem($d)) {
             return false;
         }
@@ -83,7 +87,7 @@ final class ProjectChoice
     {
         unset($d['project_suggested'], $d['project_needed']);
         // Ürünlü (stoğa giren) alış hiç şubeye yazılmaz — mesajda şube adı geçse de (stok işletme geneli).
-        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE && self::hasStockItem($d)) {
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_PURCHASE && self::hasStockItem($d) && ! \App\Support\Features::placeCost()) {
             $d['project_id'] = $d['project_name'] = null;
 
             return $d;
