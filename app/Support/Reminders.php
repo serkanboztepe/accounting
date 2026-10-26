@@ -26,6 +26,7 @@ class Reminders
             'party_id' => $d['party_id'] ?? null,
             'event_date' => $d['event_date'],
             'event_time' => $d['event_time'] ?? null,
+            'notify_time' => empty($d['event_time']) ? ($d['notify_time'] ?? null) : null,
             'lead_minutes' => $d['lead_minutes'] ?? null,
             'is_alarm' => (bool) ($d['is_alarm'] ?? false),
             'repeat' => $d['repeat'] ?? null,
@@ -36,6 +37,99 @@ class Reminders
         $reminder->scheduleNext();
 
         return $reminder;
+    }
+
+    /**
+     * Kayıtlı hatırlatmayı DEĞİŞTİRME isteği (Ferhat 25.10: "Hatırlatmaları saat 10:00 da yap" — asistan "ayarlıyorum" deyip
+     * hiçbir şey yapmamıştı): bu numaranın aktif hatırlatması; değilse null (yeni hatırlatma gibi davranılır).
+     */
+    public static function target(array $d, string $phone): ?Reminder
+    {
+        $id = (int) ($d['updates_reminder_id'] ?? 0);
+
+        return $id > 0
+            ? Reminder::whereKey($id)->where('phone', Phone::normalize($phone))->where('status', 'active')->first()
+            : null;
+    }
+
+    /**
+     * Değişiklik uygulanmış KAYDEDİLMEMİŞ kopya (kart ve kayıt aynı hesabı kullanır). Taslakta dolu alan değişir, boş alan
+     * eskisi gibi kalır. Saatsiz olaya saat söylenirse ("10'da yap") olayın saati değil HATIRLATMA saati değişir.
+     */
+    public static function updated(Reminder $old, array $d): Reminder
+    {
+        $new = $old->replicate(['next_fire_at', 'attempts', 'last_sent_at', 'acknowledged_at']);
+        $new->id = $old->id;
+        $new->exists = true;
+        if (! empty($d['description'])) {
+            $new->text = trim((string) $d['description']);
+        }
+        if (! empty($d['event_date'])) {
+            $new->event_date = $d['event_date'];
+            if (in_array($new->repeat, ['monthly', 'yearly'], true)) {
+                $new->anchor_day = Carbon::parse($d['event_date'])->day;
+            }
+        }
+        if (! empty($d['lead_minutes'])) {
+            $new->lead_minutes = (int) $d['lead_minutes'];
+        }
+        $time = $d['notify_time'] ?? $d['event_time'] ?? null;
+        if ($time) {
+            $old->event_time && empty($d['notify_time']) ? $new->event_time = $time : $new->notify_time = $time;
+        }
+        $new->status = 'active';
+        $new->scheduleNext();
+
+        return $new;
+    }
+
+    /** Değişiklik kartı: eski ve yeni hatırlatma anları yan yana. */
+    public static function changeSummary(Reminder $old, Reminder $new): string
+    {
+        return implode("\n", array_filter([
+            '⏰ *Hatırlatma değişiyor — kontrol et:*',
+            '• Ne: ' . $new->text . ($new->text !== $old->text ? ' (önce: ' . $old->text . ')' : ''),
+            $new->is_alarm ? null : '• Ne zaman: ' . self::when($new->eventAt(), (bool) $new->event_time),
+            '• Şu an: ' . (self::alarmList($old) ?: '—'),
+            '• Yeni: ' . (self::alarmList($new) ?: '—'),
+        ]));
+    }
+
+    /** Sıradaki en çok 3 hatırlatma anı ("29 Ekim Perşembe 10:00 · 30 Ekim Cuma 10:00"). */
+    private static function alarmList(Reminder $r): string
+    {
+        $alarms = [];
+        $after = now();
+        for ($i = 0; $i < 3; $i++) {
+            $next = $r->nextAlarmAfter($after);
+            if (! $next) {
+                break;
+            }
+            $alarms[] = self::when($next[0]);
+            $after = $next[0];
+        }
+
+        return implode(' · ', $alarms) . ($r->repeat && $alarms ? ' …' : '');
+    }
+
+    /**
+     * AI bağlamı: bu numaranın aktif hatırlatmaları — "hatırlatmaları 10'da yap" hangisini kastediyor bilsin
+     * (updates_reminder_id). Yoksa boş.
+     */
+    public static function contextBlock(?string $phone): string
+    {
+        if (! $phone) {
+            return '';
+        }
+        $rows = Reminder::where('phone', Phone::normalize($phone))->where('status', 'active')
+            ->whereNotNull('next_fire_at')->orderBy('next_fire_at')->limit(8)->get();
+        if ($rows->isEmpty()) {
+            return '';
+        }
+
+        return "\n\nAKTİF HATIRLATMALAR (kayıtlı; değiştirme isteğinde `updates_reminder_id` = id):\n"
+            . $rows->map(fn (Reminder $r) => sprintf('  #%d: %s — olay %s · sıradaki hatırlatma %s',
+                $r->id, $r->text, self::when($r->eventAt(), (bool) $r->event_time), self::when($r->next_fire_at)))->implode("\n");
     }
 
     /** "20 Ekim Salı 14:00" / "20 Ekim Salı" (İstanbul). */
@@ -55,17 +149,7 @@ class Reminders
             $lines[] = '• Ne zaman: ' . self::when($r->eventAt(), (bool) $r->event_time);
         }
 
-        $alarms = [];
-        $after = now();
-        for ($i = 0; $i < 3; $i++) {
-            $next = $r->nextAlarmAfter($after);
-            if (! $next) {
-                break;
-            }
-            $alarms[] = self::when($next[0]);
-            $after = $next[0];
-        }
-        $lines[] = '• Hatırlatacağım: ' . implode(' · ', $alarms) . ($r->repeat ? ' …' : '');
+        $lines[] = '• Hatırlatacağım: ' . self::alarmList($r);
         if ($r->repeat) {
             $lines[] = '• Tekrar: ' . self::REPEAT_LABELS[$r->repeat];
         }

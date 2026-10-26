@@ -63,7 +63,8 @@ final class DraftGaps
             return ['code' => self::DETAIL, 'ask' => $question, 'why' => 'Bir bilgi eksik olduğu için kaydedemedim: ' . $question];
         }
         if ($kind === ExpenseExtractor::KIND_REMINDER) {
-            return empty($d['event_date'])
+            // Kayıtlı hatırlatmayı değiştirme ("10'da yap"): tarih söylenmeyebilir — eskisi kalır.
+            return empty($d['event_date']) && empty($d['updates_reminder_id'])
                 ? ['code' => self::DETAIL, 'ask' => 'Ne zaman hatırlatayım?', 'why' => 'Ne zaman hatırlatacağımı yazmadığın için kuramadım.']
                 : self::confirm();
         }

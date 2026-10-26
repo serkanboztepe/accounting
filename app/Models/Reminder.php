@@ -41,6 +41,7 @@ class Reminder extends Model
             'Metin'         => $this->text,
             'Tarih'         => \App\Models\ActivityLog::date($this->event_date),
             'Saat'          => $this->event_time ? substr((string) $this->event_time, 0, 5) : null,
+            'Hatırlatma saati' => $this->notify_time ? substr((string) $this->notify_time, 0, 5) : null,
             'Ne kadar önce' => $this->lead_minutes ? $this->lead_minutes . ' dk' : null,
             'Tekrar'        => ['daily' => 'Her gün', 'weekly' => 'Her hafta', 'monthly' => 'Her ay', 'yearly' => 'Her yıl'][$this->repeat] ?? null,
             'Ayın günü'     => $this->anchor_day,
@@ -64,7 +65,7 @@ class Reminder extends Model
     public const REPLY_WINDOW_HOURS = 12;
 
     protected $fillable = [
-        'phone', 'text', 'party_id', 'event_date', 'event_time', 'lead_minutes', 'is_alarm', 'repeat',
+        'phone', 'text', 'party_id', 'event_date', 'event_time', 'notify_time', 'lead_minutes', 'is_alarm', 'repeat',
         'anchor_day', 'next_fire_at', 'status', 'attempts', 'last_sent_at', 'acknowledged_at',
         'amount', 'expense_category_id', 'project_id',
     ];
@@ -176,6 +177,10 @@ class Reminder extends Model
         }
 
         $days = $this->lead_minutes ? max(1, (int) round($this->lead_minutes / 1440)) : 1;
+        // Saatsiz gün: hatırlatmalar notify_time'da (Ferhat 25.10 "hatırlatmaları 10'da yap"), yoksa 08:00.
+        if ($this->notify_time) {
+            $event = $event->copy()->setTimeFromTimeString(substr((string) $this->notify_time, 0, 5));
+        }
 
         return [$event->copy()->subDays($days), $event];
     }

@@ -2009,7 +2009,8 @@ class WhatsappWebhookController extends Controller
             return ExpenseSummary::text($data['date_from'] ?? null, $data['date_to'] ?? null, $data['project_id'] ?? null);
         }
 
-        if ($this->kind($data) === ExpenseExtractor::KIND_REMINDER && ! empty($data['event_date'])) {
+        if ($this->kind($data) === ExpenseExtractor::KIND_REMINDER
+            && (! empty($data['event_date']) || Reminders::target($data, $phone))) {
             return $this->saveReminderDraft($pending, $phone, $data);
         }
 
@@ -3152,11 +3153,17 @@ class WhatsappWebhookController extends Controller
 
             return is_array($out) ? implode("\n\n", $out) : $out;
         }
-        $reminder = Reminders::fromDraft($data, $phone);
+        // Kayıtlı hatırlatmayı değiştirme ("hatırlatmaları 10'da yap", Ferhat 25.10): eski/yeni kartı, onayla AYNI kayıt değişir.
+        $target = Reminders::target($data, $phone);
+        if (! $target) {
+            $data['updates_reminder_id'] = null;
+        }
+        $reminder = $target ? Reminders::updated($target, $data) : Reminders::fromDraft($data, $phone);
         $data['question'] = null;
 
         $text = $reminder->next_fire_at
-            ? Reminders::summary($reminder) . "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz."
+            ? ($target ? Reminders::changeSummary($target, $reminder) : Reminders::summary($reminder))
+                . "\n\n✅ Onaylamak için *evet*, vazgeçmek için *iptal* yaz."
             : "❓ Bu zaman geçmiş görünüyor. Ne zaman hatırlatayım?\nVazgeçmek için *iptal*.";
 
         if ($pending) {
@@ -3170,6 +3177,19 @@ class WhatsappWebhookController extends Controller
 
     private function commitReminder(WhatsappPendingExpense $pending, array $d): string
     {
+        if ($target = Reminders::target($d, $pending->phone)) {
+            $updated = Reminders::updated($target, $d);
+            if (! $updated->next_fire_at) {
+                return '❓ Bu zaman geçmiş görünüyor. Ne zaman hatırlatayım?';
+            }
+            $target->fill($updated->only(['text', 'event_date', 'event_time', 'notify_time', 'lead_minutes', 'anchor_day']));
+            $target->forceFill(['next_fire_at' => $updated->next_fire_at, 'attempts' => 0, 'status' => 'active'])->save();
+            $pending->update(['status' => 'confirmed']);
+
+            return '✅ Hatırlatma güncellendi: ' . $target->text
+                . "\n⏰ Sıradaki hatırlatma: " . Reminders::when($target->next_fire_at)
+                . "\nTüm hatırlatmaların için *hatırlatmalarım* yaz.";
+        }
         if (empty($d['event_date'])) {
             return '❓ Ne zaman hatırlatayım?';
         }

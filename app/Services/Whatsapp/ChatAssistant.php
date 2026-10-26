@@ -623,6 +623,10 @@ class ChatAssistant
           konuşulduysa ciro (month_result), gider konuşulduysa gider (expense_summary), alacak/borç konuşulduysa totals_query.
           Son konuşma yoksa ya da konu belli değilse TAHMİN ETME, kısa `reply` ile sor: "Ciro toplamı mı, alacak-borç toplamı mı?".
         - Ekstre (kişinin hesap dökümü) PDF olarak gönderilir; "PDF" isteğinde hangi kişinin ekstresi olduğunu sor.
+        - KAYITLI bir hatırlatmayı değiştirme ("hatırlatmaları saat 10'da yap", "tarihi 31 yap", "bir gün önce de hatırlat") →
+          `propose_entry` kind "reminder" + `updates_reminder_id` (AKTİF HATIRLATMALAR'dan); sistem eski/yeni kartı gösterip onaylatır.
+          `reply` ile "ayarlıyorum / ayarladım / değiştirdim" DEME (Ferhat 25.10: "10:00'a ayarlıyorum" denmiş, hiçbir şey değişmemişti) —
+          bir işi ancak araç yapar; yapmadığın şeyi yaptım ya da yapıyorum deme.
         - Yapamadığın bir şeyse ({$cannot}…) kibarca söyle ve yapabildiğin bir örnek ver.
 
         {$understand}
@@ -646,7 +650,8 @@ class ChatAssistant
             ['type' => 'text', 'text' => trim($context), 'cache_control' => ['type' => 'ephemeral']],
             ['type' => 'text', 'text' => "ŞU AN: {$today}\n\nBEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}"
                 . self::todaysOutbound($phone)
-                . ($phone && ($review = \App\Models\RecordReview::activeFor($phone)) ? $review->promptBlock() : '')],
+                . ($phone && ($review = \App\Models\RecordReview::activeFor($phone)) ? $review->promptBlock() : '')
+                . \App\Support\Reminders::contextBlock($phone)],
         ];
     }
 
