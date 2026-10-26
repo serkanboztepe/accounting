@@ -656,7 +656,7 @@ class ChatAssistant
     }
 
     /** Bizim kendiliğimizden gönderdiğimiz bugünkü mesajlar (hatırlatma, soru, uyarı) — saatler sonra gelen "Ödendi" bunlara cevap olabilir. */
-    public const OUTBOUND_KINDS = ['reminder', 'due_reminder', 'stock_reminder', 'data_question', 'lesson_question', 'record_review', 'draft_followup'];
+    public const OUTBOUND_KINDS = ['reminder', 'due_reminder', 'check_reminder', 'stock_reminder', 'data_question', 'lesson_question', 'record_review', 'draft_followup'];
 
     private static function todaysOutbound(?string $phone): string
     {

@@ -866,6 +866,20 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, ['skip_check_match' => true] + (array) ($pending->extracted['check_original'] ?? [])));
         }
 
+        // Birden çok vadesi gelen çek listelendi: numara / "hepsi" seçimi (AI'sız) → seçilen(ler) işaretlenir.
+        if ($pending && $image === null && $this->kind($pending->extracted) === self::KIND_CHECK_CLEARED
+            && count($ids = self::clearedIds($pending->extracted)) > 1) {
+            $w = $this->word($body);
+            $pick = in_array($w, ['hepsi', 'hepsini', 'tümü', 'tumu', 'hepsi tahsil edildi', 'hepsi ödendi'], true) ? $ids
+                : (ctype_digit($w) && isset($ids[(int) $w - 1]) ? [$ids[(int) $w - 1]] : null);
+            if ($pick !== null) {
+                $this->inboundKind = 'quick';
+                $pending->update(['extracted' => ['check_ids' => $pick, 'chosen' => true] + $pending->extracted]);
+
+                return $this->twiml($this->commitThenNext($pending->fresh(), $phone));
+            }
+        }
+
         // K2: çek kime sorusuna "gider/masraf" → gider olarak kalsın (AI'sız).
         if ($pending && $image === null && ! empty($pending->extracted['check_payment'])
             && in_array($this->word($body), ['gider', 'masraf', 'gider yaz', 'masraf yaz'], true)) {
@@ -1728,6 +1742,7 @@ class WhatsappWebhookController extends Controller
             $data['from_document'] = ! empty($data['from_document']) || ! empty($pending->extracted['from_document']);
         }
         $data = TurnTrace::step('applyReceiptPayment', $this->applyReceiptPayment($pending, TurnTrace::step('carry_party_said_debt_fee', $data)));
+        $data = TurnTrace::step('matchOpenCheck', $this->matchOpenCheck($data));
         $data = TurnTrace::step('askCheckParty', $this->askCheckParty($data));
         if ($this->kind($data) === self::KIND_CHECK_CLEARED) {
             return $this->saveCheckClearedDraft($pending, $phone, $data);
@@ -2108,6 +2123,47 @@ class WhatsappWebhookController extends Controller
      * K2 (Akkuş 15.10: "105.000 çek ödendi" gider sayıldı, ay sonucu eksiye düştü): çek modülü kapalı firmada carisiz
      * "çek ödendi/ödedim" bir borcun ödemesidir → kime yazıldığı sorulur (ödeme). Masrafsa kullanıcı *gider* yazar.
      */
+    /**
+     * Vadesi gelen çek (kullanıcı 26.10): "Ali'nin çekini tahsil ettim", "Kuşak'a 50 bin ödedim", "çek yattı" — çekin parası çek
+     * alındığı / verildiği gün deftere işlendi; vadede YENİ tahsilat / ödeme yazılırsa aynı para iki kez sayılır (geçici testle
+     * görüldü: bakiye 0 → "Ali'ye 20.000 borçlusun"). Kullanıcı deftere işlenip işlenmediğini bilemez, biz biliriz → bekleyen
+     * çek eşleşirse kayıt yerine "çek tahsil edildi / ödendi olarak işaretlensin mi?" kartı. Kişili kayıtta çek sözü gerekmez
+     * (o kişinin tutan çeki var), kişisizde gerekir. Eşleşme yoksa ya da kullanıcı "başka" derse eski yol.
+     */
+    private function matchOpenCheck(array $data): array
+    {
+        $kind = $this->kind($data);
+        if (! empty($data['skip_check_match']) || ! empty($data['check_answered'])
+            || ! in_array($kind, [ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_EXPENSE], true)) {
+            return $data;
+        }
+        $partyId = ! empty($data['party_id']) ? (int) $data['party_id'] : null;
+        // Kişisiz: yalnız çekten söz edildiyse ("çek yattı", "50 bin çek ödendi"). Yeni cari adı (listede yok) eşleşmez. Gider yalnız kişisiz.
+        if (($partyId === null && (! empty($data['party_name']) || ! $this->mentionsCheck($data)))
+            || ($kind === ExpenseExtractor::KIND_EXPENSE && $partyId !== null)) {
+            return $data;
+        }
+        $direction = $kind === ExpenseExtractor::KIND_COLLECTION ? \App\Support\CheckSettleMatch::RECEIVED : \App\Support\CheckSettleMatch::GIVEN;
+        $amount = (float) ($data['amount'] ?? 0) > 0 ? (float) $data['amount'] : null;
+        $candidates = TurnTrace::read('CheckSettleMatch::candidates', fn () => \App\Support\CheckSettleMatch::candidates($direction, $partyId, $amount)->take(6)->pluck('id')->all(),
+            ['direction' => $direction, 'party_id' => $partyId, 'amount' => $amount]);
+        if ($candidates === []) {
+            return $data;
+        }
+
+        return ['kind' => self::KIND_CHECK_CLEARED, 'check_ids' => $candidates, 'direction' => $direction,
+            'amount' => (float) \App\Models\Check::whereKey($candidates[0])->value('amount'),
+            'description' => 'Çek ' . \App\Support\CheckSettleMatch::doneWord($direction), 'check_original' => $data, 'question' => null, 'confidence' => 'high'];
+    }
+
+    /** Mesajda ya da açıklamada çek geçiyor mu ("çek", "çeki", "çekin", "çekler", "çekleri", "cek"). */
+    private function mentionsCheck(array $data): bool
+    {
+        $t = mb_strtolower(strtr($this->inboundBody . ' ' . ($data['description'] ?? ''), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+
+        return (bool) preg_match('/(^|[^\p{L}])[çc]ek(ler|leri|lerin|lerini|i|in|ini)?([^\p{L}]|$)/u', $t);
+    }
+
     private function askCheckParty(array $data): array
     {
         // Modül açık/kapalı fark etmez (17.10): kişisiz "çek ödendi" önce bekleyen VERİLMİŞ çekle eşleşir (vadesi gelen çek
@@ -2118,8 +2174,7 @@ class WhatsappWebhookController extends Controller
             || (float) ($data['amount'] ?? 0) <= 0) {
             return $data;
         }
-        $t = mb_strtolower(strtr($this->inboundBody . ' ' . ($data['description'] ?? ''), ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
-        if (! preg_match('/(^|[^\p{L}])[çc]ek(i|in|ini)?([^\p{L}]|$)/u', $t)) {
+        if (! $this->mentionsCheck($data)) {
             return $data;
         }
         if (empty($data['skip_check_match']) && ($check = \App\Support\CheckReminders::matchDue((float) $data['amount'])) !== null) {
@@ -2886,13 +2941,33 @@ class WhatsappWebhookController extends Controller
         return '✅ Kaydedildi. ' . $line . $checksLine . $ask;
     }
 
-    /** Kişisiz "çek ödendi" bekleyen verilmiş çekle eşleşti: işaretleme teyidi (gider/ödeme yazılmaz). */
+    /** Eşleşen çek(ler): taslaktaki id listesi (eski taslakta tek check_id). */
+    private static function clearedIds(array $d): array
+    {
+        return array_values(array_map('intval', (array) ($d['check_ids'] ?? (isset($d['check_id']) ? [$d['check_id']] : []))));
+    }
+
+    /**
+     * Vadesi gelen çek eşleşti: kayıt yerine işaretleme teyidi — yeni tahsilat / ödeme / gider YAZILMAZ (para çek alındığı /
+     * verildiği gün işlendi). Tek çek → "işaretlensin mi?"; birden çok (kişisiz "çek yattı") → numaralı liste.
+     */
     private function saveCheckClearedDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
     {
-        $check = \App\Models\Check::with('party')->find($data['check_id']);
-        $summary = '🧾 ' . ($check?->party?->name ?? 'Çek') . ' — ' . Money::format((float) $data['amount']) . ' ₺ çek'
-            . ($check?->due_date ? ' (vade ' . $check->due_date->format('d.m.Y') . ')' : '') . ($check?->check_number ? ' · no ' . $check->check_number : '')
-            . "\nBu çek *ödendi* olarak işaretlensin mi? Çek verildiği gün ödeme olarak yazılmıştı; gider ya da yeni ödeme yazılmaz.";
+        $direction = $data['direction'] ?? \App\Support\CheckSettleMatch::GIVEN;
+        $done = \App\Support\CheckSettleMatch::doneWord($direction);
+        $checks = \App\Models\Check::with('party')->whereKey(self::clearedIds($data))->get()->sortBy(fn ($c) => array_search($c->id, self::clearedIds($data)))->values();
+        $when = $direction === \App\Support\CheckSettleMatch::RECEIVED ? 'alındığında' : 'verildiğinde';
+
+        if ($checks->count() > 1) {
+            $summary = '🧾 Vadesi gelen ' . ($direction === \App\Support\CheckSettleMatch::RECEIVED ? 'aldığın' : 'verdiğin') . " çekler:\n"
+                . $checks->map(fn ($c, $i) => '*' . ($i + 1) . '* ' . \App\Support\CheckSettleMatch::line($c))->implode("\n")
+                . "\nHangisi *{$done}*? Para çek {$when} deftere işlenmişti, tekrar yazılmaz.";
+            $footer = "\n\nNumarasını yaz, *hepsi* ya da çek değilse *başka* yaz.";
+        } else {
+            $summary = '🧾 ' . ($checks->first() ? \App\Support\CheckSettleMatch::line($checks->first()) : 'Çek')
+                . "\nÇek *{$done}* olarak işaretlensin mi? Bu para çek {$when} deftere işlenmişti, tekrar yazılmaz.";
+            $footer = "\n\n*evet* / çek değilse *başka* yaz.";
+        }
         if ($pending) {
             $pending->update(['extracted' => $data, 'summary' => $summary]);
         } else {
@@ -2900,27 +2975,32 @@ class WhatsappWebhookController extends Controller
         }
         $this->inboundKind = 'check_cleared';
 
-        return $summary . "\n\n*evet* / başka bir çekse *başka* yaz.";
+        return $summary . $footer;
     }
 
-    /** Çek ödendi: sözleşmeye bağlıysa sözleşme ödemesi "ödendi" (çek oradan senkron), değilse çekin kendisi. */
+    /** Çek(ler) ödendi / tahsil edildi: yalnız çekin durumu (sözleşmeye bağlıysa sözleşme ödemesi de) — para yazılmaz. */
     private function commitCheckCleared(WhatsappPendingExpense $pending): string
     {
-        $check = \App\Models\Check::with(['party', 'contractPayment'])->find($pending->extracted['check_id'] ?? 0);
-        if (! $check || ! in_array($check->status, ['issued', 'portfolio'], true)) {
+        $ids = self::clearedIds($pending->extracted);
+        if (count($ids) > 1 && empty($pending->extracted['chosen'])) {
+            return '❓ Hangi çek? Numarasını yaz ya da *hepsi* yaz.';
+        }
+        $checks = \App\Models\Check::with(['party', 'contractPayment'])->whereKey($ids)->whereIn('status', ['issued', 'portfolio'])->get();
+        if ($checks->isEmpty()) {
             $pending->update(['status' => 'cancelled']);
 
             return 'Bu çek artık bekleyenler arasında değil (zaten işaretlenmiş olabilir).';
         }
-        if ($check->contractPayment) {
-            $check->contractPayment->update(['status' => 'paid']);
-        }
-        if ($check->fresh()->status !== 'paid') {
-            $check->update(['status' => 'paid']);
+        // Yön işaretlemeden ÖNCE (sonra durum "tahsil edildi" olur, alınan çek "ödendi" diye yazılıyordu).
+        $lines = $checks->map(fn ($c) => ($c->party?->name ?? 'Çek') . ' — ' . Money::format((float) $c->amount) . ' ₺ çek *'
+            . \App\Support\CheckSettleMatch::doneWord($c->status === 'portfolio' ? \App\Support\CheckSettleMatch::RECEIVED : \App\Support\CheckSettleMatch::GIVEN) . '* olarak işaretlendi.')
+            ->implode("\n");
+        foreach ($checks as $check) {
+            \App\Filament\Resources\Checks\Tables\ChecksTable::settle($check);
         }
         $pending->update(['status' => 'confirmed']);
 
-        return '✅ ' . ($check->party?->name ?? 'Çek') . ' — ' . Money::format((float) $check->amount) . ' ₺ çek *ödendi* olarak işaretlendi.';
+        return '✅ ' . $lines . "\nBakiye değişmedi — para çek alındığında / verildiğinde işlenmişti.";
     }
 
     /** Basit onaylı taslak (hafıza): özet + teyit; eksik bilgi varsa yalnız soru. */
