@@ -323,10 +323,10 @@ class AgreementDeliveryDraft
         $project = ! empty($d['project_id']) ? Project::find($d['project_id'])?->name : $item->agreement->project?->name;
         $where = $project ? ' · ' . $project : '';
         if ($item->is_lump) {
+            // Götürüde "%N" (toplamın yüzde kaçı geldi) yazılmaz — teslimin kendisi sanılıyordu (25.10 kullanım incelemesi).
             $amount = (float) $line['amount'];
-            $pct = (float) $item->unit_price > 0 ? (int) round(($item->deliveredAmount() + $amount) / (float) $item->unit_price * 100) : 0;
 
-            return [$item->name() . ' %' . $pct . ' · ' . Money::format($amount) . ' ₺' . $where, $amount];
+            return [$item->name() . ' · ' . Money::format($amount) . ' ₺' . $where, $amount];
         }
         $price = ($line['unit_price'] !== null && ($line['price_choice'] ?? 1) !== 3) ? $line['unit_price'] : (float) $item->unit_price;
         $qty = (float) $line['quantity'];

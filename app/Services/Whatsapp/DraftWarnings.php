@@ -109,7 +109,10 @@ final class DraftWarnings
         $what = null;
 
         if ($kind === ExpenseExtractor::KIND_EXPENSE && ! empty($d['category_id'])) {
-            $history = Expense::where('expense_category_id', $d['category_id'])->latest('expense_date')->limit(20)->pluck('amount');
+            // Düzenli giderler (her gün 34,60 ekmek) ölçüye girmez — normal gider "fazladan sıfır mı?" sanılıyordu (Çiftlik, 25.10).
+            $history = Expense::where('expense_category_id', $d['category_id'])
+                ->where(fn ($q) => $q->whereNull('notes')->orWhere('notes', 'not like', 'Düzenli gider #%'))
+                ->latest('expense_date')->limit(20)->pluck('amount');
             $what = 'bu kategoride';
         } elseif ($kind === ExpenseExtractor::KIND_TRADE_SALE && empty($d['party_id']) && empty($d['party_name'])) {
             $history = Sale::whereNull('party_id')->when(! empty($d['project_id']), fn ($q) => $q->where('project_id', $d['project_id']))

@@ -676,6 +676,28 @@ class TradeDraft
         };
     }
 
+    /** Kasa açıklamasında kalıp sayılan sözler (şube adı ayrıca atılır) — bunlardan başka söz varsa not olarak korunur. */
+    private const TILL_WORDS = ['kasa', 'kasasi', 'kasası', 'günlük', 'gunluk', 'akşam', 'aksam', 'gün', 'gun', 'sonu', 'nakit', 'pos',
+        'kart', 'kredi', 'şube', 'şubesi', 'sube', 'subesi', 'ciro', 'cirosu', 'bugünkü', 'bugunku', 'satış', 'satis', 've'];
+
+    /**
+     * Günlük kasa (carisiz, ürünsüz peşin satış) açıklaması hep aynı: "Ergenekon kasa" (25.10 Akkuş: aynı kasa her gün başka
+     * yazılıyordu — "günlük kasa (nakit+kart)", "kasa - pos + nakit", "akşam kasa"). Nakit/kart ayrımı kendi alanlarında.
+     * AI açıklamasında kalıp dışı bir not varsa ("500 tl eksik çıktı") sona eklenir, kaybolmaz.
+     */
+    private static function tillTitle(array $d): string
+    {
+        $branch = ($id = self::projectId($d)) ? \App\Models\Project::whereKey($id)->value('name') : null;
+        $title = $branch ? $branch . ' kasa' : 'Kasa';
+        $desc = trim((string) ($d['description'] ?? ''));
+        $lower = fn (string $t) => mb_strtolower(strtr($t, ['İ' => 'i', 'I' => 'ı']), 'UTF-8'); // "İzzetpaşa" → "izzetpaşa"
+        $skip = [...self::TILL_WORDS, ...preg_split('/[^\p{L}\p{N}]+/u', $lower((string) $branch), -1, PREG_SPLIT_NO_EMPTY)];
+        $rest = array_filter(preg_split('/[^\p{L}\p{N}]+/u', $lower($desc), -1, PREG_SPLIT_NO_EMPTY),
+            fn ($w) => ! in_array($w, $skip, true) && ! collect($skip)->contains(fn ($s) => mb_strlen($s) >= 4 && str_starts_with($w, $s)));
+
+        return $rest === [] ? $title : $title . ' — ' . $desc;
+    }
+
     private static function commitSale(array $d): array
     {
         $party = empty($d['paid']) ? self::resolveParty($d) : null;
@@ -703,7 +725,7 @@ class TradeDraft
             'manual_amount' => $manual > 0 ? $manual : null,
             'payment' => $cash > 0 && $card > 0 ? 'mixed' : ($card > 0 ? 'card' : 'cash'),
             'cash_part' => $cash,
-            'notes' => trim(($d['description'] ?? '') . ' (WhatsApp)'),
+            'notes' => trim((! $party && $lines === [] ? self::tillTitle($d) : ($d['description'] ?? '')) . ' (WhatsApp)'),
             'project_id' => self::projectId($d),
         ]);
         if ($party && ! empty($d['due_date'])) {

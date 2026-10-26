@@ -529,6 +529,46 @@ class WhatsappAgreementTest extends TestCase
     }
 
     /**
+     * 25.10 firma 7: Kamuran sözleşmesi tekrar gönderildi — açık anlaşmayla kalem, miktar, fiyat birebir aynı → "zaten kayıtlı"
+     * sorusu; *1* (ya da "tamam kaydetme") → hiçbir şey yazılmaz. Fiyat farklıysa eski "yerine / ayrı" sorusu.
+     */
+    public function test_same_agreement_again_is_not_saved_twice(): void
+    {
+        $party = Party::create(['name' => 'WA Anlaşma Kamuran 3']);
+        \App\Support\AgreementDesk::create($party, ['direction' => 'purchase', 'agreement_date' => '2026-09-26', 'title' => 'WAA AG6',
+            'lines' => [['product_id' => $this->product('WAA25 Bodrum kapısı', 'adet'), 'quantity' => 3, 'unit_price' => 6500]]]);
+        $same = $this->agreement(['party_id' => $party->id, 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA25 Bodrum Kapısı', 'quantity' => 3, 'unit' => 'adet', 'unit_price' => 6500]]]);
+        $this->ai($same);
+
+        $ask = $this->sendPhoto();
+        $this->assertStringContainsString('📋 Bu anlaşma zaten kayıtlı: *WAA AG6* (26.09.2026), kalemler ve fiyatlar aynı.', $ask);
+        $this->assertStringContainsString('👍 Tamam, kaydetmedim', $this->send('tamam kaydetme'));
+        $this->assertSame(1, Agreement::where('party_id', $party->id)->count());
+
+        $other = $this->agreement(['party_id' => $party->id, 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA25 Bodrum Kapısı', 'quantity' => 3, 'unit' => 'adet', 'unit_price' => 7000]]]);
+        $this->ai($other);
+        $this->assertStringContainsString('*1* Eskisinin yerine', $this->sendPhoto(), 'fiyat farklı → eski soru');
+    }
+
+    /** 25.10: "ayrı anlaşma" yazısı anlaşılmıyordu (yalnız rakam) — yazıyla cevap. */
+    public function test_replace_question_understands_words(): void
+    {
+        $party = Party::create(['name' => 'WA Anlaşma Yazıyla']);
+        \App\Support\AgreementDesk::create($party, ['direction' => 'purchase', 'agreement_date' => '2026-09-26', 'title' => 'WAA Eski 26',
+            'lines' => [['product_id' => $this->product('WAA26 Alçı'), 'unit_price' => 310]]]);
+        $draft = $this->agreement(['party_id' => $party->id, 'project_id' => $this->project(),
+            'agreement_items' => [['description' => 'WAA26 Alçı', 'unit_price' => 300]]]);
+        $this->ai($draft, $draft);
+
+        $this->sendPhoto();
+        $this->assertStringContainsString('Kaydedeyim mi?', $this->send('ayrı anlaşma'));
+        $this->send('evet');
+        $this->assertSame(2, Agreement::where('party_id', $party->id)->where('status', Agreement::STATUS_OPEN)->count());
+    }
+
+    /**
      * Eski sözleşmeden kalan (22.10 Gül Mobilya): tam sözleşme kartına "3 bodrum kapısı 5 iç kapı alacaklıyız" → TEK hamle: yalnız kalan
      * kalemler, fiyat sözleşme listesinden (kapı ↔ PVC kapı 6.500), eski nakit/çek yok, belge toplamı/vadesi geçmiş çek sorulmaz,
      * "Önceden ödendi: 52.000"; kayıtta bakiye 52.000, çek yok.
@@ -867,7 +907,8 @@ class WhatsappAgreementTest extends TestCase
 
         $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id, 'amount' => 500000]]]));
         $card = $this->send('ali usta tesisatın yarısını bitirdi');
-        $this->assertStringContainsString('WAT Elektrik tesisatı %50 · 500.000,00 ₺', $card);
+        $this->assertStringContainsString('WAT Elektrik tesisatı · 500.000,00 ₺', $card);   // "%50" yazılmaz (25.10: yanıltıcı)
+        $this->assertStringNotContainsString('%50', $card);
         $this->assertStringContainsString('Sonra: borcun 300.000,00 ₺', $card);   // peşinat düşüldü
         $this->chooseProject();
         $this->assertSame(50, $a->fresh()->loadForCard()->progress());

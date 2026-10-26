@@ -177,10 +177,45 @@ class AgreementDraft
             ->orderBy('agreement_date')->get();
     }
 
+    /** Ad karşılaştırması: küçük harf, Türkçe harfler sadeleşir, harf/rakam dışı atılır ("Bodrum Kapısı" = "bodrum kapisi"). */
+    private static function fold(string $v): string
+    {
+        $v = strtr(mb_strtolower(strtr($v, ['İ' => 'i', 'I' => 'ı']), 'UTF-8'), ['ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ş' => 's', 'ü' => 'u']);
+
+        return (string) preg_replace('/[^a-z0-9]+/', '', $v);
+    }
+
+    /**
+     * Açık anlaşmalardan kalemleri, miktarları ve fiyatları birebir aynı olan (25.10 firma 7: Kamuran sözleşmesinin 2 sayfası tekrar gönderildi,
+     * 26.09'daki AG#6 ile aynıydı — yine "yerine mi ayrı mı" soruldu). Ad sadeleştirilip, fiyat kuruşuna kadar karşılaştırılır.
+     */
+    public static function sameAgreement(array $d): ?Agreement
+    {
+        // Ad + miktar + fiyat (götürü / fiyat listesinde miktar yok → 1).
+        $key = fn (string $name, ?float $qty, ?float $price) => self::fold($name) . '|' . number_format((float) ($qty ?? 1), 2, '.', '')
+            . '|' . number_format((float) $price, 2, '.', '');
+        $draft = collect($d['agreement_items'] ?? [])->map(fn ($i) => $key((string) $i['description'], $i['quantity'] ?? null, $i['unit_price'] ?? $i['amount']))->sort()->values()->all();
+        if ($draft === []) {
+            return null;
+        }
+
+        return self::openAgreementsOf($d)->first(function (Agreement $a) use ($draft, $key) {
+            $items = $a->items()->with('product')->whereNull('closed_at')->get()
+                ->map(fn ($i) => $key($i->name(), $i->is_lump || $i->quantity === null ? null : (float) $i->quantity, (float) $i->unit_price))->sort()->values()->all();
+
+            return $items === $draft;
+        });
+    }
+
     private static function replaceQuestion(array $d): ?string
     {
         if (! empty($d['replace_choice']) || ($open = self::openAgreementsOf($d))->isEmpty()) {
             return null;
+        }
+        if ($same = self::sameAgreement($d)) {
+            return '📋 Bu anlaşma zaten kayıtlı: *' . $same->title . '* (' . $same->agreement_date->format('d.m.Y') . "), kalemler ve fiyatlar aynı.\n"
+                . '*1* Tamam, kaydetme' . "\n"
+                . '*2* Yine de ayrı kaydet';
         }
         $names = $open->map(fn (Agreement $a) => '*' . $a->title . '* (' . $a->agreement_date->format('d.m.Y') . ')')->implode(', ');
 
@@ -194,14 +229,33 @@ class AgreementDraft
         return ($q = self::replaceQuestion($d)) !== null && self::question($d) === $q;
     }
 
-    /** *1* yerine · *2* ayrı; geçersizse null. */
+    /** *1* yerine · *2* ayrı (aynı anlaşmada: *1* kaydetme · *2* yine de ayrı); geçersizse null. */
     public static function chooseReplace(array $d, int $n): ?array
     {
+        $same = self::sameAgreement($d);
+
         return match ($n) {
-            1 => ['replace_choice' => 'replace', 'replace_ids' => self::openAgreementsOf($d)->pluck('id')->all()] + $d,
+            1 => $same ? ['replace_choice' => 'duplicate_skip'] + $d
+                : ['replace_choice' => 'replace', 'replace_ids' => self::openAgreementsOf($d)->pluck('id')->all()] + $d,
             2 => ['replace_choice' => 'separate'] + $d,
             default => null,
         };
+    }
+
+    /**
+     * "Yerine / ayrı" sorusuna yazıyla cevap (25.10: "ayrı anlaşma" yazılınca anlaşılmadı, yalnız rakam geçiyordu). İki seçenekten
+     * yalnız birine uyan söz → numara; ikisine de / hiçbirine uymuyorsa null (soru tekrar).
+     */
+    public static function replaceTextChoice(array $d, string $body): ?int
+    {
+        $words = preg_split('/\s+/', trim(strtr(mb_strtolower(strtr($body, ['İ' => 'i', 'I' => 'ı']), 'UTF-8'),
+            ['ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ş' => 's', 'ü' => 'u'])), -1, PREG_SPLIT_NO_EMPTY);
+        $has = fn (array $stems) => collect($words)->contains(fn ($w) => collect($stems)->contains(fn ($s) => str_starts_with($w, $s)));
+        [$one, $two] = self::sameAgreement($d)
+            ? [$has(['tamam', 'kaydetme', 'gerek', 'ayni', 'vazgec']), $has(['ayri', 'yine'])]
+            : [$has(['yerine', 'eskisinin', 'kapat', 'degistir']), $has(['ayri', 'ikisi', 'yeni'])];
+
+        return $one === $two ? null : ($one ? 1 : 2);
     }
 
     /** Vadesi bugünden önce olan çekler (eski sözleşme — 22.10 İşbilir/Kamuran: Çekler'de "verildi, vadesi geçmiş" kalıyordu). */

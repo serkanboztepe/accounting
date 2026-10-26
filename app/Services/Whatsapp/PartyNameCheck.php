@@ -55,6 +55,26 @@ final class PartyNameCheck
         return count($words) === 1 && count($known) >= 2 && self::matchesAny($words[0], [$known[0]]);
     }
 
+    /**
+     * Yazılan adla carinin adında ortak (benzer) en az bir kelime var mı. Yoksa öneri alakasız: "Ali" ↔ "Ayhan Ergül"
+     * (25.10 kullanım incelemesi — "listedeki Ayhan Ergül mü?" diye sorulmuştu).
+     */
+    public static function sharesAnyWord(Party $party, ?string $said): bool
+    {
+        $words = self::words((string) $said);
+        $known = self::words($party->name);
+        if ($words === [] || $known === []) {
+            return true; // karşılaştırılamıyor → alakasız sayma
+        }
+        foreach ($words as $w) {
+            if (self::matchesAny($w, $known)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Carinin adındaki her kelime yazılan adda var mı ("Hazal Doğan" ⊆ "Evrim Hazal Doğan") — resmî tam ad, kısa ad. */
     public static function containedIn(Party $party, string $said): bool
     {

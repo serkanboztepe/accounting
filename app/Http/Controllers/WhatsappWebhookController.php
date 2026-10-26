@@ -803,12 +803,22 @@ class WhatsappWebhookController extends Controller
         }
 
         // Anlaşma: "açık anlaşma var — *1* yerine · *2* ayrı" ve "çeklerin vadesi geçmiş — *1* ödendi · *2* bekliyor" → numara (AI'sız).
-        if ($pending && $image === null && ctype_digit($body) && AgreementDraft::handles($pending->extracted)
+        // "Yerine / ayrı" sorusu yazıyla da cevaplanır ("ayrı anlaşma", "eskisinin yerine", "tamam kaydetme" — 25.10).
+        $replaceText = $pending && $image === null && ! ctype_digit($body) && AgreementDraft::handles($pending->extracted)
+            && AgreementDraft::awaitsReplace($pending->extracted) ? AgreementDraft::replaceTextChoice($pending->extracted, $body) : null;
+        if ($pending && $image === null && ($replaceText !== null || ctype_digit($body)) && AgreementDraft::handles($pending->extracted)
             && (AgreementDraft::awaitsReplace($pending->extracted) || AgreementDraft::awaitsPastChecks($pending->extracted))) {
             $this->inboundKind = 'quick';
+            $n = $replaceText ?? (int) $body;
             $chosen = AgreementDraft::awaitsReplace($pending->extracted)
-                ? AgreementDraft::chooseReplace($pending->extracted, (int) $body)
-                : AgreementDraft::choosePastChecks($pending->extracted, (int) $body);
+                ? AgreementDraft::chooseReplace($pending->extracted, $n)
+                : AgreementDraft::choosePastChecks($pending->extracted, $n);
+            // Aynı anlaşma zaten kayıtlı → "Tamam, kaydetme": taslak kapanır, hiçbir şey yazılmaz.
+            if (($chosen['replace_choice'] ?? null) === 'duplicate_skip') {
+                $pending->update(['status' => 'cancelled']);
+
+                return $this->twiml('👍 Tamam, kaydetmedim — bu anlaşma zaten kayıtlı.');
+            }
 
             return $this->twiml($chosen === null ? 'Listede o numara yok. ' . AgreementDraft::question($pending->extracted)
                 : $this->saveDraft($pending, $phone, $chosen));
@@ -1837,6 +1847,30 @@ class WhatsappWebhookController extends Controller
         }
         $data['party_confirmed'] = ! empty($data['party_confirmed']) || (! empty($pending?->extracted['party_confirmed'])
             && ($pending->extracted['party_id'] ?? null) === ($data['party_id'] ?? null));
+        // "Ne için?" her yeni ödemede sorulur (kullanıcı 26.10): AI amacı az önceki ödemenin NUMARALI cevabından taşıyordu (Alim Tok
+        // 25.10: 1. ödemede "2" = peşin seçildi, 2. ödemede sorulmadan yine peşin yazıldı). Aynı kişiye son 6 saatte numarayla
+        // cevaplanmış ödemenin aynı amacı yeni ödemede tekrar geldiyse bu mesajdan değil, öncekinden gelmiştir → amaç bilinmiyor say.
+        if ($pending === null && $this->kind($data) === ExpenseExtractor::KIND_PAYMENT && ! empty($data['party_id'])
+            && ($data['work_status_known'] ?? null) === true && empty($data['work_chosen']) && ! empty($data['work_status'])
+            && ($prev = TurnTrace::read('carriedPurpose', fn () => WhatsappPendingExpense::where('phone', $phone)->where('status', 'confirmed')
+                ->where('updated_at', '>=', now()->subHours(6))->latest('updated_at')->first()))
+            && (int) ($prev->extracted['party_id'] ?? 0) === (int) $data['party_id'] && ! empty($prev->extracted['work_chosen'])
+            && ($prev->extracted['work_status'] ?? null) === $data['work_status']) {
+            $data = ['work_status' => null, 'work_status_known' => false, 'advance' => false,
+                'payment_purpose' => in_array($data['payment_purpose'] ?? null, ['advance', 'loan'], true) ? null : ($data['payment_purpose'] ?? null)] + $data;
+            TurnTrace::note('carried_purpose_dropped', $prev->id);
+        }
+        // AI emin değil ve önerdiği carinin adında yazılan adla ORTAK HİÇBİR kelime yok ("Ali" ↔ "Ayhan Ergül", 25.10) → öneri
+        // alakasız: cari düşer (yanlışlıkla "evet" ile ona yazılmasın), yeni kişi mi diye sorulur.
+        if (! empty($data['party_id']) && ($data['party_certain'] ?? null) === false && empty($data['party_confirmed'])
+            && trim((string) ($data['party_said'] ?? '')) !== ''
+            && ($suggested = Party::find($data['party_id'])) && ! PartyNameCheck::sharesAnyWord($suggested, $data['party_said'])
+            && ! MemoryDraft::isKnownAlias($suggested->id, $data['party_said'])) {
+            $said = trim((string) $data['party_said']);
+            $data = ['party_id' => null, 'party_name' => null, 'party_certain' => null,
+                'question' => 'Carilerde "' . $said . '" yok — yeni biri mi? Tam adını yazar mısın? (Listedeki birinin adıysa onu yaz.)'] + $data;
+            TurnTrace::note('unrelated_party_dropped', $suggested->id);
+        }
         // Yazılandan farklı tutar ("65 tl" → 65.000) sessizce geçmesin (17.10, Emre).
         $data['scale_question'] = Understanding::amountScaleQuestion(TurnTrace::step('party_check+settles+advance+confirmed', $data), $this->inboundBody);
         // Aynı soru az önce soruldu ve cevapta tutar değişmediyse ("65 TL doğru") kullanıcı teyit etti — tekrar sorulmaz.
@@ -3530,6 +3564,10 @@ class WhatsappWebhookController extends Controller
                 $staff => ' · maaş avansı (maaşından düşülür)',
                 default => ' · önceden ödeme (iş/mal sonra)',
             } : '');
+            // Açıklama türle aynı anlamdaysa ("Önceden ödeme" + " · önceden ödeme (iş/mal sonra)") bir kez yazılır (25.10).
+            if ($type !== '' && $headDesc !== '' && self::saidInMeaning($desc, $type . ' peşin önceden ödeme ödemesi verilen')) {
+                $headDesc = '';
+            }
             $lines[] = '💸 *Sen* → ' . $label . ': ' . Money::format($amount) . ' ₺ '
                 . (! empty($d['debt_repayment']) ? '*borcunu ödedin*' : 'ödedin') . $headDesc . $type;
             if (($missing = DraftGaps::unrecordedDebt($d)) > 0) {

@@ -100,9 +100,13 @@ class AgreementItem extends Model
         return $this->isList() ? 0.0 : round((float) $this->quantity * (float) $this->unit_price, 2);
     }
 
-    /** Kalan tutar = kalan miktar × anlaşma fiyatı (eksiye inmez). */
+    /** Kalan tutar = kalan miktar × anlaşma fiyatı (eksiye inmez). Götürüde düz çıkarma: anlaşılan − gelen tutar. */
     public function remainingAmount(): float
     {
+        // Götürü: kalan oran 4 haneye yuvarlanıp toplamla çarpılınca 590.000 yerine 589.980 çıkıyordu (25.10 kullanım incelemesi).
+        if ($this->is_lump) {
+            return max(0.0, round($this->agreedAmount() - $this->deliveredAmount(), 2));
+        }
         $rest = $this->remainingQuantity();
 
         return $rest === null ? 0.0 : max(0.0, round($rest * (float) $this->unit_price, 2));
