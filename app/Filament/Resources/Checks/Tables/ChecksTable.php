@@ -46,21 +46,30 @@ class ChecksTable
                 TextColumn::make('check_number')->label('Çek No')->searchable()->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('bank_name')->label('Banka')->toggleable(isToggledHiddenByDefault: true),
             ])
+            // Süzgeç sorgusunun parametresi `$query` OLMALI (Filament adla verir): eskiden `$q` yazılıydı → dört süzgeç de boş sorguya
+            // uygulanıyor, liste hiç süzülmüyordu (kullanıcı 26.10: Muhasebe'de ödenmiş 16 çek de geliyordu).
             ->filters([
+                SelectFilter::make('state')->label('Durum')
+                    ->options(['open' => 'Bekleyen (verildi / alındı)', 'done' => 'Ödenen / tahsil edilen', 'all' => 'Hepsi'])
+                    ->default('open')
+                    ->selectablePlaceholder(false)
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? 'open') {
+                        'done' => $query->whereIn('status', ['paid', 'collected']),
+                        'all' => $query,
+                        default => $query->whereIn('status', ['issued', 'portfolio']),
+                    }),
                 SelectFilter::make('dir')->label('Yön')
                     ->options(['given' => 'Verdiğim', 'received' => 'Aldığım'])
-                    ->query(fn (Builder $q, array $data) => match ($data['value'] ?? null) {
-                        'received' => $q->whereIn('status', ['portfolio', 'collected']),
-                        'given' => $q->whereNotIn('status', ['portfolio', 'collected']),
-                        default => $q,
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'received' => $query->whereIn('status', ['portfolio', 'collected']),
+                        'given' => $query->whereNotIn('status', ['portfolio', 'collected']),
+                        default => $query,
                     }),
                 Filter::make('upcoming')->label('Vadesi 7 gün içinde')
-                    ->query(fn (Builder $q) => $q->whereIn('status', ['issued', 'portfolio'])
+                    ->query(fn (Builder $query) => $query->whereIn('status', ['issued', 'portfolio'])
                         ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])),
                 Filter::make('overdue')->label('Vadesi geçmiş, bekleyen')
-                    ->query(fn (Builder $q) => $q->whereIn('status', ['issued', 'portfolio'])->whereDate('due_date', '<', Carbon::today())),
-                Filter::make('open')->label('Yalnız bekleyenler')->default()
-                    ->query(fn (Builder $q) => $q->whereIn('status', ['issued', 'portfolio'])),
+                    ->query(fn (Builder $query) => $query->whereIn('status', ['issued', 'portfolio'])->whereDate('due_date', '<', Carbon::today())),
             ])
             ->recordActions([
                 Action::make('settle')

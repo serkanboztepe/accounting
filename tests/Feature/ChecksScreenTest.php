@@ -41,6 +41,34 @@ class ChecksScreenTest extends TestCase
         Livewire::test(CreateCheck::class)->assertFormFieldVisible('contract_payment_id')->assertFormFieldVisible('project_id');
     }
 
+    /**
+     * Kullanıcı 26.10 (Muhasebe: 21 bekleyen + 16 ödenmiş çek, "açınca hepsi geliyor"): sayfa açılınca yalnız bekleyenler,
+     * vadeye göre; ödenmişler "Durum" süzgeciyle. Eski hata: süzgeç sorgusu `$q` adlıydı → hiçbir süzgeç uygulanmıyordu.
+     */
+    public function test_list_opens_with_open_checks_by_due_date_and_paid_only_via_filter(): void
+    {
+        config(['app.cari_lock' => false]);
+        $p = Party::create(['name' => 'Liste Süzgeç']);
+        $paid = Check::create(['party_id' => $p->id, 'amount' => 1, 'due_date' => '2026-07-01', 'status' => 'paid']);
+        $later = Check::create(['party_id' => $p->id, 'amount' => 2, 'due_date' => '2027-03-01', 'status' => 'issued']);
+        $sooner = Check::create(['party_id' => $p->id, 'amount' => 3, 'due_date' => '2026-11-01', 'status' => 'issued']);
+        $received = Check::create(['party_id' => $p->id, 'amount' => 4, 'due_date' => '2026-12-01', 'status' => 'portfolio']);
+
+        Livewire::test(ListChecks::class)
+            ->searchTable('Liste Süzgeç')
+            ->assertCanSeeTableRecords([$sooner, $received, $later], inOrder: true)
+            ->assertCanNotSeeTableRecords([$paid])
+            ->filterTable('state', 'done')
+            ->assertCanSeeTableRecords([$paid])
+            ->assertCanNotSeeTableRecords([$sooner, $later, $received])
+            ->filterTable('state', 'all')
+            ->assertCanSeeTableRecords([$paid, $sooner, $later, $received])
+            ->filterTable('state', 'open')
+            ->filterTable('dir', 'received')
+            ->assertCanSeeTableRecords([$received])
+            ->assertCanNotSeeTableRecords([$sooner, $later]);
+    }
+
     public function test_received_check_opens_as_received(): void
     {
         $party = Party::create(['name' => 'Çek Ekranı Müşteri']);
