@@ -8,9 +8,11 @@ use App\Support\Forms\MoneyInput;
 use App\Support\Labels;
 use App\Support\Money;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -58,7 +60,29 @@ class CheckForm
                         ->relationship('party', 'name')
                         ->searchable()
                         ->preload()
+                        ->live()
                         ->required(),
+                    // Çek cariye işlensin (23.10 tasarım hatası düzeltmesi, 26.10): verilen = ödeme, alınan = tahsilat satırı, çek bağlı.
+                    // Yeni çekte işaretli; bağsız ESKİ çekte işaretsiz (aynı tutar ekstreye elle yazıldıysa çift sayılmasın).
+                    Toggle::make('write_ledger')
+                        ->label('Cari hesabına da yaz')
+                        ->default(true)
+                        ->dehydrated(false)
+                        ->afterStateHydrated(fn (Toggle $component, ?Check $record) => $record ? $component->state(false) : null)
+                        ->visible(fn (Get $get, ?Check $record) => filled($get('party_id')) && blank($get('contract_payment_id'))
+                            && ! $record?->party_ledger_entry_id)
+                        ->helperText(fn (Get $get, ?Check $record) => ($record
+                            ? 'Bu çek henüz cari hesabına işlenmemiş. Aynı tutar ekstreye elle yazıldıysa işaretleme (çift sayılır). '
+                            : '')
+                            . (($get('direction') ?: 'given') === 'received'
+                                ? 'Cariye tahsilat olarak yazılır, bakiyesi düşer.'
+                                : 'Cariye ödeme olarak yazılır, ona olan borcun düşer.'))
+                        ->columnSpanFull(),
+                    Placeholder::make('ledger_info')
+                        ->hiddenLabel()
+                        ->content('✓ Cari hesabına işli — tutar, cari, tarih değişince ekstre de düzelir; "Çeki sil" ikisini birlikte geri alır.')
+                        ->visible(fn (?Check $record) => (bool) $record?->party_ledger_entry_id)
+                        ->columnSpanFull(),
                     DatePicker::make('due_date')
                         ->label('Vade')
                         ->required(),
