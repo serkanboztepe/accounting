@@ -211,6 +211,10 @@ class MonthlyResult
             'personnel'       => $personnel,
             // Tek günde maaş düşülmez (Akkuş 17.10: 60.750 ciroluk gün maaş yüzünden "eksi 2.400" göründü) — bilgi satırı.
             'result'          => $revenue - $purchases - ($fromDate->isSameDay($toDate) ? 0.0 : $personnel) - $expenses,
+            // Elden verilen maaş (EmployeeDraft "Maaş ödemesi — …" satırı): hak edişten farkı avanstan düşülen kısım.
+            'personnel_paid'  => $personnel > 0 && $employees->isNotEmpty() ? (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PAYMENT)
+                ->whereIn('party_id', $employees)->whereBetween('entry_date', [$from, $to])
+                ->where(fn ($q) => $q->where('description', 'like', 'Maaş ödemesi%')->orWhere('description', 'like', 'Yevmiye ödemesi%')))->sum('amount') : 0.0,
             'personnel_names' => $fromDate->isSameDay($toDate) && $personnel > 0
                 ? \App\Models\Party::whereIn('id', (clone $ledgerIn())->whereIn('party_id', $employees)->pluck('party_id'))->pluck('name')->all() : [],
             // Satış girilen günler ("kaç günlük?" — Akkuş 18.10: 5 günlük ciroya "18 günlük" denmişti).
@@ -271,8 +275,13 @@ class MonthlyResult
         }
         $lines[] = ($r['result'] >= 0 ? '✅ Kalan: ' : '🔻 Eksi: ') . Money::format(abs($r['result'])) . ' ₺';
         if ($oneDay && ($r['personnel'] ?? 0) > 0) {
+            // Avanstan düşülen kısım ayrı (Akkuş 19.10: "Bugün maaş ödendi: 55.000" — 5.500'ü avanstandı, elden 49.500).
+            $paid = (float) ($r['personnel_paid'] ?? 0);
+            $fromAdvance = round($r['personnel'] - $paid, 2);
             $lines[] = '👷 Bugün maaş ödendi' . (($r['personnel_names'] ?? []) ? ' (' . implode(', ', $r['personnel_names']) . ')' : '') . ': '
-                . Money::format($r['personnel']) . ' ₺ — aylık sonuçta düşülür';
+                . Money::format($r['personnel']) . ' ₺'
+                . ($paid > 0 && $fromAdvance > 0.009 ? ' — ' . Money::format($fromAdvance) . ' ₺ avanstan, elden ' . Money::format($paid) . ' ₺' : '')
+                . ' — aylık sonuçta düşülür';
         }
         $days = $r['sale_days'] ?? [];
         if (! $oneDay && $days !== []) {

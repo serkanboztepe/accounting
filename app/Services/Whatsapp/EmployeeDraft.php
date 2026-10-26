@@ -251,7 +251,15 @@ final class EmployeeDraft
             return null;
         }
         $salary = (float) $party->salary_amount;
-        $advance = min($salary, AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE));
+        $advance = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
+        // Avans maaşı karşılıyorsa "0 ₺ ödeyeceksin" yazılmaz (min() fazlayı gizliyordu — 19.10 Yeni Yapı "50.000 − 50.000 = 0").
+        if ($advance >= $salary - 0.009) {
+            $extra = round($advance - $salary, 2);
+
+            return 'maaş ' . Money::format($salary) . ' ₺ — verilen avans ' . Money::format($advance) . ' ₺ maaşı karşılıyor, bu ay ödeme yok'
+                . ($extra > 0 ? ' (' . Money::format($extra) . ' ₺ sonraki aya kalır)' : '')
+                . ". Avanstan düşmek için *{$party->name} maaşı ödendi* yaz";
+        }
 
         return 'maaş ' . Money::format($salary) . ' ₺'
             . ($advance > 0 ? ' − avans ' . Money::format($advance) . ' = ' . Money::format($salary - $advance) . ' ₺' : '')

@@ -421,6 +421,24 @@ class TenancyTest extends TestCase
         $this->assertStringContainsString('zaten yeni düzende', Artisan::output());
     }
 
+    /**
+     * Pasif firma deploy'da güncellenmez; yeniden aktif edilince eksik kolonla kalıyordu ve --firm ile de güncellenemiyordu
+     * (pasif liste dışıydı). Şimdi aktif edildiği an migration çalışır; --firm pasifi de kapsar.
+     */
+    public function test_reactivated_firm_gets_its_database_updated(): void
+    {
+        $this->b->update(['is_active' => false]);
+        $this->assertFalse(\App\Console\Commands\TenantsRun::firms()->contains('id', $this->b->id), 'toplu çalışmada pasif yok');
+        $this->assertTrue(\App\Console\Commands\TenantsRun::firms((string) $this->b->id)->contains('id', $this->b->id), '--firm pasifi de bulur');
+
+        Tenancy::run($this->b, fn () => Artisan::call('migrate:rollback', ['--database' => 'tenant', '--step' => 2, '--force' => true]));
+        $this->assertFalse(Tenancy::run($this->b, fn () => Schema::connection('tenant')->hasColumn('reminders', 'notify_time')), 'eski veritabanı');
+
+        $this->b->update(['is_active' => true]);
+
+        $this->assertTrue(Tenancy::run($this->b, fn () => Schema::connection('tenant')->hasColumn('reminders', 'notify_time')), 'aktif edilince güncellendi');
+    }
+
     public function test_convert_command_stops_on_unexpected_difference(): void
     {
         // Paketsiz firma (hepsi açık): kutulardan türetilen paket "mimar" olur → üslup değişir → beklenmeyen.

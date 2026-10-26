@@ -2037,6 +2037,15 @@ class WhatsappWebhookController extends Controller
             return $this->balanceAnswer($data);
         }
         if ($this->kind($data) === ExpenseExtractor::KIND_TOTALS_QUERY) {
+            // Ciro konuşulurken kısa "genel toplam / toplamı" (Akkuş 22.10): AI alacak-borç toplamı sanabiliyor → tahmin etme, sor.
+            if (in_array($data['totals_side'] ?? null, [null, 'both'], true) && empty($data['project_id'])
+                && count(preg_split('/\s+/u', trim($this->inboundBody), -1, PREG_SPLIT_NO_EMPTY)) <= 3
+                && TurnTrace::read('totals.afterRevenue', fn () => WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'in')
+                    ->whereNotNull('kind')->where('created_at', '>=', now()->subMinutes(15))->latest('id')->value('kind')) === ExpenseExtractor::KIND_MONTH_RESULT) {
+                $this->inboundKind = 'clarify';
+
+                return '❓ Ciro toplamı mı, alacak–borç toplamı mı? *ciro* ya da *alacak* yaz.';
+            }
 
             return $this->totalsAnswer($data);
         }

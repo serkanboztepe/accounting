@@ -49,9 +49,10 @@ class TenantsRun extends Command
     /** @return \Illuminate\Support\Collection<int, HubFirm> */
     public static function firms(?string $only = null)
     {
+        // Tek firma açıkça istenirse (--firm) pasif de olsa çalışır — pasif firmanın veritabanını elle güncelleyebilmek için.
         return HubFirm::query()
             ->whereNotNull('database')
-            ->where('is_active', true)
+            ->when(! $only, fn ($q) => $q->where('is_active', true))
             ->when($only, fn ($q) => $q->whereKey($only))
             ->orderBy('id')
             ->get();

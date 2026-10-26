@@ -141,6 +141,26 @@ class UsageReview2510Test extends TestCase
         $this->assertStringContainsString('Sinan Sele mi', $reply, 'ortak kelime var → eski soru');
     }
 
+    // ── Akkuş "genel toplam" (22.10) ───────────────────────────────
+
+    public function test_short_total_after_revenue_asks_which_total(): void
+    {
+        config(['modules.report_monthly' => true, 'modules.sales_desk' => true, 'modules.purchases' => true, 'modules.stock' => true]);
+        $base = ['items' => [], 'amount' => 0.0, 'date' => now()->toDateString(), 'description' => '', 'party_id' => null, 'party_name' => null,
+            'confidence' => 'high', 'question' => null, 'is_new_entry' => true, 'project_id' => null, 'project_name' => null,
+            'date_from' => null, 'date_to' => null, 'month' => null, 'totals_side' => null];
+        $mock = Mockery::mock(ExpenseExtractor::class);
+        $mock->shouldReceive('extract')->andReturn(['kind' => 'month_result'] + $base, ['kind' => 'totals_query', 'totals_side' => 'both'] + $base,
+            ['kind' => 'totals_query', 'totals_side' => 'both'] + $base);
+        $this->app->instance(ExpenseExtractor::class, $mock);
+
+        $this->assertStringContainsString('sonucu', $this->send('toplam ciro ne kadar'));
+        $this->assertStringContainsString('Ciro toplamı mı, alacak–borç toplamı mı?', $this->send('genel toplam'));
+
+        // Karşı durum: ciro konuşulmadıysa ya da uzun açık soruysa doğrudan alacak-borç toplamı.
+        $this->assertStringNotContainsString('Ciro toplamı mı', $this->send('toplam alacağım ve borcum ne kadar söyler misin'));
+    }
+
     // ── 9 ─ kasa başlığı ────────────────────────────────────────────
 
     public function test_9_till_title_is_always_branch_kasa(): void

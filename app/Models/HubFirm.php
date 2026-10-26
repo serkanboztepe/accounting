@@ -50,6 +50,19 @@ class HubFirm extends Model
 
     protected static function booted(): void
     {
+        // Pasif firma deploy'da güncellenmez (tenants:migrate yalnız aktifler) — yeniden aktif edilince veritabanı eksik kolonla
+        // kalıyordu. Aktif edildiği an migration + kullanıcı eşitlemesi; başarısızsa kaydedilir, hub'ı durdurmaz.
+        static::updated(function (HubFirm $firm) {
+            if ($firm->wasChanged('is_active') && $firm->is_active && $firm->isLocal()) {
+                try {
+                    \App\Tenancy\FirmProvisioner::migrate($firm);
+                    \App\Tenancy\FirmProvisioner::syncUsers($firm);
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            }
+        });
+
         static::creating(function (HubFirm $firm) {
             if ($firm->url) {
                 $firm->secret = $firm->secret ?: Str::random(48);

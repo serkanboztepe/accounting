@@ -103,6 +103,32 @@ class WhatsappEmployeeTest extends TestCase
             \App\Services\Whatsapp\EmployeeDraft::reminderNote($party));
     }
 
+    /** 19.10 Yeni Yapı: avans ≥ maaş iken "50.000 − 50.000 = 0 ₺ ödeyeceksin" yazıyordu; fazla avans görünmüyordu. */
+    public function test_reminder_note_when_advance_covers_salary(): void
+    {
+        $party = Party::create(['name' => 'Personel Testi Avanslı', 'is_employee' => true, 'salary_amount' => 50000]);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_PAYMENT,
+            'description' => 'Avans', 'amount' => 80000]);
+
+        $note = \App\Services\Whatsapp\EmployeeDraft::reminderNote($party);
+        $this->assertStringContainsString('verilen avans 80.000,00 ₺ maaşı karşılıyor, bu ay ödeme yok (30.000,00 ₺ sonraki aya kalır)', $note);
+        $this->assertStringNotContainsString('0,00 ₺ ödeyeceksin', $note);
+    }
+
+    /** Akkuş 19.10: "Bugün maaş ödendi: 55.000" — 5.500'ü avanstandı; akşam sonucu ayrımı söyler. */
+    public function test_evening_result_splits_salary_into_advance_and_cash(): void
+    {
+        $day = \Illuminate\Support\Carbon::parse('2031-03-05');   // başka kayıt karışmasın
+        $party = Party::create(['name' => 'Personel Testi Apo', 'is_employee' => true, 'salary_amount' => 55000]);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $day, 'type' => PartyLedgerEntry::TYPE_PURCHASE,
+            'description' => 'Maaş — Mart 2031', 'amount' => 55000]);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $day, 'type' => PartyLedgerEntry::TYPE_PAYMENT,
+            'description' => 'Maaş ödemesi — Mart 2031', 'amount' => 49500]);
+
+        $text = \App\Support\MonthlyResult::whatsappText(\App\Support\MonthlyResult::forRange($day, $day));
+        $this->assertStringContainsString('👷 Bugün maaş ödendi (Personel Testi Apo): 55.000,00 ₺ — 5.500,00 ₺ avanstan, elden 49.500,00 ₺', $text);
+    }
+
     public function test_month_result_counts_salary_as_personnel_once(): void
     {
         $before = MonthlyResult::forMonth(now());
