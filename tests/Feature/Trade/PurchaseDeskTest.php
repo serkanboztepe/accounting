@@ -50,7 +50,8 @@ class PurchaseDeskTest extends TestCase
         $this->assertSame(-17000.0, PartyStatement::build($party)['balance'], 'Biz borçlanırız');
         // "Bitmek üzere" mesajındaki "son alış" bu cariyi bulur.
         $p->update(['reorder_level' => 25]);
-        $this->assertSame('Ak Un', StockUsage::newlyLow(false)->first()['supplier']);
+        // Yalnız bu ürün (ortak geliştirme veritabanında eşiğin altında başka ürün de olabilir).
+        $this->assertSame('Ak Un', StockUsage::newlyLow(false)->first(fn (array $row) => $row['product']->is($p))['supplier']);
     }
 
     public function test_cash_purchase_with_party_writes_purchase_and_payment_balance_unchanged(): void

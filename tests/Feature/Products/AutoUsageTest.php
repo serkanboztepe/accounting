@@ -103,6 +103,15 @@ class AutoUsageTest extends TestCase
         $this->assertSame(20.0, $off->currentStock());
     }
 
+    /**
+     * Yalnız bu testin ürünü: newlyLow() veritabanındaki TÜM ürünlere bakar; ortak geliştirme veritabanında eşiğin altında
+     * başka ürün olabilir (26.10: 3 ürün sayılıp test düşüyordu — tarih değil, ortak veri).
+     */
+    private function lowFor(Product $p): \Illuminate\Support\Collection
+    {
+        return StockUsage::newlyLow()->filter(fn (array $row) => $row['product']->is($p))->values();
+    }
+
     public function test_low_stock_alerts_once_and_resets_after_purchase(): void
     {
         Carbon::setTestNow('2026-10-12 14:00:00');
@@ -111,16 +120,16 @@ class AutoUsageTest extends TestCase
 
         Carbon::setTestNow('2026-10-16 08:00:00');   // 20 − 12 = 8 → henüz değil
         StockUsage::book();
-        $this->assertTrue(StockUsage::newlyLow()->isEmpty());
+        $this->assertTrue($this->lowFor($p)->isEmpty());
 
         Carbon::setTestNow('2026-10-17 08:00:00');   // 5 → eşikte
         StockUsage::book();
-        $low = StockUsage::newlyLow();
+        $low = $this->lowFor($p);
         $this->assertCount(1, $low);
         $this->assertSame('Un: 5 çuval kaldı (~1 gün yeter) — son alış: Ak Un', StockUsage::line($low->first()));
 
         $p->update(['low_stock_alerted_at' => now()]);
-        $this->assertTrue(StockUsage::newlyLow()->isEmpty(), 'Aynı ürün ikinci kez haber verilmemeli');
+        $this->assertTrue($this->lowFor($p)->isEmpty(), 'Aynı ürün ikinci kez haber verilmemeli');
 
         StockMovement::create(['product_id' => $p->id, 'direction' => 'in', 'reason' => 'purchase', 'quantity' => 20, 'movement_date' => now()]);
         StockUsage::newlyLow();
@@ -149,7 +158,7 @@ class AutoUsageTest extends TestCase
         $p->update(['reorder_level' => 4]);
         StockMovement::create(['product_id' => $p->id, 'direction' => 'out', 'reason' => 'sale', 'quantity' => 6, 'movement_date' => now()]);
 
-        $low = StockUsage::newlyLow();
+        $low = $this->lowFor($p);
         $this->assertCount(1, $low);
         $this->assertSame('Un: 4 çuval kaldı', StockUsage::line($low->first()));
     }
