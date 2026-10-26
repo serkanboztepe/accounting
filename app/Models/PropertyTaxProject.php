@@ -13,6 +13,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PropertyTaxProject extends Model
 {
     use Concerns\LogsActivity;
+    use Concerns\RequiresFeature;
+
+    public static function featureEnabled(): bool
+    {
+        return \App\Support\Features::propertyTax();
+    }
+
+    public static function featureLabel(): string
+    {
+        return 'Emlak Beyanı';
+    }
 
     public function activityAction(): string
     {

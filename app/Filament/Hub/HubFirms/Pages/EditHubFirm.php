@@ -8,13 +8,12 @@ use App\Models\WhatsappMessage;
 use App\Support\Phone;
 use App\Tenancy\Tenancy;
 use Filament\Actions\Action;
-use App\Support\ModuleProfiles;
+use App\Filament\Hub\HubFirms\FeatureFields;
+use App\Support\FeatureSettings;
 use Filament\Actions\DeleteAction;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Utilities\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Components\View;
@@ -123,78 +122,36 @@ class EditHubFirm extends EditRecord
     }
 
     /**
-     * Tek panel: firmanın modülleri + ayarları (eskiden .env: APP_PROFILE, MOD_*, CARI_LOCK,
-     * CHECK_REMINDER_DAYS). Modül: "Sektöre göre" = profilin varsayılanı, ya da açık/kapalı zorla.
+     * Tek panel: firmanın özellikleri + ayarları (plan 26.10: Çekirdek + 7 kutu, firma başına saklı liste).
+     * Henüz yeni düzene çevrilmemiş firmada pencere bugünkü durumu gösterir; kaydedince firma çevrilmiş olur.
      */
     private function modulesAction(): Action
     {
-        $choice = ['' => 'Sektöre göre', '1' => 'Açık', '0' => 'Kapalı'];
-
         return Action::make('modules')
-            ->label('Modüller')
+            ->label('Özellikler')
             ->icon(Heroicon::OutlinedSquares2x2)
             ->color('gray')
             ->visible(fn () => $this->record->isLocal())
-            ->modalHeading('Modüller ve ayarlar')
+            ->modalHeading('Özellikler ve ayarlar')
+            ->modalDescription(fn () => FeatureSettings::converted($this->record->settingsWithDefaults()) ? null
+                : 'Bu firma henüz yeni düzene çevrilmedi. Kaydedince çevrilir (çekler açılır; Stok açıksa Ay Sonucu da gelir).')
             ->modalSubmitActionLabel('Kaydet')
-            ->fillForm(function () {
-                $s = $this->record->settingsWithDefaults();
-                $data = [
-                    'profile'             => $s['profile'],
-                    'cari_lock'           => $s['cari_lock'],
-                    'cari_lock_minutes'   => $s['cari_lock_minutes'],
-                    'check_reminder_days' => implode(',', $s['check_reminder_days']),
-                    'project_label'       => $s['project_label'],
-                    'sector'              => $s['sector'],
-                    'business_note'       => $s['business_note'],
-                ];
-                foreach (ModuleProfiles::KEYS as $key) {
-                    $data["mod_{$key}"] = array_key_exists($key, $s['modules']) ? ($s['modules'][$key] ? '1' : '0') : '';
-                }
-
-                return $data;
-            })
+            ->fillForm(fn () => $this->record->featuresFormData())
             ->schema(fn () => [
-                // İşletme türü: asistan karşısındakinin işini bilsin ("bağlantı", "kasa", "takas"…). Paketten ayrı.
-                Select::make('sector')->label('İşletme türü')
-                    ->options(collect(config('sectors'))->map(fn (array $s) => $s['label'])->all())
-                    ->placeholder('Seçilmedi')
-                    ->helperText('Asistan karşısındakinin işini bilir (ör. inşaatta "bağlantı" = peşin mal alımı). Hangi modüllerin açık olduğunu değiştirmez.'),
-                TextInput::make('business_note')->label('İşletme notu (isteğe bağlı)')
-                    ->placeholder('Ör. Konut inşaatı yapar, çoğunlukla vadeli çekle öder.')
-                    ->maxLength(300),
-                Select::make('profile')->label('Paket (modüller)')->options(HubFirmResource::PROFILE_OPTIONS)
-                    ->placeholder('Hepsi açık')->live(),
-                Section::make('Modüller')
-                    ->description('"Sektöre göre" seçili olan, yukarıdaki sektörün varsayılanını kullanır.')
-                    ->columns(2)
-                    ->schema(array_map(
-                        fn (string $key) => Select::make("mod_{$key}")
-                            ->label(ModuleProfiles::LABELS[$key] ?? $key)
-                            ->options($choice)
-                            ->selectablePlaceholder(false)
-                            ->default('')
-                            ->hint(fn (Get $get) => (ModuleProfiles::defaults($get('profile'))[$key] ?? ModuleProfiles::fallback($key)) ? 'sektörde açık' : 'sektörde kapalı'),
-                        ModuleProfiles::KEYS,
-                    )),
+                ...FeatureFields::schema(),
                 Section::make('Cari kilidi')
                     ->columns(2)
                     ->schema([
                         Toggle::make('cari_lock')->label('Cariler şifre/PIN ile kilitli'),
                         TextInput::make('cari_lock_minutes')->label('Kaç dk işlemsizlikte kilitlensin')->numeric()->minValue(1)->default(5),
                     ]),
-                TextInput::make('project_label')
-                    ->label('Proje / Şube adı')
-                    ->placeholder('Boş = sektöre göre (müteahhit/mimar "Proje", diğerleri "Şube")')
-                    ->helperText('Panelde ve WhatsApp\'ta "Proje" yerine görünen ad: Şube, Proje, Ahır… Aynı özellik, yalnız adı değişir.')
-                    ->maxLength(30),
                 TextInput::make('check_reminder_days')
                     ->label('Çek hatırlatması: vadeden kaç gün önce')
                     ->helperText('Virgülle: 3,0 = 3 gün önce ve vade günü. Hatırlatmayı alacak numaralar "Numaralar"da işaretlenir.')
                     ->regex('/^\s*\d+(\s*,\s*\d+)*\s*$/'),
             ])
             ->action(function (array $data) {
-                $this->record->saveSettingsForm($data);
+                $this->record->saveFeaturesForm($data);
 
                 Notification::make()->success()->title('Kaydedildi')->body('Firma bir sonraki sayfa açılışında yeni ayarlarla çalışır.')->send();
             });

@@ -15,6 +15,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Agreement extends Model
 {
     use Concerns\LogsActivity;
+    use Concerns\RequiresFeature;
+
+    public static function featureEnabled(): bool
+    {
+        return \App\Support\Features::agreements();
+    }
+
+    public static function featureLabel(): string
+    {
+        return 'Anlaşmalar';
+    }
 
     public const DIRECTION_PURCHASE = 'purchase';
     public const DIRECTION_SALE = 'sale';

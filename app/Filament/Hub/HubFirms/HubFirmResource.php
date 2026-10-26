@@ -10,7 +10,6 @@ use App\Tenancy\FirmProvisioner;
 use App\Tenancy\Tenancy;
 use App\Models\HubFirm;
 use BackedEnum;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -70,10 +69,7 @@ class HubFirmResource extends Resource
                 ->required()
                 ->regex('/^[A-Za-z0-9_-]+$/')
                 ->maxLength(40),
-            Select::make('profile')
-                ->label('Sektör (modül seti)')
-                ->options(self::PROFILE_OPTIONS)
-                ->placeholder('Hepsi açık'),
+            ...FeatureFields::schema(showLegacy: false),
             TextInput::make('user_name')->label('İlk kullanıcı — ad soyad')->required(),
             TextInput::make('user_email')->label('E-posta (giriş)')->email()->required(),
             TextInput::make('user_password')->label('Geçici şifre')->password()->revealable()->minLength(8)->required(),
@@ -81,12 +77,6 @@ class HubFirmResource extends Resource
         ];
     }
 
-    public const PROFILE_OPTIONS = [
-        'mimar'     => 'Mimar',
-        'muteahhit' => 'Müteahhit',
-        'trade'     => 'Stoklu satış (fırın, toptancı, lastikçi…)',
-        'alacak_verecek' => 'Alacak-verecek (esnaf: cari + gider, projesiz)',
-    ];
 
     private static function urlField(): TextInput
     {

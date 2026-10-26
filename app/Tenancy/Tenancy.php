@@ -3,7 +3,6 @@
 namespace App\Tenancy;
 
 use App\Models\HubFirm;
-use App\Support\ModuleProfiles;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -74,7 +73,8 @@ class Tenancy
 
         config([
             'database.connections.tenant' => $connection,
-            'modules'                     => ModuleProfiles::resolve($settings['profile'], $settings['modules']),
+            // Yeni düzen (26.10): saklı kutulardan; henüz çevrilmemiş firma eskisi gibi paket + ezmeler.
+            'modules'                     => $firm->resolvedModules(),
             'app.profile'                 => $settings['profile'],
             'app.cari_lock'               => $settings['cari_lock'],
             'app.cari_lock_minutes'       => $settings['cari_lock_minutes'],

@@ -10,6 +10,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class LandShareStudy extends Model
 {
     use Concerns\LogsActivity;
+    use Concerns\RequiresFeature;
+
+    public static function featureEnabled(): bool
+    {
+        return \App\Support\Features::landShare();
+    }
+
+    public static function featureLabel(): string
+    {
+        return 'Hisse Dağılımı';
+    }
 
     public function activityAction(): string
     {

@@ -42,9 +42,8 @@ class ListHubFirms extends ListRecords
             return $firm;
         }
 
-        // Yeni firmada asistanın akıllı özellikleri baştan açık (16.10 kararı: hepsi temel özellik) — modül ekranından kapatılabilir.
-        $firm->settings = array_merge(HubFirm::DEFAULT_SETTINGS, ['profile' => $data['profile'] ?? null,
-            'modules' => HubFirm::NEW_FIRM_MODULES]);
+        // Yeni düzen (26.10): kutular formda işaretlenir, saklı liste olarak yazılır (paket seçimi yok).
+        $firm->settings = HubFirm::settingsFromFeaturesForm($data);
         $firm->database = FirmProvisioner::databaseNameFor($data['code']);
 
         if (HubFirm::where('database', $firm->database)->exists()) {

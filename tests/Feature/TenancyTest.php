@@ -334,29 +334,104 @@ class TenancyTest extends TestCase
         $admin->statement("DROP ROLE IF EXISTS {$name}");
     }
 
-    public function test_hub_modules_screen_saves_firm_settings(): void
+    public function test_hub_features_screen_saves_firm_settings(): void
     {
-        // Pencerenin kendisi tarayıcıda kontrol edildi; burada kaydettiği ayarın firmaya etkisi.
-        $this->b->saveSettingsForm([
-            'profile' => 'trade', 'mod_quotes' => '0', 'mod_stock' => '',
+        // Özellikler penceresi (plan 26.10): kutular saklanır, paket adı kutulardan türetilir.
+        $this->b->saveFeaturesForm([
+            'feat_stock' => true, 'feat_expenses' => true, 'feat_places' => true, 'project_label' => 'Şube',
+            'asst_smart_assistant' => true,
             'cari_lock' => true, 'cari_lock_minutes' => 10, 'check_reminder_days' => '5, 1,0',
             'sector' => 'bakery', 'business_note' => '3 şubeli fırın',
         ]);
 
         $s = $this->b->fresh()->settingsWithDefaults();
-        $this->assertSame('trade', $s['profile']);
-        $this->assertSame(['quotes' => false], $s['modules']);
+        $this->assertSame('trade', $s['profile'], 'Stok açık → stoklu (türetilir)');
+        $this->assertTrue($s['features']['stock']);
+        $this->assertSame([], $s['modules'], 'eski ezmeler artık yok');
         $this->assertSame([5, 1, 0], $s['check_reminder_days']);
 
         Tenancy::run($this->b->fresh(), function () {
-            $this->assertFalse(config('modules.quotes'), 'zorla kapalı');
-            $this->assertTrue(config('modules.stock'), 'stoklu satış varsayılanı');
-            $this->assertFalse(config('modules.projects'), 'stoklu satış varsayılanı');
+            $this->assertTrue(config('modules.stock'));
+            $this->assertTrue(config('modules.report_monthly'), 'Stok\'la birlikte gelir');
+            $this->assertTrue(config('modules.projects'));
+            $this->assertFalse(config('modules.report_project'), 'alt kutu işaretlenmedi');
+            $this->assertTrue(config('modules.checks'), 'çekirdek');
+            $this->assertFalse(config('modules.quotes'), 'eski modül işaretsiz');
+            $this->assertFalse(config('modules.agreements'));
+            $this->assertSame('Şube', config('app.project_label'));
             $this->assertTrue(config('app.cari_lock'));
             $this->assertSame(10, config('app.cari_lock_minutes'));
             $this->assertSame('bakery', config('app.sector'), 'işletme türü firmaya geçer');
             $this->assertSame('3 şubeli fırın', config('app.business_note'));
         });
+    }
+
+    public function test_hub_features_window_shows_boxes_and_current_state(): void
+    {
+        // Çevrilmemiş firma (Akkuş ayarı): pencere bugünkü durumu kutulara çevrilmiş gösterir.
+        $this->b->update(['settings' => ['profile' => 'trade', 'modules' => ['projects' => true]]]);
+        $data = $this->b->fresh()->featuresFormData();
+
+        $this->assertTrue($data['feat_stock']);
+        $this->assertTrue($data['feat_places']);
+        $this->assertFalse($data['feat_place_reports']);
+        $this->assertFalse($data['feat_agreements']);
+        $this->assertSame('Şube', $data['project_label']);
+        $this->assertFalse($data['legacy_quotes']);
+        foreach (\App\Support\FeatureSettings::FEATURES as $k) {
+            $this->assertArrayHasKey("feat_{$k}", $data, "pencerede {$k} kutusu dolar");
+        }
+    }
+
+    public function test_hub_features_screen_land_share_opens_places(): void
+    {
+        $this->b->saveFeaturesForm(['feat_land_share' => true, 'feat_places' => false, 'project_label' => 'Proje']);
+
+        $this->assertSame('mimar', $this->b->fresh()->settingsWithDefaults()['profile']);
+        Tenancy::run($this->b->fresh(), fn () => $this->assertTrue(config('modules.projects'), 'Hisse Yerler\'i açar'));
+    }
+
+    public function test_convert_command_dry_run_writes_nothing_then_write_converts(): void
+    {
+        // Akkuş'un canlı ayarı (stoklu + şube) ve Ferhat'ınki (mimar).
+        $this->b->update(['settings' => ['profile' => 'trade', 'modules' => ['projects' => true]]]);
+        $this->a->update(['settings' => ['profile' => 'mimar', 'modules' => ['checks' => true, 'cari_supplier' => true]]]);
+        $before = $this->b->fresh()->settings;
+
+        $this->assertSame(0, Artisan::call('firms:features-convert'));
+        $this->assertSame($before, $this->b->fresh()->settings, 'deneme kipi yazmaz');
+        $this->assertStringContainsString('checks: kapalı → açık', Artisan::output());
+
+        $this->assertSame(0, Artisan::call('firms:features-convert', ['--write' => true]));
+        $b = $this->b->fresh()->settingsWithDefaults();
+        $this->assertTrue($b['features']['stock']);
+        $this->assertSame('Şube', $b['project_label'], 'görünen ad saklandı');
+        $this->assertSame('trade', $b['profile']);
+        Tenancy::run($this->b->fresh(), function () {
+            $this->assertTrue(config('modules.checks'), 'çek açıldı (karar)');
+            $this->assertTrue(config('modules.projects'));
+            $this->assertFalse(config('modules.report_project'), 'Raporlar açılmadı');
+        });
+        Tenancy::run($this->a->fresh(), function () {
+            $this->assertTrue(config('modules.land_share'));
+            $this->assertFalse(config('modules.expenses'), 'mimarda gider kapalı kaldı');
+        });
+
+        $this->assertSame(0, Artisan::call('firms:features-convert'));
+        $this->assertStringContainsString('zaten yeni düzende', Artisan::output());
+    }
+
+    public function test_convert_command_stops_on_unexpected_difference(): void
+    {
+        // Paketsiz firma (hepsi açık): kutulardan türetilen paket "mimar" olur → üslup değişir → beklenmeyen.
+        $this->a->update(['settings' => ['profile' => 'mimar']]);
+        $this->b->update(['settings' => []]);
+        $aBefore = $this->a->fresh()->settings;
+
+        $this->assertSame(1, Artisan::call('firms:features-convert', ['--write' => true]));
+        $this->assertStringContainsString('HİÇBİR firma yazılmadı', Artisan::output());
+        $this->assertSame($aBefore, $this->a->fresh()->settings, 'sorunsuz firma da yazılmaz');
+        $this->assertNull($this->b->fresh()->settingsWithDefaults()['features']);
     }
 
     public function test_hub_adds_user_into_firm_database(): void

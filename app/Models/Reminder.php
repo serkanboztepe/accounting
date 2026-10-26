@@ -104,6 +104,10 @@ class Reminder extends Model
      */
     public function postExpense(CarbonInterface $day): ?Expense
     {
+        // Gider kapalı firmada düzenli gider yazılmaz (gider sonradan kapatıldıysa da) — hatırlatma sessizce sıradaki güne geçer.
+        if (! \App\Support\Features::expenses()) {
+            return null;
+        }
         $date = Carbon::parse($day->toDateString())->toDateString();
         $mark = 'Düzenli gider #' . $this->id;
         if (Expense::whereDate('expense_date', $date)->where('notes', 'like', $mark . ' %')->exists()) {

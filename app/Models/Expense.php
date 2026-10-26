@@ -9,6 +9,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Expense extends Model
 {
     use Concerns\LogsActivity;
+    use Concerns\RequiresFeature;
+
+    public static function featureEnabled(): bool
+    {
+        return \App\Support\Features::expenses();
+    }
+
+    public static function featureLabel(): string
+    {
+        return 'gider takibi';
+    }
 
     public function activityAction(): string
     {

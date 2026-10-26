@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\FeatureSettings;
 use App\Support\HubSignature;
 use App\Support\ModuleProfiles;
 use App\Tenancy\Tenancy;
@@ -32,12 +33,13 @@ class HubFirm extends Model
     ];
 
     /** Firma ayarları varsayılanları (hub ekranında boş bırakılanlar). */
-    /** Hub'dan açılan YENİ firmada baştan açık gelen modüller (akıllı asistan, doğal konuşma, sabah haberi). */
-    public const NEW_FIRM_MODULES = ['smart_assistant' => true, 'natural_voice' => true, 'proactive_alerts' => true];
 
     public const DEFAULT_SETTINGS = [
-        'profile'             => null,  // mimar | muteahhit | trade | alacak_verecek (ModuleProfiles)
-        'modules'             => [],    // anahtar => bool; olmayan = profile bırak
+        'profile'             => null,  // mimar | muteahhit | trade | alacak_verecek — yeni düzende kutulardan türetilir (FeatureSettings::deriveProfile)
+        'modules'             => [],    // ESKİ düzen: anahtar => bool; olmayan = profile bırak (çevrilmemiş firma)
+        'features'            => null,  // YENİ düzen (26.10): saklı kutular — doluysa modüller buradan (FeatureSettings)
+        'assistant'           => null,
+        'legacy'              => null,
         'cari_lock'           => false,
         'cari_lock_minutes'   => 5,
         'check_reminder_days' => [3, 0],
@@ -91,7 +93,81 @@ class HubFirm extends Model
             'project_label'       => is_string($s['project_label'] ?? null) && trim($s['project_label']) !== '' ? trim($s['project_label']) : null,
             'sector'              => array_key_exists((string) ($s['sector'] ?? ''), (array) config('sectors')) ? $s['sector'] : null,
             'business_note'       => is_string($s['business_note'] ?? null) && trim($s['business_note']) !== '' ? mb_substr(trim($s['business_note']), 0, 300) : null,
+            'features'            => is_array($s['features'] ?? null) ? FeatureSettings::normalizeFeatures($s['features']) : null,
+            'assistant'           => is_array($s['assistant'] ?? null) ? array_map('boolval', $s['assistant']) : null,
+            'legacy'              => is_array($s['legacy'] ?? null) ? array_map('boolval', $s['legacy']) : null,
         ];
+    }
+
+    /** Firmanın bugün açık modülleri (config('modules')): yeni düzende saklı kutulardan, değilse paket + ezmeler. */
+    public function resolvedModules(): array
+    {
+        $s = $this->settingsWithDefaults();
+
+        return FeatureSettings::converted($s)
+            ? FeatureSettings::toModules($s)
+            : ModuleProfiles::resolve($s['profile'], $s['modules']);
+    }
+
+    /**
+     * Hub "Özellikler" penceresi → saklı liste. Alanlar: feat_<kutu>, asst_<ayar>, legacy_<eski> (bool), project_label.
+     * Paket adı kutulardan türetilir; eski "modules" ezmeleri silinir (artık kullanılmaz).
+     */
+    public function saveFeaturesForm(array $data): void
+    {
+        $this->update(['settings' => self::settingsFromFeaturesForm($data, (array) $this->settings)]);
+    }
+
+    /** Pencere verisi → settings (firma oluşturma da bunu kullanır). $base: korunacak diğer ayarlar. */
+    public static function settingsFromFeaturesForm(array $data, array $base = []): array
+    {
+        $features = FeatureSettings::normalizeFeatures(collect(FeatureSettings::FEATURES)
+            ->mapWithKeys(fn (string $k) => [$k => (bool) ($data["feat_{$k}"] ?? false)])->all());
+        $label = in_array($data['project_label'] ?? null, FeatureSettings::PLACE_LABELS, true) ? $data['project_label'] : null;
+        $days = array_filter(array_map('trim', explode(',', (string) ($data['check_reminder_days'] ?? ''))), 'strlen');
+
+        return array_merge(self::DEFAULT_SETTINGS, $base, [
+            'features'            => $features,
+            'assistant'           => collect(FeatureSettings::ASSISTANT)->mapWithKeys(fn (string $k) => [$k => (bool) ($data["asst_{$k}"] ?? false)])->all(),
+            'legacy'              => collect(FeatureSettings::LEGACY)->mapWithKeys(fn (string $k) => [$k => (bool) ($data["legacy_{$k}"] ?? false)])->all(),
+            'modules'             => [],
+            'project_label'       => $label,
+            'profile'             => FeatureSettings::deriveProfile($features, $label ?? 'Proje'),
+            'cari_lock'           => (bool) ($data['cari_lock'] ?? false),
+            'cari_lock_minutes'   => (int) (($data['cari_lock_minutes'] ?? null) ?: 5),
+            'check_reminder_days' => array_values(array_unique(array_map('intval', $days))),
+            'sector'              => array_key_exists((string) ($data['sector'] ?? ''), (array) config('sectors')) ? $data['sector'] : null,
+            'business_note'       => mb_substr(trim((string) ($data['business_note'] ?? '')), 0, 300) ?: null,
+        ]);
+    }
+
+    /** Hub penceresinin başlangıç değerleri: çevrilmiş firmada saklı liste, değilse bugünkü durumdan çevrilmiş hali. */
+    public function featuresFormData(): array
+    {
+        $s = $this->settingsWithDefaults();
+        $saved = FeatureSettings::converted($s)
+            ? ['features' => $s['features'], 'assistant' => (array) $s['assistant'], 'legacy' => (array) $s['legacy']]
+            : FeatureSettings::fromModules(ModuleProfiles::resolve($s['profile'], $s['modules']));
+
+        $data = [
+            'project_label'       => $s['project_label'] ?? FeatureSettings::legacyPlaceLabel($s['profile']),
+            'sector'              => $s['sector'],
+            'business_note'       => $s['business_note'],
+            'cari_lock'           => $s['cari_lock'],
+            'cari_lock_minutes'   => $s['cari_lock_minutes'],
+            'check_reminder_days' => implode(',', $s['check_reminder_days']),
+        ];
+        foreach ($saved['features'] as $k => $v) {
+            $data["feat_{$k}"] = $v;
+        }
+        foreach (FeatureSettings::ASSISTANT as $k) {
+            $data["asst_{$k}"] = (bool) ($saved['assistant'][$k] ?? false);
+        }
+        foreach (FeatureSettings::LEGACY as $k) {
+            $data["legacy_{$k}"] = (bool) ($saved['legacy'][$k] ?? false);
+        }
+
+        return $data;
     }
 
     /**
