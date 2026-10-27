@@ -289,7 +289,7 @@ class AgreementPaymentsTest extends TestCase
         $this->page()
             ->assertSeeInOrder(['Anlaşılan', 'Gelen', 'Ödenen', 'Borç', 'Gelecek mal'])
             ->assertSeeInOrder(['Demir', '80.000,00', '32.000,00', '12.000,00', '20.000', '48.000,00'])
-            ->assertSee('Diğer alışlar')
+            ->assertDontSeeHtml('>anlaşma dışı</span>')   // 27.10: Diğer satırı kalktı
             ->assertSee('Arşiv (1)')
             ->assertDontSee('Biten anlaşmalar');
     }

@@ -595,25 +595,20 @@ class EditParty extends EditRecord
     }
 
     /**
-     * Cari sayfasındaki anlaşma tablosu (26.10): Anlaşılan · Gelen · Ödenen · Borç · Gelecek mal + "Diğer alışlar / satışlar" satırı.
+     * Cari sayfasındaki anlaşma tablosu (26.10): Anlaşılan · Gelen · Ödenen · Borç · Gelecek mal (Diğer satırı 27.10'da kalktı).
      * Bitmiş / kapatılmış ve borcu kalmamış anlaşma arşive iner (görünmez, "Arşiv (N)" ile açılır).
      */
     private function getAgreementCards(): array
     {
         if (! \App\Support\Features::agreements()) {
-            return ['active' => [], 'archived' => [], 'other' => []];
+            return ['active' => [], 'archived' => []];
         }
         $data = \App\Support\AgreementBalances::forParty($this->record);
         $rows = collect($data['rows']);
-        $directions = $rows->map(fn ($r) => $r['agreement']->direction)->unique();
 
         return [
             'active'   => $rows->reject(fn ($r) => $r['archived'])->values()->all(),
             'archived' => $rows->filter(fn ($r) => $r['archived'])->values()->all(),
-            // Diğer satırı yalnız o yönde anlaşma varsa (alış anlaşması yoksa "Diğer alışlar" anlamsız).
-            'other'    => collect([Agreement::DIRECTION_PURCHASE, Agreement::DIRECTION_SALE])
-                ->filter(fn ($d) => $directions->contains($d))
-                ->mapWithKeys(fn ($d) => [$d => $data['other'][$d]])->all(),
         ];
     }
 
