@@ -1065,6 +1065,9 @@ class EditParty extends EditRecord
 
     public ?string $statementProjectId = null;
 
+    /** Ekstre anlaşma filtresi: anlaşma id'si ya da 'other' (anlaşma dışı). Bkz. PartyStatement::filterByAgreement. */
+    public ?string $statementAgreement = null;
+
     public function mount(int | string $record): void
     {
         parent::mount($record);
@@ -1108,6 +1111,7 @@ class EditParty extends EditRecord
             'date_from'  => $this->statementDateFrom,
             'date_to'    => $this->statementDateTo,
             'project_id' => $this->statementProjectId,
+            'agreement'  => \App\Support\Features::agreements() ? $this->statementAgreement : null,
         ], fn ($v) => filled($v));
     }
 
@@ -1117,6 +1121,35 @@ class EditParty extends EditRecord
         $this->statementDateFrom = now()->startOfYear()->toDateString();
         $this->statementDateTo = null;
         $this->statementProjectId = null;
+        $this->statementAgreement = null;
+    }
+
+    /** Anlaşma penceresi → "Dökümde gör": ekstre o anlaşmaya süzülür, tarih sınırı kalkar (anlaşmanın tüm satırları görünsün). */
+    public function showAgreementInStatement(int $agreementId): void
+    {
+        $this->statementAgreement = (string) $agreementId;
+        $this->statementDateFrom = null;
+        $this->statementDateTo = null;
+        $this->statementProjectId = null;
+        $this->unmountAction();
+        $this->js("document.getElementById('cari-ekstre')?.scrollIntoView({ behavior: 'smooth' })");
+    }
+
+    /** Ekstre anlaşma seçenekleri: carinin tüm anlaşmaları (arşiv dahil) + anlaşma dışı. Anlaşma yoksa boş (seçim görünmez). */
+    private function getStatementAgreements(): array
+    {
+        if (! \App\Support\Features::agreements()) {
+            return [];
+        }
+        $agreements = Agreement::where('party_id', $this->record->id)->with('project')
+            ->orderByDesc('agreement_date')->orderByDesc('id')->get();
+        if ($agreements->isEmpty()) {
+            return [];
+        }
+        $directions = $agreements->pluck('direction')->unique();
+
+        return $agreements->mapWithKeys(fn (Agreement $a) => [(string) $a->id => \App\Support\AgreementBalances::label($a)])->all()
+            + ['other' => $directions->count() > 1 ? 'Anlaşma dışı' : \App\Support\AgreementBalances::otherLabel($directions->first())];
     }
 
     public function getFooter(): ?\Illuminate\Contracts\View\View
@@ -1132,6 +1165,8 @@ class EditParty extends EditRecord
             'statementDateFrom' => $this->statementDateFrom,
             'statementDateTo'   => $this->statementDateTo,
             'statementProjectId' => $this->statementProjectId,
+            'statementAgreements' => $this->getStatementAgreements(),
+            'statementAgreement'  => $this->statementAgreement,
             'activityLogs'     => $this->getActivityLogs(),
             'contracts'        => $this->getContractRows(),
             'invoices'         => $this->getInvoiceRows(),

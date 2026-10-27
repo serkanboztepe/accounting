@@ -13,7 +13,7 @@ use App\Models\Project;
 class PartyStatementView
 {
     /**
-     * @param  array{date_from?:string,date_to?:string,project_id?:int|string}  $filters
+     * @param  array{date_from?:string,date_to?:string,project_id?:int|string,agreement?:int|string}  $filters
      */
     public static function data(Party $party, array $filters = []): array
     {
@@ -25,6 +25,11 @@ class PartyStatementView
             'statement'   => PartyStatement::build($party, $filters),
             'filters'     => $filters,
             'projectName' => ! empty($filters['project_id']) ? Project::find($filters['project_id'])?->name : null,
+            'agreementName' => match (true) {
+                empty($filters['agreement']) => null,
+                $filters['agreement'] === 'other' => 'Anlaşma dışı',
+                default => ($a = \App\Models\Agreement::where('party_id', $party->id)->find($filters['agreement'])) ? AgreementBalances::label($a) : null,
+            },
         ];
     }
 }

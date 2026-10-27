@@ -319,6 +319,45 @@ class AgreementPaymentsTest extends TestCase
             ->assertSet('mountedActions.1.name', 'changeAgreementPrice');
     }
 
+    /** Ekstre anlaşma süzgeci (27.10): süzülmüş bakiye anlaşma tablosundakiyle aynı; anlaşmalar + anlaşma dışı = cari bakiyesi. */
+    public function test_statement_agreement_filter_matches_agreement_balances(): void
+    {
+        $demir = $this->agreement('Demir', 10, 8000);
+        $cimento = $this->agreement('Çimento', 5, 5000);
+        $this->deliver($demir, 3);                       // 24.000
+        $this->deliver($cimento, 2);                     // 10.000
+        $this->pay(10000, $demir);
+        $this->pay(4000, $cimento);
+        $this->pay(7000);                                // anlaşma dışı
+        PartyLedgerEntry::create(['party_id' => $this->party->id, 'entry_date' => now()->subYear()->toDateString(),
+            'type' => PartyLedgerEntry::TYPE_PAYMENT, 'amount' => 1000, 'agreement_id' => $demir->id]);   // geçen yıl → devir
+
+        $full = PartyStatement::build($this->party)['balance'];
+        $demirRows = PartyStatement::build($this->party, ['agreement' => (string) $demir->id]);
+        $this->assertCount(3, $demirRows['rows'], 'Demir: alış belgesi + 2 ödeme');
+        $this->assertEqualsWithDelta(-$this->balanceOf($demir), $demirRows['balance'], 0.01);
+        $other = PartyStatement::build($this->party, ['agreement' => 'other']);
+        $this->assertEqualsWithDelta(AgreementBalances::forParty($this->party)['other'][Agreement::DIRECTION_SALE], $other['balance'], 0.01);
+        $this->assertEqualsWithDelta($full, $demirRows['balance'] + PartyStatement::build($this->party, ['agreement' => (string) $cimento->id])['balance']
+            + $other['balance'], 0.01, 'parçalar = cari bakiyesi');
+
+        $dated = PartyStatement::build($this->party, ['agreement' => (string) $demir->id, 'date_from' => now()->startOfYear()->toDateString()]);
+        $this->assertEqualsWithDelta(1000, $dated['opening'], 0.01);
+        $this->assertEqualsWithDelta($demirRows['balance'], $dated['balance'], 0.01);
+
+        $page = $this->page()->set('statementAgreement', (string) $demir->id)
+            ->assertSee('AP Test A Blok')->assertSee('Borç: 13.000 (cari bakiye değildir)')->assertSeeHtml('<option value="other">Diğer alışlar</option>');
+        $this->assertStringContainsString('agreement=' . $demir->id, $page->instance()->statementPrintUrl());
+
+        $this->page()->mountAction('agreementSummary', ['agreement' => $cimento->id])
+            ->call('showAgreementInStatement', $cimento->id)
+            ->assertSet('statementAgreement', (string) $cimento->id)->assertSet('statementDateFrom', null)
+            ->assertSet('mountedActions', []);
+
+        $this->get(route('party.statement.print', ['party' => $this->party, 'agreement' => $demir->id]))
+            ->assertOk()->assertSee('Anlaşma: Demir (AP Test A Blok)');
+    }
+
     public function test_move_deliveries_toggle_only_when_project_changes_and_goods_came(): void
     {
         $demir = $this->agreement('Demir', 10, 8000);

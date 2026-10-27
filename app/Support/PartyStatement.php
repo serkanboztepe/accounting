@@ -19,8 +19,10 @@ class PartyStatement
      *
      * Bakiye = ΣBorç − ΣAlacak.  >0 cari bize borçlu · <0 biz cariye borçluyuz.
      *
-     * $filters: ['date_from' => 'Y-m-d', 'date_to' => 'Y-m-d', 'project_id' => int]
+     * $filters: ['date_from' => 'Y-m-d', 'date_to' => 'Y-m-d', 'project_id' => int, 'agreement' => int|'other']
      * date_from verilirse önceki tüm hareketlerin neti "Açılış (devir)" satırı olur.
+     * agreement (27.10): o anlaşmanın belgeleri + ona bağlı ödemeler; 'other' = anlaşma dışı her şey. Bakiye anlaşma tablosuyla
+     * aynı çıkar (AgreementBalances) — belge tutarının anlaşmaya düşen kısmı teslimat hareketlerinden okunur.
      */
     public static function build(Party $party, array $filters = []): array
     {
@@ -151,7 +153,14 @@ class PartyStatement
             // Ödeme / tahsilat hangi anlaşma için (cari sayfasında etiket ya da "Bağla").
             $row['ledger_type'] = $entry->type;
             $row['agreement_title'] = $entry->agreement?->title;
+            $row['agreement_id'] = $entry->agreement_id;
+            $row['document'] = collect(self::DOCUMENT_COLUMNS)->filter(fn ($c) => $entry->{$c})->map(fn ($c) => [$c, (int) $entry->{$c}])->first();
             $rows[] = $row;
+        }
+
+        // --- Anlaşma filtresi (varsa) ---
+        if (filled($filters['agreement'] ?? null)) {
+            $rows = self::filterByAgreement($rows, $filters['agreement']);
         }
 
         // --- Proje filtresi (varsa) ---
@@ -212,6 +221,55 @@ class PartyStatement
             'opening'      => $opening,
             'balance'      => $balance,
         ];
+    }
+
+    /** Belge türü sütunları — teslimat hareketi (stock_movements) belgeye bu sütunla bağlı. */
+    private const DOCUMENT_COLUMNS = ['purchase_id', 'sale_id', 'purchase_return_id', 'sale_return_id'];
+
+    /**
+     * Satırın anlaşmalara düşen tutarları [agreement_id => tutar]: ödeme/tahsilatta agreement_id; belgede o belgenin anlaşma
+     * kalemli hareketleri. Kalan (satır tutarı − parçalar) anlaşma dışıdır ("Diğer").
+     */
+    private static function filterByAgreement(array $rows, int|string $agreement): array
+    {
+        $docIds = [];
+        foreach ($rows as $r) {
+            if ($r['document'] ?? null) {
+                $docIds[$r['document'][0]][] = $r['document'][1];
+            }
+        }
+        $docParts = [];
+        foreach ($docIds as $col => $ids) {
+            \App\Models\StockMovement::whereIn('stock_movements.' . $col, array_unique($ids))
+                ->join('agreement_items', 'agreement_items.id', '=', 'stock_movements.agreement_item_id')
+                ->groupBy('stock_movements.' . $col, 'agreement_items.agreement_id')
+                ->selectRaw('stock_movements.' . $col . ' as doc_id, agreement_items.agreement_id as agreement_id, SUM(stock_movements.amount) as total')
+                ->get()
+                ->each(function ($m) use (&$docParts, $col) {
+                    $docParts[$col][(int) $m->doc_id][(int) $m->agreement_id] = abs((float) $m->total);
+                });
+        }
+
+        $out = [];
+        foreach ($rows as $r) {
+            $parts = [];
+            if (AgreementBalances::directionFor((string) ($r['ledger_type'] ?? ''))) {
+                $parts = ($r['agreement_id'] ?? null) ? [(int) $r['agreement_id'] => $r['borc'] + $r['alacak']] : [];
+            } elseif ($r['document'] ?? null) {
+                $parts = $docParts[$r['document'][0]][$r['document'][1]] ?? [];
+            }
+            $amount = $agreement === 'other'
+                ? round($r['borc'] + $r['alacak'] - array_sum($parts), 2)
+                : round($parts[(int) $agreement] ?? 0.0, 2);
+            if ($amount < 0.01) {
+                continue;
+            }
+            $r['borc'] = $r['borc'] > 0 ? $amount : 0.0;
+            $r['alacak'] = $r['borc'] > 0 ? 0.0 : $amount;
+            $out[] = $r;
+        }
+
+        return $out;
     }
 
     protected static function row($date, string $label, ?string $desc, float $borc, float $alacak, ?int $projectId = null, ?string $projectName = null, ?int $entryId = null, bool $editable = false, ?int $saleId = null, bool $saleHasReturns = false, ?int $saleReturnId = null, ?int $purchaseId = null): array

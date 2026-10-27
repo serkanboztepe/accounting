@@ -8,11 +8,20 @@
     {{-- Cari Ekstresi --}}
     @php
         $projectFiltered = filled($statementProjectId);
-        $statementDesc = $projectFiltered
-            ? 'Bu projeye ait fark ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' (Borç − Alacak — cari bakiye değildir)'
-            : 'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz');
+        $agreementName = filled($statementAgreement) ? ($statementAgreements[$statementAgreement] ?? null) : null;
+        $filteredAgreement = $agreementName && $statementAgreement !== 'other' ? \App\Models\Agreement::find($statementAgreement) : null;
+        $statementDesc = match (true) {
+            // Anlaşma seçiliyse alttaki rakam anlaşma tablosundaki "Borç" ile aynı (AgreementBalances).
+            $filteredAgreement !== null => $agreementName . ' · ' . ($filteredAgreement->isPurchase() ? 'Borç' : 'Alacak') . ': '
+                . \App\Support\AgreementSummary::balanceText($filteredAgreement->isPurchase() ? -$statement['balance'] : $statement['balance'],
+                    ! $filteredAgreement->isPurchase()) . ' (cari bakiye değildir)',
+            $agreementName !== null || $projectFiltered => ($agreementName ? $agreementName . ' · ' : 'Bu projeye ait ') . 'fark ₺'
+                . \App\Support\Money::format(abs($statement['balance'])) . ' (Borç − Alacak — cari bakiye değildir)',
+            default => 'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz'),
+        };
     @endphp
     <x-filament::section
+        id="cari-ekstre"
         heading="Cari Ekstresi"
         :description="$statementDesc"
     >
@@ -75,6 +84,12 @@
                 <x-filament::button color="gray" icon="heroicon-o-funnel" size="sm" x-on:click="open = ! open">
                     Filtre
                 </x-filament::button>
+                @if ($agreementName)
+                    <x-filament::badge color="primary">
+                        🤝 {{ $agreementName }}
+                        <button type="button" class="ml-1" title="Kaldır" wire:click="$set('statementAgreement', null)">✕</button>
+                    </x-filament::badge>
+                @endif
 
                 {{-- Yazdır: yeni sekme açmadan doğrudan yazdır penceresi (gizli iframe) --}}
                 <x-filament::button
@@ -118,6 +133,19 @@
                             <x-filament::input.select wire:model.live="statementProjectId">
                                 <option value="">Tüm projeler</option>
                                 @foreach ($statementProjects as $id => $name)
+                                    <option value="{{ $id }}">{{ $name }}</option>
+                                @endforeach
+                            </x-filament::input.select>
+                        </x-filament::input.wrapper>
+                    </div>
+                @endif
+                @if (count($statementAgreements) > 0)
+                    <div class="min-w-[12rem]">
+                        <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Anlaşma</label>
+                        <x-filament::input.wrapper>
+                            <x-filament::input.select wire:model.live="statementAgreement">
+                                <option value="">Tümü</option>
+                                @foreach ($statementAgreements as $id => $name)
                                     <option value="{{ $id }}">{{ $name }}</option>
                                 @endforeach
                             </x-filament::input.select>

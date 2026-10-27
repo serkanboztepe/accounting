@@ -66,7 +66,7 @@ Route::get('/sozlesmeler/{contract}/yazdir', function (string $contract) {
 Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party, \Illuminate\Http\Request $request) {
     return view('print.party-statement', \App\Support\PartyStatementView::data(
         $party,
-        $request->only(['date_from', 'date_to', 'project_id']),
+        $request->only(['date_from', 'date_to', 'project_id', 'agreement']),
     ));
 })->middleware(['auth', \App\Http\Middleware\RequireCariUnlock::class])->name('party.statement.print');
 

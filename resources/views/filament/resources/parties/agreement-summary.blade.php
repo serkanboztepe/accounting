@@ -35,6 +35,7 @@
                 @if ($isOpen)
                     <x-filament::button size="sm" color="gray" wire:click="mountAction('addAgreementItems', { agreement: {{ $id }} })">+ Kalem ekle</x-filament::button>
                 @endif
+                <x-filament::button size="sm" color="gray" wire:click="showAgreementInStatement({{ $id }})">Dökümde gör</x-filament::button>
                 <x-filament::button size="sm" color="gray" wire:click="mountAction('editAgreement', { agreement: {{ $id }} })">Düzenle</x-filament::button>
                 <x-filament::button size="sm" color="gray" wire:click="mountAction('toggleAgreement', { agreement: {{ $id }} })">
                     {{ $isClosed ? 'Yeniden aç' : 'Anlaşmayı kapat' }}

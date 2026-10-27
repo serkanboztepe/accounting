@@ -59,13 +59,16 @@
             if (! empty($filters['date_from'])) { $rangeParts[] = \Illuminate\Support\Carbon::parse($filters['date_from'])->format('d.m.Y') . ' başlangıç'; }
             if (! empty($filters['date_to'])) { $rangeParts[] = \Illuminate\Support\Carbon::parse($filters['date_to'])->format('d.m.Y') . ' bitiş'; }
         @endphp
-        @if (count($rangeParts) > 0 || ! empty($projectName))
+        @if (count($rangeParts) > 0 || ! empty($projectName) || ! empty($agreementName))
             <div style="color:#555;font-size:11px;margin-bottom:4px;">
                 @if (count($rangeParts) > 0)
                     Dönem: {{ implode(' – ', $rangeParts) }}
                 @endif
                 @if (! empty($projectName))
                     @if (count($rangeParts) > 0) · @endif Proje: {{ $projectName }}
+                @endif
+                @if (! empty($agreementName))
+                    @if (count($rangeParts) > 0 || ! empty($projectName)) · @endif Anlaşma: {{ $agreementName }}
                 @endif
             </div>
         @endif
