@@ -358,6 +358,23 @@ class AgreementPaymentsTest extends TestCase
             ->assertOk()->assertSee('Anlaşma: Demir (AP Test A Blok)');
     }
 
+    /** Anlaşma penceresinde proje seçimi (27.10): kalem başına o projeye gelen miktar; tek projede seçim yok. */
+    public function test_summary_project_picker_shows_quantity_per_project(): void
+    {
+        $beton = $this->agreement('Beton', 500, 2600);
+        $this->deliver($beton, 200);
+        $render = fn () => view('filament.resources.parties.agreement-summary', \App\Support\AgreementSummary::build($beton->fresh()))->render();
+        $this->assertStringNotContainsString('Hepsi', $render(), 'tek proje → seçim yok');
+
+        $bBlok = Project::create(['name' => 'AP Test B Blok', 'status' => 'active']);
+        AgreementDesk::deliver($this->party, $beton->direction, [['agreement_item_id' => $beton->items[0]->id, 'quantity' => 120]],
+            now()->toDateString(), $bBlok->id);
+        $html = $render();
+        foreach (['Hepsi', 'AP Test A Blok', 'AP Test B Blok', 'gelen 200 ton · 520.000', 'gelen 120 ton · 312.000', 'gelen 320 ton'] as $text) {
+            $this->assertStringContainsString($text, $html);
+        }
+    }
+
     public function test_move_deliveries_toggle_only_when_project_changes_and_goods_came(): void
     {
         $demir = $this->agreement('Demir', 10, 8000);
