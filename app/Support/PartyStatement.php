@@ -277,7 +277,7 @@ class PartyStatement
             }
             $r['lines'] = $lines[$doc[0]][$doc[1]];
             if (($extra = $manual[$doc[0]][$doc[1]] ?? null) && ($agreement === null || $agreement === '' || $agreement === 'other')) {
-                $r['lines'][] = 'Ürünsüz tutar = ' . Money::format((float) $extra);
+                $r['lines'][] = 'Ürünsüz tutar = ' . Money::format((float) $extra) . ' ₺';
             }
         }
         unset($r);
@@ -285,7 +285,7 @@ class PartyStatement
         return $rows;
     }
 
-    /** "Beton C30 · 30 m³ × 2.600 = 78.000" · "Nakliye = 4.000" (1 adet, birimsiz) · tutarsız: "Tuğla · 5.000 adet". */
+    /** "Beton C30 · 30 m³ × 2.600,00 ₺ = 78.000,00 ₺" · "Nakliye = 4.000,00 ₺" (1 adet, birimsiz) · tutarsız: "Tuğla · 5.000 adet". */
     private static function lineText(\App\Models\StockMovement $m): string
     {
         $qty = (float) $m->quantity;
@@ -294,10 +294,10 @@ class PartyStatement
         $text = $m->product?->name ?? 'Ürün';
         if (! $plain) {
             $text .= ' · ' . trim(StockUsage::quantity($qty) . ' ' . $unit)
-                . ($m->unit_price !== null && $m->amount !== null ? ' × ' . Money::format((float) $m->unit_price) : '');
+                . ($m->unit_price !== null && $m->amount !== null ? ' × ' . Money::format((float) $m->unit_price) . ' ₺' : '');
         }
 
-        return $text . ($m->amount !== null ? ' = ' . Money::format((float) $m->amount) : '');
+        return $text . ($m->amount !== null ? ' = ' . Money::format((float) $m->amount) . ' ₺' : '');
     }
 
     /** Belge türü sütunları — teslimat hareketi (stock_movements) belgeye bu sütunla bağlı. */
