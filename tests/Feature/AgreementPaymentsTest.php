@@ -373,6 +373,14 @@ class AgreementPaymentsTest extends TestCase
         foreach (['Hepsi', 'AP Test A Blok', 'AP Test B Blok', 'gelen 200 ton · 520.000', 'gelen 120 ton · 312.000', 'gelen 320 ton'] as $text) {
             $this->assertStringContainsString($text, $html);
         }
+        // Gelen mallar: başlık + toplam (hepsi ve proje başına); kalemler ve ödemeler kapalı başlar, kalemler ödemelerin üstünde (27.10).
+        $this->assertMatchesRegularExpression('/<th[^>]*>Tarih<\/th>.*<th[^>]*>Tutar<\/th>/s', $html);
+        foreach (['832.000', '520.000', '312.000'] as $total) {
+            $this->assertMatchesRegularExpression('/>Toplam<\/td>\s*<td[^>]*>' . preg_quote($total) . '</', $html);
+        }
+        $this->assertSame(2, substr_count($html, 'x-data="{ open: false }"'));
+        $this->assertLessThan(strpos($html, 'Kalemler ('), strpos($html, 'Gelen mallar ('));
+        $this->assertLessThan(strpos($html, 'Ödemeler ('), strpos($html, 'Kalemler ('));
     }
 
     public function test_move_deliveries_toggle_only_when_project_changes_and_goods_came(): void

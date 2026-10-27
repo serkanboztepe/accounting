@@ -81,8 +81,53 @@
         @endif
 
         <section>
-            <h3 class="text-sm font-medium text-gray-950 dark:text-white">Kalemler ({{ $agreement->items->count() }})</h3>
-            <div class="mt-2 overflow-x-auto">
+            <h3 class="text-sm font-medium text-gray-950 dark:text-white">{{ $isSale ? 'Teslimatlar' : 'Gelen mallar' }} ({{ $deliveries->count() }})</h3>
+            <table class="mt-2 w-full text-xs">
+                @if ($deliveries->isNotEmpty())
+                    <thead>
+                        <tr class="border-b border-gray-200 text-left text-gray-500 dark:border-white/10 dark:text-gray-400">
+                            <th class="py-1.5 pr-3 font-medium">Tarih</th>
+                            <th class="py-1.5 pr-3 font-medium">Kalem</th>
+                            <th class="py-1.5 pr-3 text-right font-medium">Miktar</th>
+                            <th class="py-1.5 text-right font-medium">Tutar</th>
+                        </tr>
+                    </thead>
+                @endif
+                <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                    @forelse ($deliveries as $d)
+                        <tr x-show="p === '' || p === @js($d['project'])"
+                            class="{{ $d['return'] ? 'text-danger-600 dark:text-danger-400' : 'text-gray-700 dark:text-gray-300' }}">
+                            <td class="py-1.5 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $d['date']?->format('d.m.Y') }}</td>
+                            <td class="py-1.5 pr-3">
+                                {{ $d['name'] }}{{ $d['return'] ? ' (iade)' : '' }}
+                                @if ($projects !== []) <span class="text-gray-500 dark:text-gray-400">· {{ $projects[$d['project']] ?? '' }}</span> @endif
+                            </td>
+                            <td class="py-1.5 pr-3 text-right tabular-nums">{{ $d['qty'] }}</td>
+                            <td class="py-1.5 text-right tabular-nums">{{ $d['amount'] < 0 ? '−' : '' }}{{ $fmt($d['amount']) }}</td>
+                        </tr>
+                    @empty
+                        <tr><td class="py-2 text-gray-500 dark:text-gray-400">Henüz teslimat yok.</td></tr>
+                    @endforelse
+                </tbody>
+                @if ($deliveries->isNotEmpty())
+                    <tfoot>
+                        @foreach ($deliveryTotals as $key => $total)
+                            <tr x-show="p === @js($key)" @if ($key !== '') x-cloak @endif
+                                class="border-t border-gray-200 font-semibold text-gray-950 dark:border-white/10 dark:text-white">
+                                <td class="py-2 pr-3" colspan="3">Toplam</td>
+                                <td class="py-2 text-right tabular-nums">{{ $total < 0 ? '−' : '' }}{{ $fmt($total) }}</td>
+                            </tr>
+                        @endforeach
+                    </tfoot>
+                @endif
+            </table>
+        </section>
+
+        <section x-data="{ open: false }">
+            <button type="button" class="text-sm font-medium text-gray-950 dark:text-white" x-on:click="open = ! open">
+                <span x-text="open ? '▾' : '▸'">▸</span> Kalemler ({{ $agreement->items->count() }})
+            </button>
+            <div x-show="open" x-cloak class="mt-2 overflow-x-auto">
                 <table class="w-full text-xs">
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                         @foreach ($agreement->items as $item)
@@ -140,33 +185,22 @@
                 </table>
             </div>
         </section>
-
-        <section>
-            <h3 class="text-sm font-medium text-gray-950 dark:text-white">{{ $isSale ? 'Teslimatlar' : 'Gelen mallar' }} ({{ $deliveries->count() }})</h3>
-            <table class="mt-2 w-full text-xs">
-                <tbody class="divide-y divide-gray-100 dark:divide-white/5">
-                    @forelse ($deliveries as $d)
-                        <tr x-show="p === '' || p === @js($d['project'])"
-                            class="{{ $d['return'] ? 'text-danger-600 dark:text-danger-400' : 'text-gray-700 dark:text-gray-300' }}">
-                            <td class="py-1.5 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $d['date']?->format('d.m.Y') }}</td>
-                            <td class="py-1.5 pr-3">
-                                {{ $d['name'] }}{{ $d['return'] ? ' (iade)' : '' }}
-                                @if ($projects !== []) <span class="text-gray-500 dark:text-gray-400">· {{ $projects[$d['project']] ?? '' }}</span> @endif
-                            </td>
-                            <td class="py-1.5 pr-3 text-right tabular-nums">{{ $d['qty'] }}</td>
-                            <td class="py-1.5 text-right tabular-nums">{{ $d['amount'] < 0 ? '−' : '' }}{{ $fmt($d['amount']) }}</td>
-                        </tr>
-                    @empty
-                        <tr><td class="py-2 text-gray-500 dark:text-gray-400">Henüz teslimat yok.</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </section>
         </div>
 
-        <section>
-            <h3 class="text-sm font-medium text-gray-950 dark:text-white">{{ $isSale ? 'Tahsilatlar' : 'Ödemeler' }} ({{ $payments->count() }})</h3>
-            <table class="mt-2 w-full text-xs">
+        <section x-data="{ open: false }">
+            <button type="button" class="text-sm font-medium text-gray-950 dark:text-white" x-on:click="open = ! open">
+                <span x-text="open ? '▾' : '▸'">▸</span> {{ $isSale ? 'Tahsilatlar' : 'Ödemeler' }} ({{ $payments->count() }})
+            </button>
+            <table x-show="open" x-cloak class="mt-2 w-full text-xs">
+                @if ($payments->isNotEmpty())
+                    <thead>
+                        <tr class="border-b border-gray-200 text-left text-gray-500 dark:border-white/10 dark:text-gray-400">
+                            <th class="py-1.5 pr-3 font-medium">Tarih</th>
+                            <th class="py-1.5 pr-3 font-medium">Açıklama</th>
+                            <th class="py-1.5 text-right font-medium">Tutar</th>
+                        </tr>
+                    </thead>
+                @endif
                 <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                     @forelse ($payments as $p)
                         <tr class="text-gray-700 dark:text-gray-300">
@@ -184,6 +218,14 @@
                         <tr><td class="py-2 text-gray-500 dark:text-gray-400">Bu anlaşmaya bağlı {{ $isSale ? 'tahsilat' : 'ödeme' }} yok. Eski ödemeleri ekstrede "Bağla" ile bağlayabilirsin.</td></tr>
                     @endforelse
                 </tbody>
+                @if ($payments->isNotEmpty())
+                    <tfoot>
+                        <tr class="border-t border-gray-200 font-semibold text-gray-950 dark:border-white/10 dark:text-white">
+                            <td class="py-2 pr-3" colspan="2">Toplam</td>
+                            <td class="py-2 text-right tabular-nums">{{ $paid < 0 ? '−' : '' }}{{ $fmt($paid) }}</td>
+                        </tr>
+                    </tfoot>
+                @endif
             </table>
         </section>
     </div>

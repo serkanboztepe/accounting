@@ -77,6 +77,9 @@ final class AgreementSummary
             'payments'      => $payments,
             'projects'      => $projects,
             'byProject'     => $byProject,
+            // Gelen mallar tablosunun altı: '' = hepsi (= Gelen), proje anahtarı = o projeye gelen (iade düşülür).
+            'deliveryTotals' => ['' => round($deliveries->sum('amount'), 2)]
+                + $deliveries->groupBy('project')->map(fn ($rows) => round($rows->sum('amount'), 2))->all(),
         ];
     }
 
