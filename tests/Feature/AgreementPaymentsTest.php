@@ -303,7 +303,8 @@ class AgreementPaymentsTest extends TestCase
             'due_date' => now()->addDays(20)->toDateString(), 'status' => 'issued']);
 
         $html = view('filament.resources.parties.agreement-summary', \App\Support\AgreementSummary::build($demir->fresh()))->render();
-        foreach (['24.000 (1 teslimat)', '10.000 (1 ödeme)', 'Bekleyen çek', '10.000 (1 çek, ilk vade', '14.000', '56.000', 'AP Demir'] as $text) {
+        foreach (['24.000 ₺ (1 teslimat)', '10.000 ₺ (1 ödeme)', 'Bekleyen çek', '10.000 ₺ (1 çek, ilk vade', '14.000 ₺', '56.000 ₺', 'AP Demir',
+            'Toplam <span class="font-normal text-gray-500 dark:text-gray-400">(on bin lira)</span>'] as $text) {
             $this->assertStringContainsString($text, $html);
         }
         $page = $this->page()->mountAction('agreementSummary', ['agreement' => $demir->id])->assertHasNoErrors()
@@ -375,8 +376,8 @@ class AgreementPaymentsTest extends TestCase
         }
         // Gelen mallar: başlık + toplam (hepsi ve proje başına); kalemler ve ödemeler kapalı başlar, kalemler ödemelerin üstünde (27.10).
         $this->assertMatchesRegularExpression('/<th[^>]*>Tarih<\/th>.*<th[^>]*>Tutar<\/th>/s', $html);
-        foreach (['832.000', '520.000', '312.000'] as $total) {
-            $this->assertMatchesRegularExpression('/>Toplam<\/td>\s*<td[^>]*>' . preg_quote($total) . '</', $html);
+        foreach (['832.000' => 'sekiz yüz otuz iki bin', '520.000' => 'beş yüz yirmi bin', '312.000' => 'üç yüz on iki bin'] as $total => $words) {
+            $this->assertMatchesRegularExpression('/Toplam <span[^>]*>\(' . $words . ' lira\)<\/span><\/td>\s*<td[^>]*>' . preg_quote($total) . ' ₺</u', $html);
         }
         $this->assertSame(2, substr_count($html, 'x-data="{ open: false }"'));
         $this->assertLessThan(strpos($html, 'Kalemler ('), strpos($html, 'Gelen mallar ('));

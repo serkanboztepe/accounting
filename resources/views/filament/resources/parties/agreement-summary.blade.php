@@ -3,7 +3,7 @@
     ödemeler — hepsi açık. Düğmeler iç pencere açar; kaydedince bu pencereye dönülür. Bkz. AgreementSummary, EditParty::agreementSummaryAction.
 --}}
 @php
-    $fmt = fn ($v) => \App\Support\AgreementBalances::money((float) $v);
+    $fmt = fn ($v) => \App\Support\AgreementBalances::money((float) $v) . ' ₺';
 @endphp
 
 @if ($agreement)
@@ -56,7 +56,7 @@
             <div class="flex justify-between gap-4 py-2 font-semibold">
                 <dt class="text-gray-950 dark:text-white">{{ $isSale ? 'Alacak' : 'Borç' }} ({{ $isSale ? 'teslim edilen' : 'gelen' }} − {{ $isSale ? 'tahsil edilen' : 'ödenen' }})</dt>
                 <dd class="tabular-nums {{ $balance < -0.009 ? 'text-warning-600 dark:text-warning-400' : 'text-gray-950 dark:text-white' }}">
-                    {{ \App\Support\AgreementSummary::balanceText($balance, $isSale) }}
+                    {{ \App\Support\AgreementSummary::balanceText($balance, $isSale, lira: true) }}
                 </dd>
             </div>
             @if ($agreed > 0)
@@ -114,7 +114,7 @@
                         @foreach ($deliveryTotals as $key => $total)
                             <tr x-show="p === @js($key)" @if ($key !== '') x-cloak @endif
                                 class="border-t border-gray-200 font-semibold text-gray-950 dark:border-white/10 dark:text-white">
-                                <td class="py-2 pr-3" colspan="3">Toplam</td>
+                                <td class="py-2 pr-3" colspan="3">Toplam <span class="font-normal text-gray-500 dark:text-gray-400">({{ \App\Support\AgreementSummary::words($total) }})</span></td>
                                 <td class="py-2 text-right tabular-nums">{{ $total < 0 ? '−' : '' }}{{ $fmt($total) }}</td>
                             </tr>
                         @endforeach
@@ -221,7 +221,7 @@
                 @if ($payments->isNotEmpty())
                     <tfoot>
                         <tr class="border-t border-gray-200 font-semibold text-gray-950 dark:border-white/10 dark:text-white">
-                            <td class="py-2 pr-3" colspan="2">Toplam</td>
+                            <td class="py-2 pr-3" colspan="2">Toplam <span class="font-normal text-gray-500 dark:text-gray-400">({{ \App\Support\AgreementSummary::words($paid) }})</span></td>
                             <td class="py-2 text-right tabular-nums">{{ $paid < 0 ? '−' : '' }}{{ $fmt($paid) }}</td>
                         </tr>
                     </tfoot>

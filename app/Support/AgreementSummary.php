@@ -83,19 +83,28 @@ final class AgreementSummary
         ];
     }
 
+    /** Toplam satırı için yazıyla (kullanıcı 27.10): 832000 → "sekiz yüz otuz iki bin lira", 1250.5 → "bin iki yüz elli lira elli kuruş". */
+    public static function words(float $amount): string
+    {
+        $amount = round(abs($amount), 2);
+        $kurus = (int) round(($amount - floor($amount)) * 100);
+
+        return Money::words($amount) . ' lira' . ($kurus > 0 ? ' ' . Money::words($kurus) . ' kuruş' : '');
+    }
+
     /** Alpine seçimi için proje anahtarı ('p12'; projesiz teslimat 'none'). */
     private static function projectKey(?int $projectId): string
     {
         return $projectId ? 'p' . $projectId : 'none';
     }
 
-    /** Bakiye hücresi: alışta "55.000" / "15.000 alacaklısın", satışta "55.000 alacağın" / "15.000 borçlusun", sıfırsa "0 ✅". */
-    public static function balanceText(float $balance, bool $sale): string
+    /** Bakiye hücresi: alışta "55.000" / "15.000 alacaklısın", satışta "55.000 alacağın" / "15.000 borçlusun", sıfırsa "0 ✅". $lira: "55.000 ₺". */
+    public static function balanceText(float $balance, bool $sale, bool $lira = false): string
     {
         if (abs($balance) < 0.01) {
             return '0 ✅';
         }
-        $amount = AgreementBalances::money($balance);
+        $amount = AgreementBalances::money($balance) . ($lira ? ' ₺' : '');
         if ($sale) {
             return $amount . ($balance > 0 ? ' alacağın' : ' borçlusun');
         }
