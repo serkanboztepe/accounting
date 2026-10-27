@@ -957,6 +957,35 @@ class WhatsappAgreementTest extends TestCase
         $reply = $this->send('ali ustayla ne durumdayız');
         $this->assertStringContainsString('WAQ Tesisat: %50 yapıldı (500.000,00), kalan 500.000,00 ₺', $reply);
         $this->assertStringContainsString('Bakiye: borcun 300.000,00 ₺', $reply);
+        $this->assertStringContainsString('Gelen 500.000 · Ödenen 200.000 → 300.000 borcun', $reply, '27.10: anlaşmaya ödenen');
+    }
+
+    /** "Kamuran'dan A Blok için neler aldık" (27.10): party_id + project_id → o projeye gelen kalemler + anlaşma dışı alış. */
+    public function test_query_by_party_and_project(): void
+    {
+        $party = Party::create(['name' => 'WAQ Kamuran']);
+        $aBlok = \App\Models\Project::create(['name' => 'WAQ A Blok', 'status' => 'active']);
+        $bBlok = \App\Models\Project::create(['name' => 'WAQ B Blok', 'status' => 'active']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAQ Mantolama', 'm²'), 'quantity' => 3000, 'unit_price' => 450],
+            ['product_id' => $this->product('WAQ Sıva', 'm²'), 'quantity' => 2000, 'unit_price' => 400]]);
+        $deliver = fn (int $item, float $qty, int $project) => \App\Support\AgreementDesk::deliver($party, Agreement::DIRECTION_PURCHASE,
+            [['agreement_item_id' => $a->items[$item]->id, 'quantity' => $qty]], now()->toDateString(), $project);
+        $deliver(0, 1200, $aBlok->id);
+        $deliver(1, 800, $aBlok->id);
+        $deliver(0, 500, $bBlok->id);
+
+        $ask = fn (?int $projectId) => $this->ai(['kind' => ExpenseExtractor::KIND_AGREEMENT_QUERY, 'query_item_ids' => [], 'party_id' => $party->id,
+            'project_id' => $projectId, 'amount' => 0, 'description' => '', 'paid' => null, 'confidence' => 'high', 'items' => [], 'is_new_entry' => true]);
+        $ask($aBlok->id);
+        $reply = $this->send("Kamuran'dan A Blok için neler aldık");
+        foreach (['📍 WAQ Kamuran · WAQ A Blok', 'WAQ Mantolama: 1200 m² · 540.000,00 ₺', 'WAQ Sıva: 800 m² · 320.000,00 ₺', 'Toplam 860.000,00 ₺'] as $text) {
+            $this->assertStringContainsString($text, $reply);
+        }
+        $this->assertStringNotContainsString('225.000', $reply, 'B Blok karışmaz');
+
+        $empty = \App\Models\Project::create(['name' => 'WAQ C Blok', 'status' => 'active']);
+        $ask($empty->id);
+        $this->assertStringContainsString('WAQ Kamuran → WAQ C Blok: anlaşmalardan mal gelmemiş.', $this->send("Kamuran C Bloğa ne getirdi"));
     }
 
     public function test_paid_delivery_writes_purchase_and_payment(): void
