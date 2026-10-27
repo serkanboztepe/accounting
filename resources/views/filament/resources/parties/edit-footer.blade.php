@@ -14,15 +14,15 @@
             // Anlaşma seçiliyse alttaki rakam anlaşma tablosundaki "Borç" ile aynı (AgreementBalances).
             $filteredAgreement !== null => $agreementName . ' · ' . ($filteredAgreement->isPurchase() ? 'Borç' : 'Alacak') . ': '
                 . \App\Support\AgreementSummary::balanceText($filteredAgreement->isPurchase() ? -$statement['balance'] : $statement['balance'],
-                    ! $filteredAgreement->isPurchase()) . ' (cari bakiye değildir)',
+                    ! $filteredAgreement->isPurchase()) . ' (toplam bakiye değildir)',
             $agreementName !== null || $projectFiltered => ($agreementName ? $agreementName . ' · ' : 'Bu projeye ait ') . 'fark ₺'
-                . \App\Support\Money::format(abs($statement['balance'])) . ' (Borç − Alacak — cari bakiye değildir)',
-            default => 'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz'),
+                . \App\Support\Money::format(abs($statement['balance'])) . ' (Borç − Alacak — toplam bakiye değildir)',
+            default => 'Bakiye ₺' . \App\Support\Money::format(abs($statement['balance'])) . ' — ' . ($statement['balance'] >= 0 ? 'bize borçlu' : 'biz borçluyuz'),
         };
     @endphp
     <x-filament::section
         id="cari-ekstre"
-        heading="Cari Ekstresi"
+        heading="Hesap Dökümü"
         :description="$statementDesc"
     >
         {{-- Yeni hareket girişi — tek sıra. Düğmeler esnafın ağzından; ekstre/PDF tarafsız dilde kalır

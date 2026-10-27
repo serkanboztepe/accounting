@@ -32,7 +32,7 @@ class ExpenseForm
             // Gider = carisiz harcama; bir kişiden/firmadan alım Cariler'den "Alış" olarak girilir.
             // Alan yalnız eskiden cariye bağlanmış kayıtta görünür (o veri bozulmasın).
             Select::make('party_id')
-                ->label('Cari')
+                ->label('Kişi / Firma')
                 ->relationship('party', 'name')
                 ->searchable()
                 ->preload()

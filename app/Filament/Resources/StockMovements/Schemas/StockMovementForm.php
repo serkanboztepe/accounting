@@ -56,7 +56,7 @@ class StockMovementForm
                 ->helperText('Opsiyonel — alış maliyeti.'),
 
             Select::make('party_id')
-                ->label('Cari (kimden)')
+                ->label('Kişi / Firma (kimden)')
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->preload(),

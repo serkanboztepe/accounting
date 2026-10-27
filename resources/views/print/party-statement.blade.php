@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Cari Ekstresi — {{ $party->name }}</title>
+    <title>Hesap Dökümü — {{ $party->name }}</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: "DejaVu Sans", Arial, sans-serif; color: #111; margin: 0; padding: 24px; font-size: 13px; }
@@ -49,7 +49,7 @@
             </div>
         </div>
 
-        <div class="doc-type"><strong>CARİ EKSTRESİ</strong><br>{{ now()->format('d.m.Y') }}</div>
+        <div class="doc-type"><strong>HESAP DÖKÜMÜ</strong><br>{{ now()->format('d.m.Y') }}</div>
 
         <div class="cari">{{ $party->name }}</div>
 
@@ -122,10 +122,10 @@
         <div class="balance">
             @if ($projectFiltered)
                 Bu projeye ait fark: <strong>₺{{ \App\Support\Money::format(abs($statement['balance'])) }}</strong>
-                <div style="font-size:11px;color:#777;margin-top:2px;">Borç − Alacak · cari bakiye değildir</div>
+                <div style="font-size:11px;color:#777;margin-top:2px;">Borç − Alacak · toplam bakiye değildir</div>
             @else
                 Bakiye: <strong>₺{{ \App\Support\Money::format(abs($statement['balance'])) }}</strong>
-                — {{ $statement['balance'] >= 0 ? 'cari bize borçlu' : 'biz cariye borçluyuz' }}
+                — {{ $statement['balance'] >= 0 ? 'bize borçlu' : 'biz borçluyuz' }}
             @endif
         </div>
     </div>

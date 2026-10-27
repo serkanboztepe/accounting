@@ -203,7 +203,7 @@ class StudyBuilder extends Page implements HasSchemas
                     ->schema([
                         Hidden::make('id'),
                         TextInput::make('name')->label('Ad')->required()->columnSpan(4),
-                        Select::make('party_id')->label('Cari (ops.)')
+                        Select::make('party_id')->label('Kişi / Firma (isteğe bağlı)')
                             ->options(fn () => \App\Models\Party::orderBy('name')->pluck('name', 'id'))
                             ->searchable()->columnSpan(3),
                         TextInput::make('current_pay')->label('Mevcut Pay')

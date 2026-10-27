@@ -57,7 +57,7 @@ class StockMovementsRelationManager extends RelationManager
                     ->formatStateUsing(fn ($state) => $state !== null ? Money::format($state) . ' ₺' : '—'),
 
                 TextColumn::make('party.name')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->placeholder('—'),
 
                 TextColumn::make('project.name')

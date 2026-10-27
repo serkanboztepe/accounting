@@ -25,7 +25,7 @@ class CheckResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
 
     // Kullanıcı 26.10: çek cariyle ilgili — "Cari" başlığının altında (Cariler, Anlaşmalar, Çekler).
-    protected static string|UnitEnum|null $navigationGroup = 'Cari';
+    protected static string|UnitEnum|null $navigationGroup = 'Kişiler ve Firmalar';
 
     protected static ?int $navigationSort = 2;
 

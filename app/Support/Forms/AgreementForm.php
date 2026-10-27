@@ -50,7 +50,7 @@ class AgreementForm
                 ->live(),
 
             $withParty ? Select::make('party_id')
-                ->label('Cari')
+                ->label('Kişi / Firma')
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->required()

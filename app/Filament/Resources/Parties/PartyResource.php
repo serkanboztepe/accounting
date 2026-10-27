@@ -22,14 +22,14 @@ class PartyResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUserGroup;
 
-    // Cari kendi başına ayrı bir bölüm.
-    protected static string|UnitEnum|null $navigationGroup = 'Cari';
+    // Kendi başına ayrı bir bölüm. 27.10: "Cari" yerine "Kişiler ve Firmalar" (kullanıcı — muhasebe dili değil, personel de burada).
+    protected static string|UnitEnum|null $navigationGroup = 'Kişiler ve Firmalar';
 
-    protected static ?string $navigationLabel = 'Cariler';
+    protected static ?string $navigationLabel = 'Kişi ve firma listesi';
 
-    protected static ?string $modelLabel = 'Cari';
+    protected static ?string $modelLabel = 'Kişi / Firma';
 
-    protected static ?string $pluralModelLabel = 'Cariler';
+    protected static ?string $pluralModelLabel = 'Kişiler ve Firmalar';
 
     protected static ?int $navigationSort = 0;
 

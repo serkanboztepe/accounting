@@ -46,7 +46,7 @@ class TopSuppliersTable extends TableWidget
             )
             ->columns([
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->weight('medium'),
 
                 Tables\Columns\TextColumn::make('total_supply')

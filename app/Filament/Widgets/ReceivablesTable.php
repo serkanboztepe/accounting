@@ -43,7 +43,7 @@ class ReceivablesTable extends TableWidget
             )
             ->columns([
                 Tables\Columns\TextColumn::make('party.name')
-                    ->label('Müşteri / Cari')
+                    ->label('Müşteri')
                     ->weight('medium')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('title')

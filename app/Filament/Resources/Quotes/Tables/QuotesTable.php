@@ -22,7 +22,7 @@ class QuotesTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('party.name')
-                    ->label('Müşteri / Cari')
+                    ->label('Müşteri')
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('project.name')

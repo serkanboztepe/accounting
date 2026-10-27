@@ -21,7 +21,7 @@ class AgreementResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedHandRaised;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Cari';
+    protected static string|UnitEnum|null $navigationGroup = 'Kişiler ve Firmalar';
 
     protected static ?string $navigationLabel = 'Anlaşmalar';
 

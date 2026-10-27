@@ -99,7 +99,7 @@ class AdminPanelProvider extends PanelProvider
             ->collapsibleNavigationGroups(false)
             ->navigationGroups([
                 'Genel',
-                'Cari',
+                'Kişiler ve Firmalar',
                 'Sözleşmeler',
                 'Gider',
                 'Alış-Satış',

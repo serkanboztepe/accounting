@@ -89,7 +89,7 @@
                             <table class="w-full text-sm">
                                 <thead class="text-xs text-gray-500 dark:text-gray-400">
                                     <tr class="border-b border-gray-200 dark:border-white/10">
-                                        <th class="py-1 pr-3 text-left font-medium">Cari</th>
+                                        <th class="py-1 pr-3 text-left font-medium">Kişi / Firma</th>
                                         <th class="py-1 text-right font-medium">Net Borç</th>
                                     </tr>
                                 </thead>

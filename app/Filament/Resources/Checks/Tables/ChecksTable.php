@@ -30,7 +30,7 @@ class ChecksTable
                 TextColumn::make('direction')->label('Yön')->badge()
                     ->state(fn (Check $r) => CheckForm::directionOf($r->status) === 'received' ? 'Aldığım' : 'Verdiğim')
                     ->color(fn (string $state) => $state === 'Aldığım' ? 'success' : 'warning'),
-                TextColumn::make('party.name')->label('Cari')->placeholder('Carisiz')->searchable()->sortable(),
+                TextColumn::make('party.name')->label('Kişi / Firma')->placeholder('—')->searchable()->sortable(),
                 TextColumn::make('purpose')->label('Ne için')->wrap()->placeholder('—')
                     ->state(fn (Check $r) => $r->description
                         ?: ($r->contractPayment ? $r->contractPayment->contract()->withoutGlobalScopes()->value('title') : null)

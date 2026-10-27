@@ -43,7 +43,7 @@ class PartyDeletionTest extends TestCase
 
         Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
             ->callAction(DeleteAction::class)
-            ->assertNotified('Cari silinemedi');
+            ->assertNotified('Silinemedi');
 
         $this->assertNotNull($party->fresh());
     }
@@ -99,7 +99,7 @@ class PartyDeletionTest extends TestCase
 
         Livewire::test(EditParty::class, ['record' => $party->getRouteKey()])
             ->callAction(DeleteAction::class)
-            ->assertNotified('Cari silinemedi');
+            ->assertNotified('Silinemedi');
 
         $this->assertNotNull($party->fresh());
         $this->assertSame(20.0, $flour->currentStock(), 'stok bozulmadı');

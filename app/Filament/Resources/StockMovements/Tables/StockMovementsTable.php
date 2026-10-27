@@ -62,7 +62,7 @@ class StockMovementsTable
                     ->toggleable(),
 
                 TextColumn::make('party.name')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->toggleable(),
 
                 TextColumn::make('project.name')

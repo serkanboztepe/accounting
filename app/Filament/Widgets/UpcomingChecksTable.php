@@ -34,8 +34,8 @@ class UpcomingChecksTable extends TableWidget
                     ->date('d.m.Y')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('party.name')
-                    ->label('Cari')
-                    ->placeholder('Carisiz')
+                    ->label('Kişi / Firma')
+                    ->placeholder('—')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('project.name')
                     ->label('Proje')

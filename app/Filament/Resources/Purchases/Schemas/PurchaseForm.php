@@ -20,7 +20,7 @@ class PurchaseForm
     {
         return $schema->columns(2)->components([
             Select::make('party_id')
-                ->label('Cari (kimden)')
+                ->label('Kişi / Firma (kimden)')
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->required(fn (Get $get) => ! $get('paid'))

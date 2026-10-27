@@ -20,7 +20,7 @@ class QuoteForm
             Section::make('Teklif Bilgileri')
                 ->schema([
                     Select::make('party_id')
-                        ->label('Müşteri / Cari')
+                        ->label('Müşteri')
                         ->relationship('party', 'name')
                         ->searchable()
                         ->preload()

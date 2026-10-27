@@ -23,7 +23,7 @@ class AgreementsTable
             ->columns([
                 TextColumn::make('title')->label('Ad')->searchable()->weight('medium'),
 
-                TextColumn::make('party.name')->label('Cari')->searchable(),
+                TextColumn::make('party.name')->label('Kişi / Firma')->searchable(),
 
                 TextColumn::make('direction')
                     ->label('Yön')
@@ -78,7 +78,7 @@ class AgreementsTable
                     ->label('Yön')
                     ->options(Agreement::DIRECTIONS),
                 SelectFilter::make('party_id')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->relationship('party', 'name')
                     ->searchable()
                     ->preload(),

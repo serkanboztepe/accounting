@@ -347,7 +347,7 @@ class AgreementPaymentsTest extends TestCase
         $this->assertEqualsWithDelta($demirRows['balance'], $dated['balance'], 0.01);
 
         $page = $this->page()->set('statementAgreement', (string) $demir->id)
-            ->assertSee('AP Test A Blok')->assertSee('Borç: 13.000 (cari bakiye değildir)')->assertSeeHtml('<option value="other">Diğer alışlar</option>');
+            ->assertSee('AP Test A Blok')->assertSee('Borç: 13.000 (toplam bakiye değildir)')->assertSeeHtml('<option value="other">Diğer alışlar</option>');
         $this->assertStringContainsString('agreement=' . $demir->id, $page->instance()->statementPrintUrl());
 
         $this->page()->mountAction('agreementSummary', ['agreement' => $cimento->id])

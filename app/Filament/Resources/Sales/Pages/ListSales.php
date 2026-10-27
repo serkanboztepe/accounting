@@ -114,7 +114,7 @@ class ListSales extends ListRecords
                     ->required(fn (Get $get) => $get('mode') === 'cash' && \App\Models\Project::whereNotIn('status', ['cancelled'])->count() > 1),
 
                 Select::make('party_id')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                     ->searchable()
                     ->live()

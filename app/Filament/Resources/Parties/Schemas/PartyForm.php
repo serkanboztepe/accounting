@@ -27,10 +27,10 @@ class PartyForm
             TextInput::make('name')->label('İsim')->required()->maxLength(255),
             TextInput::make('phone')->label('Telefon')->maxLength(255),
             // Cari tipi (27.10): cari sayfasında yalnız bu tipin düğmeleri çıkar. Açarken zorunlu; eski (boş) kayıtta seçilebilir.
-            Radio::make('kind')->label('Bu cariyle nasıl çalışıyorsun?')
+            Radio::make('kind')->label('Onunla nasıl çalışıyorsun?')
                 ->options(Party::KINDS)->inline()->live()->columnSpanFull()
                 ->required($requireKind)
-                ->helperText('Cari sayfasında buna göre düğmeler çıkar. Sonradan buradan değiştirebilirsin.'),
+                ->helperText('Sayfasında buna göre düğmeler çıkar. Sonradan buradan değiştirebilirsin.'),
             Textarea::make('notes')->label('Notlar')->columnSpanFull(),
             // Personel: maaş ve ödeme günü (maaş günü hatırlatması, avans mahsubu). Ayrı modül yok, cari + tip.
             TextInput::make('salary_amount')->label('Aylık maaş (₺)')

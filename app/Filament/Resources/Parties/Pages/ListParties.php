@@ -32,6 +32,16 @@ class ListParties extends ListRecords
         ];
     }
 
+    /** Sekme çubuğu yerine yuvarlak düğmeler (kullanıcı 27.10: "tabları sevmedim, anlaşma detaydaki gibi"); süzme getTabs'tan. */
+    public function getTabsContentComponent(): \Filament\Schemas\Components\Component
+    {
+        return \Filament\Schemas\Components\View::make('filament.resources.parties.kind-pills')
+            ->viewData(fn (): array => [
+                'tabs' => collect($this->getCachedTabs())->map(fn (Tab $tab) => $tab->getLabel())->all(),
+                'active' => (string) ($this->activeTab ?? 'all'),
+            ]);
+    }
+
     protected function getHeaderActions(): array
     {
         return [
@@ -46,7 +56,7 @@ class ListParties extends ListRecords
                 }),
             // Yeni cari pencerede (27.10: ayrı sayfa yerine). Personel + maaş günü → hatırlatma; kaydedince carinin sayfası açılır.
             CreateAction::make()
-                ->modalHeading('Yeni cari')
+                ->modalHeading('Yeni kişi / firma')
                 ->modalWidth('2xl')
                 ->schema(PartyForm::components())
                 ->after(fn (Party $record) => EmployeeDraft::syncFromCard($record))

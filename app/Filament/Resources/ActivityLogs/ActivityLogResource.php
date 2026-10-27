@@ -58,7 +58,7 @@ class ActivityLogResource extends Resource
                     }),
                 TextColumn::make('action')->label('İşlem')->searchable()
                     ->description(fn (ActivityLog $r) => $r->note),
-                TextColumn::make('party_name')->label('Cari')->searchable()->placeholder('—'),
+                TextColumn::make('party_name')->label('Kişi / Firma')->searchable()->placeholder('—'),
                 TextColumn::make('summary')->label('Açıklama')->searchable()->limit(60)->placeholder('—'),
                 TextColumn::make('amount')->label('Tutar')->alignEnd()->placeholder('')
                     ->formatStateUsing(fn ($state, ActivityLog $r) => (float) $state > 0

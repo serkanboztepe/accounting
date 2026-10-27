@@ -61,7 +61,7 @@ class PurchasesTable
                         'month' => $query->whereBetween('purchase_date', [now()->startOfMonth()->toDateString(), now()->toDateString()]),
                         default => $query,
                     }),
-                SelectFilter::make('party_id')->label('Cari')->relationship('party', 'name')->searchable()->preload(),
+                SelectFilter::make('party_id')->label('Kişi / Firma')->relationship('party', 'name')->searchable()->preload(),
             ])
             ->recordActions([
                 EditAction::make(),

@@ -277,7 +277,7 @@ class ProjectReports extends Page implements HasSchemas
 
             if (! isset($grouped[$key])) {
                 $grouped[$key] = [
-                    'party' => $entry->party?->name ?? 'Carisiz',
+                    'party' => $entry->party?->name ?? 'Kişi / firma yok',
                     'total' => 0,
                     'items' => [],
                 ];

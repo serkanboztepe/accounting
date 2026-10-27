@@ -46,7 +46,7 @@ class UnpaidContractBalancesTable extends TableWidget
             )
             ->columns([
                 Tables\Columns\TextColumn::make('party.name')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->weight('medium')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('title')

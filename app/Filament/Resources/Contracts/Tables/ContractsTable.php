@@ -19,7 +19,7 @@ class ContractsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('party.name')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('title')

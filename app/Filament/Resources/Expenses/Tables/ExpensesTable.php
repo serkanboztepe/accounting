@@ -28,7 +28,7 @@ class ExpensesTable
                     ->label('Kategori')
                     ->searchable(),
                 TextColumn::make('party.name')
-                    ->label('Cari')
+                    ->label('Kişi / Firma')
                     ->searchable(),
                 TextColumn::make('amount')
                     ->label('Tutar')

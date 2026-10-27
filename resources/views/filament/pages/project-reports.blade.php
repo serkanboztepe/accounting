@@ -209,7 +209,7 @@
                 <x-filament::section heading="Çekler">
                     <div class="space-y-3">
                         <div class="hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 lg:grid lg:grid-cols-12 lg:gap-x-3">
-                            <div class="col-span-5">Cari</div>
+                            <div class="col-span-5">Kişi / Firma</div>
                             <div class="col-span-3">Vade</div>
                             <div class="col-span-2 text-right">Tutar</div>
                             <div class="col-span-2 text-right">Durum</div>
@@ -218,7 +218,7 @@
                         @forelse ($this->getCheckRows() as $row)
                             <div class="rounded-2xl border border-gray-200 bg-white px-4 py-4 shadow-sm dark:border-white/10 dark:bg-white/5 lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-3">
                                 <div class="mb-2 min-w-0 overflow-hidden lg:col-span-5 lg:mb-0">
-                                    <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Cari</div>
+                                    <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Kişi / Firma</div>
                                     <div class="truncate font-medium text-gray-950 dark:text-white">{{ $row['party'] }}</div>
                                 </div>
                                 <div class="mb-2 lg:col-span-3 lg:mb-0">

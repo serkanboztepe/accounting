@@ -46,7 +46,7 @@ class TopCustomersTable extends TableWidget
             )
             ->columns([
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Müşteri / Cari')
+                    ->label('Müşteri')
                     ->weight('medium'),
 
                 Tables\Columns\TextColumn::make('total_sales')

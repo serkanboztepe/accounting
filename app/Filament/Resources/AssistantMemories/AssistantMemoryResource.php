@@ -55,7 +55,7 @@ class AssistantMemoryResource extends Resource
             Select::make('kind')->label('Tür')->options(AssistantMemory::KINDS)->required()->default('note'),
             TextInput::make('subject')->label('Konu')->placeholder('ör. kalfa, Recep peynir fiyatı')->required()->maxLength(120),
             Textarea::make('fact')->label('Bilgi')->placeholder('ör. Kalfa = Mehmet Kaya')->required()->rows(2)->columnSpanFull(),
-            Select::make('party_id')->label('İlgili cari')->options(fn () => Party::orderBy('name')->pluck('name', 'id'))->searchable(),
+            Select::make('party_id')->label('İlgili kişi / firma')->options(fn () => Party::orderBy('name')->pluck('name', 'id'))->searchable(),
         ])->columns(2);
     }
 
@@ -67,7 +67,7 @@ class AssistantMemoryResource extends Resource
                 TextColumn::make('kind')->label('Tür')->badge()
                     ->formatStateUsing(fn (string $state) => (AssistantMemory::ICONS[$state] ?? '') . ' ' . (AssistantMemory::KINDS[$state] ?? $state)),
                 TextColumn::make('fact')->label('Bilgi')->wrap()->searchable(),
-                TextColumn::make('party.name')->label('Cari')->placeholder('—'),
+                TextColumn::make('party.name')->label('Kişi / Firma')->placeholder('—'),
                 TextColumn::make('phone')->label('Kime')->formatStateUsing(fn ($state) => $state ? 'yalnız ' . $state : 'herkes')
                     ->default('herkes'),
                 TextColumn::make('status')->label('Durum')->badge()

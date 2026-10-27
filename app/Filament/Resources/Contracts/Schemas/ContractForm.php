@@ -50,7 +50,7 @@ class ContractForm
     {
         return [
                     Select::make('party_id')
-                        ->label('Cari')
+                        ->label('Kişi / Firma')
                         ->relationship('party', 'name')
                         ->searchable()
                         ->preload()

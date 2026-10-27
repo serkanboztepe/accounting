@@ -48,7 +48,7 @@ class PartyDeletion
             return true;
         } catch (QueryException $e) {
             report($e);
-            Notification::make()->danger()->title('Cari silinemedi')
+            Notification::make()->danger()->title('Silinemedi')
                 ->body('Bu cariye bağlı kayıtlar silinmeyi engelliyor. Önce carinin satış/alış belgelerini ve çeklerini silmen gerekir; '
                     . 'hiçbir şey silinmedi.')
                 ->persistent()->send();

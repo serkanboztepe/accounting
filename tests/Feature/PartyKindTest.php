@@ -85,6 +85,8 @@ class PartyKindTest extends TestCase
         $b = Party::create(['name' => 'PK Sekme İkisi', 'kind' => Party::KIND_BOTH]);
         $e = Party::create(['name' => 'PK Sekme Personel', 'kind' => Party::KIND_EMPLOYEE]);
 
+        Livewire::test(ListParties::class)->assertSeeHtml("\$set('activeTab', 'suppliers')")->assertSee('Tedarikçiler')
+            ->assertDontSeeHtml('fi-tabs')->assertSee('Kişiler ve Firmalar');   // sekme değil yuvarlak düğme; yeni ad
         Livewire::test(ListParties::class)->set('activeTab', 'customers')->assertCanSeeTableRecords([$c, $b])->assertCanNotSeeTableRecords([$s, $e]);
         Livewire::test(ListParties::class)->set('activeTab', 'suppliers')->assertCanSeeTableRecords([$s, $b])->assertCanNotSeeTableRecords([$c, $e]);
         Livewire::test(ListParties::class)->set('activeTab', 'employees')->assertCanSeeTableRecords([$e])->assertCanNotSeeTableRecords([$c, $s, $b]);
