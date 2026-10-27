@@ -473,7 +473,7 @@ final class Understanding
         $daily = (bool) preg_match('/yevmiye|g[üu]nl[üu]k|haftal[ıi]k/iu', (string) ($d['description'] ?? '') . ' ' . $text);
         $salary = match (true) {
             $kind === ExpenseExtractor::KIND_EMPLOYEE_SETTING => round((float) ($d['salary_amount'] ?? 0), 2),
-            $kind === ExpenseExtractor::KIND_SALARY && ! $daily => round((float) ($d['amount'] ?? 0), 2),
+            $kind === ExpenseExtractor::KIND_SALARY && ! $daily && empty($d['salary_deduction']) => round((float) ($d['amount'] ?? 0), 2),
             default => 0.0,
         };
         if ($salary > 0 && $salary < 1000 && in_array($salary, $written, true)) {
@@ -549,7 +549,9 @@ final class Understanding
                 . " {$amount} mal geldi ve stoğa giriyor"
                 . ($paid ? ', parası ödendi.' : ($hasParty ? (! empty($d['paid_assumed'])
                     ? '; ödeme konuşulmadı (kartta "veresiye yazılır, peşinse söyle" diye soruluyor).' : ', parası ödenmedi; ona borçlusunuz.') : '.')),
-            ExpenseExtractor::KIND_SALARY => "Çalışanınız {$name}'e maaş {$amount}" . ($paid ? ' ödendi.' : ' hak edildi, henüz ödenmedi.'),
+            ExpenseExtractor::KIND_SALARY => ! empty($d['salary_deduction'])
+                ? "Çalışanınız {$name}'in maaşından {$amount} kesiliyor; para ödenmedi, maaşından düşülecek."
+                : "Çalışanınız {$name}'e maaş {$amount}" . ($paid ? ' ödendi.' : ' hak edildi, henüz ödenmedi.'),
             default => null,
         };
     }

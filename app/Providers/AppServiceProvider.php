@@ -2,7 +2,6 @@
 
 namespace App\Providers;
 
-use App\Filament\Resources\Parties\Pages\CreateParty;
 use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Filament\Resources\Parties\Pages\ListParties;
 use App\Http\Middleware\RequireCariUnlock;
@@ -82,7 +81,7 @@ class AppServiceProvider extends ServiceProvider
         FilamentView::registerRenderHook(
             PanelsRenderHook::BODY_END,
             fn () => CariLock::enabled() ? view('filament.cari-lock-idle') : '',
-            scopes: [ListParties::class, EditParty::class, CreateParty::class],
+            scopes: [ListParties::class, EditParty::class],
         );
     }
 }

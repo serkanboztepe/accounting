@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Filament\Resources\Parties\Pages\CreateParty;
 use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Filament\Resources\Parties\Pages\ListParties;
 use App\Models\Party;
@@ -39,9 +38,11 @@ class PartyKindTest extends TestCase
 
     public function test_create_requires_kind_and_employee_fields_follow_it(): void
     {
-        Livewire::test(CreateParty::class)->fillForm(['name' => 'PK Zorunlu'])->call('create')->assertHasFormErrors(['kind' => 'required']);
-        Livewire::test(CreateParty::class)->fillForm(['name' => 'PK Usta', 'kind' => Party::KIND_EMPLOYEE, 'salary_amount' => 40000, 'salary_day' => 5])
-            ->call('create')->assertHasNoFormErrors();
+        // Yeni cari pencerede (27.10: ayrı sayfa yok).
+        Livewire::test(ListParties::class)->callAction('create', ['name' => 'PK Zorunlu'])->assertHasActionErrors(['kind' => 'required']);
+        Livewire::test(ListParties::class)->callAction('create', ['name' => 'PK Usta', 'kind' => Party::KIND_EMPLOYEE, 'salary_amount' => 40000,
+            'salary_day' => 5])->assertHasNoActionErrors();
+        $this->get('/admin/parties/create')->assertNotFound();
         $usta = Party::where('name', 'PK Usta')->sole();
         $this->assertTrue($usta->is_employee, 'tip personel → personel işareti');
         $this->assertTrue($usta->salary_auto, 'yeni personelde kendiliğinden işleme açık');
@@ -64,10 +65,17 @@ class PartyKindTest extends TestCase
         $this->page($plain)->assertSee('Satış Yaptım')->assertSee('Alım Yaptım');
         $employee = Party::create(['name' => 'PK Personel', 'kind' => Party::KIND_EMPLOYEE, 'salary_amount' => 30000]);
         $this->page($employee)->assertSee('Maaş / Avans')->assertDontSee('Satış Yaptım')->assertDontSee('Alım Yaptım')->assertDontSee('Anlaşma yap');
+        // Eski personel (tipi boş — Akkuş): bugünkü düğmeler + Maaş / Avans; ayarlarda tip "Personelim" dolu gelir.
+        $legacy = Party::create(['name' => 'PK Eski Personel']);
+        Party::whereKey($legacy->id)->update(['is_employee' => true]);
+        $this->page($legacy->fresh())->assertSee('Maaş / Avans')->assertSee('Satış Yaptım')->assertSee('Alım Yaptım')
+            ->mountAction('settings')->assertSet('mountedActions.0.data.kind', Party::KIND_EMPLOYEE);
 
         // Anlaşma yönü tipe göre sabit (seçim yok).
         $this->page($customer)->mountAction('newAgreement')->assertSet('mountedActions.0.data.direction', 'sale');
         $this->page($supplier)->mountAction('newAgreement')->assertSet('mountedActions.0.data.direction', 'purchase');
+        $this->page($customer)->callAction('settings', ['name' => 'PK Müşteri', 'kind' => Party::KIND_BOTH])->assertHasNoActionErrors();
+        $this->assertSame(Party::KIND_BOTH, $customer->fresh()->kind, 'tip ayarlardan değişir');
     }
 
     public function test_tabs_filter_by_kind_and_both_shows_twice(): void

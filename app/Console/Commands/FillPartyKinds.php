@@ -14,10 +14,11 @@ use Illuminate\Console\Command;
  *   php artisan parties:fill-kind                       say, yazma
  *   php artisan parties:fill-kind --apply               yaz
  *   php artisan parties:fill-kind --apply --salary-auto
+ *   php artisan parties:fill-kind --apply --all-both    personel dışı hepsi "ikisi de" (Yıldız, Akkuş — kullanıcı 27.10: düğme gizlenmesin)
  */
 class FillPartyKinds extends Command
 {
-    protected $signature = 'parties:fill-kind {--apply : Yaz (yoksa yalnız sayar)} {--salary-auto : Personelde maaşı kendiliğinden işlemeyi aç}';
+    protected $signature = 'parties:fill-kind {--apply : Yaz (yoksa yalnız sayar)} {--salary-auto : Personelde maaşı kendiliğinden işlemeyi aç} {--all-both : Personel dışı tüm cariler "ikisi de"}';
 
     protected $description = 'Tipi boş carilere geçmişlerinden tip verir';
 
@@ -25,8 +26,16 @@ class FillPartyKinds extends Command
     {
         $apply = (bool) $this->option('apply');
         $counts = array_fill_keys([...array_keys(Party::KINDS), 'boş kalır'], 0);
-        foreach (Party::whereNull('kind')->orderBy('id')->get() as $party) {
-            $kind = $party->is_employee ? Party::KIND_EMPLOYEE : Party::kindFromHistory($party->id);
+        $allBoth = (bool) $this->option('all-both');
+        // --all-both: personel olmayan herkes (boş ya da kendiliğinden dolmuş) "ikisi de"; personel (eski, tipi boş) olduğu gibi kalır.
+        $query = $allBoth ? Party::where('is_employee', false)->where(fn ($q) => $q->whereNull('kind')->orWhere('kind', '!=', Party::KIND_BOTH))
+            : Party::whereNull('kind');
+        foreach ($query->orderBy('id')->get() as $party) {
+            $kind = match (true) {
+                $allBoth => Party::KIND_BOTH,
+                $party->is_employee => Party::KIND_EMPLOYEE,
+                default => Party::kindFromHistory($party->id),
+            };
             $counts[$kind ?? 'boş kalır']++;
             if ($apply && $kind !== null) {
                 $party->forceFill(['kind' => $kind])->saveQuietly();

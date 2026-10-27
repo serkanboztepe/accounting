@@ -93,6 +93,25 @@ class WhatsappEmployeeTest extends TestCase
         $this->assertStringContainsString('maaş 50.000,00 ₺ ödeyeceksin', \App\Services\Whatsapp\EmployeeDraft::reminderNote($party->fresh()));
     }
 
+    /** 27.10 "maaştan kes": kesinti para çıkarmaz, maaşta avans gibi düşülür; proje sorulmaz. */
+    public function test_salary_deduction_from_whatsapp(): void
+    {
+        $party = Party::create(['name' => 'Personel Testi Kesinti', 'is_employee' => true, 'salary_amount' => 50000]);
+        $this->ai($this->draft(['kind' => ExpenseExtractor::KIND_SALARY, 'party_id' => $party->id, 'amount' => 5000,
+            'salary_deduction' => true, 'description' => '2 gün ücretsiz izin', 'is_staff' => true]));
+
+        $card = $this->send("Kesinti'nin maaşından 5 bin kes, 2 gün izin yaptı");
+        $this->assertStringContainsString('✂️ *Personel Testi Kesinti* — maaştan kesinti: 5.000,00 ₺ (2 gün ücretsiz izin)', $card);
+        $this->assertStringNotContainsString('Hangi proje', $card);
+        $this->assertStringContainsString('Kesinti yazıldı', $this->send('evet'));
+
+        $this->assertSame('Kesinti — 2 gün ücretsiz izin', PartyLedgerEntry::where('party_id', $party->id)
+            ->where('type', PartyLedgerEntry::TYPE_PURCHASE_RETURN)->sole()->description);
+        $this->assertSame(0, PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)->count(), 'para çıkmaz');
+        $this->assertStringContainsString('maaş 50.000,00 ₺ − kesinti 5.000,00 = 45.000,00 ₺',
+            \App\Services\Whatsapp\EmployeeDraft::reminderNote($party->fresh()));
+    }
+
     public function test_reminder_note_shows_net_after_advance(): void
     {
         $party = Party::create(['name' => 'Personel Testi Can', 'is_employee' => true, 'salary_amount' => 50000]);

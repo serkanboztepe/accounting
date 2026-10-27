@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Parties;
 
-use App\Filament\Resources\Parties\Pages\CreateParty;
 use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Filament\Resources\Parties\Pages\ListParties;
 use App\Filament\Resources\Parties\Schemas\PartyForm;
@@ -66,7 +65,6 @@ class PartyResource extends Resource
     {
         return [
             'index' => ListParties::route('/'),
-            'create' => CreateParty::route('/create'),
             'edit' => EditParty::route('/{record}/edit'),
         ];
     }

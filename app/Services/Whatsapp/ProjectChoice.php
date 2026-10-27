@@ -46,6 +46,10 @@ final class ProjectChoice
     public static function applies(array $d): bool
     {
         $kind = $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
+        // Maaştan kesinti (27.10) maliyet değil, para da çıkmaz — proje sorulmaz.
+        if (! empty($d['salary_deduction'])) {
+            return false;
+        }
         // Mimar (Ferhat, kullanıcı kararı 15.10): eskisi gibi — yalnız giderde proje menüsü, alış/satışta soru yok.
         if (config('app.profile') === 'mimar' && $kind !== ExpenseExtractor::KIND_EXPENSE) {
             return false;

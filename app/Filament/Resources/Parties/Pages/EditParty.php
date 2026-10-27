@@ -59,24 +59,20 @@ class EditParty extends EditRecord
         return [
             // Cari bilgileri (isim/telefon/not) artık üstteki ⚙ Ayarlar modalından düzenlenir —
             // sayfa gövdesi tamamen Cari Ekstresi'ne ayrıldı.
+            // ⚙ Ayarlar: cari bilgileri + tip + personel (maaş, gün, kendiliğinden işleme) — yeni cariyle aynı pencere (PartyForm).
             Action::make('settings')
                 ->label('Ayarlar')
                 ->icon('heroicon-o-cog-6-tooth')
                 ->color('gray')
                 ->modalHeading('Cari Bilgileri')
                 ->modalSubmitActionLabel('Kaydet')
-                ->fillForm(fn (): array => [
-                    'name'  => $this->record->name,
-                    'phone' => $this->record->phone,
-                    'notes' => $this->record->notes,
-                ])
-                ->schema([
-                    TextInput::make('name')->label('İsim')->required()->maxLength(255),
-                    TextInput::make('phone')->label('Telefon')->maxLength(255),
-                    Textarea::make('notes')->label('Notlar')->columnSpanFull(),
-                ])
+                ->modalWidth('2xl')
+                ->fillForm(fn (): array => ['kind' => $this->record->kind ?? ($this->record->is_employee ? Party::KIND_EMPLOYEE : null)]
+                    + $this->record->only(['name', 'phone', 'notes', 'salary_amount', 'salary_day', 'salary_auto']))
+                ->schema(\App\Filament\Resources\Parties\Schemas\PartyForm::components(requireKind: false))
                 ->action(function (array $data): void {
                     $this->record->update($data);
+                    EmployeeDraft::syncFromCard($this->record);
                 }),
 
             DeleteAction::make()

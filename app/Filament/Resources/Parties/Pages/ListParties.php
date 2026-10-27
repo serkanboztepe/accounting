@@ -7,7 +7,9 @@ use App\Filament\Resources\Parties\PartyResource;
 use App\Support\CariLock;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
+use App\Filament\Resources\Parties\Schemas\PartyForm;
 use App\Models\Party;
+use App\Services\Whatsapp\EmployeeDraft;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Schemas\Components\Tabs\Tab;
 use Illuminate\Database\Eloquent\Builder;
@@ -42,7 +44,13 @@ class ListParties extends ListRecords
                     CariLock::lock();
                     $this->redirect(CariUnlock::getUrl());
                 }),
-            CreateAction::make(),
+            // Yeni cari pencerede (27.10: ayrı sayfa yerine). Personel + maaş günü → hatırlatma; kaydedince carinin sayfası açılır.
+            CreateAction::make()
+                ->modalHeading('Yeni cari')
+                ->modalWidth('2xl')
+                ->schema(PartyForm::components())
+                ->after(fn (Party $record) => EmployeeDraft::syncFromCard($record))
+                ->successRedirectUrl(fn (Party $record): string => PartyResource::getUrl('edit', ['record' => $record])),
         ];
     }
 }

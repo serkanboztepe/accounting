@@ -58,7 +58,7 @@ final class EmployeeDraft
      */
     public static function guardSalaryAmount(array $d, string $text): array
     {
-        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_SALARY || self::isDaily($d) || ! ($party = self::party($d))
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_SALARY || ! empty($d['salary_deduction']) || self::isDaily($d) || ! ($party = self::party($d))
             || (float) $party->salary_amount <= 0) {
             return $d;
         }
@@ -145,6 +145,9 @@ final class EmployeeDraft
             return empty($d['salary_amount']) && empty($d['salary_day'])
                 ? 'Aylık maaşı ne kadar, ayın kaçında ödüyorsun?' : null;
         }
+        if (! empty($d['salary_deduction'])) {
+            return (float) ($d['amount'] ?? 0) > 0 ? null : 'Maaşından ne kadar keseyim?';
+        }
 
         return self::salary($d) ? null : 'Maaşı ne kadar?';
     }
@@ -165,6 +168,12 @@ final class EmployeeDraft
             return implode("\n", $lines);
         }
 
+        if (! empty($d['salary_deduction'])) {
+            $reason = trim((string) ($d['description'] ?? ''));
+
+            return '✂️ *' . $name . '*' . $new . ' — maaştan kesinti: ' . Money::format((float) $d['amount']) . ' ₺' . ($reason !== '' ? ' (' . $reason . ')' : '')
+                . "\n• Para çıkmaz; maaşından düşülür";
+        }
         $salary = self::salary($d) ?? 0.0;
         $advance = self::advance($d);
         $lines = ['👷 *' . $name . '*' . $new . (self::isDaily($d) ? ' — yevmiye ' : ' — maaş ') . self::monthLabel($d) . ': ' . Money::format($salary) . ' ₺'];
@@ -198,6 +207,17 @@ final class EmployeeDraft
         }
 
         $d['party_id'] = $party->id;
+        if (! empty($d['salary_deduction'])) {
+            $party->is_employee || $party->update(['is_employee' => true]);
+            self::deduct($party, (float) $d['amount'], (string) ($d['description'] ?? ''), $d['date'] ?? now()->toDateString());
+            $balance = TurnTrace::statement('EmployeeDraft::commit.deduction', $party)['balance'];
+
+            return ['✅ Kesinti yazıldı. ' . $party->name . ': ' . match (true) {
+                abs($balance) < 0.01 => 'hesap kapalı.',
+                $balance > 0 => 'maaşından düşülecek ' . Money::format($balance) . ' ₺ (avans + kesinti).',
+                default => 'ona ' . Money::format(abs($balance)) . ' ₺ borçlusun.',
+            }, $party->id];
+        }
         $salary = self::salary($d);
         $advance = self::advance($d);
         $date = $d['date'] ?? now()->toDateString();
