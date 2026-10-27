@@ -128,7 +128,7 @@
                         f.src = $el.dataset.printUrl;
                     "
                 >
-                    Ekstre Yazdır
+                    Yazdır
                 </x-filament::button>
             </div>
 

@@ -7,7 +7,7 @@ use App\Models\Party;
 use App\Models\Project;
 
 /**
- * Ekstre çıktısı (print.party-statement) için görünüm verisi — panel "Ekstre Yazdır" ve
+ * Ekstre çıktısı (print.party-statement) için görünüm verisi — panel "Yazdır" ve
  * WhatsApp PDF'i aynı veriyi kullansın (iki ayrı hesap olmasın).
  */
 class PartyStatementView
