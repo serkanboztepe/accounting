@@ -384,6 +384,42 @@ class AgreementPaymentsTest extends TestCase
         $this->assertLessThan(strpos($html, 'Ödemeler ('), strpos($html, 'Kalemler ('));
     }
 
+    /** Kalemli ekstre (27.10): belgeli alışın altında kalemler; basit alış, ödeme ve kalemsiz cari olduğu gibi. */
+    public function test_detailed_statement_lists_document_lines_only(): void
+    {
+        $plain = Party::create(['name' => 'AP Basit Esnaf']);
+        PartyLedgerEntry::create(['party_id' => $plain->id, 'entry_date' => now()->toDateString(), 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 5000]);
+        Livewire::test(EditParty::class, ['record' => $plain->getRouteKey()])->assertDontSee('Kalemleri göster');
+        $this->assertArrayNotHasKey('lines', PartyStatement::build($plain, ['detailed' => 1])['rows'][0], 'basit alışta kalem yok');
+
+        $demir = $this->agreement('Demir', 10, 8000);
+        $this->deliver($demir, 3);
+        $this->pay(10000, $demir);
+        PartyLedgerEntry::create(['party_id' => $this->party->id, 'entry_date' => now()->toDateString(), 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 700]);
+
+        $rows = collect(PartyStatement::build($this->party, ['detailed' => 1])['rows']);
+        $this->assertSame([['AP Demir · 3 ton × 8.000,00 = 24.000,00']], $rows->pluck('lines')->filter()->values()->all(), 'yalnız belgeli alış');
+        $this->assertFalse(collect(PartyStatement::build($this->party)['rows'])->contains(fn ($r) => isset($r['lines'])), 'kısa ekstre aynı');
+        $this->assertFalse(collect(PartyStatement::build($this->party, ['detailed' => 1, 'agreement' => 'other'])['rows'])
+            ->contains(fn ($r) => ! empty($r['lines'])), 'anlaşma dışı süzgecinde Demir kalemi yok');
+
+        // Stoklu satış (kalem + ürünsüz tutar) ve yalnız ürünsüz tutarlı alış (kalem yok).
+        $tile = $this->product('AP Fayans');
+        $sale = TradeDesk::saveSale(['mode' => 'party', 'party_id' => $this->party->id, 'sale_date' => now()->toDateString(),
+            'lines' => [['product_id' => $tile->id, 'quantity' => 2, 'unit_price' => '1.500,00']], 'manual_amount' => '250,00']);
+        $bare = TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $this->party->id, 'purchase_date' => now()->toDateString(),
+            'manual_amount' => '30.000,00']);
+        $rows = collect(PartyStatement::build($this->party, ['detailed' => 1])['rows']);
+        $this->assertSame(['AP Fayans · 2 ton × 1.500,00 = 3.000,00', 'Ürünsüz tutar = 250,00'],
+            $rows->firstWhere('sale_id', $sale->id)['lines'] ?? null);
+        $this->assertArrayNotHasKey('lines', $rows->firstWhere('purchase_id', $bare->id), 'ürünsüz alışta kalem satırı yok');
+
+        $page = $this->page()->assertSee('Kalemleri göster')->assertDontSee('AP Demir · 3 ton')
+            ->set('statementDetailed', true)->assertSee('AP Demir · 3 ton × 8.000,00 = 24.000,00')->assertSee('Kalemleri gizle');
+        $this->assertStringContainsString('detailed=1', $page->instance()->statementPrintUrl());
+        $this->get($page->instance()->statementPrintUrl())->assertOk()->assertSee('AP Demir · 3 ton × 8.000,00 = 24.000,00');
+    }
+
     public function test_move_deliveries_toggle_only_when_project_changes_and_goods_came(): void
     {
         $demir = $this->agreement('Demir', 10, 8000);

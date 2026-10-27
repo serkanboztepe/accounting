@@ -289,6 +289,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertSame(1, preg_match('#<Media>(.+)</Media>#', $reply, $m));
         $url = html_entity_decode($m[1], ENT_XML1 | ENT_QUOTES);
         $this->assertStringContainsString('/whatsapp/ekstre/' . $party->id . '/Ekstre-ali-boztepe.pdf', $url);
+        $this->assertStringContainsString('detailed=1', $url, 'WhatsApp ekstresi kalemli (27.10)');
         $this->assertSame(0, WhatsappPendingExpense::where('phone', self::PHONE)->count());
 
         // Girişsiz ama imzalı link → PDF; imzasız → 403

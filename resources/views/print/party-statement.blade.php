@@ -94,6 +94,16 @@
                         <td class="num">{{ $r['alacak'] > 0 ? \App\Support\Money::format($r['alacak']) : '' }}</td>
                         <td class="num">{{ \App\Support\Money::format($r['balance']) }}</td>
                     </tr>
+                    @if (! empty($r['lines']))
+                        <tr>
+                            <td></td>
+                            <td colspan="4" style="color:#666;font-size:10px;padding-top:0;">
+                                @foreach ($r['lines'] as $line)
+                                    <div>{{ $line }}</div>
+                                @endforeach
+                            </td>
+                        </tr>
+                    @endif
                 @empty
                     <tr><td colspan="5" style="text-align:center;color:#888">Hareket yok.</td></tr>
                 @endforelse

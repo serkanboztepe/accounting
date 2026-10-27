@@ -12,7 +12,7 @@ Route::post('/whatsapp/webhook', \App\Http\Controllers\WhatsappWebhookController
 // WhatsApp'a gönderilen ekstre PDF'i — Twilio indirebilsin diye girişsiz, ama imzalı + 10 dk süreli link.
 // {file} sadece WhatsApp'ta görünen dosya adı için.
 Route::get('/whatsapp/ekstre/{party}/{file}', function (\App\Models\Party $party, \Illuminate\Http\Request $request) {
-    $data = \App\Support\PartyStatementView::data($party, $request->only(['date_from', 'date_to', 'project_id']));
+    $data = \App\Support\PartyStatementView::data($party, $request->only(['date_from', 'date_to', 'project_id', 'agreement', 'detailed']));
 
     return \Barryvdh\DomPDF\Facade\Pdf::loadView('print.party-statement', $data + ['pdf' => true])
         ->setPaper('a4', 'portrait')
@@ -66,7 +66,7 @@ Route::get('/sozlesmeler/{contract}/yazdir', function (string $contract) {
 Route::get('/cariler/{party}/ekstre', function (\App\Models\Party $party, \Illuminate\Http\Request $request) {
     return view('print.party-statement', \App\Support\PartyStatementView::data(
         $party,
-        $request->only(['date_from', 'date_to', 'project_id', 'agreement']),
+        $request->only(['date_from', 'date_to', 'project_id', 'agreement', 'detailed']),
     ));
 })->middleware(['auth', \App\Http\Middleware\RequireCariUnlock::class])->name('party.statement.print');
 

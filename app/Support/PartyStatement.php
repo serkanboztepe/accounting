@@ -21,6 +21,7 @@ class PartyStatement
      *
      * $filters: ['date_from' => 'Y-m-d', 'date_to' => 'Y-m-d', 'project_id' => int, 'agreement' => int|'other']
      * date_from verilirse önceki tüm hareketlerin neti "Açılış (devir)" satırı olur.
+     * detailed (27.10): alış / satış / iade belgesi satırının altında kalemleri (`lines`) — ürünsüz belge, ödeme, gider olduğu gibi.
      * agreement (27.10): o anlaşmanın belgeleri + ona bağlı ödemeler; 'other' = anlaşma dışı her şey. Bakiye anlaşma tablosuyla
      * aynı çıkar (AgreementBalances) — belge tutarının anlaşmaya düşen kısmı teslimat hareketlerinden okunur.
      */
@@ -214,6 +215,10 @@ class PartyStatement
             $result[] = $r;
         }
 
+        if (! empty($filters['detailed'])) {
+            $result = self::attachLines($result, $filters['agreement'] ?? null);
+        }
+
         return [
             'rows'         => $result,
             'total_borc'   => $totalBorc,
@@ -221,6 +226,78 @@ class PartyStatement
             'opening'      => $opening,
             'balance'      => $balance,
         ];
+    }
+
+    /** Kalemleri gösterilen belge satırları (ödeme/tahsilat belgeye bağlı olsa da kalem göstermez — peşin ödeme satırı). */
+    private const DOCUMENT_TYPES = [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_SALE,
+        PartyLedgerEntry::TYPE_PURCHASE_RETURN, PartyLedgerEntry::TYPE_SALE_RETURN];
+
+    /**
+     * Kalemli ekstre (kullanıcı 27.10: "alım satırının içinde ne var göremiyoruz"): belge satırına `lines` =
+     * ["Beton C30 · 30 m³ × 2.600 = 78.000", …]. Ürün satırı olmayan (basit / ürünsüz) belgede boş — satır olduğu gibi kalır.
+     * Anlaşma süzgecinde yalnız o anlaşmanın (ya da 'other' → anlaşmasız) kalemleri.
+     */
+    private static function attachLines(array $rows, int|string|null $agreement): array
+    {
+        $ids = [];
+        foreach ($rows as $r) {
+            if (($r['document'] ?? null) && in_array($r['ledger_type'] ?? null, self::DOCUMENT_TYPES, true)) {
+                $ids[$r['document'][0]][] = $r['document'][1];
+            }
+        }
+        if ($ids === []) {
+            return $rows;
+        }
+        $lines = [];
+        foreach ($ids as $col => $docIds) {
+            $query = \App\Models\StockMovement::with(['product.unit', 'agreementItem'])->whereIn($col, array_unique($docIds))->orderBy('id');
+            // Alış / satış belgesinin kalemleri: kendi hareketleri (iade hareketi aynı belge id'sini taşıyabilir).
+            match ($col) {
+                'purchase_id' => $query->where('reason', \App\Models\StockMovement::REASON_PURCHASE)->whereNull('purchase_return_id'),
+                'sale_id'     => $query->where('reason', \App\Models\StockMovement::REASON_SALE)->whereNull('sale_return_id'),
+                default       => null,
+            };
+            foreach ($query->get() as $m) {
+                $mine = $m->agreementItem?->agreement_id;
+                if ($agreement !== null && $agreement !== '' && ($agreement === 'other' ? $mine !== null : (int) $mine !== (int) $agreement)) {
+                    continue;
+                }
+                $lines[$col][(int) $m->{$col}][] = self::lineText($m);
+            }
+        }
+        $manual = [
+            'purchase_id' => \App\Models\Purchase::whereIn('id', $ids['purchase_id'] ?? [])->where('manual_amount', '>', 0)->pluck('manual_amount', 'id'),
+            'sale_id'     => \App\Models\Sale::whereIn('id', $ids['sale_id'] ?? [])->where('manual_amount', '>', 0)->pluck('manual_amount', 'id'),
+        ];
+
+        foreach ($rows as &$r) {
+            $doc = $r['document'] ?? null;
+            if (! $doc || ! in_array($r['ledger_type'] ?? null, self::DOCUMENT_TYPES, true) || empty($lines[$doc[0]][$doc[1]])) {
+                continue;
+            }
+            $r['lines'] = $lines[$doc[0]][$doc[1]];
+            if (($extra = $manual[$doc[0]][$doc[1]] ?? null) && ($agreement === null || $agreement === '' || $agreement === 'other')) {
+                $r['lines'][] = 'Ürünsüz tutar = ' . Money::format((float) $extra);
+            }
+        }
+        unset($r);
+
+        return $rows;
+    }
+
+    /** "Beton C30 · 30 m³ × 2.600 = 78.000" · "Nakliye = 4.000" (1 adet, birimsiz) · tutarsız: "Tuğla · 5.000 adet". */
+    private static function lineText(\App\Models\StockMovement $m): string
+    {
+        $qty = (float) $m->quantity;
+        $unit = $m->product?->unit?->name;
+        $plain = abs($qty - 1) < 0.0001 && ! $unit;
+        $text = $m->product?->name ?? 'Ürün';
+        if (! $plain) {
+            $text .= ' · ' . trim(StockUsage::quantity($qty) . ' ' . $unit)
+                . ($m->unit_price !== null && $m->amount !== null ? ' × ' . Money::format((float) $m->unit_price) : '');
+        }
+
+        return $text . ($m->amount !== null ? ' = ' . Money::format((float) $m->amount) : '');
     }
 
     /** Belge türü sütunları — teslimat hareketi (stock_movements) belgeye bu sütunla bağlı. */

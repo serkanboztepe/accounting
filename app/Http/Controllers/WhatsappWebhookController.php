@@ -3846,6 +3846,7 @@ class WhatsappWebhookController extends Controller
         $url = URL::temporarySignedRoute('whatsapp.statement.pdf', now()->addMinutes(10), [
             'party' => $party->id,
             'file' => 'Ekstre-' . (Str::slug($party->name) ?: $party->id) . '.pdf',
+            'detailed' => 1, // WhatsApp ekstresi kalemli (27.10) — ürünsüz belgede fark yok
         ] + $filters + array_filter(['firm' => Tenancy::current()?->id])); // tek panel: Twilio oturumsuz indirir, firma imzalı linkte
 
         return [implode("\n", $lines), $url];

@@ -1063,6 +1063,9 @@ class EditParty extends EditRecord
     /** Ekstre anlaşma filtresi: anlaşma id'si ya da 'other' (anlaşma dışı). Bkz. PartyStatement::filterByAgreement. */
     public ?string $statementAgreement = null;
 
+    /** Kalemli ekstre (27.10): alış / satış satırlarının altında kalemler; yazdır da aynı. */
+    public bool $statementDetailed = false;
+
     public function mount(int | string $record): void
     {
         parent::mount($record);
@@ -1107,6 +1110,7 @@ class EditParty extends EditRecord
             'date_to'    => $this->statementDateTo,
             'project_id' => $this->statementProjectId,
             'agreement'  => \App\Support\Features::agreements() ? $this->statementAgreement : null,
+            'detailed'   => $this->statementDetailed ? 1 : null,
         ], fn ($v) => filled($v));
     }
 
@@ -1162,6 +1166,10 @@ class EditParty extends EditRecord
             'statementProjectId' => $this->statementProjectId,
             'statementAgreements' => $this->getStatementAgreements(),
             'statementAgreement'  => $this->statementAgreement,
+            // "Kalemleri göster" yalnız carinin ürün satırlı belgesi varsa (basit alış/satış yapanda anahtar yok).
+            'statementHasLines'   => \App\Models\StockMovement::where('party_id', $this->record->id)
+                ->where(fn ($q) => $q->whereNotNull('purchase_id')->orWhereNotNull('sale_id'))->exists(),
+            'statementDetailed'   => $this->statementDetailed,
             'activityLogs'     => $this->getActivityLogs(),
             'contracts'        => $this->getContractRows(),
             'invoices'         => $this->getInvoiceRows(),

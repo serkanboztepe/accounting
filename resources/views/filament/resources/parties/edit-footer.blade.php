@@ -84,6 +84,12 @@
                 <x-filament::button color="gray" icon="heroicon-o-funnel" size="sm" x-on:click="open = ! open">
                     Filtre
                 </x-filament::button>
+                @if ($statementHasLines)
+                    <x-filament::button size="sm" :color="$statementDetailed ? 'primary' : 'gray'" icon="heroicon-o-list-bullet"
+                        wire:click="$toggle('statementDetailed')">
+                        {{ $statementDetailed ? 'Kalemleri gizle' : 'Kalemleri göster' }}
+                    </x-filament::button>
+                @endif
                 @if ($agreementName)
                     <x-filament::badge color="primary">
                         🤝 {{ $agreementName }}
@@ -234,6 +240,17 @@
                             <td class="py-2 px-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{{ $r['alacak'] > 0 ? '₺' . \App\Support\Money::format($r['alacak']) : '' }}</td>
                             <td class="py-2 pl-3 text-right tabular-nums font-medium text-gray-950 dark:text-white">₺{{ \App\Support\Money::format($r['balance']) }}</td>
                         </tr>
+                        @if (! empty($r['lines']))
+                            {{-- Kalemli ekstre: belgenin kalemleri satırın altında (27.10). --}}
+                            <tr style="border-top-width:0">
+                                <td></td>
+                                <td colspan="4" class="px-3 pb-2 pt-0 text-xs text-gray-500 dark:text-gray-400">
+                                    @foreach ($r['lines'] as $line)
+                                        <div>{{ $line }}</div>
+                                    @endforeach
+                                </td>
+                            </tr>
+                        @endif
                     @empty
                         <tr><td colspan="5" class="py-6 text-center text-gray-500 dark:text-gray-400">Hareket yok.</td></tr>
                     @endforelse
