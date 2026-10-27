@@ -84,7 +84,56 @@ final class EmployeeDraft
             return 0.0;
         }
 
-        return min($salary, AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE));
+        return min($salary, self::deductions($party));
+    }
+
+    /**
+     * Maaştan düşülecek: personelin bize borcu (ekstre bakiyesi > 0) = açık avans + kesinti (27.10 "maaştan kes" — kesinti avans gibi
+     * maaştan düşer, para çıkmaz). Personel değilse avans açıklamalı ödemeler (AdvanceOffset).
+     */
+    public static function deductions(Party $party): float
+    {
+        if (! $party->is_employee) {
+            return AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
+        }
+
+        return round(max(0.0, (float) TurnTrace::statement('EmployeeDraft::deductions', $party)['balance']), 2);
+    }
+
+    public const DEDUCTION_PREFIX = 'Kesinti — ';
+
+    /** O ayın maaş satırı ("Maaş — Ekim 2026") — kendiliğinden işlendiyse ya da elle yazıldıysa (çift yazma koruması). */
+    public static function accrued(Party $party, Carbon $month): ?PartyLedgerEntry
+    {
+        return PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PURCHASE)
+            ->where('description', 'Maaş — ' . $month->copy()->locale('tr')->translatedFormat('F Y'))->first();
+    }
+
+    /**
+     * Maaş günü kendiliğinden işleme (27.10, kartta "Maaşı her ay maaş gününde kendiliğinden işle"): o ayın maaş satırı yoksa yazılır.
+     * Ödeme yazılmaz — avans / kesinti bakiyeden kendiliğinden düşer, kalan ödeme kullanıcıda.
+     */
+    public static function accrue(Party $party, Carbon $day): ?PartyLedgerEntry
+    {
+        if (! $party->is_employee || (float) $party->salary_amount <= 0 || self::accrued($party, $day)) {
+            return null;
+        }
+
+        return PartyLedgerEntry::create([
+            'party_id' => $party->id, 'entry_date' => $day->toDateString(), 'type' => PartyLedgerEntry::TYPE_PURCHASE,
+            'description' => 'Maaş — ' . $day->copy()->locale('tr')->translatedFormat('F Y'),
+            'amount' => Money::store((float) $party->salary_amount), 'notes' => 'Maaş günü kendiliğinden işlendi.',
+        ]);
+    }
+
+    /** Maaştan kes (27.10): ücretsiz izin, kırılan eşya… — borcumuz azalır, para çıkmaz; maaşta avans gibi düşülür. */
+    public static function deduct(Party $party, float $amount, string $reason, string $date, string $note = 'WhatsApp üzerinden girildi.'): PartyLedgerEntry
+    {
+        return PartyLedgerEntry::create([
+            'party_id' => $party->id, 'entry_date' => $date, 'type' => PartyLedgerEntry::TYPE_PURCHASE_RETURN,
+            'description' => self::DEDUCTION_PREFIX . (trim($reason) !== '' ? trim($reason) : 'maaştan kesinti'),
+            'amount' => Money::store($amount), 'notes' => $note,
+        ]);
     }
 
     public static function blocker(array $d): ?string
@@ -157,19 +206,26 @@ final class EmployeeDraft
             $projectId = Project::firstOrCreate(['name' => $d['project_name']], ['status' => 'active'])->id;
         }
 
+        $note = $d['source_note'] ?? 'WhatsApp üzerinden girildi.';
         // Yevmiye aylık maaş değildir — karttaki maaşa yazılmaz.
         $party->update(['is_employee' => true] + ($party->salary_amount || self::isDaily($d) ? [] : ['salary_amount' => Money::store($salary)]));
-        PartyLedgerEntry::create([
-            'party_id' => $party->id, 'project_id' => $projectId, 'entry_date' => $date,
-            'type' => PartyLedgerEntry::TYPE_PURCHASE, 'description' => (self::isDaily($d) ? 'Yevmiye — ' : 'Maaş — ') . self::monthLabel($d),
-            'amount' => Money::store($salary), 'notes' => 'WhatsApp üzerinden girildi.',
-        ]);
-        $paid = $salary - $advance;
+        // O ayın maaşı kendiliğinden işlendiyse (27.10) tekrar yazılmaz; ödenen = şu an ona borcumuz.
+        $already = ! self::isDaily($d) ? self::accrued($party, self::month($d)) : null;
+        if ($already) {
+            $paid = max(0.0, -(float) TurnTrace::statement('EmployeeDraft::commit.accrued', $party)['balance']);
+        } else {
+            PartyLedgerEntry::create([
+                'party_id' => $party->id, 'project_id' => $projectId, 'entry_date' => $date,
+                'type' => PartyLedgerEntry::TYPE_PURCHASE, 'description' => (self::isDaily($d) ? 'Yevmiye — ' : 'Maaş — ') . self::monthLabel($d),
+                'amount' => Money::store($salary), 'notes' => $note,
+            ]);
+            $paid = $salary - $advance;
+        }
         if (! empty($d['paid']) && $paid >= 0.01) {
             PartyLedgerEntry::create([
                 'party_id' => $party->id, 'entry_date' => $date, 'type' => PartyLedgerEntry::TYPE_PAYMENT,
                 'payment_type' => $d['payment_type'] ?? null, 'description' => (self::isDaily($d) ? 'Yevmiye ödemesi — ' : 'Maaş ödemesi — ') . self::monthLabel($d),
-                'amount' => Money::store($paid), 'notes' => 'WhatsApp üzerinden girildi.',
+                'amount' => Money::store($paid), 'notes' => $note,
             ]);
         }
         $balance = TurnTrace::statement('EmployeeDraft::commit', $party)['balance'];
@@ -251,22 +307,38 @@ final class EmployeeDraft
             return null;
         }
         $salary = (float) $party->salary_amount;
-        $advance = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
-        // Avans maaşı karşılıyorsa "0 ₺ ödeyeceksin" yazılmaz (min() fazlayı gizliyordu — 19.10 Yeni Yapı "50.000 − 50.000 = 0").
-        if ($advance >= $salary - 0.009) {
-            $extra = round($advance - $salary, 2);
+        // Bugün kendiliğinden işlendiyse (27.10) maaş bakiyede: düşülen = maaş − şimdiki borcumuz.
+        $auto = $party->salary_auto && ($row = self::accrued($party, now(Reminder::TIMEZONE))) && $row->entry_date?->isToday();
+        $off = $auto ? $salary + (float) TurnTrace::statement('EmployeeDraft::reminderNote', $party)['balance'] : self::deductions($party);
+        $kesinti = min($off, (float) PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PURCHASE_RETURN)
+            ->where('description', 'like', self::DEDUCTION_PREFIX . '%')->sum('amount'));
+        $avans = max(0.0, $off - $kesinti);
+        $parts = ($avans >= 0.01 ? ' − avans ' . Money::format($avans) : '') . ($kesinti >= 0.01 ? ' − kesinti ' . Money::format($kesinti) : '');
+        $head = $auto ? now(Reminder::TIMEZONE)->locale('tr')->translatedFormat('F') . ' maaşı işlendi: ' : '';
+        // Avans / kesinti maaşı karşılıyorsa "0 ₺ ödeyeceksin" yazılmaz (19.10 Yeni Yapı "50.000 − 50.000 = 0").
+        if ($off >= $salary - 0.009) {
+            $extra = round($off - $salary, 2);
 
-            return 'maaş ' . Money::format($salary) . ' ₺ — verilen avans ' . Money::format($advance) . ' ₺ maaşı karşılıyor, bu ay ödeme yok'
+            $given = implode(' + ', array_filter([$avans >= 0.01 ? 'avans ' . Money::format($avans) . ' ₺' : null,
+                $kesinti >= 0.01 ? 'kesinti ' . Money::format($kesinti) . ' ₺' : null]));
+
+            return $head . 'maaş ' . Money::format($salary) . ' ₺ — verilen ' . $given . ' maaşı karşılıyor, bu ay ödeme yok'
                 . ($extra > 0 ? ' (' . Money::format($extra) . ' ₺ sonraki aya kalır)' : '')
-                . ". Avanstan düşmek için *{$party->name} maaşı ödendi* yaz";
+                . ($auto ? '' : ". Avanstan düşmek için *{$party->name} maaşı ödendi* yaz");
         }
 
-        return 'maaş ' . Money::format($salary) . ' ₺'
-            . ($advance > 0 ? ' − avans ' . Money::format($advance) . ' = ' . Money::format($salary - $advance) . ' ₺' : '')
-            . " ödeyeceksin. Ödeyince *{$party->name} maaşı ödendi* yaz";
+        return $head . 'maaş ' . Money::format($salary) . ' ₺' . ($parts !== '' ? $parts . ' = ' . Money::format($salary - $off) . ' ₺' : '')
+            . ($auto ? ' ödemen gerekiyor' : ' ödeyeceksin') . ". Ödeyince *{$party->name} maaşı ödendi* yaz";
     }
 
-    /** Hangi ayın maaşı: mesajda ay söylendiyse (`month`, "eylül maaşı"), yoksa kaydın tarihi. */
+    /** Maaşın ayı (ayın 1'i): mesajda ay söylendiyse o, yoksa kaydın tarihi. */
+    public static function month(array $d): Carbon
+    {
+        $date = Carbon::parse($d['date'] ?? now()->toDateString());
+
+        return (! empty($d['month']) ? Carbon::parse($d['month'] . '-01') : $date)->startOfMonth();
+    }
+
     public static function monthLabel(array $d): string
     {
         // Yevmiye: ay değil gün ("Yevmiye — 15 Ekim").

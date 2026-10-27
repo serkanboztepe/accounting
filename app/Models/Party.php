@@ -86,16 +86,91 @@ class Party extends Model
         'name',
         'phone',
         'notes',
+        'kind',
         'is_employee',
         'salary_amount',
         'salary_day',
+        'salary_auto',
     ];
 
     protected $casts = [
         'is_employee'   => 'boolean',
         'salary_amount' => 'float',
         'salary_day'    => 'integer',
+        'salary_auto'   => 'boolean',
     ];
+
+    // Cari tipi (27.10, "Bu cariyle nasıl çalışıyorsun?"). Boş = bilinmiyor → bugünkü görünüm (tüm düğmeler).
+    public const KIND_CUSTOMER = 'customer';
+    public const KIND_SUPPLIER = 'supplier';
+    public const KIND_BOTH = 'both';
+    public const KIND_EMPLOYEE = 'employee';
+
+    public const KINDS = [
+        self::KIND_CUSTOMER => 'Ona satış yapıyorum',
+        self::KIND_SUPPLIER => 'Ondan alış yapıyorum',
+        self::KIND_BOTH     => 'İkisi de',
+        self::KIND_EMPLOYEE => 'Personelim',
+    ];
+
+    /** Personel işareti (is_employee) ile tip senkron: biri değişince öteki de (WhatsApp "personelim" is_employee'yi açar). */
+    protected static function booted(): void
+    {
+        static::saving(function (self $party): void {
+            if ($party->isDirty('kind')) {
+                $party->is_employee = $party->kind === self::KIND_EMPLOYEE;
+            } elseif ($party->isDirty('is_employee')) {
+                $party->kind = $party->is_employee ? self::KIND_EMPLOYEE : ($party->kind === self::KIND_EMPLOYEE ? null : $party->kind);
+            }
+        });
+    }
+
+    /** Satış tarafı düğmeleri (Satış Yaptım, Ödeme Aldım, satış anlaşması). */
+    public function sellsTo(): bool
+    {
+        return in_array($this->kind, [null, self::KIND_CUSTOMER, self::KIND_BOTH], true);
+    }
+
+    /** Alış tarafı düğmeleri (Alım Yaptım, Ödeme Yaptım, alış anlaşması). */
+    public function buysFrom(): bool
+    {
+        return in_array($this->kind, [null, self::KIND_SUPPLIER, self::KIND_BOTH], true);
+    }
+
+    /**
+     * Tipi boş cariye ilk hareketinden tip (PartyLedgerEntry::created): alış/ödeme → tedarikçi, satış/tahsilat → müşteri; öteki
+     * yön de olmuşsa "ikisi de". Kullanıcının seçtiği tipin üzerine YAZILMAZ — yalnız boşsa (WhatsApp'ta açılan cari soru sormaz).
+     */
+    public static function fillKindFromHistory(self $party): void
+    {
+        if ($party->kind !== null || $party->is_employee) {
+            return;
+        }
+        $kind = self::kindFromHistory($party->id);
+        if ($kind !== null) {
+            $party->forceFill(['kind' => $kind])->saveQuietly();
+        }
+    }
+
+    public static function kindFromHistory(int $partyId): ?string
+    {
+        $types = PartyLedgerEntry::where('party_id', $partyId)->distinct()->pluck('type')->all();
+        $agreements = Agreement::where('party_id', $partyId)->distinct()->pluck('direction')->all();
+        $buys = array_intersect($types, [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_PURCHASE_RETURN]) !== []
+            || in_array(Agreement::DIRECTION_PURCHASE, $agreements, true)
+            || Contract::withoutGlobalScopes()->where('party_id', $partyId)->where(fn ($q) => $q->whereNull('direction')->orWhere('direction', '!=', 'sale'))->exists()
+            || Expense::where('party_id', $partyId)->exists();
+        $sells = array_intersect($types, [PartyLedgerEntry::TYPE_SALE, PartyLedgerEntry::TYPE_COLLECTION, PartyLedgerEntry::TYPE_SALE_RETURN]) !== []
+            || in_array(Agreement::DIRECTION_SALE, $agreements, true)
+            || Contract::withoutGlobalScopes()->where('party_id', $partyId)->where('direction', 'sale')->exists();
+
+        return match (true) {
+            $buys && $sells => self::KIND_BOTH,
+            $buys => self::KIND_SUPPLIER,
+            $sells => self::KIND_CUSTOMER,
+            default => null,
+        };
+    }
 
     /**
      * Gösterimde fazla boşluk temizlenir ("ÜMİT KAYA " / "RAMADA  OTEL" → "ÜMİT KAYA" / "RAMADA OTEL").

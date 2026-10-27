@@ -181,9 +181,14 @@ class MonthlyResult
         $goodsInAmount = (float) (clone $goodsIn)->sum('amount');
         $unpriced = (clone $goodsIn)->whereNull('amount')->count();
         // Alış iadesi (tedarikçiye geri verilen) alıştan düşülür: belgeli = PurchaseReturn, belgesiz = başlıksız cari satırı.
+        // Personelin maaş kesintisi (27.10, "Kesinti — …" = alış iadesi tipi) alış iadesi değil — personel maliyetinden düşer.
+        $returnsLedger = fn () => $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE_RETURN)->whereNull('purchase_return_id')
+            ->whereBetween('entry_date', [$from, $to]));
         $purchaseReturns = (float) $p(PurchaseReturn::whereBetween('return_date', [$from, $to]))->sum('total_amount')
-            + (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE_RETURN)->whereNull('purchase_return_id')
-                ->whereBetween('entry_date', [$from, $to]))->sum('amount');
+            + (float) $returnsLedger()->whereNotIn('party_id', $employees)->sum('amount');
+        if ($employees->isNotEmpty()) {
+            $personnel -= (float) $returnsLedger()->whereIn('party_id', $employees)->sum('amount');
+        }
         $purchases = $purchaseDocs + $purchaseLedger + $goodsInAmount - $purchaseReturns;
 
         $expenses = \App\Support\Features::expenses()

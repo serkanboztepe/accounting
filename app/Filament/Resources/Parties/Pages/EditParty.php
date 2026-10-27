@@ -431,12 +431,12 @@ class EditParty extends EditRecord
             ->slideOver()
             ->modalWidth('3xl')
             ->fillForm(fn (): array => [
-                'direction'            => AgreementForm::lastDirection($this->record->id),
+                'direction'            => $this->fixedAgreementDirection() ?? AgreementForm::lastDirection($this->record->id),
                 'agreement_date'       => now()->toDateString(),
                 'advance_payment_type' => 'cash',
                 'lines'                => [[]],
             ])
-            ->schema(AgreementForm::createSchema())
+            ->schema(fn () => AgreementForm::createSchema(fixedDirection: $this->fixedAgreementDirection()))
             ->extraModalFooterActions(fn (Action $action): array => [
                 $action->makeModalSubmitAction('saveAnother', arguments: ['another' => true])->label('Kaydet ve yeni'),
             ])
@@ -454,6 +454,108 @@ class EditParty extends EditRecord
                     $action->halt();
                 }
             });
+    }
+
+    /**
+     * 👷 Maaş / Avans (27.10, personel carisinin tek düğmesi): Maaşı işle · Avans verdim · Maaştan kes. Maaş WhatsApp'la aynı yoldan
+     * yazılır (EmployeeDraft::commit: "Maaş — Ay" + avans / kesinti düşülür + istenirse ödeme; o ay kendiliğinden işlendiyse yalnız ödeme).
+     */
+    public function salaryAction(): Action
+    {
+        $months = collect(range(0, 2))->mapWithKeys(fn ($i) => [now()->startOfMonth()->subMonthsNoOverflow($i)->format('Y-m')
+            => now()->startOfMonth()->subMonthsNoOverflow($i)->locale('tr')->translatedFormat('F Y')])->all();
+
+        return Action::make('salary')
+            ->modalHeading(fn (): string => '👷 Maaş / Avans · ' . $this->record->name)
+            ->modalSubmitActionLabel('Kaydet')
+            ->modalWidth('lg')
+            ->fillForm(fn (): array => [
+                'what' => 'salary', 'month' => now()->format('Y-m'), 'pay' => true, 'payment_type' => 'cash', 'date' => now()->toDateString(),
+                'amount' => (float) $this->record->salary_amount > 0 ? Money::format((float) $this->record->salary_amount) : null,
+            ])
+            ->schema([
+                \Filament\Forms\Components\Radio::make('what')->hiddenLabel()->inline()->live()
+                    ->options(['salary' => 'Maaşı işle', 'advance' => 'Avans verdim', 'deduction' => 'Maaştan kes'])
+                    ->afterStateUpdated(fn (\Filament\Schemas\Components\Utilities\Set $set, $state) => $set('amount', $state === 'salary'
+                        && (float) $this->record->salary_amount > 0 ? Money::format((float) $this->record->salary_amount) : null)),
+                Select::make('month')->label('Hangi ayın maaşı')->options($months)->required()
+                    ->visible(fn (Get $get) => $get('what') === 'salary')->live(),
+                MoneyInput::make('amount')->live(onBlur: true)
+                    ->label(fn (Get $get) => match ($get('what')) { 'advance' => 'Avans tutarı', 'deduction' => 'Kesilecek tutar', default => 'Maaş' })
+                    ->helperText(fn (Get $get) => $get('what') === 'salary' && (float) $this->record->salary_amount <= 0
+                        ? 'Kartında maaş yazılı değil — bu tutar karta da kaydedilir.' : null),
+                TextInput::make('reason')->label('Neden')->placeholder('2 gün ücretsiz izin, kırılan cam…')->maxLength(200)
+                    ->required(fn (Get $get) => $get('what') === 'deduction')->visible(fn (Get $get) => $get('what') === 'deduction'),
+                \Filament\Schemas\Components\Text::make(fn (Get $get) => $this->salaryPreview($get)['text'])
+                    ->weight('bold')->visible(fn (Get $get) => $get('what') === 'salary'),
+                Toggle::make('pay')->label('Ödemeyi de yaz')->live()
+                    ->visible(fn (Get $get) => $get('what') === 'salary' && $this->salaryPreview($get)['net'] >= 0.01),
+                Select::make('payment_type')->label('Ödeme yöntemi')
+                    ->options(['cash' => 'Nakit', 'bank_transfer' => 'Havale', 'eft' => 'EFT', 'other' => 'Diğer'])->required()
+                    ->visible(fn (Get $get) => $get('what') === 'advance'
+                        || ($get('what') === 'salary' && $get('pay') && $this->salaryPreview($get)['net'] >= 0.01)),
+                DatePicker::make('date')->label('Tarih')->required(),
+            ])
+            ->action(function (array $data): void {
+                $party = $this->record;
+                $amount = Money::parse($data['amount'] ?? null);
+                if ($amount <= 0) {
+                    Notification::make()->danger()->title('Tutar yaz')->send();
+
+                    return;
+                }
+                $note = 'Panelden girildi.';
+                match ($data['what']) {
+                    'advance' => PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $data['date'], 'type' => PartyLedgerEntry::TYPE_PAYMENT,
+                        'payment_type' => $data['payment_type'] ?? 'cash', 'description' => 'Avans', 'amount' => Money::store($amount), 'notes' => $note]),
+                    'deduction' => EmployeeDraft::deduct($party, $amount, (string) ($data['reason'] ?? ''), $data['date'], $note),
+                    default => EmployeeDraft::commit(['kind' => \App\Services\Whatsapp\ExpenseExtractor::KIND_SALARY, 'party_id' => $party->id,
+                        'amount' => $amount, 'date' => $data['date'], 'month' => $data['month'], 'paid' => (bool) ($data['pay'] ?? false),
+                        'payment_type' => $data['payment_type'] ?? 'cash', 'source_note' => $note]),
+                };
+                $balance = (float) PartyStatement::build($party->fresh())['balance'];
+                Notification::make()->success()->title('Kaydedildi')->body($party->name . ': ' . match (true) {
+                    abs($balance) < 0.01 => 'hesap kapalı.',
+                    $balance > 0 => 'sana ' . Money::format($balance) . ' ₺ borçlu (avans / kesinti sonraki maaştan düşer).',
+                    default => 'ona ' . Money::format(-$balance) . ' ₺ borçlusun.',
+                })->send();
+            });
+    }
+
+    /**
+     * Maaş penceresindeki satır: "Maaş 55.000 · Avans / kesinti −20.000 → eline geçen 35.000 ₺" ya da "bu ay ödeme yok · X sonraki aya".
+     * O ayın maaşı zaten işlendiyse (kendiliğinden) yalnız şu anki borcumuz ödenir.
+     *
+     * @return array{text: string, net: float}
+     */
+    private function salaryPreview(Get $get): array
+    {
+        $party = $this->record;
+        $salary = Money::parse($get('amount'));
+        $month = \Illuminate\Support\Carbon::parse(($get('month') ?: now()->format('Y-m')) . '-01');
+        if (EmployeeDraft::accrued($party, $month)) {
+            $owed = max(0.0, -(float) PartyStatement::build($party)['balance']);
+
+            return ['net' => $owed, 'text' => $month->locale('tr')->translatedFormat('F Y') . ' maaşı zaten işlenmiş — '
+                . ($owed >= 0.01 ? 'ödenecek ' . Money::format($owed) . ' ₺' : 'ödenecek bir şey yok')];
+        }
+        $off = EmployeeDraft::deductions($party);
+        $net = $salary - min($salary, $off);
+        $text = 'Maaş ' . Money::format($salary) . ' ₺' . ($off >= 0.01 ? ' · Avans / kesinti −' . Money::format(min($salary, $off)) . ' ₺' : '');
+
+        return ['net' => $net, 'text' => $text . ($net >= 0.01
+            ? ' → eline geçen ' . Money::format($net) . ' ₺'
+            : ' → bu ay ödeme yok' . ($off - $salary >= 0.01 ? ' · ' . Money::format($off - $salary) . ' ₺ sonraki aya kalır' : ''))];
+    }
+
+    /** Cari tipi müşteriyse yalnız satış, tedarikçiyse yalnız alış anlaşması (27.10); ikisi de / boşsa seçilir. */
+    private function fixedAgreementDirection(): ?string
+    {
+        return match ($this->record->kind) {
+            \App\Models\Party::KIND_CUSTOMER => Agreement::DIRECTION_SALE,
+            \App\Models\Party::KIND_SUPPLIER => Agreement::DIRECTION_PURCHASE,
+            default => null,
+        };
     }
 
     /** + Kalem ekle (anlaşma kartında). */

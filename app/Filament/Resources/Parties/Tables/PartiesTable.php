@@ -10,7 +10,6 @@ use App\Support\PartyStatement;
 use Filament\Notifications\Notification;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use WeakMap;
 
@@ -55,9 +54,8 @@ class PartiesTable
                 TextColumn::make('notes')->label('Notlar')->limit(50),
                 TextColumn::make('created_at')->label('Oluşturulma')->dateTime()->sortable(),
             ])
-            ->filters([
-                TernaryFilter::make('is_employee')->label('Personel'),
-            ])
+            // Personel süzgeci üstteki sekmelere taşındı (27.10: Hepsi / Müşteriler / Tedarikçiler / Personel).
+            ->filters([])
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make()

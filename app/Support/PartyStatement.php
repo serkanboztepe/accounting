@@ -133,7 +133,7 @@ class PartyStatement
 
             $row = self::row(
                 $entry->entry_date,
-                $entry->typeLabel(),
+                $party->is_employee ? self::employeeLabel($entry) : $entry->typeLabel(),
                 trim(implode(' — ', array_filter([$entry->description, $checkNote]))) ?: null,
                 $isDebit ? $amount : 0.0,
                 $isDebit ? 0.0 : $amount,
@@ -226,6 +226,22 @@ class PartyStatement
             'opening'      => $opening,
             'balance'      => $balance,
         ];
+    }
+
+    /**
+     * Personel carisinde etiketler (27.10): hak ediş "Alış / Hizmet" değil Maaş / Yevmiye; avans, kesinti ve maaş ödemesi kendi adıyla.
+     * Yalnız görünen ad — kayıt tipi ve rakam aynı.
+     */
+    private static function employeeLabel(PartyLedgerEntry $entry): string
+    {
+        $desc = mb_strtolower((string) $entry->description);
+
+        return match ($entry->type) {
+            PartyLedgerEntry::TYPE_PURCHASE => str_starts_with($desc, 'yevmiye') ? 'Yevmiye' : 'Maaş',
+            PartyLedgerEntry::TYPE_PURCHASE_RETURN => 'Kesinti',
+            PartyLedgerEntry::TYPE_PAYMENT => str_contains($desc, 'avans') ? 'Avans' : 'Maaş ödemesi',
+            default => $entry->typeLabel(),
+        };
     }
 
     /** Kalemleri gösterilen belge satırları (ödeme/tahsilat belgeye bağlı olsa da kalem göstermez — peşin ödeme satırı). */

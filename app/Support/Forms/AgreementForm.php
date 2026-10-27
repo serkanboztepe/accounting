@@ -32,11 +32,14 @@ use Filament\Schemas\Components\Utilities\Set;
  */
 class AgreementForm
 {
-    /** 🤝 Anlaşma yap. $withParty: menüden açılınca ilk alan cari. */
-    public static function createSchema(bool $withParty = false): array
+    /**
+     * 🤝 Anlaşma yap. $withParty: menüden açılınca ilk alan cari. $fixedDirection: cari tipi müşteri / tedarikçiyse yön sabit, seçim
+     * gösterilmez (27.10).
+     */
+    public static function createSchema(bool $withParty = false, ?string $fixedDirection = null): array
     {
         return array_values(array_filter([
-            ToggleButtons::make('direction')
+            $fixedDirection ? Hidden::make('direction')->default($fixedDirection) : ToggleButtons::make('direction')
                 ->hiddenLabel()
                 ->options([Agreement::DIRECTION_PURCHASE => 'Biz alıyoruz', Agreement::DIRECTION_SALE => 'Biz satıyoruz'])
                 ->icons([Agreement::DIRECTION_PURCHASE => 'heroicon-o-arrow-down-tray', Agreement::DIRECTION_SALE => 'heroicon-o-arrow-up-tray'])

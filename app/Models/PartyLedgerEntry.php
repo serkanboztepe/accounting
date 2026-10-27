@@ -117,6 +117,12 @@ class PartyLedgerEntry extends Model
         });
         // Çekle yapılan ödeme/tahsilat silinince (cari sayfası, "geri al") çekleri de gider — vadesiz kalıp Çekler'de, hatırlatmada
         // görünmesin (firma 7, 21.10: Seramikpark ödemeleri silindi, 7 çek kaldı). Sözleşme ödemesi de çeklerini böyle siler.
+        // Tipi boş cari ilk hareketinden tip alır (27.10; seçilmiş tipe dokunulmaz) — Party::fillKindFromHistory.
+        static::created(function (self $entry): void {
+            if ($entry->party_id && ($party = Party::find($entry->party_id)) && $party->kind === null) {
+                Party::fillKindFromHistory($party);
+            }
+        });
         static::deleting(function (self $entry): void {
             \App\Models\ActivityLog::deleteQuery(Check::where('party_ledger_entry_id', $entry->id), 'Bağlı ödeme/tahsilat silindiği için');
         });

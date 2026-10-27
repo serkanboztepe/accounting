@@ -27,7 +27,16 @@
     >
         {{-- Yeni hareket girişi — tek sıra. Düğmeler esnafın ağzından; ekstre/PDF tarafsız dilde kalır
              (Satış / Tahsilat / Alış / Ödeme) — müşteriye giden belge. --}}
+        {{-- Cari tipine göre (27.10, PartyForm "Bu cariyle nasıl çalışıyorsun?"): müşteride satış tarafı, tedarikçide alış tarafı,
+             personelde yalnız Maaş / Avans. Tipi boş (eski) cari ve "İkisi de" bugünkü gibi hepsini görür. --}}
         <div class="mb-4 flex flex-wrap gap-2">
+            @if ($party->is_employee)
+                <x-filament::button color="primary" icon="heroicon-o-user"
+                    wire:click="mountAction('salary')">
+                    👷 Maaş / Avans
+                </x-filament::button>
+            @endif
+            @if ($party->sellsTo() && ! $party->is_employee)
             @if (\App\Support\Features::stockSales())
                 {{-- Takipli: kalemli satış (stok düşer + cari borç) --}}
                 <x-filament::button color="info" icon="heroicon-o-shopping-cart"
@@ -52,6 +61,8 @@
                     İade Al
                 </x-filament::button>
             @endif
+            @endif
+            @if ($party->buysFrom() && ! $party->is_employee)
             @if (\App\Support\Features::stockPurchases())
                 {{-- Stoklu: ürünler stoğa girer (ürünsüz tutar da yazılabilir) — Alışlar tezgahıyla aynı kayıt --}}
                 <x-filament::button color="warning" icon="heroicon-o-shopping-bag"
@@ -70,7 +81,8 @@
                     Ödeme Yaptım
                 </x-filament::button>
             @endif
-            @if (\App\Support\Features::agreements())
+            @endif
+            @if (\App\Support\Features::agreements() && ! $party->is_employee)
                 <x-filament::button color="gray" icon="heroicon-o-hand-raised"
                     wire:click="mountAction('newAgreement')">
                     🤝 Anlaşma yap
