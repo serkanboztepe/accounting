@@ -13,6 +13,17 @@ class RecordReview extends Model
 
     public const STATUSES = ['pending' => 'Bekliyor', 'asked' => 'Müşteriye soruldu', 'resolved' => 'Düzeltildi', 'correct' => 'Doğruymuş', 'dismissed' => 'Gerek yok'];
 
+    /**
+     * Bilgi sorusu (28.10, Akkuş "Ekim maaşı ödendi mi?"): şüpheli kayıt yok, yalnız bilgi istiyoruz. problem bununla başlar;
+     * asistan cevap ne olursa olsun yalnız not alır — kart / geri alma önermez, kayda dokunmaz. Cevabı yönetici hub'da okur.
+     */
+    public const INFO_PREFIX = 'Bilgi sorusu';
+
+    public function isInfo(): bool
+    {
+        return str_starts_with((string) $this->problem, self::INFO_PREFIX);
+    }
+
     /** Kapatma sebepleri (Kapat penceresi). */
     public const CLOSED = ['resolved' => 'Düzeltildi', 'correct' => 'Doğruymuş', 'dismissed' => 'Gerek yok'];
 
@@ -63,6 +74,14 @@ class RecordReview extends Model
     /** Asistanın talimatına giren bağlam bloğu. */
     public function promptBlock(): string
     {
+        if ($this->isInfo()) {
+            return "\n\nBİLGİ SORUSU (bu kişiye biz sorduk; şimdiki mesaj büyük ihtimalle bu soruya cevap):\n"
+                . '  Sorduğumuz: ' . mb_substr(str_replace("\n", ' ', (string) $this->question), 0, 500) . "\n"
+                . "  - Cevap NE OLURSA OLSUN (\"evet\", \"hayır\", \"ödendi\", \"ödenmedi\", açıklama) → `review_answer` verdict=correct.\n"
+                . "    KART ÖNERME, `undo_last` YAPMA, hiçbir kayda dokunma — cevabı yönetici okuyup kendisi işleyecek.\n"
+                . '  - Soruyla ilgisiz yeni bir işlemse bu bloğu yok say.';
+        }
+
         return "\n\nKAYIT KONTROLÜ (bu kişiye biz sorduk; şimdiki mesaj büyük ihtimalle bu soruya cevap):\n"
             . '  Sorduğumuz: ' . mb_substr(str_replace("\n", ' ', (string) $this->question), 0, 400) . "\n"
             . '  Şüpheli kayıt: ' . mb_substr((string) $this->problem, 0, 300) . "\n"

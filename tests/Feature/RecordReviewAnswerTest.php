@@ -119,4 +119,22 @@ class RecordReviewAnswerTest extends TestCase
         $this->assertStringContainsString('review_answer', $block);
         $this->assertNotNull(RecordReview::activeFor(self::PHONE));
     }
+
+    /** Bilgi sorusu (28.10, Akkuş Ekim maaşı): cevap ne olursa olsun yalnız not alınır — "kayıt doğruymuş" denmez, kart önerilmez. */
+    public function test_info_question_only_takes_note(): void
+    {
+        $r = RecordReview::create(['firm_name' => 'Test', 'phone' => '905557770023', 'problem' => RecordReview::INFO_PREFIX . ' — Ekim maaşı ödendi mi?',
+            'question' => 'Ekim maaşlarını ödemiş miydiniz?', 'status' => 'asked', 'asked_at' => now()->subHour()]);
+        $this->assertStringContainsString('BİLGİ SORUSU', $r->promptBlock());
+        $this->assertStringContainsString('KART ÖNERME', $r->promptBlock());
+        $this->ai(['type' => 'review_ok', 'verdict' => 'declined', 'text' => '']);
+
+        $reply = $this->send('Abdullah ödendi, Özkan ödenmedi');
+
+        $this->assertStringContainsString('not aldım', $reply);
+        $this->assertStringNotContainsString('doğruymuş', $reply);
+        $r->refresh();
+        $this->assertSame('correct', $r->status);
+        $this->assertSame('Abdullah ödendi, Özkan ödenmedi', $r->customer_answer);
+    }
 }

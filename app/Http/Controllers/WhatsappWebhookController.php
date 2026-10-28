@@ -1525,6 +1525,12 @@ class WhatsappWebhookController extends Controller
                 if (! $this->turnReview) {
                     return $this->ackWithoutDraft($phone);
                 }
+                // Bilgi sorusu (28.10): cevap yalnız not — "kayıt doğruymuş" denmez, yönetici hub'da okur.
+                if ($this->turnReview->isInfo()) {
+                    $this->turnReview->closeBy('correct', 'Müşteri cevabı: "' . mb_substr($body, 0, 300) . '"');
+
+                    return '👍 Teşekkürler, not aldım.';
+                }
                 if (($result['verdict'] ?? 'correct') === 'declined') {
                     $this->turnReview->closeBy('dismissed', 'Müşteri istemedi: "' . mb_substr($body, 0, 300) . '"');
 
