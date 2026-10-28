@@ -363,19 +363,20 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('Kapalı Hesap Test Tuncay', $reply);
     }
 
-    /** Kişisiz borç + "Tuncay'a kira ödedim": özette isim görünür, kapanan borç Tuncay'a bağlanır. */
-    public function test_settling_partyless_debt_with_named_payee_attaches_party(): void
+    /** Kişisiz borç + "Tuncay'a kira ödedim": özette isim görünür; 28.10 giderden kişi sökümü: borç kişiye bağlanmaz, kişi açılmaz. */
+    public function test_settling_partyless_debt_with_named_payee_shows_name_without_party(): void
     {
         $this->notFirstContact();
         $rent = $this->openRent();
         $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Kira', 'party_name' => 'Bağlama Test Tuncay', 'settles_expense_id' => $rent->id]));
 
-        $this->assertStringContainsString('Borç *Bağlama Test Tuncay* hesabına bağlanır', $this->send("Bağlama Test Tuncay'a 20 bin kira ödedim"));
+        $this->assertStringContainsString('Kime: *Bağlama Test Tuncay*', $this->send("Bağlama Test Tuncay'a 20 bin kira ödedim"));
         $this->send('evet');
 
         $rent->refresh();
         $this->assertSame('paid', $rent->payment_status);
-        $this->assertSame(Party::where('name', 'Bağlama Test Tuncay')->sole()->id, $rent->party_id);
+        $this->assertNull($rent->party_id);
+        $this->assertFalse(Party::where('name', 'Bağlama Test Tuncay')->exists(), 'kişi açılmaz');
     }
 
     public function test_debt_of_another_party_is_not_settled(): void

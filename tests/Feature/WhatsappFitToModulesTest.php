@@ -82,14 +82,6 @@ class WhatsappFitToModulesTest extends TestCase
         $this->assertSame(9, $d['settles_expense_id']);
     }
 
-    /** Tedarikçi tarafı kapalı (mimar): alış türü yok → eski davranış. */
-    public function test_supplier_side_off_keeps_party_expense(): void
-    {
-        config(['modules.expenses' => true, 'modules.cari_supplier' => false]);
-        $d = ExpenseExtractor::fitToModules($this->expense(['party_name' => 'Ahmet']));
-        $this->assertSame(ExpenseExtractor::KIND_EXPENSE, $d['kind']);
-    }
-
     /** Stoklu alış açık firma (fırın): AI'ya basit alış gösterilmez ("20 çuval un" stoğa girmeyen alışa düşmesin), kural yine geçerli. */
     public function test_trade_firm_hides_simple_purchase_from_ai_but_keeps_rule(): void
     {
@@ -100,5 +92,16 @@ class WhatsappFitToModulesTest extends TestCase
 
         $d = ExpenseExtractor::fitToModules($this->expense(['party_name' => 'Tamirci Ahmet', 'description' => 'Fırın tamiri']));
         $this->assertSame(ExpenseExtractor::KIND_PURCHASE, $d['kind']); // ürünsüz carili iş → cari alışı, gider değil
+    }
+
+    /** Tedarikçi tarafı kapalı (mimar): alış türü yok → gider kalır; 28.10 giderden kişi sökümü: kişiye bağlanmaz, adı açıklamaya. */
+    public function test_supplier_side_off_keeps_expense_without_party_and_name_in_description(): void
+    {
+        config(['modules.expenses' => true, 'modules.cari_supplier' => false]);
+        $d = ExpenseExtractor::fitToModules($this->expense(['party_name' => 'Tuncay Ev Sahibi', 'description' => 'Ev kirası']));
+        $this->assertSame(ExpenseExtractor::KIND_EXPENSE, $d['kind']);
+        $this->assertNull($d['party_name']);
+        $this->assertNull($d['party_id']);
+        $this->assertSame('Tuncay Ev Sahibi — Ev kirası', $d['description']);
     }
 }

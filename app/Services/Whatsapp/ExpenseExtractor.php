@@ -328,6 +328,18 @@ class ExpenseExtractor
             return $d;
         }
 
+        // Alış kapalı firma (28.10, giderden kişi sökümü): gider kişiye bağlanmaz — adı açıklamaya, kayıt kişisiz gider kalır.
+        if (\App\Support\Features::expenses() && (! empty($d['party_id']) || ! empty($d['party_name'])) && empty($d['settles_expense_id'])) {
+            $name = trim((string) (! empty($d['party_id'])
+                ? TurnTrace::read('fitToModules.partyName', fn () => \App\Models\Party::whereKey($d['party_id'])->value('name'), ['id' => $d['party_id']])
+                : $d['party_name']));
+            $desc = trim((string) ($d['description'] ?? ''));
+            $d['description'] = $name === '' || str_contains(mb_strtolower($desc), mb_strtolower($name)) ? $desc : trim($name . ' — ' . $desc, ' —');
+            $d['party_id'] = $d['party_name'] = null;
+
+            return $d;
+        }
+
         if (\App\Support\Features::expenses()) {
             return $d;
         }
