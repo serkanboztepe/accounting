@@ -915,6 +915,8 @@ class TradeDraft
                 'product_id' => $product->id,
                 'direction' => StockMovement::DIRECTION_IN,
                 'reason' => StockMovement::REASON_PRODUCTION,
+                // Çiftlik (alışı yere yaz): sorulan yer kaydedilir — sezon sonucu üretimi yerden okur.
+                'project_id' => $d['project_id'] ?? null,
                 'quantity' => (float) $item['quantity'],
                 'movement_date' => $d['date'] ?? now()->toDateString(),
                 'notes' => 'Üretim (WhatsApp)',

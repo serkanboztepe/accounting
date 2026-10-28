@@ -89,6 +89,19 @@ class PlaceCostTest extends TestCase
         $this->assertTrue(ProjectChoice::applies($production), 'çiftlik: üretimde de yer sorulur');
     }
 
+    public function test_whatsapp_production_is_written_to_chosen_place(): void
+    {
+        $this->farm();
+        $field = Project::create(['name' => 'Tarla 1 · 2026']);
+        $wheat = Product::create(['name' => 'Buğday', 'type' => Product::TYPE_PRODUCT]);
+
+        TradeDraft::commit(['kind' => ExpenseExtractor::KIND_PRODUCTION, 'project_id' => $field->id,
+            'items' => [['product_id' => $wheat->id, 'description' => 'Buğday', 'quantity' => 12]]]);
+
+        $this->assertSame($field->id, StockMovement::where('product_id', $wheat->id)->value('project_id'), 'sorulan yer kaydedilir (28.10)');
+        $this->assertEquals(12.0, MonthlyResult::forPlace($field)['production'][0]['quantity'], 'sezon sonucunda görünür');
+    }
+
     public function test_route_keeps_said_place_on_farm(): void
     {
         $feed = $this->feed();
