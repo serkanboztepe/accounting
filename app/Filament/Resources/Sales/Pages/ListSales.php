@@ -95,7 +95,7 @@ class ListSales extends ListRecords
             ->components([
                 ToggleButtons::make('mode')
                     ->hiddenLabel()
-                    ->options(['cash' => 'Peşin', 'party' => 'Cariye Satış'])
+                    ->options(['cash' => 'Peşin', 'party' => 'Kişiye / firmaya satış'])
                     ->icons(['cash' => 'heroicon-o-banknotes', 'party' => 'heroicon-o-user'])
                     ->inline()
                     ->live()
@@ -225,7 +225,7 @@ class ListSales extends ListRecords
         return [
             'all'   => Tab::make('Tümü'),
             'cash'  => Tab::make('Peşin')->modifyQueryUsing(fn (Builder $query) => $query->whereNull('party_id')),
-            'party' => Tab::make('Cariye')->modifyQueryUsing(fn (Builder $query) => $query->whereNotNull('party_id')),
+            'party' => Tab::make('Kişiye / firmaya')->modifyQueryUsing(fn (Builder $query) => $query->whereNotNull('party_id')),
         ];
     }
 

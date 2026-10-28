@@ -56,7 +56,7 @@ class ProjectCostPurchasesTest extends TestCase
         $this->assertSame(['Maliyet Testi Usta', 'Maliyet Testi Beton'], array_column($rows, 'party'));
         $this->assertEqualsWithDelta(70000, $rows[1]['total'], 0.01);
 
-        $page->assertSee('Cari Alışları')->assertSee('Cari alış (iş / malzeme)')->assertSee('153.000,00')
+        $page->assertSee('Alışlar')->assertSee('Alış (iş / malzeme)')->assertSee('153.000,00')
             ->assertDontSee('Sözleşme Teslimatları')->assertDontSee('Faturasız');
     }
 

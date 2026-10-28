@@ -36,7 +36,7 @@ final class PartyInfoDraft
     /** "📇 Belgede: • Kamuran Narçin telefonu … • 2 şantiye: … — cari kartına yazayım, projeleri açayım mı?" */
     public static function summary(array $d): string
     {
-        $name = Party::find($d['party_id'])?->name ?? 'carinin';
+        $name = Party::find($d['party_id'])?->name ?? 'kişinin';
         $lines = [];
         $card = array_filter([$d['party_phone'] ? 'telefonu ' . $d['party_phone'] : null, $d['party_address'] ? 'adresi ' . $d['party_address'] : null]);
         if ($card) {
@@ -46,7 +46,7 @@ final class PartyInfoDraft
         if ($projects) {
             $lines[] = '• ' . (count($projects) > 1 ? count($projects) . ' şantiye: ' : 'Şantiye: ') . implode(', ', $projects);
         }
-        $ask = implode(', ', array_filter([$card ? 'cari kartına yazayım' : null, $projects ? (count($projects) > 1 ? 'projeleri' : 'projeyi') . ' açayım' : null]));
+        $ask = implode(', ', array_filter([$card ? 'kişi kartına yazayım' : null, $projects ? (count($projects) > 1 ? 'projeleri' : 'projeyi') . ' açayım' : null]));
 
         return "📇 Belgede şunlar var:\n" . implode("\n", $lines) . "\n" . mb_strtoupper(mb_substr($ask, 0, 1)) . mb_substr($ask, 1) . ' mı? *evet* / *iptal*';
     }
@@ -64,7 +64,7 @@ final class PartyInfoDraft
         }
         if ($changes !== []) {
             $party->update($changes);
-            $done[] = $party->name . ' cari kartına yazıldı';
+            $done[] = $party->name . ' kişi kartına yazıldı';
         }
         $opened = [];
         foreach ($d['new_projects'] ?? [] as $name) {

@@ -75,7 +75,7 @@ class SendCheckReminders extends Command
             // Asistan neyin hatırlatıldığını bilsin (kullanıcı 26.10): şablon kimin çeki olduğunu yazmaz → konuşma kaydına iç not
             // (müşteriye giden metin değişmez). "tahsil ettim / ödendi" cevabı bu çeklerle eşleşir (WhatsappWebhookController::matchOpenCheck).
             $note = '[Çek hatırlatması gönderildi — ' . $vars['1'] . '] ' . $checks->map(fn ($c) => (CheckReminders::isReceived($c) ? '📥 ' : '📤 ')
-                . ($c->party?->name ?? 'Carisiz') . ' ' . Money::format((float) $c->amount) . ' ₺'
+                . ($c->party?->name ?? 'Kişi yok') . ' ' . Money::format((float) $c->amount) . ' ₺'
                 . (CheckReminders::isReceived($c) ? ' (tahsil edilecek)' : ' (ödenecek)'))->implode(' · ');
             foreach ($phones as $phone) {
                 $ok = $sender->sendTemplate($phone, $contentSid, $vars, 'cek_hatirlatma');

@@ -27,7 +27,7 @@ class AssistantMemory extends Model
             'Tür'    => self::KINDS[$this->kind] ?? $this->kind,
             'Konu'   => $this->subject,
             'Bilgi'  => $this->fact,
-            'Cari'   => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Kişi / Firma' => \App\Models\ActivityLog::name(Party::class, $this->party_id),
             'Ürün'   => \App\Models\ActivityLog::name(Product::class, $this->product_id),
             'Durum'  => ['active' => 'Aktif', 'deleted' => 'Silindi', 'replaced' => 'Yenisiyle değişti'][$this->status] ?? $this->status,
             'Kaynak' => $this->source,

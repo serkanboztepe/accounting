@@ -17,7 +17,7 @@ final class CheckRemoval
 {
     public static function describe(Check $check): string
     {
-        $who = $check->party?->name ?? 'Cari';
+        $who = $check->party?->name ?? 'Kişisiz';
         $amount = Money::format((float) $check->amount) . ' ₺';
 
         return match (true) {

@@ -73,7 +73,7 @@ class ExpenseContext
             ->orderBy('name')
             ->get(['id', 'name', 'cadastral_parcel']);
 
-        $parties = self::scoped(Party::query(), 'parties')->orderBy('name')->get(['id', 'name', 'is_employee', 'salary_amount', 'salary_day']);
+        $parties = self::scoped(Party::query(), 'parties')->orderBy('name')->get(['id', 'name', 'kind', 'is_employee', 'salary_amount', 'salary_day']);
 
         $categories = self::scoped(ExpenseCategory::query(), 'categories')->orderBy('name')->get(['id', 'name']);
 
@@ -122,13 +122,19 @@ class ExpenseContext
         }
 
         $lines[] = '';
-        $lines[] = 'CARİLER (id: isim):';
+        // Tip notu (28.10, kullanıcı "tipi AI'ya ipucu verelim"): kullanıcının panelde seçtiği tip — kesin bilgi değil, yön belirsizken ipucu.
+        $lines[] = $parties->contains(fn ($c) => in_array($c->kind, [Party::KIND_CUSTOMER, Party::KIND_SUPPLIER], true))
+            ? 'CARİLER (id: isim) — "(müşteri)" / "(mal-hizmet aldığımız)" notunu kullanıcı seçti. Mesajda fiil yoksa ya da yön belirsizse '
+                . 'ipucudur: mal-hizmet aldığımız kişiye giden para büyük ihtimalle ödeme (payment), müşteriden gelen para tahsilat (collection). '
+                . 'Mesajdaki açık fiil her zaman nottan önce gelir ("Ahmet\'e mal sattım" müşteri notu olmasa da satış); ipucuyla da yön '
+                . 'hâlâ belirsizse sor:'
+            : 'CARİLER (id: isim):';
         // Açık avansı olan cariler (Faz G): "Osman işi bitirdi" tutarsız gelince avansın karşılığı olarak tanınsın. Tek sorgu + yalnız onlar.
         $withAdvance = PartyLedgerEntry::advance()
             ->whereIn('type', [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION])->distinct()->pluck('party_id')->flip();
         $lines[] = $parties->isEmpty()
             ? '  (kayıtlı cari yok)'
-            : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name) . self::employeeNote($c)
+            : $parties->map(fn ($c) => sprintf('  %d: %s', $c->id, $c->name) . self::kindNote($c) . self::employeeNote($c)
                 . (! $c->is_employee && $withAdvance->has($c->id) ? self::advanceNote($c) : ''))->implode("\n");
 
         // Açık anlaşma kalemleri (21.10): "beton geldi" hangi kaleme düşer — anlamdan AI seçer (agreement_delivery).
@@ -195,6 +201,16 @@ class ExpenseContext
         $theirs = AdvanceOffset::open($party, ExpenseExtractor::KIND_SALE);
 
         return $theirs > 0 ? ' (peşin aldık ' . \App\Support\Money::format($theirs) . ' — mal/iş teslim edilecek)' : '';
+    }
+
+    /** Tip notu: yalnız tek yönlü tipler; "ikisi de" / boş tip bilgi taşımaz, personelin notu employeeNote'ta. */
+    private static function kindNote($party): string
+    {
+        return match ($party->kind) {
+            Party::KIND_CUSTOMER => ' (müşteri)',
+            Party::KIND_SUPPLIER => ' (mal-hizmet aldığımız)',
+            default => '',
+        };
     }
 
     /** Personel işaretli cari: " (personel, maaş 50.000, ayın 15'i)" — maaş/avans sorularında AI bilsin. */

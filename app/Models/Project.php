@@ -25,7 +25,7 @@ class Project extends Model
     {
         return \App\Models\ActivityLog::compact([
             'Ad'         => $this->name,
-            'Cari'       => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Kişi / Firma' => \App\Models\ActivityLog::name(Party::class, $this->party_id),
             'Ada/parsel' => $this->cadastral_parcel,
             'Adres'      => $this->address,
             'Durum'      => ['draft' => 'Taslak', 'active' => 'Aktif', 'completed' => 'Tamamlandı', 'cancelled' => 'İptal'][$this->status] ?? $this->status,

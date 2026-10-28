@@ -61,7 +61,7 @@ class Sale extends Model
         return \App\Models\ActivityLog::compact([
             'Belge'         => 'Satış #' . $this->id,
             'Tarih'         => \App\Models\ActivityLog::date($this->sale_date),
-            'Cari'          => $this->party_id ? \App\Models\ActivityLog::name(Party::class, $this->party_id) : 'Peşin (carisiz)',
+            'Kişi / Firma'  => $this->party_id ? \App\Models\ActivityLog::name(Party::class, $this->party_id) : 'Peşin (kişisiz)',
             'Ürünler'       => $this->activityLines(),
             'Ürünsüz tutar' => (float) $this->manual_amount > 0 ? \App\Models\ActivityLog::money($this->manual_amount) : null,
             'Toplam'        => \App\Models\ActivityLog::money($this->total_amount),

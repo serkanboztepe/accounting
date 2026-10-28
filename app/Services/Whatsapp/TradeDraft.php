@@ -463,7 +463,7 @@ class TradeDraft
         $name = self::partyName($d);
         $lines[] = ! empty($d['paid'])
             ? '🧾 *Peşin satış — kontrol et:*'
-            : '🧾 *Veresiye satış* → ' . ($party ? $name : $name . ' (yeni cari)');
+            : '🧾 *Veresiye satış* → ' . ($party ? $name : $name . ' (yeni kişi)');
         $lines = array_merge($lines, self::itemLines($d, 'out'));
         $lines[] = '• Toplam: ' . Money::format((float) $d['amount']) . ' ₺';
         if (! empty($d['paid'])) {
@@ -508,7 +508,7 @@ class TradeDraft
         $party = self::party($d);
         $name = self::partyName($d);
         $lines = [$name
-            ? '🛒 *Alış* ← ' . ($party ? $name : $name . ' (yeni cari)') . (! empty($d['party_auto']) ? ' (son aldığın yer)' : '')
+            ? '🛒 *Alış* ← ' . ($party ? $name : $name . ' (yeni kişi)') . (! empty($d['party_auto']) ? ' (son aldığın yer)' : '')
                 . (! empty($d['paid']) ? ' · parası verildi' : ' · ona borçlanırsın')
             : (! empty($d['paid']) ? '🛒 *Peşin alış — kontrol et:*' : '🛒 *Alış — kontrol et:*')];
         $lines = array_merge($lines, self::itemLines($d, 'in'));

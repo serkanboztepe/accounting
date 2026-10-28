@@ -104,7 +104,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertStringContainsString('Kimden alacağın var?', $this->send('40.000 tl alacağım var'));
         $this->assertSame(1, WhatsappPendingExpense::where('phone', self::PHONE)->where('status', 'awaiting_confirmation')->count());
 
-        $this->assertStringContainsString('Arda Test Veli (yeni cari) → sana 40.000,00 ₺ borçlu', $this->send('Arda Test Veli'));
+        $this->assertStringContainsString('Arda Test Veli (yeni kişi) → sana 40.000,00 ₺ borçlu', $this->send('Arda Test Veli'));
         $this->send('evet');
         $this->assertEqualsWithDelta(40000, PartyStatement::build(Party::where('name', 'Arda Test Veli')->sole())['balance'], 0.001);
     }
@@ -419,7 +419,7 @@ class WhatsappConversationFixesTest extends TestCase
         );
 
         $summary = $this->send("Alış Test Serkan'dan 4 yem aldım 4400 tl, 15 Kasım'da ödeyeceğim");
-        $this->assertStringContainsString('Alış* ← Alış Test Serkan (yeni cari): 4.400,00 ₺ — Yem (ona borçlandın)', $summary);
+        $this->assertStringContainsString('Alış* ← Alış Test Serkan (yeni kişi): 4.400,00 ₺ — Yem (ona borçlandın)', $summary);
         $this->send('evet');
         $serkan = Party::where('name', 'Alış Test Serkan')->sole();
         $row = PartyLedgerEntry::where('party_id', $serkan->id)->sole();
@@ -446,7 +446,7 @@ class WhatsappConversationFixesTest extends TestCase
 
         $reply = $this->send('Hangi carim var');
 
-        $this->assertStringContainsString('Carilerin', $reply);
+        $this->assertStringContainsString('Kişilerin', $reply);
         $this->assertStringContainsString('Arda Test Liste: sana borcu 99.999.999,00 ₺', $reply);
     }
 
@@ -477,7 +477,7 @@ class WhatsappConversationFixesTest extends TestCase
 
         $out = WhatsappMessage::where('phone', '905557770000')->where('direction', 'out')->latest('id')->first();
         $this->assertTrue($out->has_media);
-        $this->assertStringContainsString('Cari Ekstresi', $out->body);
+        $this->assertStringContainsString('Hesap Dökümü', $out->body);
     }
 
     /** "Ferdi'ye ekstresini at": cariye biz yazamayız — PDF kullanıcıya gelir ve nasıl ileteceği söylenir. */
@@ -502,7 +502,7 @@ class WhatsappConversationFixesTest extends TestCase
 
         $reply = $this->send('Tüm borç');
 
-        $this->assertStringContainsString('Ödenmemiş giderler (cari yok)', $reply);
+        $this->assertStringContainsString('Ödenmemiş giderler (kişisiz)', $reply);
         $this->assertStringContainsString('Arda test ev kirası', $reply);
         $this->assertStringNotContainsString('Toplam borcun: 0 ₺', $reply);
     }
@@ -556,8 +556,10 @@ class WhatsappConversationFixesTest extends TestCase
 
         $reply = $this->send('Cari');
 
-        $this->assertStringContainsString('Carilerin', $reply);
+        $this->assertStringContainsString('Kişilerin', $reply);
         $this->assertStringContainsString('Tek Kelime Test Cari', $reply);
+        // 28.10: ekranda "cari" yerine "kişi" yazıyoruz — listeyi "kişiler" de açar, eski "cari" kelimesi de çalışmaya devam eder.
+        $this->assertStringContainsString('Tek Kelime Test Cari', $this->send('kişiler'));
     }
 
     public function test_nasil_returns_sector_guide_without_ai(): void

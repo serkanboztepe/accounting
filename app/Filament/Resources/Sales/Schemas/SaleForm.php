@@ -38,7 +38,7 @@ class SaleForm
     {
         return array_values(array_filter([
             $withParty ? Select::make('party_id')
-                ->label('Müşteri (cari)')
+                ->label('Müşteri')
                 ->options(fn () => Party::orderBy('name')->pluck('name', 'id'))
                 ->searchable()
                 ->preload()

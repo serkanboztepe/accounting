@@ -121,12 +121,12 @@ class CompanySettingsPage extends Page implements HasSchemas
             ]);
 
         return Action::make('cariPin')
-            ->label('Cari PIN')
+            ->label('Kişiler kilidi (PIN)')
             ->icon(Heroicon::OutlinedLockClosed)
             ->color('gray')
             ->visible(fn (): bool => CariLock::enabled())
-            ->modalHeading(fn (): string => CariLock::hasPin() ? 'Cari PIN\'ini değiştir' : 'Cari PIN belirle')
-            ->modalDescription('Cariler kilitliyken bu PIN sorulur. 4–6 haneli bir sayı olsun.')
+            ->modalHeading(fn (): string => CariLock::hasPin() ? 'Kilit PIN\'ini değiştir' : 'Kilit PIN\'i belirle')
+            ->modalDescription('Kişiler ve Firmalar kilitliyken bu PIN sorulur. 4–6 haneli bir sayı olsun.')
             ->modalSubmitActionLabel('Kaydet')
             ->schema(fn (): array => array_values(array_filter([
                 CariLock::hasPin()
@@ -148,7 +148,7 @@ class CompanySettingsPage extends Page implements HasSchemas
                 CariLock::setPin($data['pin']);
                 CariLock::touch();
 
-                Notification::make()->success()->title('Cari PIN kaydedildi')->send();
+                Notification::make()->success()->title('PIN kaydedildi')->send();
             });
     }
 

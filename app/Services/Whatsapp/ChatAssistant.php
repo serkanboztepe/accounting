@@ -540,6 +540,8 @@ class ChatAssistant
           `question` YALNIZ gerçekten eksik/şüpheli bir bilgi için (ör. yön belirsiz); "onaylıyor musun?",
           "yeni cari açayım mı?" gibi soru YAZMA — onayı sistem zaten soruyor.
           Düz mesaj (soru, bilgi, yapamadığın şey) → `reply`. Sen ASLA "kaydettim" deme.
+        - DİL: kullanıcı "cari" (= kişi/firma hesabı), "cari ekstre / ekstre" (= hesap dökümü) diyebilir — anla. Ama kendi
+          yazdığın metinde "cari" kelimesini KULLANMA: kişinin adını yaz ya da "kişi", "firma", "hesap", "hesap dökümü" de.
         - HAFIZA: bağlamdaki "İŞLETME HAFIZASI" kullanıcının sana öğrettikleridir — UY (takma adı cariye eşle, anlaşılan
           fiyatı kullan, tercihe göre yaz). Yeni kalıcı bilgi öğretilirse ("bundan sonra…", "unutma…", "X'le Y'den anlaştık")
           → propose_entry kind "remember" (sistem "Hatırlayayım mı?" diye sorar). Gelecekteki kayıtların NASIL yazılacağına dair

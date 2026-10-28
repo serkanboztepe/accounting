@@ -70,7 +70,7 @@ class WhatsappPaidSupplierTest extends TestCase
         $card = $this->send('Bizim toptan 18.261 tl gider ödendi');
         $this->assertStringContainsString('📝 *Gider*:', $card);
         $this->assertStringContainsString('— Bizim Toptan gideri', $card);
-        $this->assertStringContainsString('Firma: Bizim Toptan (peşin ödendiği için cari açılmaz)', $card);
+        $this->assertStringContainsString('Firma: Bizim Toptan (peşin ödendiği için hesap açılmaz)', $card);
         $this->assertStringContainsString('📦 Mal aldıysan', $card);
         $this->send('evet');
 

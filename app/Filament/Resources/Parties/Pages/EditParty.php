@@ -633,7 +633,7 @@ class EditParty extends EditRecord
         return Action::make('deleteAgreement')
             ->requiresConfirmation()
             ->modalHeading(fn (array $arguments): string => 'Anlaşmayı sil · ' . ($this->agreementArg($arguments)?->title ?? ''))
-            ->modalDescription('Teslimatı olmayan anlaşma silinir. Peşinat yazdıysan o cari ekstresinde kalır.')
+            ->modalDescription('Teslimatı olmayan anlaşma silinir. Peşinat yazdıysan hesap dökümünde kalır.')
             ->modalSubmitActionLabel('Sil')
             ->color('danger')
             ->action(function (array $arguments, Action $action): void {
@@ -893,7 +893,7 @@ class EditParty extends EditRecord
         return Action::make('cancelReturn')
             ->requiresConfirmation()
             ->modalHeading('İadeyi Geri Al')
-            ->modalDescription('Bu iadenin stok girişi ve cari alacağı geri alınacak (stok tekrar düşer, cari borç geri gelir). Emin misiniz?')
+            ->modalDescription('Bu iadenin stok girişi ve alacak kaydı geri alınacak (stok tekrar düşer, borcu geri gelir). Emin misiniz?')
             ->modalSubmitActionLabel('Evet, geri al')
             ->action(function (array $arguments): void {
                 SaleReturn::find($arguments['sale_return'])?->delete();
@@ -909,7 +909,7 @@ class EditParty extends EditRecord
         return Action::make('deleteDocument')
             ->requiresConfirmation()
             ->modalHeading(fn (array $arguments): string => ! empty($arguments['purchase']) ? 'Alışı sil' : 'Satışı sil')
-            ->modalDescription('Belge, kalemleri ve cari kaydı silinir. Anlaşmadan geldiyse düşülen miktar anlaşmaya geri döner.')
+            ->modalDescription('Belge, kalemleri ve hesap kaydı silinir. Anlaşmadan geldiyse düşülen miktar anlaşmaya geri döner.')
             ->modalSubmitActionLabel('Sil')
             ->color('danger')
             ->action(function (array $arguments): void {

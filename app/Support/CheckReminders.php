@@ -80,7 +80,7 @@ class CheckReminders
 
         $line = function (Check $c) use ($today) {
             $late = $c->due_date->lt($today) ? ' ⚠️ gecikmiş' : '';
-            $who = $c->party?->name ?? 'Cari yok';
+            $who = $c->party?->name ?? 'Kişi yok';
             $no = $c->check_number ? " (No {$c->check_number})" : '';
 
             return "• {$c->due_date->format('d.m')} — {$who} — " . Money::format($c->amount) . " ₺{$no}{$late}";

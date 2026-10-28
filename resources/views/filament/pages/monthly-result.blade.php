@@ -20,9 +20,9 @@
             @endforeach
         </div>
         <div class="mt-4 grid gap-1 text-sm text-gray-600 dark:text-gray-400 sm:grid-cols-2">
-            <div>Satışlar: {{ $fmt($current['sales_docs']) }}@if ($current['sales_ledger'] > 0) · caride basit satış: {{ $fmt($current['sales_ledger']) }}@endif @if ($current['returns'] > 0) · iade: −{{ $fmt($current['returns']) }}@endif</div>
+            <div>Satışlar: {{ $fmt($current['sales_docs']) }}@if ($current['sales_ledger'] > 0) · basit satış: {{ $fmt($current['sales_ledger']) }}@endif @if ($current['returns'] > 0) · iade: −{{ $fmt($current['returns']) }}@endif</div>
             <div>Peşin satışların nakit: {{ $fmt($current['cash']) }} · kart: {{ $fmt($current['bank']) }}</div>
-            <div>Alışlar: {{ $fmt($current['purchase_docs']) }}@if ($current['purchase_ledger'] > 0) · caride basit alış: {{ $fmt($current['purchase_ledger']) }}@endif @if ($current['goods_in'] > 0) · mal girişi: {{ $fmt($current['goods_in']) }}@endif</div>
+            <div>Alışlar: {{ $fmt($current['purchase_docs']) }}@if ($current['purchase_ledger'] > 0) · basit alış: {{ $fmt($current['purchase_ledger']) }}@endif @if ($current['goods_in'] > 0) · mal girişi: {{ $fmt($current['goods_in']) }}@endif</div>
             @if ($current['unpriced_goods'] > 0)
                 <div class="text-warning-600">⚠ Fiyatsız {{ $current['unpriced_goods'] }} mal girişi 0 sayıldı.</div>
             @endif

@@ -118,7 +118,7 @@ class AgreementDraft
             return 'Kiminle anlaştın? Kişinin ya da firmanın adını yaz.';
         }
         if (self::partyUnclear($d)) {
-            return 'Belgede *' . trim((string) $d['party_said']) . '* yazıyor — carilerindeki *' . Party::find($d['party_id'])?->name
+            return 'Belgede *' . trim((string) $d['party_said']) . '* yazıyor — listendeki *' . Party::find($d['party_id'])?->name
                 . '* mi? *evet* ya da doğru adı yaz.';
         }
         $items = $d['agreement_items'] ?? [];
@@ -729,7 +729,7 @@ class AgreementDraft
             . ($planned !== [] && $phone !== null ? "\n⏰ " . count($planned) . ' ödeme hatırlatması kuruldu (ilki '
                 . Carbon::parse(min(array_map(fn ($p) => $p['paid_date'] ?? $p['due_date'], $planned)))->format('d.m.Y') . ').' : '')
             . ($replaced->isNotEmpty() ? "\n🔒 Eski anlaşma kapandı: " . $replaced->pluck('title')->implode(', ') . '.' : '')
-            . "\nPanelde carinin sayfasında kalem kalem görünür.";
+            . "\nPanelde kişinin sayfasında kalem kalem görünür.";
 
         return [$text, $agreement];
     }
@@ -795,7 +795,7 @@ class AgreementDraft
             return $p->name;
         }
 
-        return trim((string) ($d['party_name'] ?? '')) . ' (yeni cari)';
+        return trim((string) ($d['party_name'] ?? '')) . ' (yeni kişi)';
     }
 
     private static function title(array $d): ?string

@@ -87,11 +87,11 @@
                 @if ($d['due_for_delivered'] > 0.005)
                     <div class="cs-k">Net Durum — Borç</div>
                     <div class="cs-v tnum" style="color: var(--cs-warn)">{{ $m($d['due_for_delivered']) }}</div>
-                    <div class="cs-sub">Bu cariye ödenecek (teslim alınana göre)</div>
+                    <div class="cs-sub">Ona ödenecek (teslim alınana göre)</div>
                 @elseif ($d['due_for_delivered'] < -0.005)
                     <div class="cs-k">Net Durum — Alacak</div>
                     <div class="cs-v tnum" style="color: var(--cs-good)">{{ $m(-$d['due_for_delivered']) }}</div>
-                    <div class="cs-sub">Fazla ödeme — cariden alacaklısın</div>
+                    <div class="cs-sub">Fazla ödeme — ondan alacaklısın</div>
                 @else
                     <div class="cs-k">Net Durum</div>
                     <div class="cs-v tnum" style="color: var(--cs-good)">₺0,00</div>

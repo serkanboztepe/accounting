@@ -154,7 +154,7 @@ class WhatsappExpenseSummaryTest extends TestCase
         $reply = $this->ask('2031-03-01', '2031-03-31');
 
         $this->assertStringContainsString('Mart 2031 giderin: 1.000,00 ₺*', $reply);
-        $this->assertStringContainsString('Ayrıca cari alışların: 80.000,00 ₺ (gidere dahil değil)', $reply);
+        $this->assertStringContainsString('Ayrıca alışların: 80.000,00 ₺ (gidere dahil değil)', $reply);
     }
 
     public function test_deliveries_ignored_when_contracts_module_is_off(): void

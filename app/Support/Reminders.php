@@ -154,7 +154,7 @@ class Reminders
             $lines[] = '• Tekrar: ' . self::REPEAT_LABELS[$r->repeat];
         }
         if ($r->party) {
-            $lines[] = '• Cari: ' . self::balanceNote($r->party);
+            $lines[] = '• Hesap: ' . self::balanceNote($r->party);
         }
 
         return implode("\n", $lines);

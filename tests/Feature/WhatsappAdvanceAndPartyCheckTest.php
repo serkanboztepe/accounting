@@ -155,7 +155,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->assertStringContainsString('*Aynı kişi mi?* Değilse *yeni* yaz', $reply);
 
         $reply = $this->send('yeni');
-        $this->assertStringContainsString("Hüseyin BİM'in bacısı Ayten (yeni cari)", $reply);
+        $this->assertStringContainsString("Hüseyin BİM'in bacısı Ayten (yeni kişi)", $reply);
         $this->assertStringNotContainsString('Aynı kişi mi', $reply);
 
         $this->send('evet');
@@ -203,7 +203,7 @@ class WhatsappAdvanceAndPartyCheckTest extends TestCase
         $this->assertStringContainsString('Önce yönü yaz', $this->send('evet'));
         $this->assertSame(0, Party::where('name', 'Vedat Yön')->count());
 
-        $this->assertStringContainsString('🧾 *Satış* → Vedat Yön (yeni cari): 445,00 ₺', $this->send('sattım'));
+        $this->assertStringContainsString('🧾 *Satış* → Vedat Yön (yeni kişi): 445,00 ₺', $this->send('sattım'));
         $this->send('evet');
         $this->assertSame(445.0, $this->balance(Party::where('name', 'Vedat Yön')->sole()));
     }

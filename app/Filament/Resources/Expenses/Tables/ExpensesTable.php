@@ -41,7 +41,7 @@ class ExpensesTable
                     // (ödemeler oraya girer), gider satırı "ödendi"ye çevrilmez.
                     ->formatStateUsing(fn (string $state, $record): string => match ($state) {
                         'paid'    => 'Ödendi',
-                        'unpaid'  => $record->party_id ? 'Veresiye (cari)' : 'Ödenmedi',
+                        'unpaid'  => $record->party_id ? 'Veresiye' : 'Ödenmedi',
                         'partial' => 'Kısmi Ödendi',
                         default   => $state,
                     })

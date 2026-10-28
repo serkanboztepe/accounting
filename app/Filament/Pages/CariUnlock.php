@@ -11,7 +11,7 @@ class CariUnlock extends Page
 {
     protected static ?string $slug = 'cari-kilidi';
 
-    protected static ?string $title = 'Cariler kilitli';
+    protected static ?string $title = 'Kişiler ve Firmalar kilitli';
 
     protected static bool $shouldRegisterNavigation = false;
 

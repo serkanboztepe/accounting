@@ -16,7 +16,7 @@ class Party extends Model
 
     public function activityAction(): string
     {
-        return $this->is_employee ? 'Personel' : 'Cari';
+        return $this->is_employee ? 'Personel' : 'Kişi / Firma';
     }
 
     public function activityPartyId(): ?int
@@ -64,7 +64,7 @@ class Party extends Model
     public function activityBeforeDelete(): void
     {
         $this->activityFull = true;
-        $note = 'Cari silindiği için';
+        $note = 'Kişi silindiği için';
         foreach (PartyLedgerEntry::where('party_id', $this->id)->get() as $entry) {
             if (! $entry->activitySkipped()) {
                 \App\Models\ActivityLog::record($entry, 'deleted', note: $note);

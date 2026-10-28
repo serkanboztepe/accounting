@@ -63,11 +63,11 @@ class Purchase extends Model
         return \App\Models\ActivityLog::compact([
             'Belge'         => 'Alış #' . $this->id,
             'Tarih'         => \App\Models\ActivityLog::date($this->purchase_date),
-            'Cari'          => $this->party_id ? \App\Models\ActivityLog::name(Party::class, $this->party_id) : 'Carisiz',
+            'Kişi / Firma'  => $this->party_id ? \App\Models\ActivityLog::name(Party::class, $this->party_id) : 'Kişi yok',
             'Ürünler'       => $this->activityLines(),
             'Ürünsüz tutar' => (float) $this->manual_amount > 0 ? \App\Models\ActivityLog::money($this->manual_amount) : null,
             'Toplam'        => \App\Models\ActivityLog::money($this->total_amount),
-            'Ödeme'         => $this->paid ? 'Peşin · ' . (self::PAYMENT_TYPES[$this->payment_type] ?? 'Nakit') : 'Veresiye (cariye borç)',
+            'Ödeme'         => $this->paid ? 'Peşin · ' . (self::PAYMENT_TYPES[$this->payment_type] ?? 'Nakit') : 'Veresiye (borç)',
             \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
             'Not'           => $this->notes,
         ]);

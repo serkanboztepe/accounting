@@ -49,7 +49,7 @@ class PartyDeletion
         } catch (QueryException $e) {
             report($e);
             Notification::make()->danger()->title('Silinemedi')
-                ->body('Bu cariye bağlı kayıtlar silinmeyi engelliyor. Önce carinin satış/alış belgelerini ve çeklerini silmen gerekir; '
+                ->body('Bu kişiye bağlı kayıtlar silinmeyi engelliyor. Önce onun satış/alış belgelerini ve çeklerini silmen gerekir; '
                     . 'hiçbir şey silinmedi.')
                 ->persistent()->send();
 
@@ -60,27 +60,27 @@ class PartyDeletion
     public static function description(Party $party): string
     {
         if ($blockers = self::blockers($party)) {
-            return 'Bu cari silinemez: ' . implode(', ', $blockers) . ' bağlı. Önce onları silmen ya da başka cariye taşıman gerekir'
+            return 'Bu kişi silinemez: ' . implode(', ', $blockers) . ' bağlı. Önce onları silmen ya da başka kişiye taşıman gerekir'
                 . (preg_grep('/stoklu/', $blockers) ? ' (stoklu satış/alış Satışlar ya da Alışlar ekranından silinir, stok geri döner).' : '.');
         }
 
         $deleted = array_values(array_filter([
-            self::count(PartyLedgerEntry::where('party_id', $party->id)->count(), 'cari hareketi'),
+            self::count(PartyLedgerEntry::where('party_id', $party->id)->count(), 'hesap hareketi'),
             self::count(Sale::where('party_id', $party->id)->count(), 'satış'),
             self::count(\App\Models\Purchase::where('party_id', $party->id)->count(), 'alış'),
         ]));
         $expenses = Expense::where('party_id', $party->id)->count();
 
         if ($deleted === [] && $expenses === 0) {
-            return 'Bu carinin hiç hareketi yok, güvenle silinebilir.';
+            return 'Bu kişinin hiç hareketi yok, güvenle silinebilir.';
         }
 
         $balance = PartyStatement::build($party)['balance'];
         $text = $deleted
-            ? '⚠️ Bu cariyle birlikte ' . implode(' ve ', $deleted) . ' de SİLİNECEK (' . rtrim(PartyBalances::line($party->name, $balance), '.') . '). Geri alınamaz.'
+            ? '⚠️ Bu kişiyle birlikte ' . implode(' ve ', $deleted) . ' de SİLİNECEK (' . rtrim(PartyBalances::line($party->name, $balance), '.') . '). Geri alınamaz.'
             : '';
         if ($expenses) {
-            $text .= ($text ? ' ' : '') . "{$expenses} gider silinmez, carisiz kalır.";
+            $text .= ($text ? ' ' : '') . "{$expenses} gider silinmez, kişisiz kalır.";
         }
 
         return $text;

@@ -278,7 +278,7 @@ class WhatsappWebhookController extends Controller
 
     private static function insertBeforeFooter(string $out, string $lines): string
     {
-        if (preg_match('/\n\n(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|✅ Onaylamak|\*evet\* \/)/u', $out, $m, PREG_OFFSET_CAPTURE)) {
+        if (preg_match('/\n\n(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|Kişinin adını yaz|✅ Onaylamak|\*evet\* \/)/u', $out, $m, PREG_OFFSET_CAPTURE)) {
             return substr($out, 0, $m[0][1]) . "\n" . $lines . substr($out, $m[0][1]);
         }
         // Soru kartı: uyarı soru ile "Vazgeçmek için *iptal*." arasına.
@@ -634,7 +634,7 @@ class WhatsappWebhookController extends Controller
         }
 
         // "cari" / "cariler" tek kelime — cari listesi, AI'sız (Arda: "Cari" yazınca "anlayamadım" alıyordu).
-        if ($numMedia === 0 && in_array($this->word($body), ['cari', 'cariler', 'carilerim', 'cari listesi', 'carim'], true)) {
+        if ($numMedia === 0 && in_array($this->word($body), ['cari', 'cariler', 'carilerim', 'cari listesi', 'carim', 'kişiler', 'kişilerim', 'kişi listesi'], true)) {
             $this->inboundKind = ExpenseExtractor::KIND_PARTY_LIST;
 
             return $this->twiml($this->partyListAnswer());
@@ -679,7 +679,7 @@ class WhatsappWebhookController extends Controller
                 $yes = $this->isConfirm($body);
                 $pending->update(['status' => $yes ? 'confirmed' : 'cancelled']);
 
-                return $this->twiml($yes ? PartyInfoDraft::commit($pending->extracted) : 'Tamam, cari kartına yazmadım.');
+                return $this->twiml($yes ? PartyInfoDraft::commit($pending->extracted) : 'Tamam, kişi kartına yazmadım.');
             }
             $pending->update(['status' => 'superseded']);
             $pending = null;
@@ -1883,7 +1883,7 @@ class WhatsappWebhookController extends Controller
             && ! MemoryDraft::isKnownAlias($suggested->id, $data['party_said'])) {
             $said = trim((string) $data['party_said']);
             $data = ['party_id' => null, 'party_name' => null, 'party_certain' => null,
-                'question' => 'Carilerde "' . $said . '" yok — yeni biri mi? Tam adını yazar mısın? (Listedeki birinin adıysa onu yaz.)'] + $data;
+                'question' => 'Listende "' . $said . '" yok — yeni biri mi? Tam adını yazar mısın? (Listedeki birinin adıysa onu yaz.)'] + $data;
             TurnTrace::note('unrelated_party_dropped', $suggested->id);
         }
         // Yazılandan farklı tutar ("65 tl" → 65.000) sessizce geçmesin (17.10, Emre).
@@ -2088,7 +2088,7 @@ class WhatsappWebhookController extends Controller
             // "Ferdi'ye at": cariye biz yazamayız (Meta izni / karşı tarafın onayı yok) — sessizce kullanıcıya
             // göndermek yerine açıkça söyle ve nasıl ileteceğini anlat (Ferhat Bey gönderildi sanmıştı).
             if (! empty($data['forward_to_party']) && is_array($answer)) {
-                $name = $this->existingParty($data)?->name ?? 'carine';
+                $name = $this->existingParty($data)?->name ?? 'Bu';
                 $answer[0] .= "\n\nℹ️ {$name} kişisine doğrudan mesaj atamıyorum. Ekstreyi sana gönderdim; "
                     . "PDF'e basılı tut → *İlet* ile ona gönderebilirsin.";
             }
@@ -2167,7 +2167,7 @@ class WhatsappWebhookController extends Controller
             $this->needsPaymentChoice($data) => "\n\nKısaca yaz, vazgeçmek için *iptal*.",
             // Kişi eksik ama AI başka bir şey soruyor ("Asansör takıldı mı?") → "Cari adını yaz" yanlış talimat (firma 7, 20.10).
             $this->missingParty($data) && ! empty($data['question']) => "\n\nVazgeçmek için *iptal*.",
-            $this->missingParty($data) => "\n\nCari adını yaz, vazgeçmek için *iptal*.",
+            $this->missingParty($data) => "\n\nKişinin adını yaz, vazgeçmek için *iptal*.",
             DraftGaps::needsSaleOrPurchase($data) => "\n\n*sattım* ya da *aldım* yaz, vazgeçmek için *iptal*.",
             DraftGaps::needsPaidAnswer($data) => "\n\nVazgeçmek için *iptal*.",
             $this->needsDebtSide($data) => "\n\n*o bana* (o sana borçlu) ya da *ben ona* (sen ona borçlusun) yaz, vazgeçmek için *iptal*.",
@@ -2478,7 +2478,7 @@ class WhatsappWebhookController extends Controller
             }
         }
         if (! empty($find['party']) && $partyIds === []) {
-            return 'Carilerde "' . $find['party'] . '" adında biri yok. Adını listedeki gibi yazar mısın? (*cariler* yazarsan listeyi gösteririm)';
+            return 'Listende "' . $find['party'] . '" adında biri yok. Adını listedeki gibi yazar mısın? (*kişiler* yazarsan listeyi gösteririm)';
         }
         $filter = function ($q, string $amountCol, string $dateCol, ?string $textCol) use ($amount, $date, $text, $since, $partyIds) {
             $q->where($dateCol, '>=', $since);
@@ -3529,7 +3529,7 @@ class WhatsappWebhookController extends Controller
             $lines[] = '• Kategori: ' . $categoryText;
         }
         if ($partyText !== null) {
-            $lines[] = '• Cari: ' . $partyText;
+            $lines[] = '• Kişi: ' . $partyText;
         }
 
         if (! empty($d['due_date'])) {
@@ -3538,7 +3538,7 @@ class WhatsappWebhookController extends Controller
 
         // Stoklu firmada firmadan ürünsüz alış: ne alındığı sorulur (engellemez) — stoktakiler stoğa girsin (Akkuş 18.10 Bizim Toptan).
         if (! empty($d['supplier_name'])) {
-            $lines[] = '• Firma: ' . $d['supplier_name'] . ' (peşin ödendiği için cari açılmaz)';
+            $lines[] = '• Firma: ' . $d['supplier_name'] . ' (peşin ödendiği için hesap açılmaz)';
             if (empty($d['is_service'])) {
                 $lines[] = self::WHAT_BOUGHT;
             }
@@ -3576,13 +3576,13 @@ class WhatsappWebhookController extends Controller
                 $kind === ExpenseExtractor::KIND_DEBT_NOTE && ($d['debt_side'] ?? null) === 'payable' => 'Kime borcun var? Adını yazar mısın?',
                 $kind === ExpenseExtractor::KIND_DEBT_NOTE && ($d['debt_side'] ?? null) === 'unclear' => 'Kiminle olan borç/alacak? Adını yazar mısın?',
                 $kind === ExpenseExtractor::KIND_DEBT_NOTE => 'Kimden alacağın var? Adını yazar mısın?',
-                default => 'Kime/kimden olduğunu yazar mısın? (cari adı)',
+                default => 'Kime/kimden olduğunu yazar mısın? (kişi ya da firma adı)',
             });
         }
 
         $staff = self::isStaff($d, $party);
         $label = $party ? $name . ($staff && ! $party->is_employee ? ' 👷 (personel olarak işaretlenecek)' : '')
-            : $name . ($staff ? ' 👷 (yeni personel)' : ' (yeni cari)');
+            : $name . ($staff ? ' 👷 (yeni personel)' : ' (yeni kişi)');
         if (DraftGaps::needsSaleOrPurchase($d)) {
             return '📦 ' . $label . ': ' . Money::format($amount) . ' ₺' . (! empty($d['description']) ? ', ' . $d['description'] : '')
                 . " — *kim kime verdi?*\n• Sen mi ona götürdün (*sattım* → " . $name . ' sana borçlanır), yoksa ondan mı aldın (*aldım* → sen ona borçlanırsın)?';
@@ -3640,7 +3640,7 @@ class WhatsappWebhookController extends Controller
                 }
             }
             if ($this->needsPaymentChoice($d)) {
-                $lines[] = 'Bu cariye açık borcun görünmüyor. *Ne için verdin?*';
+                $lines[] = 'Ona açık borcun görünmüyor. *Ne için verdin?*';
                 $lines[] = '(ör. "sıva yaptırdım", "iş yaptıracağım, önceden verdim", "borç verdim, geri alacağım")';
                 if (! empty($d['party_check'])) { // erken dönüşte isim sorusu kaybolmasın
                     $lines[] = '❓ "' . $d['party_said'] . '" yazdın, *' . $name . '* ile eşleştirdim. *Aynı kişi mi?* Değilse *yeni* yaz.';
@@ -3791,8 +3791,8 @@ class WhatsappWebhookController extends Controller
 
             // Yalnız ad yazıldı ("Özkan varlı cari") ama böyle cari yok → ne istediğini sor (Yıldız 20.10, kullanıcı kuralı).
             return $name
-                ? '"' . $name . '" adında bir cari bulamadım. Ne yapmamı istersin? Kayıt yazacaksan tutarı ve ne için olduğunu yaz.'
-                : 'Hangi carinin bakiyesini soruyorsun?';
+                ? '"' . $name . '" adında birini bulamadım. Ne yapmamı istersin? Kayıt yazacaksan tutarı ve ne için olduğunu yaz.'
+                : 'Kimin bakiyesini soruyorsun?';
         }
 
         $cari = $this->balanceLine($party->name, TurnTrace::statement('WhatsappWebhookController::balanceAnswer', $party)['balance']);
@@ -3805,7 +3805,7 @@ class WhatsappWebhookController extends Controller
         // Sözleşmeli cari: cari ekstresi sözleşme ödeme/teslimatını içermez — ikisini ayrı göster.
         return '📊 *' . $party->name . "*\n"
             . implode("\n", $contracts)
-            . "\n\n💼 Cari hesap (sözleşme dışı): " . lcfirst(Str::after($cari, $party->name . ': '));
+            . "\n\n💼 Hesap (sözleşme dışı): " . lcfirst(Str::after($cari, $party->name . ': '));
     }
 
     /**
@@ -3821,8 +3821,8 @@ class WhatsappWebhookController extends Controller
             $name = $d['party_name'] ?? null;
 
             return $name
-                ? '"' . $name . '" adında bir cari bulamadım.'
-                : 'Hangi carinin ekstresini istiyorsun?';
+                ? '"' . $name . '" adında birini bulamadım.'
+                : 'Kimin hesap dökümünü istiyorsun?';
         }
 
         $filters = array_filter([
@@ -3832,7 +3832,7 @@ class WhatsappWebhookController extends Controller
         ]);
         $statement = TurnTrace::statement('WhatsappWebhookController::statementAnswer', $party, $filters);
 
-        $lines = ['📄 ' . $party->name . ' — Cari Ekstresi'];
+        $lines = ['📄 ' . $party->name . ' — Hesap Dökümü'];
         if (! empty($filters['date_from']) || ! empty($filters['date_to'])) {
             $lines[] = 'Dönem: ' . ($filters['date_from'] ?? '…') . ' – ' . ($filters['date_to'] ?? '…');
         }
@@ -3887,18 +3887,18 @@ class WhatsappWebhookController extends Controller
         }
 
         $total = $rows->sum('balance') + (float) $unpaid->sum('amount');
-        $lines = [$title . ': ' . Money::format($total) . ' ₺' . ($unpaid->isEmpty() ? ' (' . $rows->count() . ' cari)' : '')];
+        $lines = [$title . ': ' . Money::format($total) . ' ₺' . ($unpaid->isEmpty() ? ' (' . $rows->count() . ' kişi)' : '')];
         foreach ($rows->take(5) as $row) {
             $lines[] = '• ' . $row['party']->name . ': ' . Money::format($row['balance']);
         }
         if ($rows->count() > 5) {
-            $lines[] = '… ve ' . ($rows->count() - 5) . ' cari daha';
+            $lines[] = '… ve ' . ($rows->count() - 5) . ' kişi daha';
         }
         if ($unpaid->isNotEmpty()) {
             // Carisiz giderler cari ekstresine girmez; ödenmemişse yine de borçtur (Arda: kira "borç" diye
             // girildi, "toplam borcun 0" deniyordu). Ayrı satır — cari bakiyeleriyle çift sayılmaz.
             $names = $unpaid->take(3)->map(fn (Expense $e) => $e->description ?: 'gider')->implode(', ');
-            $lines[] = '• Ödenmemiş giderler (cari yok): ' . Money::format((float) $unpaid->sum('amount'))
+            $lines[] = '• Ödenmemiş giderler (kişisiz): ' . Money::format((float) $unpaid->sum('amount'))
                 . ' — ' . $names . ($unpaid->count() > 3 ? ' …' : '');
         }
 
@@ -3925,17 +3925,17 @@ class WhatsappWebhookController extends Controller
     {
         $count = Party::count();
         if ($count === 0) {
-            return "Henüz carin yok. Cari, bir işlemle birlikte adını yazınca kendiliğinden açılır. Örnek:\n"
+            return "Henüz kayıtlı kişi yok. Bir işlemle birlikte adını yazınca kendiliğinden açılır. Örnek:\n"
                 . "• \"Ali'den 40 bin alacağım var\"\n• \"Ali 10 bin ödedi\"";
         }
 
         $rows = PartyBalances::all();
-        $lines = ['📒 *Carilerin* (' . $count . ')'];
+        $lines = ['📒 *Kişilerin* (' . $count . ')'];
         foreach ($rows->take(15) as $row) {
             $lines[] = '• ' . $this->balanceLine($row['party']->name, $row['balance']);
         }
         if ($rows->count() > 15) {
-            $lines[] = '… ve bakiyesi olan ' . ($rows->count() - 15) . ' cari daha';
+            $lines[] = '… ve bakiyesi olan ' . ($rows->count() - 15) . ' kişi daha';
         }
         // Hesabı kapalı olanlar da adıyla (Arda: "1 carinin hesabı kapalı" yazısında kim olduğu görünmüyordu).
         $closedNames = Party::whereNotIn('id', $rows->pluck('party.id'))->orderBy('name')->pluck('name');
@@ -4027,7 +4027,7 @@ class WhatsappWebhookController extends Controller
             ExpenseExtractor::KIND_BALANCE_QUERY => "• \"Ahmet'in borcu ne?\"",
             ExpenseExtractor::KIND_TOTALS_QUERY => "• \"Toplam alacağım ne kadar?\"",
             ExpenseExtractor::KIND_EXPENSE_SUMMARY => "• \"Bu ay ne kadar harcadım?\"",
-            ExpenseExtractor::KIND_PARTY_LIST => "• \"Hangi carilerim var?\"",
+            ExpenseExtractor::KIND_PARTY_LIST => "• \"Kimlerle hesabım var?\"",
             ExpenseExtractor::KIND_STATEMENT => "• \"Ahmet'in ekstresini at\" (PDF)",
             ExpenseExtractor::KIND_STOCK_QUERY => "• \"Un ne kadar kaldı?\", \"stokta ne var?\"",
             ExpenseExtractor::KIND_MONTH_RESULT => "• \"Bu ay ne kazandım?\"",

@@ -5,7 +5,7 @@
             ['Ciro', 'total'], ['Nakit', 'cash'], ['Kart', 'bank'], ['Veresiye', 'credit'],
         ]
         : [
-            ['Alış', 'total'], ['Peşin', 'paid'], ['Cariden', 'credit'],
+            ['Alış', 'total'], ['Peşin', 'paid'], ['Veresiye', 'credit'],
         ];
 @endphp
 <div class="grid gap-3 md:grid-cols-2">

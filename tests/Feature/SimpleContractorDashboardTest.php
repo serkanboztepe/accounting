@@ -90,7 +90,7 @@ class SimpleContractorDashboardTest extends TestCase
         $this->assertEqualsWithDelta($d['total_due'], $after['total_due'], 0.01);
         $this->assertEqualsWithDelta($d['total_cost'], $after['total_cost'], 0.01, 'peşin ödeme maliyet değil');
 
-        Livewire::test(PurchaseOverviewCard::class)->assertSee('Genel Durum · Maliyet')->assertSee('Carilere Borcum')->assertDontSee('Ödenecek Nakit')
+        Livewire::test(PurchaseOverviewCard::class)->assertSee('Genel Durum · Maliyet')->assertSee('Kişi / Firmalara Borcum')->assertDontSee('Ödenecek Nakit')
             ->assertSee('Önceden ödediğin, malı/işi gelecek');
         Livewire::test(TopPurchasePartiesTable::class)->loadTable()->assertSee('Ana Sayfa Testi Beton')->assertSee('22.000,00');
         Livewire::test(ProjectComparisonTable::class)->loadTable()->assertSee('Ana Sayfa Testi Fatih')->assertSee('75.000,00')

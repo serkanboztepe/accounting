@@ -42,7 +42,7 @@ class SaleReturn extends Model
         return \App\Models\ActivityLog::compact([
             'Belge'   => 'Satış #' . $this->sale_id,
             'Tarih'   => \App\Models\ActivityLog::date($this->return_date),
-            'Cari'    => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Kişi / Firma' => \App\Models\ActivityLog::name(Party::class, $this->party_id),
             'Ürünler' => $lines,
             'Toplam'  => \App\Models\ActivityLog::money($this->total_amount),
             'Not'     => $this->notes,

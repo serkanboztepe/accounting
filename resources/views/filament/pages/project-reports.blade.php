@@ -76,7 +76,7 @@
                         <div class="pr-eyebrow">Toplam Proje Maliyeti</div>
                         <div class="pr-hero tnum">{{ $m($summary['total_cost']) }}</div>
                     </div>
-                    <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Cari alış <b>{{ $m($summary['purchase_cost']) }}</b>@if ($withContracts) &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b>@endif</div>
+                    <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Alış <b>{{ $m($summary['purchase_cost']) }}</b>@if ($withContracts) &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b>@endif</div>
                 </div>
 
                 @if (! $withContracts)
@@ -84,7 +84,7 @@
                         <div class="pr-col">
                             <div class="pr-colhead">Maliyet</div>
                             <div class="pr-row"><span class="pr-k">Direkt gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }}</span></div>
-                            <div class="pr-row"><span class="pr-k">Cari alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }}</span></div>
+                            <div class="pr-row"><span class="pr-k">Alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }}</span></div>
                             <div class="pr-row pr-hi"><span class="pr-k">Toplam</span><span class="pr-v tnum">{{ $m($summary['total_cost']) }}</span></div>
                         </div>
                         @if ($withChecks)
@@ -254,7 +254,7 @@
                 @endif
             </div>
 
-            <x-filament::section heading="Cari Alışları">
+            <x-filament::section heading="Alışlar">
                 @php
                     $purchaseGroups = $this->getPurchaseRows();
                 @endphp

@@ -45,7 +45,7 @@ final class ReturnDraft
             }
         }
         if (! empty($r['party']) && $partyIds === []) {
-            return 'Carilerde "' . $r['party'] . '" adında biri yok. Adını listedeki gibi yazar mısın? (*cariler* yazarsan listeyi gösteririm)';
+            return 'Listende "' . $r['party'] . '" adında biri yok. Adını listedeki gibi yazar mısın? (*kişiler* yazarsan listeyi gösteririm)';
         }
         if ($partyIds === [] && $text === null) {
             return 'Hangi kayıttan iade? Kişiyi ya da malı yazar mısın? (ör. "Ahmet\'e sattığım yemden 3 çuval geri geldi")';

@@ -30,7 +30,7 @@ class PurchaseForm
 
             Toggle::make('paid')
                 ->label('Peşin (parası verildi)')
-                ->helperText('Cari seçiliyse alış + ödeme birlikte yazılır, bakiye değişmez.')
+                ->helperText('Kişi / firma seçiliyse alış + ödeme birlikte yazılır, bakiye değişmez.')
                 ->live(),
 
             Select::make('payment_type')

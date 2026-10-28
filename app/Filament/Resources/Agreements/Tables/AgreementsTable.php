@@ -88,7 +88,7 @@ class AgreementsTable
                     ->visible(fn () => (bool) \App\Support\Features::places()),
             ])
             ->emptyStateHeading('Anlaşma yok')
-            ->emptyStateDescription('Carinin sayfasında "🤝 Anlaşma yap" ya da yukarıdaki "Yeni anlaşma" ile eklersin.');
+            ->emptyStateDescription('Kişinin sayfasında "🤝 Anlaşma yap" ya da yukarıdaki "Yeni anlaşma" ile eklersin.');
     }
 
     /** Anlaşılan tutar; yalnız fiyat listesiyse "liste · 120/m²" (+ bütçe). */

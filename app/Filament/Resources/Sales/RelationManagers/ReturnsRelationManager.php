@@ -24,7 +24,7 @@ class ReturnsRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            ->description('Bu satışa alınan iadeler. “Geri Al” iadenin stok girişini ve cari alacağını birlikte geri alır.')
+            ->description('Bu satışa alınan iadeler. “Geri Al” iadenin stok girişini ve alacak kaydını birlikte geri alır.')
             ->defaultSort('return_date', 'desc')
             ->columns([
                 TextColumn::make('return_date')
@@ -52,7 +52,7 @@ class ReturnsRelationManager extends RelationManager
                     ->label('Geri Al')
                     ->icon(Heroicon::OutlinedArrowUturnLeft)
                     ->modalHeading('İadeyi Geri Al')
-                    ->modalDescription('Bu iadenin stok girişi ve cari alacağı geri alınacak (stok tekrar düşer, cari borç geri gelir). Emin misiniz?')
+                    ->modalDescription('Bu iadenin stok girişi ve alacak kaydı geri alınacak (stok tekrar düşer, borcu geri gelir). Emin misiniz?')
                     ->modalSubmitActionLabel('Evet, geri al'),
             ]);
     }

@@ -343,7 +343,7 @@ class ExpenseExtractor
         }
 
         $d['kind'] = self::KIND_HELP;
-        $d['reply'] = 'Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor.'
+        $d['reply'] = 'Bu hesapta harcama takibi kapalı, sadece kişi ve firma hesapları tutuluyor.'
             . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? ' Bir kişiden aldıysan adıyla yaz, örneğin: "Ahmet\'ten 10 bin mal aldım".' : '')
             . (in_array(self::KIND_SALE, self::allowedKinds(), true) ? ' Satış olarak yazmak istersen: "Ahmet\'e 50 bin proje yaptım".' : '');
 
@@ -519,7 +519,7 @@ class ExpenseExtractor
             : $receiptRule . "\n" . '- Fotoğraf (çek) → belgeden yönü çıkar: bize gelen para → "collection". Kim verdi / kime verildi yazılmadıysa da '
                 . '"collection" yaz, her çeki `checks`\'e oku, `check_direction_known`=false — sistem "verdin mi aldın mı" diye sorar; "help" cevabı VERME (çekler kaybolur).';
         // Harcama takibi kapalı: kişisiz harcama / "ne harcadım" sorusu zorla başka kalıba girmesin.
-        $noExpenseRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true) ? '' : '- HARCAMA (GİDER) TAKİBİ KAPALI: kişisiz bir harcama ("5 bin mazot aldım", "kira ödedim" — kime belli değil) ya da harcama sorusu ("bu ay ne harcadım") → "help", `reply`: "Bu hesapta harcama takibi kapalı, sadece kişi/firma (cari) hesapları tutuluyor.'
+        $noExpenseRule = in_array(self::KIND_EXPENSE, self::allowedKinds(), true) ? '' : '- HARCAMA (GİDER) TAKİBİ KAPALI: kişisiz bir harcama ("5 bin mazot aldım", "kira ödedim" — kime belli değil) ya da harcama sorusu ("bu ay ne harcadım") → "help", `reply`: "Bu hesapta harcama takibi kapalı, sadece kişi ve firma hesapları tutuluyor.'
             . (in_array(self::KIND_PURCHASE, self::allowedKinds(), true) ? ' Bir kişiden aldıysan adıyla yaz, örneğin: \"Ahmet\'ten 10 bin mal aldım\".' : '')
             . ' 💡 Harcamalarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin."';
         // Tedarikçi tarafı kapalı (mimar): "Hasan'a 10 bin ödedim" en yakın kalıp "sale" sanılıp yön ters çıkıyordu.
@@ -623,6 +623,8 @@ class ExpenseExtractor
         kullanıcı söylemediyse `project_id`'yi null bırak.
         `question` alanını proje/cari eklemek için KULLANMA — sadece tutarı gerçekten
         okuyamıyorsan gibi kritik bir belirsizlikte kullan.
+        DİL: kullanıcı "cari" (= kişi/firma hesabı), "cari ekstre / ekstre" (= hesap dökümü) diyebilir — anla. Ama
+        `question` / `reply` metninde "cari" kelimesini KULLANMA: kişinin adını yaz ya da "kişi", "firma", "hesap", "hesap dökümü" de.
 
         KATEGORİ için (yalnız `expense`): kategori GENİŞ bir gider TÜRÜdür (Malzeme, İşçilik, Kira, Ulaşım,
         Yemek, Fatura…), tek tek malzeme ya da marka adı DEĞİLDİR. İki kural:

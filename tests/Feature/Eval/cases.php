@@ -407,7 +407,7 @@ return [
         // T8 "Hazal doğan ekstra" — ekstre gönderilir (sistem "Ekstre mi demek istedin?" dedi)
         ['id' => 'U-hazal-ekstra', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['send' => 'Hazal doğan ekstra']],
-            'expect' => ['reply_any' => ['Cari Ekstresi', 'ekstresi'], 'reply_not' => ['demek istedin']]],
+            'expect' => ['reply_any' => ['Hesap Dökümü', 'Cari Ekstresi', 'ekstresi'], 'reply_not' => ['demek istedin']]],
         // T9 Asansör Osman: 3 çek fotoğrafı + "ödenen 1.005.000": takıldı mı / peşin mi? + geçersiz vade uyarısı (sistem alış+ödeme tahmin etti)
         ['id' => 'U-asansor-cek-soru', 'firm' => 'taner', 'group' => 'understand',
             'steps' => [['media' => 'cek-asansor.jpg', 'send' => 'Asansör Osman Atatürk mahallesi inşatı için alınan asansöre ödenen 1.005000 tl borç yok']],

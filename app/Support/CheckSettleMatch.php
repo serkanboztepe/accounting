@@ -40,7 +40,7 @@ final class CheckSettleMatch
     /** "Ali Yılmaz — 20.000,00 ₺ çek (vade 26.10 · no 123)" */
     public static function line(Check $check): string
     {
-        return ($check->party?->name ?? 'Carisiz') . ' — ' . Money::format((float) $check->amount) . ' ₺ çek (vade '
+        return ($check->party?->name ?? 'Kişi yok') . ' — ' . Money::format((float) $check->amount) . ' ₺ çek (vade '
             . $check->due_date?->format('d.m') . ($check->check_number ? ' · no ' . $check->check_number : '') . ')';
     }
 

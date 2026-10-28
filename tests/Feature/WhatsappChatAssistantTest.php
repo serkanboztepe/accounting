@@ -174,7 +174,7 @@ class WhatsappChatAssistantTest extends TestCase
         $this->chat($query('Ad Testi Özkan', $party->id), $query('Ad Testi Yok', null), $query('AD TESTİ ÖZKAN', null));
 
         $this->assertStringContainsString('📊 Ad Testi Özkan', $this->send('Ad testi özkan cari'));
-        $this->assertStringContainsString('"Ad Testi Yok" adında bir cari bulamadım. Ne yapmamı istersin?', $this->send('Ad testi yok cari'));
+        $this->assertStringContainsString('"Ad Testi Yok" adında birini bulamadım. Ne yapmamı istersin?', $this->send('Ad testi yok cari'));
         // AI kimliği vermeyip yalnız adı yazdı (Yakup taş durum) → adı birebir tutan cari bulunur
         $this->assertStringContainsString('📊 Ad Testi Özkan', $this->send('ad testi özkan durum'));
     }
@@ -254,7 +254,7 @@ class WhatsappChatAssistantTest extends TestCase
         $text = \App\Support\ExpenseSummary::text(null, null, $project->id);
 
         $this->assertStringContainsString('Maliyet Cevabı Fatih maliyeti (şu ana kadar): 8.800.000,00 ₺', $text);
-        $this->assertStringContainsString('Cari alış (iş / malzeme): 800.000,00 ₺', $text);
+        $this->assertStringContainsString('Alışlar (iş / malzeme): 800.000,00 ₺', $text);
         $this->assertStringNotContainsString('gidere dahil değil', $text);
 
         // Projesiz soru: firma toplamı (şu ana kadar) + proje dökümü; dönem söylenince yalnız o dönem

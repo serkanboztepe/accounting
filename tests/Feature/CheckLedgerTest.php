@@ -130,7 +130,7 @@ class CheckLedgerTest extends TestCase
 
         Livewire::test(CreateCheck::class)
             ->fillForm(['direction' => 'given', 'status' => 'issued', 'party_id' => $party->id, 'due_date' => '2026-12-01', 'amount' => '12.500,00'])
-            ->assertSee('Kaydedince cariye ÖDEME olarak işlenir')
+            ->assertSee('Kaydedince kişinin hesabına ÖDEME olarak işlenir')
             ->call('create')
             ->assertHasNoFormErrors();
 
@@ -145,7 +145,7 @@ class CheckLedgerTest extends TestCase
 
         Livewire::test(CreateCheck::class)
             ->fillForm(['direction' => 'received', 'status' => 'portfolio', 'due_date' => '2026-12-01', 'amount' => '1.000,00', 'check_number' => 'CARISIZ-1'])
-            ->assertSee('Carisiz çek — cariye işlenmez')
+            ->assertSee('Kişisiz çek — hesaba işlenmez')
             ->call('create')
             ->assertHasNoFormErrors();
 

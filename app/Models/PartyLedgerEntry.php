@@ -21,7 +21,7 @@ class PartyLedgerEntry extends Model
     {
         return [self::TYPE_SALE => 'Satış', self::TYPE_COLLECTION => 'Para aldı', self::TYPE_PURCHASE => 'Alım',
             self::TYPE_PAYMENT => 'Ödeme yaptı', self::TYPE_SALE_RETURN => 'İade aldı', self::TYPE_PURCHASE_RETURN => 'İade verdi'][$this->type]
-            ?? 'Cari hareketi';
+            ?? 'Hesap hareketi';
     }
 
     public function activityAmount(): ?float

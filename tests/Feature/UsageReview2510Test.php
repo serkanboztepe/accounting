@@ -127,7 +127,7 @@ class UsageReview2510Test extends TestCase
             'amount' => 5000.0, 'question' => 'Listedeki Ayhan Ergül mü?']);
 
         $reply = $this->send('Ali 5 bin verdi');
-        $this->assertStringContainsString('Carilerde "Ali" yok', $reply);
+        $this->assertStringContainsString('Listende "Ali" yok', $reply);
         $this->assertStringNotContainsString('Ayhan', $reply);
     }
 

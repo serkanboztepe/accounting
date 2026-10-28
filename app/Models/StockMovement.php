@@ -48,7 +48,7 @@ class StockMovement extends Model
             'Miktar'      => \App\Support\StockUsage::quantity((float) $this->quantity),
             'Birim fiyat' => \App\Models\ActivityLog::money($this->unit_price),
             'Tutar'       => \App\Models\ActivityLog::money($this->amount),
-            'Cari'        => \App\Models\ActivityLog::name(Party::class, $this->party_id),
+            'Kişi / Firma' => \App\Models\ActivityLog::name(Party::class, $this->party_id),
             \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
             'Not'         => $this->notes,
         ]);

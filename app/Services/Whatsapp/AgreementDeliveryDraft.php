@@ -113,7 +113,7 @@ class AgreementDeliveryDraft
                 $candidates = array_map(fn ($id) => self::openItem($id), $d['delivery_candidates'] ?? []);
                 $candidates = array_values(array_filter($candidates));
                 if ($candidates === []) {
-                    return 'Bu mal hangi anlaşmadan geldi? Anlaşmanın adını ya da carinin adını yazar mısın?';
+                    return 'Bu mal hangi anlaşmadan geldi? Anlaşmanın adını ya da kişinin / firmanın adını yazar mısın?';
                 }
                 $party = $candidates[0]->agreement->party?->name;
                 $menu = collect($candidates)->map(fn (AgreementItem $i, $k) => '*' . ($k + 1) . '* ' . $i->agreement->title . ' · ' . self::stateText($i))->implode("\n");

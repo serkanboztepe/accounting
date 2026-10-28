@@ -194,4 +194,21 @@ class PartyKindTest extends TestCase
         $this->artisan('parties:fill-kind --apply')->assertSuccessful();
         $this->assertSame(Party::KIND_CUSTOMER, $p->fresh()->kind);
     }
+
+    /** 28.10: kişinin tipi AI'ya ipucu olarak gider — yalnız tek yönlü tipler; "ikisi de" ve boş tip not almaz. */
+    public function test_kind_is_given_to_ai_as_hint(): void
+    {
+        $c = Party::create(['name' => 'PK İpucu Müşteri', 'kind' => Party::KIND_CUSTOMER]);
+        $s = Party::create(['name' => 'PK İpucu Usta', 'kind' => Party::KIND_SUPPLIER]);
+        $b = Party::create(['name' => 'PK İpucu İkisi', 'kind' => Party::KIND_BOTH]);
+        $e = Party::create(['name' => 'PK İpucu Boş']);
+
+        $context = \App\Services\Whatsapp\ExpenseContext::build();
+
+        $this->assertStringContainsString("{$c->id}: PK İpucu Müşteri (müşteri)", $context);
+        $this->assertStringContainsString("{$s->id}: PK İpucu Usta (mal-hizmet aldığımız)", $context);
+        $this->assertMatchesRegularExpression("/{$b->id}: PK İpucu İkisi\n/", $context);
+        $this->assertMatchesRegularExpression("/{$e->id}: PK İpucu Boş\n/", $context);
+        $this->assertStringContainsString('Mesajdaki açık fiil her zaman nottan önce gelir', $context);
+    }
 }

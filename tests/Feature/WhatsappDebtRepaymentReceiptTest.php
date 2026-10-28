@@ -184,7 +184,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $this->assertStringNotContainsString('Aynı kişi mi', $reply);
         $this->assertStringContainsString('Dekonttaki ad: Evrim Hazal Belge', $reply);
 
-        $this->assertStringContainsString('Evrim Hazal Belge (yeni cari)', $this->send('o değil'));
+        $this->assertStringContainsString('Evrim Hazal Belge (yeni kişi)', $this->send('o değil'));
     }
 
     public function test_document_name_not_containing_party_name_still_asks(): void
@@ -225,7 +225,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $this->assertStringNotContainsString('ödedin', $reply);
         $this->assertSame(0, Party::where('name', 'FERHAT BİZ YILDIZ')->count());
 
-        $this->assertStringContainsString('Fuat Gönderen (yeni cari) → *sana*: 75.000,00', $this->send('Fuat Gönderen'));
+        $this->assertStringContainsString('Fuat Gönderen (yeni kişi) → *sana*: 75.000,00', $this->send('Fuat Gönderen'));
         $this->send('evet');
         $this->assertSame(-75000.0, $this->balance('Fuat Gönderen'));
         $this->assertSame(0, Party::where('name', 'FERHAT BİZ YILDIZ')->count(), 'kendi adı cari açılmaz');
@@ -302,7 +302,7 @@ class WhatsappDebtRepaymentReceiptTest extends TestCase
         $before = Expense::count();
 
         $this->sendPhoto();
-        $this->assertStringContainsString('🛒 *Alış* ← Fiş Market (yeni cari): 850,00 ₺ — Temizlik (ona borçlandın)', $this->send('ödemedim'));
+        $this->assertStringContainsString('🛒 *Alış* ← Fiş Market (yeni kişi): 850,00 ₺ — Temizlik (ona borçlandın)', $this->send('ödemedim'));
         $this->send('evet');
         $this->assertSame($before, Expense::count());
         $this->assertSame(-850.0, $this->balance('Fiş Market'));

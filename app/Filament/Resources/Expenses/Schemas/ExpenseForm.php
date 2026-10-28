@@ -36,7 +36,7 @@ class ExpenseForm
                 ->relationship('party', 'name')
                 ->searchable()
                 ->preload()
-                ->helperText('Yeni alımları Cariler → ilgili cari → Alış olarak girin.')
+                ->helperText('Yeni alımları Kişiler ve Firmalar → ilgili kişi → Alış olarak girin.')
                 ->visible(fn (?Expense $record): bool => $record?->party_id !== null),
             Select::make('expense_category_id')
                 ->label('Kategori')

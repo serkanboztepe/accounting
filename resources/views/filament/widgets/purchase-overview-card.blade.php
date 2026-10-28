@@ -48,14 +48,14 @@
                 <div class="pc-eyebrow">Genel Durum · Maliyet</div>
                 <div class="pc-hero tnum">{{ $m($d['total_cost']) }}</div>
             </div>
-            <div class="pc-break tnum">{{ $d['active_projects'] }} aktif proje · Direkt gider <b>{{ $m($d['expenses_total']) }}</b> + Cari alış <b>{{ $m($d['purchase_total']) }}</b></div>
+            <div class="pc-break tnum">{{ $d['active_projects'] }} aktif proje · Direkt gider <b>{{ $m($d['expenses_total']) }}</b> + Alış <b>{{ $m($d['purchase_total']) }}</b></div>
         </div>
 
         <div class="pc-grid">
             <div class="pc-cell">
-                <div class="pc-k">Carilere Borcum</div>
+                <div class="pc-k">Kişi / Firmalara Borcum</div>
                 <div class="pc-v tnum" style="color: var(--pc-warn)">{{ $m($d['payables']) }}</div>
-                <div class="pc-sub">Cari ekstrelerindeki açık borç</div>
+                <div class="pc-sub">Hesap dökümlerindeki açık borç</div>
             </div>
             <div class="pc-cell">
                 <div class="pc-k"><span class="pc-op">+</span>Bekleyen Çek</div>
@@ -70,10 +70,10 @@
         </div>
 
         @if ($d['prepaid'] > 0.01)
-            <div class="pc-foot tnum">📦 Önceden ödediğin, malı/işi gelecek: <b>{{ $m($d['prepaid']) }}</b> ({{ $d['prepaid_count'] }} cari) — mal/iş geldikçe maliyete girer, ödenecekten ayrı</div>
+            <div class="pc-foot tnum">📦 Önceden ödediğin, malı/işi gelecek: <b>{{ $m($d['prepaid']) }}</b> ({{ $d['prepaid_count'] }} kişi) — mal/iş geldikçe maliyete girer, ödenecekten ayrı</div>
         @endif
 
-        <div class="pc-foot tnum">Maliyet = direkt gider + cariden alış (iş / malzeme) · Ödeme ve avans maliyete girmez · Çek verildiğinde cari borcu düşer, vadesine kadar "Bekleyen Çek"te durur</div>
+        <div class="pc-foot tnum">Maliyet = direkt gider + alış (iş / malzeme) · Ödeme ve avans maliyete girmez · Çek verildiğinde borç düşer, vadesine kadar "Bekleyen Çek"te durur</div>
     </div>
     @else
     <div class="pc-summary">

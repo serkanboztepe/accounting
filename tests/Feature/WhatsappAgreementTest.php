@@ -105,7 +105,7 @@ class WhatsappAgreementTest extends TestCase
         ]));
 
         $card = $this->sendPhoto();
-        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Hüseyin Yılmaz (yeni cari)', $card);
+        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Hüseyin Yılmaz (yeni kişi)', $card);
         $this->assertStringContainsString('WAA Vitra Bone 60x120 1.244,16 m² × 450,00 = 559.872,00', $card);
         $this->assertStringContainsString('WAA Klozet kapağı 14 adet — bedelsiz', $card);
         $this->assertStringContainsString('WAA Nakliye · götürü 12.000,00 ₺', $card);
@@ -371,12 +371,12 @@ class WhatsappAgreementTest extends TestCase
             'agreement_items' => [['description' => 'WAA16 Sıva', 'unit_price' => 250]]]));
         $this->sendPhoto();
         $done = $this->send('evet');
-        $this->assertStringContainsString("📇 Belgede şunlar var:\n• *WA Anlaşma Tel* telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok.\nCari kartına yazayım mı? *evet* / *iptal*", $done);
+        $this->assertStringContainsString("📇 Belgede şunlar var:\n• *WA Anlaşma Tel* telefonu 0543 960 92 17, adresi Ergenekon Mah. 136 Sok.\nKişi kartına yazayım mı? *evet* / *iptal*", $done);
         $this->assertStringNotContainsString('yarım kalan', $done);                            // soru yarım kayıt sanılmaz (22.10)
         $party = Party::where('name', 'WA Anlaşma Tel')->sole();
         $this->assertNull($party->phone);                                                      // sormadan yazmaz
 
-        $this->assertStringContainsString('cari kartına yazıldı', $this->send('evet'));
+        $this->assertStringContainsString('kişi kartına yazıldı', $this->send('evet'));
         $party->refresh();
         $this->assertSame('0543 960 92 17', $party->phone);
         $this->assertStringContainsString('Adres: Ergenekon Mah. 136 Sok.', $party->notes);
@@ -397,7 +397,7 @@ class WhatsappAgreementTest extends TestCase
         $this->sendPhoto();
         $done = $this->send('evet');
         $this->assertStringContainsString("📇 Belgede şunlar var:\n• *WA Anlaşma Şantiye* adresi İzzet Paşa Mah. 844 Sk. No:2\n"
-            . "• 2 şantiye: WAA Cumhuriyet Mah. 6 daire, WAA Ulalar Mah. 2 daire\nCari kartına yazayım, projeleri açayım mı? *evet* / *iptal*", $done);
+            . "• 2 şantiye: WAA Cumhuriyet Mah. 6 daire, WAA Ulalar Mah. 2 daire\nKişi kartına yazayım, projeleri açayım mı? *evet* / *iptal*", $done);
         $this->assertStringContainsString('projeler açıldı', $this->send('evet'));
         $this->assertSame(2, \App\Models\Project::whereIn('name', ['WAA Cumhuriyet Mah. 6 daire', 'WAA Ulalar Mah. 2 daire'])->count());
         $this->assertStringContainsString('Adres: İzzet Paşa Mah. 844 Sk. No:2', Party::where('name', 'WA Anlaşma Şantiye')->sole()->notes);
@@ -591,7 +591,7 @@ class WhatsappAgreementTest extends TestCase
 
         $this->sendPhoto();
         $card = $this->send('3 Bodrum kapısı 5 iç kapı alacaklıyız');
-        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Gül (yeni cari) · *eski sözleşmeden kalan*', $card);
+        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Gül (yeni kişi) · *eski sözleşmeden kalan*', $card);
         $this->assertStringContainsString('• Bodrum kapısı 3 adet × 6.500,00 = 19.500,00', $card);
         $this->assertStringContainsString('• İç kapı 5 adet × 6.500,00 = 32.500,00', $card);
         $this->assertStringContainsString('💸 Önceden ödendi: 52.000,00', $card);
@@ -686,7 +686,7 @@ class WhatsappAgreementTest extends TestCase
             'project_id' => $this->project(), 'agreement_items' => [['description' => 'WAA6 Vitra', 'unit_price' => 450]]]));
 
         $ask = $this->sendPhoto();
-        $this->assertStringContainsString('Belgede *Hüseyin Yılmaz* yazıyor — carilerindeki *WA Seramikpark* mi?', $ask);
+        $this->assertStringContainsString('Belgede *Hüseyin Yılmaz* yazıyor — listendeki *WA Seramikpark* mi?', $ask);
         $card = $this->send('evet');
         $this->assertStringNotContainsString('Hüseyin Yılmaz', $card);
         $this->assertStringContainsString('Kaydedeyim mi?', $card);
@@ -775,7 +775,7 @@ class WhatsappAgreementTest extends TestCase
             'agreement_items' => [['description' => 'WAA Daire', 'quantity' => 1, 'unit_price' => 4500000]],
             'agreement_payments' => [['method' => 'eft', 'amount' => 500000]]]));
         $card = $this->send('Ahmet Yılmaz');
-        $this->assertStringContainsString('WA Anlaşma Ahmet (yeni cari) (satış)', $card);
+        $this->assertStringContainsString('WA Anlaşma Ahmet (yeni kişi) (satış)', $card);
         $this->assertStringContainsString('💸 Alınan: EFT 500.000,00', $card);
         $this->send('evet');
 

@@ -60,17 +60,17 @@ class CheckForm
                         ->searchable()
                         ->preload()
                         ->live()
-                        ->helperText('Boş bırakılırsa çek yalnız çek olarak kaydedilir, cariye işlenmez.'),
+                        ->helperText('Boş bırakılırsa çek yalnız çek olarak kaydedilir, kimsenin hesabına işlenmez.'),
                     // Çek cariye işlenir (23.10 tasarım hatası düzeltmesi; kullanıcı 26.10: seçenek YOK): cari seçiliyse yeni çekte ve
                     // düzenlemede her zaman — verilen = ödeme, alınan = tahsilat satırı, çek bağlı (CheckLedger::apply). Carisiz = hatırlatma.
                     Placeholder::make('ledger_info')
                         ->hiddenLabel()
                         ->content(fn (Get $get, ?Check $record) => match (true) {
-                            filled($get('contract_payment_id')) => 'Sözleşme ödemesine bağlı — cariye ayrıca yazılmaz, sözleşme ödemesi tutar.',
-                            blank($get('party_id')) => 'Carisiz çek — cariye işlenmez, yalnız vade hatırlatması olarak durur.',
-                            (bool) $record?->party_ledger_entry_id => 'ℹ️ Cariye işli — değişiklik ekstreye de yansır; cari kaldırılır ya da çek silinirse cariden de silinir.',
-                            ($get('direction') ?: 'given') === 'received' => 'ℹ️ Kaydedince cariye TAHSİLAT olarak işlenir — bakiyesi düşer.',
-                            default => 'ℹ️ Kaydedince cariye ÖDEME olarak işlenir — ona olan borcun düşer.',
+                            filled($get('contract_payment_id')) => 'Sözleşme ödemesine bağlı — hesaba ayrıca yazılmaz, sözleşme ödemesi tutar.',
+                            blank($get('party_id')) => 'Kişisiz çek — hesaba işlenmez, yalnız vade hatırlatması olarak durur.',
+                            (bool) $record?->party_ledger_entry_id => 'ℹ️ Kişinin hesabına işli — değişiklik hesap dökümüne de yansır; kişi kaldırılır ya da çek silinirse hesabından da silinir.',
+                            ($get('direction') ?: 'given') === 'received' => 'ℹ️ Kaydedince kişinin hesabına TAHSİLAT olarak işlenir — bakiyesi düşer.',
+                            default => 'ℹ️ Kaydedince kişinin hesabına ÖDEME olarak işlenir — ona olan borcun düşer.',
                         })
                         ->columnSpanFull(),
                     DatePicker::make('due_date')

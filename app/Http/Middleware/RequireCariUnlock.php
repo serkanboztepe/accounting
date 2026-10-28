@@ -28,7 +28,7 @@ class RequireCariUnlock
         }
 
         if ($request->hasHeader('X-Livewire')) {
-            abort(403, 'Cariler kilitlendi. Sayfayı yenileyip şifrenizi girin.');
+            abort(403, 'Kişiler ve Firmalar kilitlendi. Sayfayı yenileyip şifrenizi girin.');
         }
 
         // panel açıkça verilir: ekstre yazdır rotası panel dışında.

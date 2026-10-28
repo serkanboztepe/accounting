@@ -128,7 +128,7 @@ class ActivityLogTest extends TestCase
         $this->assertStringContainsString('25.000,00 ₺', $partyLog->details['Ekstre']);
         $this->assertArrayHasKey('Bakiye', $partyLog->details);
 
-        $this->assertSame('Cari silindiği için', $this->logsFor('party_ledger_entry', $collection->id)->last()->note);
+        $this->assertSame('Kişi silindiği için', $this->logsFor('party_ledger_entry', $collection->id)->last()->note);
         $purchaseLog = $this->logsFor('purchase', $purchase->id)->last();
         $this->assertSame('deleted', $purchaseLog->event);
         $this->assertSame('Log Unu', $purchaseLog->details['Not']);

@@ -26,7 +26,7 @@ final class NaturalVoice
     private const STANDARD_FOOTER = '/^Kaydedeyim mi\?/u';
 
     /** Özetin alt satırı (son paragraf) — kodun cevap talimatı. */
-    private const FOOTER = '/^(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|Sözleşme numarasını yaz|✅ Onaylamak|\*evet\*|\*sattım\*|\*o bana\*|Vazgeçmek için)/u';
+    private const FOOTER = '/^(Kaydedeyim mi\?|Cevabını yaz|Kısaca yaz|Cari adını yaz|Kişinin adını yaz|Sözleşme numarasını yaz|✅ Onaylamak|\*evet\*|\*sattım\*|\*o bana\*|Vazgeçmek için)/u';
 
     /** Özel ad sayılmayan büyük harfli kelimeler (ay/gün adları, hitap). */
     private const COMMON_CAPITALIZED = ['ocak', 'şubat', 'mart', 'nisan', 'mayıs', 'haziran', 'temmuz', 'ağustos', 'eylül', 'ekim', 'kasım',

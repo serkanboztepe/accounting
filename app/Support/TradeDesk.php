@@ -25,7 +25,7 @@ class TradeDesk
         $manual = Money::parse($data['manual_amount'] ?? null);
 
         if (! $isCash && ! $partyId) {
-            throw ValidationException::withMessages(['party_id' => 'Cariye satışta cari seçilmeli.']);
+            throw ValidationException::withMessages(['party_id' => 'Veresiye satışta kişi / firma seçilmeli.']);
         }
         if (! Forms\TradeLines::hasLines($data['lines'] ?? []) && $manual <= 0) {
             throw ValidationException::withMessages(['manual_amount' => 'Ürün ekle ya da ürünsüz tutar yaz.']);
@@ -61,7 +61,7 @@ class TradeDesk
         $manual = Money::parse($data['manual_amount'] ?? null);
 
         if (! $isCash && ! $partyId) {
-            throw ValidationException::withMessages(['party_id' => 'Cariden alışta cari seçilmeli.']);
+            throw ValidationException::withMessages(['party_id' => 'Veresiye alışta kişi / firma seçilmeli.']);
         }
         if (! Forms\TradeLines::hasLines($data['lines'] ?? []) && $manual <= 0) {
             throw ValidationException::withMessages(['manual_amount' => 'Ürün ekle ya da ürünsüz tutar yaz.']);

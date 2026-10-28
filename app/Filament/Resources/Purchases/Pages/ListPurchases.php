@@ -77,7 +77,7 @@ class ListPurchases extends ListRecords
             ->components([
                 ToggleButtons::make('mode')
                     ->hiddenLabel()
-                    ->options(['party' => 'Cariden (veresiye)', 'cash' => 'Peşin'])
+                    ->options(['party' => 'Veresiye', 'cash' => 'Peşin'])
                     ->icons(['party' => 'heroicon-o-user', 'cash' => 'heroicon-o-banknotes'])
                     ->inline()
                     ->live()
@@ -93,7 +93,7 @@ class ListPurchases extends ListRecords
                     ->helperText(function (Get $get) {
                         $party = $get('party_id') ? Party::find($get('party_id')) : null;
                         if (! $party) {
-                            return $get('mode') === 'cash' ? 'Seçersen alış ve ödeme cari ekstresinde birlikte görünür.' : null;
+                            return $get('mode') === 'cash' ? 'Seçersen alış ve ödeme hesap dökümünde birlikte görünür.' : null;
                         }
 
                         return PartyBalances::line($party->name, PartyStatement::build($party)['balance']);
@@ -190,7 +190,7 @@ class ListPurchases extends ListRecords
     {
         return [
             'all'   => Tab::make('Tümü'),
-            'party' => Tab::make('Cariden')->modifyQueryUsing(fn (Builder $query) => $query->where('paid', false)),
+            'party' => Tab::make('Veresiye')->modifyQueryUsing(fn (Builder $query) => $query->where('paid', false)),
             'cash'  => Tab::make('Peşin')->modifyQueryUsing(fn (Builder $query) => $query->where('paid', true)),
         ];
     }

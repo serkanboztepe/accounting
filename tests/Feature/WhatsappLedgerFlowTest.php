@@ -284,7 +284,7 @@ class WhatsappLedgerFlowTest extends TestCase
 
         $reply = $this->send("Ali'nin Eylül ekstresini at");
 
-        $this->assertStringContainsString('<Body>📄 Ali Boztepe — Cari Ekstresi', $reply);
+        $this->assertStringContainsString('<Body>📄 Ali Boztepe — Hesap Dökümü', $reply);
         $this->assertStringContainsString('Dönem: 2026-09-01 – 2026-09-30', $reply);
         $this->assertSame(1, preg_match('#<Media>(.+)</Media>#', $reply, $m));
         $url = html_entity_decode($m[1], ENT_XML1 | ENT_QUOTES);
@@ -547,6 +547,6 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->assertStringContainsString('126.000,00 ₺', $res);
         $this->assertStringContainsString('ödemesi tamam', $res);
         $this->assertStringContainsString('Ödediğin ama henüz gelmeyen: *126.000,00 ₺*', $res);
-        $this->assertStringContainsString('Cari hesap (sözleşme dışı)', $res);
+        $this->assertStringContainsString('Hesap (sözleşme dışı)', $res);
     }
 }

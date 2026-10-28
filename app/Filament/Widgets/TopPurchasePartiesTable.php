@@ -16,7 +16,7 @@ use Filament\Widgets\TableWidget;
  */
 class TopPurchasePartiesTable extends TableWidget
 {
-    protected static ?string $heading = 'En Çok Alış Yapılan 5 Cari';
+    protected static ?string $heading = 'En Çok Alış Yapılan 5 Kişi / Firma';
 
     protected int|string|array $columnSpan = 'full';
 
@@ -54,6 +54,6 @@ class TopPurchasePartiesTable extends TableWidget
                     ->color(fn (float $state): string => $state > 0 ? 'danger' : 'success'),
             ])
             ->paginated(false)
-            ->emptyStateHeading('Henüz cari alışı yok');
+            ->emptyStateHeading('Henüz alış yok');
     }
 }

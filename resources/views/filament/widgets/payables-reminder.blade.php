@@ -1,7 +1,7 @@
 <x-filament-widgets::widget>
     <x-filament::section>
         <x-slot name="heading">Ödeme Hatırlatıcı</x-slot>
-        <x-slot name="description">Vadeli ödemeler (takvim) + açık cari hesapları (ekstre net) — çekler ayrı widget'larda</x-slot>
+        <x-slot name="description">Vadeli ödemeler (takvim) + açık hesaplar (döküm net) — çekler ayrı widget'larda</x-slot>
 
         @if ($isEmpty)
             <p class="text-sm text-gray-500 dark:text-gray-400">Bekleyen ödeme / açık hesap yok. 🎉</p>
@@ -80,10 +80,10 @@
                 @if (count($openAccounts))
                     <div>
                         <h3 class="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
-                            Açık Cari Hesapları
+                            Açık Hesaplar
                             <span class="font-normal text-gray-400">({{ count($openAccounts) }})</span>
                         </h3>
-                        <p class="mb-2 text-xs text-gray-400">Cari ekstresi net bakiyesine göre biz borçluyuz.</p>
+                        <p class="mb-2 text-xs text-gray-400">Hesap dökümü net bakiyesine göre biz borçluyuz.</p>
 
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm">
@@ -116,10 +116,10 @@
                 @if (count($orphanExpenses))
                     <div>
                         <h3 class="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
-                            Cari'siz Açık Giderler
+                            Kişisiz Açık Giderler
                             <span class="font-normal text-gray-400">({{ count($orphanExpenses) }})</span>
                         </h3>
-                        <p class="mb-2 text-xs text-gray-400">Cariye bağlı değil — ödeyince "Ödendi" işaretle.</p>
+                        <p class="mb-2 text-xs text-gray-400">Kişiye bağlı değil — ödeyince "Ödendi" işaretle.</p>
 
                         <div class="overflow-x-auto">
                             <table class="w-full text-sm">

@@ -79,7 +79,7 @@ final class DraftGaps
             return ['code' => self::DETAIL, 'ask' => $ask, 'why' => 'Kaydetmeden önce sormak istedim: ' . $ask, 'party' => Understanding::partyUnclear($d)];
         }
         if (self::missingParty($d)) {
-            return ['code' => self::PARTY, 'ask' => 'Kime/kimden olduğunu yazar mısın? (cari adı)',
+            return ['code' => self::PARTY, 'ask' => 'Kime/kimden olduğunu yazar mısın? (kişi ya da firma adı)',
                 'why' => 'Kime/kimden olduğunu yazmadığın için kaydedemedim.'];
         }
         if (self::needsContractChoice($d)) {

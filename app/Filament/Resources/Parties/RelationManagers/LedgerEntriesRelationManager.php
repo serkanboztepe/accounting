@@ -27,7 +27,7 @@ class LedgerEntriesRelationManager extends RelationManager
 {
     protected static string $relationship = 'ledgerEntries';
 
-    protected static ?string $title = 'Cari Hareketleri';
+    protected static ?string $title = 'Hesap Hareketleri';
 
     /**
      * Ortak alanlar — yön/tip yok; hangi butona basıldığı tipi (ve yönü) belirler.
@@ -105,7 +105,7 @@ class LedgerEntriesRelationManager extends RelationManager
                 $this->entryAction('tahsilat', 'Tahsilat', Heroicon::OutlinedArrowDownCircle, 'success', 'Tahsilat — Para Girişi'),
                 // Bizden doğru (cari tedarikçi): Alış + Ödeme — tedarikçi modülü kapalıysa gizli
                 \App\Support\Features::supplierSide()
-                    ? $this->entryAction('alis', 'Alış / Hizmet', Heroicon::OutlinedShoppingBag, 'warning', 'Alış / Hizmet — Cariye Borçlan')
+                    ? $this->entryAction('alis', 'Alış / Hizmet', Heroicon::OutlinedShoppingBag, 'warning', 'Alış / Hizmet — Borçlan')
                     : null,
                 \App\Support\Features::supplierSide()
                     ? $this->entryAction('odeme', 'Ödeme', Heroicon::OutlinedArrowUpCircle, 'danger', 'Ödeme — Para Çıkışı')

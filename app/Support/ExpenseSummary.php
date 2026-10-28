@@ -122,7 +122,7 @@ class ExpenseSummary
             $lines[] = 'Ödemesi tamamlanmamış: ' . Money::format($s['unpaid']) . ' ₺';
         }
         if ($s['purchases'] >= 0.01) {
-            $lines[] = '🧾 Ayrıca cari alışların: ' . Money::format($s['purchases']) . ' ₺ (gidere dahil değil)';
+            $lines[] = '🧾 Ayrıca alışların: ' . Money::format($s['purchases']) . ' ₺ (gidere dahil değil)';
         }
         if ($s['total'] < 0.01 && $s['purchases'] < 0.01) {
             $lines = ['📊 ' . ($project ? $project->name . ' — ' : '') . $label . ' kayıtlı giderin yok.'];
@@ -151,7 +151,7 @@ class ExpenseSummary
         return implode("\n", array_filter([
             '📊 *' . $project->name . ' maliyeti (' . $label . '): ' . Money::format($total) . ' ₺*',
             $expenses >= 0.01 ? '• Gider: ' . Money::format($expenses) . ' ₺' : null,
-            $purchases >= 0.01 ? '• Cari alış (iş / malzeme): ' . Money::format($purchases) . ' ₺' : null,
+            $purchases >= 0.01 ? '• Alışlar (iş / malzeme): ' . Money::format($purchases) . ' ₺' : null,
             $deliveries >= 0.01 ? '• Sözleşme teslimatı: ' . Money::format($deliveries) . ' ₺' : null,
         ]));
     }

@@ -52,7 +52,7 @@ class ProjectComparisonTable extends TableWidget
                     }),
 
                 Tables\Columns\TextColumn::make('purchase_total')
-                    ->label('Cari Alış')
+                    ->label('Alış')
                     ->visible(! $contracts)
                     ->getStateUsing(fn (Project $p): float => ProjectCost::purchases($p->id))
                     ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
