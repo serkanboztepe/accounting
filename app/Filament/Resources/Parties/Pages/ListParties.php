@@ -20,8 +20,8 @@ class ListParties extends ListRecords
     protected static string $resource = PartyResource::class;
 
     /**
-     * Tipe göre süzme (27.10): "İkisi de" ve tipi boş olan hem satışta hem alımda görünür. Adlar esnaf dilinde (kullanıcı 28.10:
-     * "tedarikçi / müşteri kafa karıştırıcı" — usta, taşeron, ev sahibi de "alım yaptıklarım"); yanında kaç kişi olduğu.
+     * Tipe göre süzme (27.10): "İkisi de" ve tipi boş olan hem satışta hem alımda görünür. Adlar paranın yönüne göre (kullanıcı 28.10:
+     * "tedarikçi / müşteri kafa karıştırıcı", "alım mal çağrıştırıyor" — usta, taşeron, ev sahibi de "ödeme yaptıklarım"); yanında sayı.
      */
     public function getTabs(): array
     {
@@ -29,8 +29,8 @@ class ListParties extends ListRecords
             ->where(fn ($q) => $q->whereNull('kind')->orWhereIn('kind', [$kind, Party::KIND_BOTH]));
         $tabs = [
             'all' => ['Hepsi', fn (Builder $query) => $query],
-            'customers' => ['Satış yaptıklarım', $side(Party::KIND_CUSTOMER)],
-            'suppliers' => ['Alım yaptıklarım', $side(Party::KIND_SUPPLIER)],
+            'customers' => ['Ödeme aldıklarım', $side(Party::KIND_CUSTOMER)],
+            'suppliers' => ['Ödeme yaptıklarım', $side(Party::KIND_SUPPLIER)],
             'employees' => ['Personel', fn (Builder $query) => $query->where('is_employee', true)],
         ];
 
