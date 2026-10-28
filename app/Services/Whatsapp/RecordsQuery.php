@@ -206,11 +206,12 @@ final class RecordsQuery
                 }
             }
         }
-        if (in_array('gider', $t, true) && \App\Support\Features::expenses()) {
-            $q = self::apply(Expense::with(['party:id,name', 'project:id,name', 'category:id,name']), $f, 'expense_date', 'amount', ['description', 'notes'])
+        // Gider kişiye bağlı değil (28.10) — kişi sorulduysa gider satırı gelmez.
+        if (in_array('gider', $t, true) && \App\Support\Features::expenses() && empty($f['party_id'])) {
+            $q = self::apply(Expense::with(['project:id,name', 'category:id,name']), $f, 'expense_date', 'amount', ['description', 'notes'])
                 ->when($f['category_id'], fn ($q, $id) => $q->where('expense_category_id', $id));
             foreach (self::rows($q) as $e) {
-                $rows->push(self::row('gider', $e->id, 'expense', $e->expense_date, (float) $e->amount, $e->party?->name, $e->project?->name,
+                $rows->push(self::row('gider', $e->id, 'expense', $e->expense_date, (float) $e->amount, null, $e->project?->name,
                     $e->description ?: 'Gider', $e->category?->name, $e->payment_status !== 'paid' ? ['ödenmedi' => true] : null));
             }
         }

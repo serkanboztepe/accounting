@@ -73,42 +73,7 @@ class PartyStatement
             }
         }
 
-        // --- Giderler (bu cariye ait) → Alacak (biz borçluyuz). Ödendiyse kapama satırı. ---
-        $expenses = Expense::with(['project', 'category'])
-            ->where('party_id', $party->id)
-            ->get();
-
-        foreach ($expenses as $expense) {
-            $amount = (float) $expense->amount;
-            $desc   = $expense->description ?: ($expense->category?->name ?? 'Gider');
-            if ($trace) {
-                \App\Services\Whatsapp\TurnTrace::collect('expenses', $expense->id, ['amount' => $amount, 'status' => $expense->payment_status,
-                    'date' => $expense->expense_date?->toDateString()]);
-            }
-
-            $rows[] = self::row(
-                $expense->expense_date,
-                'Gider',
-                $desc,
-                0.0,
-                $amount,
-                $expense->project_id,
-                $expense->project?->name,
-            );
-
-            // Ödendiyse: aynı gideri kapatan borç satırı (net sıfır — bakiye şişmesin).
-            if ($expense->payment_status === 'paid') {
-                $rows[] = self::row(
-                    $expense->expense_date,
-                    'Ödeme',
-                    $desc,
-                    $amount,
-                    0.0,
-                    $expense->project_id,
-                    $expense->project?->name,
-                );
-            }
-        }
+        // Giderler kişiye bağlı değil (28.10 giderden kişi sökümü — eski kişili giderler alış olarak taşındı).
 
         // --- Çift yönlü cari hareketleri (elle) ---
         $ledgerEntries = $party->ledgerEntries()->with(['project', 'checks', 'agreement'])->get();

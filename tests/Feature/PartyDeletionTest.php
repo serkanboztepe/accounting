@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Filament\Resources\Parties\Pages\EditParty;
 use App\Models\Check;
-use App\Models\Expense;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\User;
@@ -26,11 +25,9 @@ class PartyDeletionTest extends TestCase
 
         $burak = Party::create(['name' => 'Silme Test Burak']);
         PartyLedgerEntry::create(['party_id' => $burak->id, 'entry_date' => '2026-10-10', 'type' => PartyLedgerEntry::TYPE_COLLECTION, 'amount' => 20000]);
-        Expense::create(['expense_date' => '2026-10-10', 'amount' => 500, 'payment_status' => 'paid', 'party_id' => $burak->id]);
 
         $text = PartyDeletion::description($burak);
         $this->assertStringContainsString('1 hesap hareketi de SİLİNECEK (Silme Test Burak: borcun 20.000,00 ₺)', $text);
-        $this->assertStringContainsString('1 gider silinmez, kişisiz kalır.', $text);
     }
 
     public function test_party_with_check_cannot_be_deleted_and_shows_reason(): void

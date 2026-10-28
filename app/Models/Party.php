@@ -50,8 +50,6 @@ class Party extends Model
             $details['Ekstre'] = collect($statement['rows'])->map(fn ($r) => $r['date'] . ' · ' . $r['label'] . ' · ' . $r['desc']
                 . ($r['borc'] > 0 ? ' · borç ' . \App\Models\ActivityLog::money($r['borc']) : '') . ($r['alacak'] > 0 ? ' · alacak ' . \App\Models\ActivityLog::money($r['alacak']) : ''))
                 ->implode("\n");
-            $details['Carisiz kalan giderler'] = Expense::where('party_id', $this->id)->get()
-                ->map(fn (Expense $e) => \App\Models\ActivityLog::date($e->expense_date) . ' · ' . ($e->description ?: 'Gider') . ' · ' . \App\Models\ActivityLog::money($e->amount))->implode("\n");
         }
 
         return \App\Models\ActivityLog::compact($details);
@@ -169,8 +167,7 @@ class Party extends Model
         $agreements = Agreement::where('party_id', $partyId)->distinct()->pluck('direction')->all();
         $buys = array_intersect($types, [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_PURCHASE_RETURN]) !== []
             || in_array(Agreement::DIRECTION_PURCHASE, $agreements, true)
-            || Contract::withoutGlobalScopes()->where('party_id', $partyId)->where(fn ($q) => $q->whereNull('direction')->orWhere('direction', '!=', 'sale'))->exists()
-            || Expense::where('party_id', $partyId)->exists();
+            || Contract::withoutGlobalScopes()->where('party_id', $partyId)->where(fn ($q) => $q->whereNull('direction')->orWhere('direction', '!=', 'sale'))->exists();
         $sells = array_intersect($types, [PartyLedgerEntry::TYPE_SALE, PartyLedgerEntry::TYPE_COLLECTION, PartyLedgerEntry::TYPE_SALE_RETURN]) !== []
             || in_array(Agreement::DIRECTION_SALE, $agreements, true)
             || Contract::withoutGlobalScopes()->where('party_id', $partyId)->where('direction', 'sale')->exists();
@@ -190,11 +187,6 @@ class Party extends Model
     protected function name(): Attribute
     {
         return Attribute::get(fn (?string $value) => $value === null ? null : preg_replace('/\s+/u', ' ', trim($value)));
-    }
-
-    public function expenses(): HasMany
-    {
-        return $this->hasMany(Expense::class);
     }
 
     public function contracts(): HasMany

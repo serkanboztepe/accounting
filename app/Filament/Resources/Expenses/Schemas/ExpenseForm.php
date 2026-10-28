@@ -29,15 +29,8 @@ class ExpenseForm
                 ->preload()
                 ->helperText('Boş bırakılırsa genel gider olarak değerlendirilir.')
                 ->visible(fn () => \App\Support\Features::places()),
-            // Gider = carisiz harcama; bir kişiden/firmadan alım Cariler'den "Alış" olarak girilir.
-            // Alan yalnız eskiden cariye bağlanmış kayıtta görünür (o veri bozulmasın).
-            Select::make('party_id')
-                ->label('Kişi / Firma')
-                ->relationship('party', 'name')
-                ->searchable()
-                ->preload()
-                ->helperText('Yeni alımları Kişiler ve Firmalar → ilgili kişi → Alış olarak girin.')
-                ->visible(fn (?Expense $record): bool => $record?->party_id !== null),
+            // Gider = kimseye bağlı olmayan harcama; bir kişiden/firmadan alım Kişiler ve Firmalar'dan "Alış" olarak girilir
+            // (28.10 giderden kişi sökümü: eski kişili giderler alışa taşındı, alan kalktı).
             Select::make('expense_category_id')
                 ->label('Kategori')
                 ->relationship('category', 'name')

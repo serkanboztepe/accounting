@@ -74,6 +74,7 @@ class WhatsappConversationFixesTest extends TestCase
 
     public function test_debt_note_receivable_creates_ledger_receivable_for_new_party(): void
     {
+        $expensesBefore = Expense::count();
         $this->notFirstContact();
         $this->fakeAi($this->entry([
             'kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'debt_side' => 'receivable',
@@ -90,7 +91,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame(PartyLedgerEntry::TYPE_SALE, $entry->type);
         $this->assertSame('Alacak kaydı', $entry->description);
         $this->assertEqualsWithDelta(40000, PartyStatement::build($party)['balance'], 0.001); // bize borçlu
-        $this->assertSame(0, Expense::where('party_id', $party->id)->count());          // maliyet değil
+        $this->assertSame($expensesBefore, Expense::count());          // maliyet değil
     }
 
     public function test_debt_note_without_name_asks_and_keeps_draft_until_name_given(): void
@@ -129,6 +130,7 @@ class WhatsappConversationFixesTest extends TestCase
     /** "Ne için verdin?" — numaralı menü yerine serbest cevap; niyet AI'dan, kayıttan önce özette gösterilir. */
     public function test_payment_without_debt_asks_purpose_and_reads_loan_intent(): void
     {
+        $expensesBefore = Expense::count();
         $this->notFirstContact();
         $payment = ['kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 8000, 'party_name' => 'Arda Test Ahmet', 'description' => "Ahmet'e ödeme"];
         $this->fakeAi($this->entry($payment), $this->entry($payment + ['payment_purpose' => 'loan']));
@@ -145,7 +147,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame(PartyLedgerEntry::TYPE_PAYMENT, $entry->type);
         $this->assertSame("Borç verildi — Ahmet'e ödeme", $entry->description);
         $this->assertEqualsWithDelta(8000, PartyStatement::build($party)['balance'], 0.001); // bize borçlu
-        $this->assertSame(0, Expense::where('party_id', $party->id)->count());               // maliyet değil
+        $this->assertSame($expensesBefore, Expense::count());               // maliyet değil
     }
 
     public function test_advance_stated_up_front_skips_purpose_question_without_duplicate_label(): void
@@ -379,19 +381,6 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertFalse(Party::where('name', 'Bağlama Test Tuncay')->exists(), 'kişi açılmaz');
     }
 
-    public function test_debt_of_another_party_is_not_settled(): void
-    {
-        $this->notFirstContact();
-        $owner = Party::create(['name' => 'Ev Sahibi Test']);
-        $other = Party::create(['name' => 'Başka Kişi Test']);
-        $rent = $this->openRent();
-        $rent->update(['party_id' => $owner->id]);
-        $this->fakeAi($this->entry(['amount' => 20000, 'paid' => true, 'description' => 'Kira', 'party_id' => $other->id, 'settles_expense_id' => $rent->id]));
-
-        $this->assertStringNotContainsString('Borç ödemesi', $this->send("Başka Kişi Test'e kira ödedim"));
-    }
-
-    /** "Bal sattım, 14 Kasım'da ödeyecek" → satış satırına ödeme tarihi; söylenmezse soru yok. */
     public function test_sale_due_date_is_shown_and_saved(): void
     {
         $this->notFirstContact();
@@ -407,6 +396,7 @@ class WhatsappConversationFixesTest extends TestCase
     /** "mal aldım" alıştır (tedarikçi tarafı açık her firmada) — eskiden gider kapalıyken en yakın kalıp "ödeme" seçilip yön ters çıkıyordu (Burak). */
     public function test_purchase_kind_with_supplier_side_and_records_ledger_purchase(): void
     {
+        $expensesBefore = Expense::count();
         config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         config(['modules.cari_supplier' => false]);
         $this->assertNotContains(ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::allowedKinds()); // tedarikçi tarafı kapalı (mimar)
@@ -427,7 +417,7 @@ class WhatsappConversationFixesTest extends TestCase
         $this->assertSame(PartyLedgerEntry::TYPE_PURCHASE, $row->type);
         $this->assertSame('2031-11-15', $row->due_date->toDateString());
         $this->assertEqualsWithDelta(-4400, PartyStatement::build($serkan)['balance'], 0.001);
-        $this->assertSame(0, Expense::where('party_id', $serkan->id)->count());
+        $this->assertSame($expensesBefore, Expense::count());
 
         // Peşin alış: alış + ödeme, borç yok ama ekstrede görünür.
         $this->assertStringContainsString('(ödendi)', $this->send("Alış Test Mehmet'ten 5 bin yem aldım nakit ödedim"));

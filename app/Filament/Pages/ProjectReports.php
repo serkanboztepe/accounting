@@ -215,7 +215,7 @@ class ProjectReports extends Page implements HasSchemas
         }
 
         $expenses = Expense::query()
-            ->with('category', 'party')
+            ->with('category')
             ->where('project_id', $project->id)
             ->orderBy('expense_date')
             ->get();
@@ -237,7 +237,7 @@ class ProjectReports extends Page implements HasSchemas
             $grouped[$key]['items'][] = [
                 'date'        => optional($expense->expense_date)->format('d.m.Y'),
                 'description' => $expense->description,
-                'party'       => $expense->party?->name,
+                'party'       => null,
                 'amount'      => (float) $expense->amount,
             ];
         }

@@ -32,14 +32,10 @@ class DueItems
         };
 
         if (\App\Support\Features::expenses()) {
-            foreach (Expense::query()->with(['party', 'category'])->whereIn('payment_status', ['unpaid', 'partial'])
+            foreach (Expense::query()->with('category')->whereIn('payment_status', ['unpaid', 'partial'])
                 ->whereBetween('due_date', [$from, $to])->get() as $e) {
-                if ($e->party && $balance($e->party) > -0.01) {
-                    continue; // cariye borcumuz kalmamış
-                }
                 $what = $e->description ?: ($e->category?->name ?? 'Gider');
-                $items->push(self::item($e->due_date, 'pay', 'Ödeme: ' . ($e->party ? $e->party->name . ' — ' : '') . $what,
-                    (float) $e->amount, $e->party_id));
+                $items->push(self::item($e->due_date, 'pay', 'Ödeme: ' . $what, (float) $e->amount, null));
             }
         }
 

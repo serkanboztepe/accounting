@@ -4,7 +4,6 @@ namespace App\Support;
 
 use App\Models\Check;
 use App\Models\Contract;
-use App\Models\Expense;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Quote;
@@ -69,21 +68,12 @@ class PartyDeletion
             self::count(Sale::where('party_id', $party->id)->count(), 'satış'),
             self::count(\App\Models\Purchase::where('party_id', $party->id)->count(), 'alış'),
         ]));
-        $expenses = Expense::where('party_id', $party->id)->count();
-
-        if ($deleted === [] && $expenses === 0) {
+        if ($deleted === []) {
             return 'Bu kişinin hiç hareketi yok, güvenle silinebilir.';
         }
 
         $balance = PartyStatement::build($party)['balance'];
-        $text = $deleted
-            ? '⚠️ Bu kişiyle birlikte ' . implode(' ve ', $deleted) . ' de SİLİNECEK (' . rtrim(PartyBalances::line($party->name, $balance), '.') . '). Geri alınamaz.'
-            : '';
-        if ($expenses) {
-            $text .= ($text ? ' ' : '') . "{$expenses} gider silinmez, kişisiz kalır.";
-        }
-
-        return $text;
+        return '⚠️ Bu kişiyle birlikte ' . implode(' ve ', $deleted) . ' de SİLİNECEK (' . rtrim(PartyBalances::line($party->name, $balance), '.') . '). Geri alınamaz.';
     }
 
     /** Cari silmede yazılması gereken söz (kullanıcı 21.10: tek tıkla carinin tüm hareketleri gitmesin). */

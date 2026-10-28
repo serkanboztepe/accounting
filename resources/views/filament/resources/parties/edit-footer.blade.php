@@ -441,41 +441,6 @@
         </x-filament::section>
     @endif
 
-    {{-- Direkt Giderler --}}
-    @if (count($expenses) > 0)
-        <x-filament::section heading="Direkt Giderler">
-            <div class="space-y-3">
-                @foreach ($expenses as $group)
-                    <x-filament::section
-                        :heading="$group['project']"
-                        :description="'₺' . \App\Support\Money::format($group['total']) . ' · ' . count($group['items']) . ' kayıt'"
-                        collapsible
-                        collapsed
-                        compact
-                    >
-                        <div class="divide-y divide-gray-100 dark:divide-white/5">
-                            @foreach ($group['items'] as $item)
-                                <div class="flex items-center gap-2 py-3">
-                                    <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
-                                    <span class="shrink-0 text-xs text-gray-300 dark:text-gray-600">-</span>
-                                    <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
-                                        {{ $item['description'] ?: ($item['category'] ?: '-') }}
-                                        @if ($item['category'])
-                                            <span class="text-xs text-gray-400">· {{ $item['category'] }}</span>
-                                        @endif
-                                    </span>
-                                    <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
-                                        ₺{{ \App\Support\Money::format($item['amount']) }}
-                                    </span>
-                                </div>
-                            @endforeach
-                        </div>
-                    </x-filament::section>
-                @endforeach
-            </div>
-        </x-filament::section>
-    @endif
-
     {{-- Çekler --}}
     @if (count($checks) > 0)
         <x-filament::section heading="Çekler">

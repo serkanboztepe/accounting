@@ -24,7 +24,6 @@ class PartyBalances
     public static function all(array $filters = []): Collection
     {
         $partyIds = collect()
-            ->merge(Expense::query()->whereNotNull('party_id')->distinct()->pluck('party_id'))
             ->merge(PartyLedgerEntry::query()->whereNotNull('party_id')->distinct()->pluck('party_id'))
             ->merge(Contract::withoutGlobalScope('purchase')->whereNotNull('party_id')->distinct()->pluck('party_id'))
             ->unique()

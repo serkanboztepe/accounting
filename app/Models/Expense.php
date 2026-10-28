@@ -46,7 +46,6 @@ class Expense extends Model
             'Ödeme durumu' => ['paid' => 'Ödendi', 'unpaid' => 'Ödenmedi', 'partial' => 'Kısmen ödendi'][$this->payment_status] ?? $this->payment_status,
             'Vade'         => \App\Models\ActivityLog::date($this->due_date),
             \App\Support\Labels::project() => \App\Models\ActivityLog::name(\App\Models\Project::class, $this->project_id),
-            'Kişi / Firma' => \App\Models\ActivityLog::name(Party::class, $this->party_id),
             'Not'          => $this->notes,
         ]);
     }
@@ -55,7 +54,6 @@ class Expense extends Model
 
     protected $fillable = [
         'project_id',
-        'party_id',
         'expense_category_id',
         'expense_date',
         'amount',
@@ -74,11 +72,6 @@ class Expense extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
-    }
-
-    public function party(): BelongsTo
-    {
-        return $this->belongsTo(Party::class);
     }
 
     public function category(): BelongsTo

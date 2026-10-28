@@ -172,17 +172,16 @@ class ExpenseContext
         if (\App\Support\Features::expenses()) {
             $open = self::scoped(Expense::query(), 'expenses')
                 ->whereIn('payment_status', ['unpaid', 'partial'])
-                ->with('party:id,name')
                 ->latest('expense_date')->latest('id')
                 ->take(25)
-                ->get(['id', 'expense_date', 'amount', 'description', 'party_id']);
+                ->get(['id', 'expense_date', 'amount', 'description']);
 
             $lines[] = '';
-            $lines[] = 'ÖDENMEMİŞ GİDERLER (id: tarih — açıklama — tutar [cari]):';
+            $lines[] = 'ÖDENMEMİŞ GİDERLER (id: tarih — açıklama — tutar):';
             $lines[] = $open->isEmpty()
                 ? '  (ödenmemiş gider yok)'
                 : $open->map(fn (Expense $e) => sprintf('  %d: %s — %s — %s%s', $e->id, $e->expense_date->format('Y-m-d'),
-                    $e->description ?: 'gider', (float) $e->amount, $e->party ? " [{$e->party->name}]" : ''))->implode("\n");
+                    $e->description ?: 'gider', (float) $e->amount, ''))->implode("\n");
         }
 
         return implode("\n", $lines);

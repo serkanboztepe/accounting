@@ -27,9 +27,6 @@ class ExpensesTable
                 TextColumn::make('category.name')
                     ->label('Kategori')
                     ->searchable(),
-                TextColumn::make('party.name')
-                    ->label('Kişi / Firma')
-                    ->searchable(),
                 TextColumn::make('amount')
                     ->label('Tutar')
                     ->money('TRY')
@@ -41,13 +38,13 @@ class ExpensesTable
                     // (ödemeler oraya girer), gider satırı "ödendi"ye çevrilmez.
                     ->formatStateUsing(fn (string $state, $record): string => match ($state) {
                         'paid'    => 'Ödendi',
-                        'unpaid'  => $record->party_id ? 'Veresiye' : 'Ödenmedi',
+                        'unpaid'  => 'Ödenmedi',
                         'partial' => 'Kısmi Ödendi',
                         default   => $state,
                     })
                     ->color(fn (string $state, $record): string => match ($state) {
                         'paid'    => 'success',
-                        'unpaid'  => $record->party_id ? 'warning' : 'danger',
+                        'unpaid'  => 'danger',
                         'partial' => 'warning',
                         default   => 'gray',
                     }),

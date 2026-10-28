@@ -146,7 +146,7 @@ class WhatsappTurnTraceTest extends TestCase
                 'ledger' => PartyLedgerEntry::where('id', '>', $marks['ledger'])->orderBy('id')->get()
                     ->map(fn ($l) => [$l->id, $l->party_id, $l->type, $l->direction, (float) $l->amount, $l->description, $l->purchase_id])->all(),
                 'expenses' => \App\Models\Expense::where('id', '>', $marks['expenses'])->orderBy('id')->get()
-                    ->map(fn ($e) => [$e->id, (float) $e->amount, $e->description, $e->payment_status, $e->party_id])->all(),
+                    ->map(fn ($e) => [$e->id, (float) $e->amount, $e->description, $e->payment_status])->all(),
                 'parties' => Party::where('id', '>', $marks['parties'])->orderBy('id')->pluck('name', 'id')->all(),
                 'messages' => WhatsappMessage::where('id', '>', $marks['messages'])->orderBy('id')->get()
                     ->map(fn ($m) => [$m->direction, $m->body, $m->kind])->all(),

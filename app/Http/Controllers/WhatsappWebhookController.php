@@ -1842,9 +1842,7 @@ class WhatsappWebhookController extends Controller
                 $data['amount'] = (float) $open->amount;
                 $data['question'] = null;
             }
-            // Borç başka birine aitse eşleşme yanlış — ayrı gider.
-            $differentParty = $open && $open->party_id && ! empty($data['party_id']) && (int) $data['party_id'] !== (int) $open->party_id;
-            if (! $open || $differentParty || (float) $data['amount'] > (float) $open->amount + 0.01) {
+            if (! $open || (float) $data['amount'] > (float) $open->amount + 0.01) {
                 $data['settles_expense_id'] = null;
             }
         }
@@ -2480,7 +2478,10 @@ class WhatsappWebhookController extends Controller
         if (! empty($find['party']) && $partyIds === []) {
             return 'Listende "' . $find['party'] . '" adında biri yok. Adını listedeki gibi yazar mısın? (*kişiler* yazarsan listeyi gösteririm)';
         }
-        $filter = function ($q, string $amountCol, string $dateCol, ?string $textCol) use ($amount, $date, $text, $since, $partyIds) {
+        $filter = function ($q, string $amountCol, string $dateCol, ?string $textCol, bool $hasParty = true) use ($amount, $date, $text, $since, $partyIds) {
+            if (! $hasParty && $partyIds !== []) {
+                return collect(); // gider kişiye bağlı değil (28.10) — kişi adıyla aranınca gider aday olmaz
+            }
             $q->where($dateCol, '>=', $since);
             if ($amount) {
                 $q->whereBetween($amountCol, [$amount - 0.01, $amount + 0.01]);
@@ -2491,7 +2492,7 @@ class WhatsappWebhookController extends Controller
             if ($text) {
                 $q->where($textCol, 'like', '%' . $text . '%');
             }
-            if ($partyIds !== []) {
+            if ($partyIds !== [] && $hasParty) {
                 $q->whereIn('party_id', $partyIds);
             }
 
@@ -2499,7 +2500,7 @@ class WhatsappWebhookController extends Controller
         };
         $day = fn ($d) => \Illuminate\Support\Carbon::parse($d)->format('d.m');
         $hits = collect()
-            ->merge($filter(Expense::query(), 'amount', 'expense_date', 'description')
+            ->merge($filter(Expense::query(), 'amount', 'expense_date', 'description', hasParty: false)
                 ->map(fn ($e) => [['expense', $e->id], '📝 Gider — ' . $e->expense_date->format('d.m') . ' — ' . Money::format((float) $e->amount) . ' ₺ — ' . ($e->description ?: '—'), $e->expense_date]))
             // Belgeli satış/alışın carideki aynası ayrıca listelenmez — belgeyle birlikte gider.
             ->merge($filter(PartyLedgerEntry::with('party')->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id')->whereNull('purchase_return_id'), 'amount', 'entry_date', 'description')
@@ -2624,8 +2625,7 @@ class WhatsappWebhookController extends Controller
                 $model = $this->undoModel($target);
                 if ($model && ($target[0] ?? null) === 'settle') {
                     // Borç ödemesi geri alınır: gider silinmez, ödeme öncesi hâline döner (borç tekrar açılır).
-                    $model->update(['amount' => $target[2], 'payment_status' => $target[3], 'party_id' => $target[4] ?? null]);
-                    $partyIds[] = $model->party_id;
+                    $model->update(['amount' => $target[2], 'payment_status' => $target[3]]);
                     $deleted++;
                 } elseif ($model) {
                     $partyIds[] = $model->party_id;
@@ -3395,7 +3395,7 @@ class WhatsappWebhookController extends Controller
     {
         $amount = (float) $d['amount'];
         $remaining = (float) $open->amount - $amount;
-        $who = $open->party ? ' · ' . $open->party->name : '';
+        $who = '';
 
         $lines = ['💸 *Borç ödemesi — kontrol et:*'];
         $lines[] = '• Borç: ' . $open->expense_date->format('d.m.Y') . ' — ' . ($open->description ?: 'gider')
@@ -3407,7 +3407,7 @@ class WhatsappWebhookController extends Controller
         // Kişisiz borç + ödemede isim var ("Tuncay'a kira ödedim") → isim özette görünür (Arda'da görünmediği için kullanıcı
         // eşleşmeyi tanımadı, "yeni" deyip kirayı ikinci kez yazdı). 28.10: gider kişiye bağlanmaz, yalnız gösterilir.
         $payee = $this->existingParty($d)?->name ?? ($d['party_name'] ?? null);
-        if (! $open->party_id && $payee) {
+        if ($payee) {
             $lines[] = '• Kime: *' . $payee . '*';
         }
         $lines[] = 'Yeni gider açılmaz (bu masraf zaten yazılı).';
@@ -3429,7 +3429,7 @@ class WhatsappWebhookController extends Controller
             }
             // "Son kaydı sil" bu ödemeyi geri alabilsin: borcun ödeme öncesi hâli (kalan parça ayrıca 'expense' olarak kaydolur).
             if (self::$recording !== null) {
-                self::$recording[] = ['settle', $open->id, (string) $open->amount, $open->payment_status, $open->party_id];
+                self::$recording[] = ['settle', $open->id, (string) $open->amount, $open->payment_status];
             }
 
             $paid = (float) $d['amount'];
@@ -3452,8 +3452,7 @@ class WhatsappWebhookController extends Controller
             }
             $open->payment_status = 'paid';
             $open->save();
-            $this->touchedPartyId = $open->party_id ?: $this->touchedPartyId;
-            $this->committedPartyId = $open->party_id ?: null;
+            $this->committedPartyId = null;
 
             $pending->update(['status' => 'confirmed']);
 
@@ -3912,7 +3911,6 @@ class WhatsappWebhookController extends Controller
         }
 
         return Expense::query()
-            ->whereNull('party_id')
             ->whereIn('payment_status', ['unpaid', 'partial'])
             ->when($filters['project_id'] ?? null, fn ($q, $id) => $q->where('project_id', $id))
             ->orderByDesc('amount')

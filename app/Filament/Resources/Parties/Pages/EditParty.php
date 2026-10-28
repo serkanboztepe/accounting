@@ -11,7 +11,6 @@ use App\Models\Check;
 use App\Models\Contract;
 use App\Models\ContractDelivery;
 use App\Models\ContractPayment;
-use App\Models\Expense;
 use App\Models\Invoice;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
@@ -1271,7 +1270,6 @@ class EditParty extends EditRecord
             'activityLogs'     => $this->getActivityLogs(),
             'contracts'        => $this->getContractRows(),
             'invoices'         => $this->getInvoiceRows(),
-            'expenses'         => $this->getExpenseRows(),
             'checks'           => $this->getCheckRows(),
             'agreements'       => $this->getAgreementCards(),
             // "Bağla" düğmesi yalnız o yönde seçilecek anlaşma varsa.
@@ -1294,7 +1292,6 @@ class EditParty extends EditRecord
 
         $ids = collect()
             ->merge(Contract::withoutGlobalScope('purchase')->where('party_id', $party->id)->pluck('project_id'))
-            ->merge(Expense::where('party_id', $party->id)->pluck('project_id'))
             ->merge(PartyLedgerEntry::where('party_id', $party->id)->pluck('project_id'))
             ->filter()
             ->unique()
@@ -1397,37 +1394,6 @@ class EditParty extends EditRecord
                     : null,
             ])
             ->all();
-    }
-
-    private function getExpenseRows(): array
-    {
-        $party = $this->record;
-
-        $expenses = Expense::query()
-            ->with(['project', 'category'])
-            ->where('party_id', $party->id)
-            ->orderBy('expense_date')
-            ->get();
-
-        $grouped = [];
-        foreach ($expenses as $expense) {
-            $key  = $expense->project_id ?? 0;
-            $name = $expense->project?->name ?? (\App\Support\Features::places() ? 'Projesiz' : 'Giderler');
-
-            if (! isset($grouped[$key])) {
-                $grouped[$key] = ['project' => $name, 'total' => 0, 'items' => []];
-            }
-
-            $grouped[$key]['total']   += (float) $expense->amount;
-            $grouped[$key]['items'][]  = [
-                'date'        => optional($expense->expense_date)->format('d.m.Y'),
-                'category'    => $expense->category?->name,
-                'description' => $expense->description,
-                'amount'      => (float) $expense->amount,
-            ];
-        }
-
-        return array_values($grouped);
     }
 
     private function getCheckRows(): array

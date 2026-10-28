@@ -80,10 +80,10 @@ class WhatsappLedgerFlowTest extends TestCase
     public function test_payment_against_open_debt_reduces_balance_without_new_cost(): void
     {
         $party = Party::create(['name' => 'Ahmet Usta']);
-        Expense::create([
-            'party_id' => $party->id, 'expense_date' => now(), 'amount' => 150000,
-            'payment_status' => 'unpaid', 'description' => 'Malzeme',
-        ]);
+        // 28.10: kişiyle olan borç alış satırıdır (gider kişiye bağlanmaz).
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 150000,
+            'description' => 'Malzeme']);
+        $expenses = Expense::count();
         $this->assertSame(-150000.0, $this->balance($party));
 
         $this->fakeAi($this->entry([
@@ -96,8 +96,8 @@ class WhatsappLedgerFlowTest extends TestCase
 
         $this->send('evet');
 
-        $this->assertSame(1, Expense::where('party_id', $party->id)->count(), 'Ödeme yeni gider açmamalı');
-        $entry = PartyLedgerEntry::where('party_id', $party->id)->sole();
+        $this->assertSame($expenses, Expense::count(), 'Ödeme yeni gider açmamalı');
+        $entry = PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)->sole();
         $this->assertSame(PartyLedgerEntry::TYPE_PAYMENT, $entry->type);
         $this->assertSame('bank_transfer', $entry->payment_type);
         $this->assertSame(-50000.0, $this->balance($party));
@@ -105,6 +105,7 @@ class WhatsappLedgerFlowTest extends TestCase
 
     public function test_payment_without_debt_asks_and_advance_is_recorded(): void
     {
+        $expensesBefore = Expense::count();
         $party = Party::create(['name' => 'Mehmet Usta']);
         $this->fakeAi($this->entry([
             'kind' => ExpenseExtractor::KIND_PAYMENT, 'amount' => 20000, 'party_id' => $party->id,
@@ -123,12 +124,13 @@ class WhatsappLedgerFlowTest extends TestCase
         $entry = PartyLedgerEntry::where('party_id', $party->id)->sole();
         $this->assertStringStartsWith('Avans', (string) $entry->description);
         $this->assertSame(20000.0, $this->balance($party)); // avans: cari bize borçlu
-        $this->assertSame(0, Expense::where('party_id', $party->id)->count());
+        $this->assertSame($expensesBefore, Expense::count());
     }
 
     /** "1" (iş/mal aldım) → peşin alış: alış + ödeme cari hesabında, gider açılmaz (Taner, 13 Ekim). */
     public function test_payment_without_debt_choice_one_becomes_paid_purchase(): void
     {
+        $expensesBefore = Expense::count();
         config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $party = Party::create(['name' => 'Ali Usta']);
         $this->fakeAi($this->entry([
@@ -140,7 +142,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $this->send('1');
         $this->send('evet');
 
-        $this->assertSame(0, Expense::where('party_id', $party->id)->count());
+        $this->assertSame($expensesBefore, Expense::count());
         $this->assertEqualsCanonicalizing([PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT],
             PartyLedgerEntry::where('party_id', $party->id)->pluck('type')->all());
         $this->assertSame(0.0, $this->balance($party));
@@ -249,10 +251,8 @@ class WhatsappLedgerFlowTest extends TestCase
     public function test_balance_query_answers_without_draft(): void
     {
         $party = Party::create(['name' => 'Kuşak Beton']);
-        Expense::create([
-            'party_id' => $party->id, 'expense_date' => now(), 'amount' => 42000,
-            'payment_status' => 'unpaid', 'description' => 'Beton',
-        ]);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 42000,
+            'description' => 'Beton']);
         $this->fakeAi($this->entry(['kind' => ExpenseExtractor::KIND_BALANCE_QUERY, 'party_id' => $party->id]));
 
         $reply = $this->send("Kuşak Beton'a ne kadar borcum var?");
@@ -326,7 +326,7 @@ class WhatsappLedgerFlowTest extends TestCase
         $beton = Party::create(['name' => 'Zz Beton Toplam']);
         PartyLedgerEntry::create(['party_id' => $ali->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 150000]);
         PartyLedgerEntry::create(['party_id' => $veli->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 60000]);
-        Expense::create(['party_id' => $beton->id, 'expense_date' => now(), 'amount' => 42000, 'payment_status' => 'unpaid', 'description' => 'Beton']);
+        PartyLedgerEntry::create(['party_id' => $beton->id, 'entry_date' => now(), 'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 42000, 'description' => 'Beton']);
 
         $receivables = \App\Support\PartyBalances::receivables();
         $payables = \App\Support\PartyBalances::payables();
@@ -348,6 +348,7 @@ class WhatsappLedgerFlowTest extends TestCase
 
     public function test_unstated_payment_defaults_unpaid_with_party_paid_without(): void
     {
+        $expensesBefore = Expense::count();
         config(['modules.projects' => false]); // proje sorusu ayrı testte (ProjectChoice — maliyet kaydında hep sorulur)
         $party = Party::create(['name' => 'Zz Varsayılan Cari']);
         $this->fakeAi(
@@ -358,7 +359,7 @@ class WhatsappLedgerFlowTest extends TestCase
         // Carili → alış (gider değil); ödendiği söylenmedi → ona borçlandın.
         $this->assertStringContainsString('(ona borçlandın)', $this->send("Ahmet'ten 100 bin malzeme aldım"));
         $this->send('evet');
-        $this->assertSame(0, Expense::where('party_id', $party->id)->count());
+        $this->assertSame($expensesBefore, Expense::count());
         $this->assertSame(-100000.0, $this->balance($party));
 
         $this->assertStringContainsString('· ödendi', $this->send('5 bin yakıt'));
