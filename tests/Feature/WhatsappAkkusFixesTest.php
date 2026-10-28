@@ -47,6 +47,40 @@ class WhatsappAkkusFixesTest extends TestCase
         $this->assertStringContainsString('"input":{}', $second->body());
     }
 
+    /** Oktay 28.10: taslak YOKKEN AI onay seçti, mesaj yeni gider — 👍 ile yutulmaz, AI'a bir tur daha verilir. */
+    public function test_confirm_without_draft_and_without_assent_gets_another_turn(): void
+    {
+        Http::fake(['api.anthropic.com/*' => Http::sequence()
+            ->push($this->tool('confirm_pending', []))
+            ->push($this->tool('propose_entry', ['kind' => 'expense', 'amount' => 30000, 'description' => 'Hayvan gübresi 15 römork',
+                'project_name' => 'Tarla 123/50', 'confidence' => 'high', 'is_new_entry' => true]))]);
+
+        $r = app(ChatAssistant::class)->respond('whatsapp:+905550001113', '123/50 tarla ya 15 römork gubre doktum romork basi 2000 tl', null);
+
+        $this->assertSame('entry', $r['type']);
+        $this->assertSame(30000.0, $r['data']['amount']);
+        Http::assertSentCount(2);
+        $this->assertStringContainsString('onay bekleyen taslak YOK', Http::recorded()[1][0]->body());
+    }
+
+    public function test_confirm_without_draft_twice_falls_back_to_ask_confirm(): void
+    {
+        Http::fake(['api.anthropic.com/*' => Http::response($this->tool('confirm_pending', []))]);
+
+        $this->assertSame('ask_confirm', app(ChatAssistant::class)->respond('whatsapp:+905550001114', 'gübre döktüm tarlaya', null)['type']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_confirm_with_assent_or_with_draft_is_unchanged(): void
+    {
+        Http::fake(['api.anthropic.com/*' => Http::response($this->tool('confirm_pending', []))]);
+
+        $this->assertSame('confirm', app(ChatAssistant::class)->respond('whatsapp:+905550001115', 'tamam', null)['type'], 'kısa onay: eskisi gibi');
+        $this->assertSame('ask_confirm', app(ChatAssistant::class)->respond('whatsapp:+905550001116', 'şunu bir daha bak',
+            ['kind' => 'expense', 'amount' => 5])['type'], 'taslak varken: eskisi gibi');
+        Http::assertSentCount(2);
+    }
+
     public function test_cancel_with_cancel_word_still_cancels(): void
     {
         Http::fake(['api.anthropic.com/*' => Http::response($this->tool('cancel_pending', []))]);

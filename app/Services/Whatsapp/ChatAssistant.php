@@ -85,6 +85,7 @@ class ChatAssistant
         $maxTokens = 1024;
         $deep = false;
         $claimRetried = false;
+        $confirmRetried = false;
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
             $timeout = 60;
             if (self::$deadline !== null) {
@@ -157,6 +158,17 @@ class ChatAssistant
                     // İki anahtar: AI "onay" dese de mesajda gerçek bir onay kelimesi yoksa KAYDETME
                     // ("Sılajcı yusuf" isim düzeltmesi onay sayılıp kaydedilmişti).
                     if (! self::hasAssent($text)) {
+                        // Onaylanacak taslak YOKKEN onay seçildiyse mesaj yeni işlem olabilir — 👍 ile yutulmasın
+                        // (Oktay 28.10: "123/50 tarlaya 15 römork gübre döktüm, römork başı 2000" → yalnız 👍, kayıt yok).
+                        if ($pending === null && ! $confirmRetried) {
+                            $confirmRetried = true;
+                            $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
+                            $messages[] = ['role' => 'user', 'content' => self::toolResults($content, [$call['id'] => 'ONAYLANMADI: onay bekleyen taslak YOK '
+                                    . '(eski taslak iptal edilmiş ya da kaydedilmiş). Bu mesaj yeni bir işlemse propose_entry (is_new_entry=true) ile öner; '
+                                    . 'değilse reply.'])];
+                            break;
+                        }
+
                         return ['type' => 'ask_confirm'];
                     }
 
