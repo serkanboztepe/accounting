@@ -35,9 +35,11 @@ class ProjectsTable
                 TextColumn::make('party.name')
                     ->label('Sahip müşteri')
                     ->placeholder('—')
-                    ->visible(fn () => config('app.profile') !== 'muteahhit')
+                    // Formla aynı kural (ProjectForm): şube/yer olarak kullanan firmada sahip ve ada/parsel yok.
+                    ->visible(fn () => ! in_array(config('app.profile'), ['muteahhit', 'trade', 'alacak_verecek'], true))
                     ->toggleable(),
-                TextColumn::make('cadastral_parcel')->label('Ada / Parsel')->placeholder('—')->searchable(),
+                TextColumn::make('cadastral_parcel')->label('Ada / Parsel')->placeholder('—')->searchable()
+                    ->visible(fn () => ! in_array(config('app.profile'), ['trade', 'alacak_verecek'], true)),
                 TextColumn::make('address')->label('Adres')->placeholder('—')->limit(40)->tooltip(fn ($state) => $state)->searchable()->toggleable(),
                 TextColumn::make('status')
                     ->label('Durum')
