@@ -119,7 +119,7 @@ class Party extends Model
      */
     public const KIND_HINTS = [
         self::KIND_CUSTOMER => 'müşteri',
-        self::KIND_SUPPLIER => 'malcı, usta, taşeron, kira',
+        self::KIND_SUPPLIER => 'mal aldığım yer, usta, kira',
         self::KIND_BOTH     => 'hem alır hem öderim',
         self::KIND_EMPLOYEE => 'maaş ve avans',
     ];
