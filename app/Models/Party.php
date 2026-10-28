@@ -107,10 +107,18 @@ class Party extends Model
     public const KIND_EMPLOYEE = 'employee';
 
     public const KINDS = [
-        self::KIND_CUSTOMER => 'Ona satış yapıyorum',
-        self::KIND_SUPPLIER => 'Ondan alış yapıyorum',
-        self::KIND_BOTH     => 'İkisi de',
-        self::KIND_EMPLOYEE => 'Personelim',
+        self::KIND_CUSTOMER => 'Satış yaptığım',
+        self::KIND_SUPPLIER => 'Alım yaptığım',
+        self::KIND_BOTH     => 'Alım ve satış',
+        self::KIND_EMPLOYEE => 'Personel',
+    ];
+
+    /** Seçim kutusunun alt satırı (28.10: radyo yerine kutu düğme — para yönünü söyler). */
+    public const KIND_HINTS = [
+        self::KIND_CUSTOMER => 'ödeme alırım',
+        self::KIND_SUPPLIER => 'ödeme yaparım',
+        self::KIND_BOTH     => 'ikisi birden',
+        self::KIND_EMPLOYEE => 'maaş ve avans',
     ];
 
     /** Personel işareti (is_employee) ile tip senkron: biri değişince öteki de (WhatsApp "personelim" is_employee'yi açar). */

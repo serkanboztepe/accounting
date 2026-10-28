@@ -3,7 +3,8 @@
 namespace App\Filament\Resources\Parties\Schemas;
 
 use App\Models\Party;
-use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\ToggleButtons;
+use Illuminate\Support\HtmlString;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Utilities\Get;
@@ -27,10 +28,16 @@ class PartyForm
             TextInput::make('name')->label('İsim')->required()->maxLength(255),
             TextInput::make('phone')->label('Telefon')->maxLength(255),
             // Cari tipi (27.10): cari sayfasında yalnız bu tipin düğmeleri çıkar. Açarken zorunlu; eski (boş) kayıtta seçilebilir.
-            Radio::make('kind')->label('Onunla nasıl çalışıyorsun?')
-                ->options(Party::KINDS)->inline()->live()->columnSpanFull()
-                ->required($requireKind)
-                ->helperText('Sayfasında buna göre düğmeler çıkar. Sonradan buradan değiştirebilirsin.'),
+            // Kutu düğmeler (28.10, kullanıcı: radyo yerine): başlık + küçük açıklama; renkler sayfadaki düğmelerle aynı.
+            ToggleButtons::make('kind')->label('Bu kişi / firmayla ne tür iş yapıyorsun?')
+                ->options(collect(Party::KINDS)->map(fn (string $label, string $kind) => new HtmlString(e($label)
+                    . '<span class="block text-xs font-normal opacity-75">' . e(Party::KIND_HINTS[$kind]) . '</span>'))->all())
+                ->icons([Party::KIND_CUSTOMER => 'heroicon-o-arrow-up-tray', Party::KIND_SUPPLIER => 'heroicon-o-arrow-down-tray',
+                    Party::KIND_BOTH => 'heroicon-o-arrows-right-left', Party::KIND_EMPLOYEE => 'heroicon-o-user'])
+                ->colors([Party::KIND_CUSTOMER => 'info', Party::KIND_SUPPLIER => 'warning', Party::KIND_BOTH => 'gray',
+                    Party::KIND_EMPLOYEE => 'success'])
+                ->columns(['default' => 1, 'sm' => 2])->live()->columnSpanFull()
+                ->required($requireKind),
             Textarea::make('notes')->label('Notlar')->columnSpanFull(),
             // Personel: maaş ve ödeme günü (maaş günü hatırlatması, avans mahsubu). Ayrı modül yok, cari + tip.
             TextInput::make('salary_amount')->label('Aylık maaş (₺)')
