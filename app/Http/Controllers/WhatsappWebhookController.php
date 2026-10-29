@@ -263,6 +263,18 @@ class WhatsappWebhookController extends Controller
         }
     }
 
+    /** "13.10'da Düzgün Yıldırım'a 300.000 ₺ ödeme zaten yazılı. *yeni* / *aynı*" — kısa, iki net cevap. */
+    private static function duplicateQuestion(array $d, string $day): string
+    {
+        $what = ($d['kind'] ?? null) === ExpenseExtractor::KIND_COLLECTION ? 'tahsilat' : 'ödeme';
+        $party = ! empty($d['party_id']) ? Party::find($d['party_id'])?->name : null;
+
+        return '⚠️ ' . $day . ' günü ' . ($party ? $party . ' için ' : '') . 'aynı tutarda (' . Money::format((float) $d['amount']) . ' ₺) '
+            . $what . " zaten yazılı.\n"
+            . '*yeni* → ayrı bir ' . $what . ", kaydederim\n"
+            . '*aynı* → o kayıt, tekrar yazmam';
+    }
+
     private static function isStaff(array $d, ?Party $party): bool
     {
         return ! empty($d['staff_hint']) || (bool) $party?->is_employee;
@@ -863,7 +875,8 @@ class WhatsappWebhookController extends Controller
         }
         // "Kaç m³ geldi?" → yalnız sayı: miktar (tutar sanılmasın — eski "tutarı eksik taslak" kuralı buraya gelmesin).
         if ($pending && $image === null && AgreementDeliveryDraft::handles($pending->extracted)
-            && ($typed = $this->typedAmount($body)) !== null && ($filled = AgreementDeliveryDraft::fillNumber($pending->extracted, $typed)) !== null) {
+            && ($typed = $this->typedAmount($body)) !== null && ($filled = AgreementDeliveryDraft::fillNumber($pending->extracted, $typed,
+                (bool) preg_match('/\b(bin|milyon|tl|lira)\b|₺/iu', $body))) !== null) {
             $this->inboundKind = 'quick';
 
             return $this->twiml($this->saveDraft($pending, $phone, $filled));
@@ -932,6 +945,23 @@ class WhatsappWebhookController extends Controller
             $this->inboundKind = 'quick';
 
             return $this->twiml($this->saveDraft($pending, $phone, ['question' => null] + $answered));
+        }
+
+        // Çift ödeme sorusunun cevabı (*yeni* / *aynı*) — AI'a gitmez; "evet" yine soruyu tekrarlatır (commitThenNext).
+        if ($pending && $image === null && ! empty($pending->extracted['dup_asked'])) {
+            $w = $this->word($body);
+            if (in_array($w, ['yeni', 'yeni ödeme', 'yeni tahsilat', 'ayrı', 'ayri', 'farklı', 'farkli', 'başka', 'baska', 'ayrı ödeme'], true)) {
+                $this->inboundKind = 'quick';
+                $pending->update(['extracted' => ['dup_new' => true] + $pending->extracted]);
+
+                return $this->twiml($this->commitThenNext($pending->fresh(), $phone));
+            }
+            if (in_array($w, ['aynı', 'ayni', 'aynısı', 'aynisi', 'aynı ödeme', 'aynı tahsilat', 'aynı kayıt', 'o', 'zaten yazılı', 'zaten var'], true)) {
+                $this->inboundKind = 'quick';
+                $pending->update(['status' => 'cancelled']);
+
+                return $this->twiml('👍 Tamam, tekrar yazmadım — önceki kayıt duruyor.' . self::leftoverNextItem($pending));
+            }
         }
 
         // Sohbet asistanı (deneme, ayarla açılır): yazılı mesajlar konuşmayı gören asistana gider.
@@ -1290,6 +1320,13 @@ class WhatsappWebhookController extends Controller
         if ($pending->follow_ups > 0 && ($gap = DraftFollowUp::gap($pending))['code'] === DraftGaps::DETAIL
             && trim((string) ($pending->extracted['question'] ?? '')) !== '') {
             return $gap['ask'] . "\nGerek yoksa *iptal* yaz.";
+        }
+        // Aynı kişiye aynı tutarda ödeme/tahsilat yakın günde zaten var: düz "evet" yetmez — *yeni* / *aynı* (29.10, firma 7
+        // Düzgün Yıldırım 300.000 iki kez: uyarı vardı, "evet" geçti). Cevap kontrolcüde (dup_asked).
+        if (empty($pending->extracted['dup_new']) && ($day = DraftWarnings::moneyDuplicateDay($pending->extracted)) !== null) {
+            $pending->update(['extracted' => ['dup_asked' => true] + $pending->extracted]);
+
+            return self::duplicateQuestion($pending->extracted, $day);
         }
         $done = $this->commit($pending);
         $next = $pending->extracted['next_items'] ?? null;
@@ -3350,7 +3387,7 @@ class WhatsappWebhookController extends Controller
             if (! $updated->next_fire_at) {
                 return '❓ Bu zaman geçmiş görünüyor. Ne zaman hatırlatayım?';
             }
-            $target->fill($updated->only(['text', 'event_date', 'event_time', 'notify_time', 'lead_minutes', 'anchor_day']));
+            $target->fill($updated->only(['text', 'event_date', 'event_time', 'notify_time', 'lead_minutes', 'anchor_day', 'repeat']));
             $target->forceFill(['next_fire_at' => $updated->next_fire_at, 'attempts' => 0, 'status' => 'active'])->save();
             $pending->update(['status' => 'confirmed']);
 

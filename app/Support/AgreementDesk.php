@@ -113,7 +113,10 @@ class AgreementDesk
                 continue;
             }
             $changed = $item->unit_price !== null && abs($price - (float) $item->unit_price) > 0.001;
-            $prepared[] = ['item' => $item, 'quantity' => $qty, 'unit_price' => $price, 'amount' => round($qty * $price, 2),
+            // WhatsApp'ta yalnız tutar söylendiyse miktar tutardan hesaplandı (küsuratlı) — tutar söylendiği gibi kalır.
+            $total = (float) ($line['total'] ?? 0);
+            $amount = $total > 0 && abs($total - $qty * $price) < max(1.0, $price) ? round($total, 2) : round($qty * $price, 2);
+            $prepared[] = ['item' => $item, 'quantity' => $qty, 'unit_price' => $price, 'amount' => $amount,
                 'new_price' => $changed && $applyPriceToRest ? $price : null];
         }
         if ($prepared === []) {

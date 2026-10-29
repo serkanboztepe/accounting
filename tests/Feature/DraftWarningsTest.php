@@ -103,4 +103,62 @@ class DraftWarningsTest extends TestCase
         $this->assertStringContainsString('Aynı tutarda avans — seramik 4 adet çek', $warn[0] ?? '');
         $this->assertStringNotContainsString('2023471 · vade', $warn[0] ?? '', 'çek listesi uyarıda tekrar edilmez');
     }
+
+    /** 29.10 (firma 7 Düzgün Yıldırım 300.000 iki kez): aynı kişiye aynı tutarda ödeme varken düz "evet" kaydetmez — *yeni* / *aynı*. */
+    public function test_plain_yes_does_not_save_duplicate_payment(): void
+    {
+        [$p, $send] = $this->duplicatePaymentFlow(8000);
+
+        $card = $send('Recepe 8000 ödedim');
+        $this->assertStringContainsString('iki kez olmasın', $card);
+
+        $ask = $send('evet');
+        $this->assertStringContainsString('*yeni*', $ask);
+        $this->assertStringContainsString('*aynı*', $ask);
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count(), 'düz evet kaydetmedi');
+
+        $this->assertStringContainsString('*yeni*', $send('evet'), 'ikinci evet de yetmez');
+        $this->assertStringContainsString('tekrar yazmadım', $send('aynı'));
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count());
+        $this->assertSame('cancelled', WhatsappPendingExpense::where('phone', 'whatsapp:+905558880012')->latest('id')->value('status'));
+    }
+
+    public function test_new_answer_saves_second_payment(): void
+    {
+        [$p, $send] = $this->duplicatePaymentFlow(8000);
+
+        $send('Recepe 8000 ödedim');
+        $send('evet');
+        $this->assertStringContainsString('Kaydedildi', $send('yeni'));
+        $this->assertSame(2, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count());
+    }
+
+    public function test_different_amount_saves_with_plain_yes(): void
+    {
+        [$p, $send] = $this->duplicatePaymentFlow(9000);
+
+        $send('Recepe 9000 ödedim');
+        $this->assertStringContainsString('Kaydedildi', $send('evet'));
+        $this->assertSame(2, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count());
+    }
+
+    /** Önceden 8000 ödeme kayıtlı kişi + taslak tutarı $amount; mesaj gönderen yardımcı. */
+    private function duplicatePaymentFlow(float $amount): array
+    {
+        config(['services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 888 00 12'],
+            'services.anthropic.chat_assistant' => false, 'modules' => ModuleProfiles::resolve('alacak_verecek')]);
+        Http::fake();
+        $p = Party::create(['name' => 'Uyarı Testi Recep']);
+        PartyLedgerEntry::create(['party_id' => $p->id, 'type' => 'odeme', 'amount' => 8000, 'entry_date' => now()->toDateString(), 'description' => 'Ödeme']);
+        $m = Mockery::mock(ExpenseExtractor::class);
+        $m->shouldReceive('extract')->andReturn(['kind' => 'payment', 'items' => [], 'amount' => $amount, 'paid' => true, 'date' => now()->toDateString(),
+            'description' => 'Ödeme', 'party_id' => $p->id, 'party_name' => null, 'project_id' => null, 'project_name' => null,
+            'confidence' => 'high', 'question' => null, 'is_new_entry' => true,
+            'work_status' => \App\Services\Whatsapp\Understanding::OLD_DEBT, 'work_status_known' => true, 'party_certain' => true]);
+        $this->app->instance(ExpenseExtractor::class, $m);
+        WhatsappPendingExpense::where('phone', 'whatsapp:+905558880012')->update(['status' => 'superseded']);
+
+        return [$p, fn (string $body) => html_entity_decode($this->post('/whatsapp/webhook',
+            ['From' => 'whatsapp:+905558880012', 'Body' => $body, 'NumMedia' => 0])->getContent(), ENT_QUOTES | ENT_XML1)];
+    }
 }

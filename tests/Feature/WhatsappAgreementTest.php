@@ -857,8 +857,9 @@ class WhatsappAgreementTest extends TestCase
         $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => null, 'quantity' => 20, 'description' => 'beton']],
             'delivery_candidates' => [$a1->items[0]->id, $a2->items[0]->id]]));
         $ask = $this->send('kuşaktan 20 metreküp beton geldi');
-        $this->assertStringContainsString('2 açık anlaşmada "beton" var', $ask);
-        $this->assertStringContainsString('*2* ' . $a2->title . ' · kalan 50 m³ × 4.100,00', $ask);
+        $this->assertStringContainsString('*WAT Kuşak 2* — hangi iş / mal?', $ask);
+        $this->assertStringContainsString('*2* WAT Beton2 · ' . $a2->title, $ask);   // aynı ad iki kez → yanında anlaşma (projesiz)
+        $this->assertStringNotContainsString('kalan', $ask);
         $this->assertStringContainsString('*0* Anlaşma dışı', $ask);
 
         $card = $this->send('2');
@@ -866,6 +867,59 @@ class WhatsappAgreementTest extends TestCase
         $this->chooseProject();
         $this->assertEqualsWithDelta(30, $a2->fresh()->loadForCard()->items[0]->remainingQuantity(), 0.001);
         $this->assertEqualsWithDelta(100, $a1->fresh()->loadForCard()->items[0]->remainingQuantity(), 0.001);
+    }
+
+    /** 28.10 firma 7 Kamuran: "500 binlik iş yaptı" → adet sorulmaz; miktar = tutar ÷ fiyat (küsurat kalır), tutar aynen. */
+    public function test_delivery_amount_only_computes_quantity(): void
+    {
+        $party = Party::create(['name' => 'WAT Kamuran']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Alçı boya', 'm²'), 'quantity' => 5000, 'unit_price' => 300]]);
+
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id, 'amount' => 500000, 'description' => 'alçı boya']]]));
+        $card = $this->send('kamuran 500 binlik iş yaptı');
+        $this->assertStringNotContainsString('Kaç m²', $card);
+        $this->assertStringContainsString('WAT Alçı boya 1.666,67 m² × 300,00 = 500.000,00', $card);
+
+        $this->chooseProject();
+        $this->assertEqualsWithDelta(500000, (float) \App\Models\Purchase::where('party_id', $party->id)->sole()->total_amount, 0.001);
+        $this->assertEqualsWithDelta(5000 - 1666.67, $a->fresh()->loadForCard()->items[0]->remainingQuantity(), 0.001);
+    }
+
+    public function test_delivery_quantity_question_answered_with_money(): void
+    {
+        $party = Party::create(['name' => 'WAT Kamuran 2']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Alçı boya2', 'm²'), 'quantity' => 5000, 'unit_price' => 300]]);
+
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $a->items[0]->id]]]));
+        $this->assertStringContainsString('Kaç m² WAT Alçı boya2', $this->send('kamuranın alçı boyası yapıldı'));
+        $this->assertStringContainsString('1.666,67 m² × 300,00 = 500.000,00', $this->send('500.000 tl'));
+    }
+
+    public function test_delivery_menu_lists_item_names_only(): void
+    {
+        $party = Party::create(['name' => 'WAT Kamuran 3']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAT Alçı', 'm²'), 'quantity' => 100, 'unit_price' => 200],
+            ['product_id' => $this->product('WAT Boya', 'm²'), 'quantity' => 100, 'unit_price' => 150]]);
+
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => null, 'quantity' => 20, 'description' => 'iş']],
+            'delivery_candidates' => [$a->items[0]->id, $a->items[1]->id]]));
+        $ask = $this->send('kamuran 20 metre iş yaptı');
+        $this->assertStringContainsString("*WAT Kamuran 3* — hangi iş / mal?\n*1* WAT Alçı\n*2* WAT Boya\n*0* Anlaşma dışı", $ask);
+    }
+
+    /** "Alçı boya yapıldı" (kişi adı yok) — AI'a son 30 dk'da konuşulan kişi + proje verilir. */
+    public function test_context_has_recently_discussed_party_and_project(): void
+    {
+        $party = Party::create(['name' => 'WAT Kamuran 4']);
+        $project = $this->project('WAT Yeşilyurt 4');
+        WhatsappPendingExpense::create(['phone' => self::PHONE, 'status' => 'confirmed', 'summary' => 'x',
+            'extracted' => ['kind' => 'payment', 'party_id' => $party->id, 'project_id' => $project]]);
+
+        $ctx = \App\Services\Whatsapp\ExpenseContext::build(self::PHONE);
+        $this->assertStringContainsString('SON KONUŞULAN (son 30 dk): WAT Kamuran 4 (cari ' . $party->id . ') · WAT Yeşilyurt 4', $ctx);
+
+        WhatsappPendingExpense::where('phone', self::PHONE)->update(['updated_at' => now()->subMinutes(45)]);
+        $this->assertStringNotContainsString('SON KONUŞULAN', \App\Services\Whatsapp\ExpenseContext::build(self::PHONE));
     }
 
     public function test_delivery_price_difference_offers_three_choices(): void

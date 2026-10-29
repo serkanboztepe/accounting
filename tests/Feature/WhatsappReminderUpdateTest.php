@@ -108,6 +108,35 @@ class WhatsappReminderUpdateTest extends TestCase
         $this->assertSame('2026-10-30 10:00', $this->local($r->next_fire_at));
     }
 
+    /** Çiftlik 26.10: düzenli gider (tam saatli) "16:00'da yap" → 08:00 kalıyordu (saat notify_time'a yazılıyordu). */
+    public function test_alarm_time_change_moves_the_alarm_itself(): void
+    {
+        $r = new Reminder(['phone' => self::NORM, 'text' => 'Çobanlar ekmek', 'amount' => 34.60, 'event_date' => '2026-10-26',
+            'event_time' => '08:00', 'is_alarm' => true, 'repeat' => 'daily', 'status' => 'active']);
+        $r->scheduleNext(now());
+        $r->save();
+        $this->fakeAi($this->entry(['updates_reminder_id' => $r->id, 'notify_time' => '16:00']));
+
+        $this->assertStringContainsString('Yeni: 26 Ekim Pazartesi 16:00', $this->send("bunu her gün 16:00'da yap"));
+        $this->send('evet');
+
+        $r->refresh();
+        $this->assertSame('16:00', substr((string) $r->event_time, 0, 5));
+        $this->assertSame('2026-10-26 16:00', $this->local($r->next_fire_at));
+    }
+
+    /** "her gün" artık kurulur (eskiden "şimdilik haftalık…" deniyordu); repeat değişikliği de uygulanır. */
+    public function test_daily_repeat_is_kept_and_can_be_changed(): void
+    {
+        $this->assertSame('daily', app(ExpenseExtractor::class)->normalizeEntry(['kind' => 'reminder', 'repeat' => 'daily', 'amount' => 0])['repeat'] ?? null);
+
+        $r = $this->card();
+        $this->fakeAi($this->entry(['updates_reminder_id' => $r->id, 'repeat' => 'daily']));
+        $this->send('her gün hatırlat');
+        $this->send('evet');
+        $this->assertSame('daily', $r->fresh()->repeat);
+    }
+
     public function test_change_date(): void
     {
         $r = $this->card();

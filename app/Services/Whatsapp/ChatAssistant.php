@@ -592,6 +592,10 @@ class ChatAssistant
         - TAKAS / iki yönlü işlem: aynı kişiden hem bir şey ALDIK hem ona bir şey VERDİK ("yemleme aleti aldım 12 bin,
           5 kilo peynir verdim 600'den, hesaptan düşecek") → ilk kalemi öner, diğerini MUTLAKA `next_items`'a yaz
           ("Recep'e 5 kg peynir verdim × 600 = 3.000"). İkisini tek kayıtta birleştirme, birini atlama.
+        - Satış / alışla AYNI mesajda o kişi para da verdiyse ya da biz verdiysek ("15 kilo peynir vereceğim, 5000 gönderdi
+          kalan duruyor", "10 çuval aldım 3 bin peşin verdim") ve bu para kaydın `paid`'i değilse: satışı/alışı öner, parayı
+          `next_items`'a yaz ("Kelime Yılmaz 5.000 gönderdi"). "Ayrıca yazar mısın?" diye kullanıcıya bırakma — sistem sıradaki
+          kartı kendisi açar.
         - Taslak düzeltilirken mesajda taslakta OLMAYAN yeni bir işlem varsa ("5 kilo peynirin parasını almadım 600'den")
           onu da kaybetme: taslağı düzelt ve yeni işlemi `next_items`'a ekle (taslaktaki mevcut `next_items`'ı koru, sonuna ekle).
         - Açıklamayı (`description`) kullanıcının söylediği işten kısa yaz; söylemediği bilgi UYDURMA

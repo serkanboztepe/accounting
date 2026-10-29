@@ -146,6 +146,26 @@ class RecurringExpenseTest extends TestCase
             Reminder::where('text', 'Süt kovası')->sole()->next_fire_at->setTimezone('Europe/Istanbul')->toDateString(), 'sıradaki yarın');
     }
 
+    /** Çiftlik 26.10: "her gün 16:00'da" — gider de mesaj da 16:00'da (eskiden hep 08:00). */
+    public function test_said_time_is_when_expense_is_written(): void
+    {
+        $this->ai(['kind' => 'recurring_expense', 'amount' => 34.60, 'description' => 'Öğle ekmeği', 'recurring_frequency' => 'daily',
+            'recurring_time' => '16:00']);
+
+        $this->assertStringContainsString('her gün saat 16:00 kendiliğinden yazılır', $this->send("her gün öğle ekmeği 34,60 gider yaz saat 16:00'da"));
+        $this->send('evet');
+        $r = Reminder::where('text', 'Öğle ekmeği')->sole();
+        $this->assertSame('16:00', substr((string) $r->event_time, 0, 5));
+
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        Http::fake();
+        $tomorrow = $this->today()->addDay();
+        $this->runAt($tomorrow->copy()->setTime(8, 1));
+        $this->assertSame(0, Expense::where('description', 'Öğle ekmeği')->count(), 'sabah yazılmaz');
+        $this->runAt($tomorrow->copy()->setTime(16, 1));
+        $this->assertSame(1, Expense::where('description', 'Öğle ekmeği')->count(), '16:00\'da yazılır');
+    }
+
     public function test_monthly_on_31st_uses_last_day_of_short_month_and_weekly_label(): void
     {
         $r = $this->bread(['text' => 'Kira', 'amount' => 20000, 'repeat' => 'monthly', 'anchor_day' => 31, 'event_date' => '2031-01-31']);

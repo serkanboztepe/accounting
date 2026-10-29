@@ -417,6 +417,10 @@ final class Understanding
         }
     }
 
+    /** Sayıdan sonra gelen ölçü birimi (miktar, para değil). */
+    private const UNIT_WORD = '/^(kil[oi]\p{L}*|kg|gr|gram\p{L}*|lt|litre\p{L}*|m|m[²³]|metre\p{L}*|metrekare\p{L}*|metreküp\p{L}*|ton\p{L}*|adet\p{L}*|tane\p{L}*|'
+        . 'çuval\p{L}*|paket\p{L}*|koli\p{L}*|kasa\p{L}*|kutu\p{L}*|torba\p{L}*|bidon\p{L}*|teneke\p{L}*|parça\p{L}*|kalıp\p{L}*|baş|başı|daire\p{L}*)$/u';
+
     /**
      * Yazılandan farklı tutar (17.10, Emre: "Erkan maaşı 65 tl" → sessizce 65.000): kayıttaki tutar mesajda yazan bir sayının
      * 1000 katıysa ve mesajda "bin/milyon" yoksa → "65 TL mi, 65.000 TL mi?". Hesaplanan tutarlar (adet × fiyat) bu kalıba girmez.
@@ -427,10 +431,11 @@ final class Understanding
             return null;
         }
         $written = [];
-        if (preg_match_all('/(\d[\d.,]*)\s*(bin|milyon|k\b)?/iu', mb_strtolower($text), $m, PREG_SET_ORDER)) {
+        if (preg_match_all('/(\d[\d.,]*)\s*(bin|milyon|k\b)?(?:\s*([\p{L}²³]+))?/iu', mb_strtolower($text), $m, PREG_SET_ORDER)) {
             foreach ($m as $x) {
                 $n = Money::parse($x[1]);
-                if ($n <= 0) {
+                // Birimli sayı para değildir: "15 kili peynir" (Erkan 26.10: "15 TL mi, 15.000 TL mi?" soruldu), "20 m²", "3 çuval".
+                if ($n <= 0 || (($x[2] ?? '') === '' && preg_match(self::UNIT_WORD, (string) ($x[3] ?? '')))) {
                     continue;
                 }
                 $mult = match (true) {

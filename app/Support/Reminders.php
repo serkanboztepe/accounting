@@ -74,8 +74,15 @@ class Reminders
             $new->lead_minutes = (int) $d['lead_minutes'];
         }
         $time = $d['notify_time'] ?? $d['event_time'] ?? null;
-        if ($time) {
+        if ($time && $old->is_alarm) {
+            // "Tam o saatte" hatırlatma ve düzenli gider: saat olayın kendisi — notify_time'a yazılınca 08:00 kalıyordu (Çiftlik 26.10).
+            $new->event_time = $time;
+        } elseif ($time) {
             $old->event_time && empty($d['notify_time']) ? $new->event_time = $time : $new->notify_time = $time;
+        }
+        if (! empty($d['repeat']) && in_array($d['repeat'], Reminder::REPEATS, true)) {
+            $new->repeat = $d['repeat'];
+            $new->anchor_day = in_array($new->repeat, ['monthly', 'yearly'], true) ? Carbon::parse($new->event_date)->day : null;
         }
         $new->status = 'active';
         $new->scheduleNext();

@@ -279,6 +279,17 @@ return [
         ['id' => 'hatirlatma-saatli', 'firm' => 'erkan', 'group' => 'regression',
             'steps' => [['send' => "yarın 11'de bankaya gideceğim hatırlat"]],
             'expect' => ['draft' => ['kind' => 'reminder', 'event_time' => '11:00']]],
+        // 29.10 — 26-28.10 konuşma taraması (gerçek AI ile HENÜZ denenmedi).
+        ['id' => 'T1-kilo-olcek-sorulmaz-para-sirada', 'firm' => 'erkan', 'group' => 'regression',
+            'steps' => [['send' => "Recep Demirci'ye 15 kilo peynir verdim 580'den, 5000 gönderdi kalan duruyor"]],
+            'expect' => ['draft' => ['kind' => ['sale', 'trade_sale'], 'amount' => 8700], 'reply_not' => ['15 TL mi', 'ayrıca yazar']]],
+        ['id' => 'T4-her-gun-tam-saat', 'firm' => 'erkan', 'group' => 'regression',
+            'steps' => [['send' => "her gün saat 16:00'da hatırlat: hayvanlara su ver"]],
+            'expect' => ['draft' => ['kind' => 'reminder', 'repeat' => 'daily', 'event_time' => '16:00', 'is_alarm' => true],
+                'reply_not' => ['haftalık', '15:00']]],
+        ['id' => 'T4-negatif-randevu-once', 'firm' => 'erkan', 'group' => 'regression',
+            'steps' => [['send' => "yarın 11'de bankaya gideceğim 2 saat önce hatırlat"]],
+            'expect' => ['draft' => ['kind' => 'reminder', 'event_time' => '11:00', 'lead_minutes' => 120]]],
 
         // ---------------------------------------------------------------- Serkan / Yeni Yapı (16.10 gece — yanlış cevaplar)
         ['id' => 'yy-acik-taslakta-soru-onay-sanilmaz', 'firm' => 'stok', 'group' => 'regression', 'seed' => 'stok-gecmis',

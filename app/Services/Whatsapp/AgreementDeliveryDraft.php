@@ -97,6 +97,16 @@ class AgreementDeliveryDraft
             $partyId = $first->agreement->party_id;
             $direction = $first->agreement->direction;
         }
+        // Miktarlı kalemde yalnız tutar söylendi ("Kamuran 500 binlik iş yaptı"): miktar = tutar ÷ fiyat, küsurat kalır (1.666,67 m²);
+        // tutar aynen yazılır (kullanıcı 28.10 — önce adet ısrarı vardı).
+        foreach ($lines as $k => $line) {
+            $item = self::openItem($line['agreement_item_id']);
+            $price = $line['unit_price'] ?? ($item ? (float) $item->unit_price : 0.0);
+            if ($item && ! $item->is_lump && $line['quantity'] === null && $line['amount'] !== null && $price > 0) {
+                $lines[$k]['quantity'] = round($line['amount'] / $price, 2);
+                $lines[$k]['from_amount'] = true;
+            }
+        }
         $d['delivery_lines'] = $lines;
         $d['delivery_candidates'] = $candidates;
         $d['party_id'] = $partyId ?? ($d['party_id'] ?? null);
@@ -115,11 +125,15 @@ class AgreementDeliveryDraft
                 if ($candidates === []) {
                     return 'Bu mal hangi anlaşmadan geldi? Anlaşmanın adını ya da kişinin / firmanın adını yazar mısın?';
                 }
+                // Yalnız kalem adları (kullanıcı 28.10: "10 açık anlaşma" + anlaşma adı/kalan listesi kafa karıştırdı). Aynı ad
+                // birden çok kez geçerse yanına proje (yoksa anlaşma adı) — ayırt edilsin diye.
                 $party = $candidates[0]->agreement->party?->name;
-                $menu = collect($candidates)->map(fn (AgreementItem $i, $k) => '*' . ($k + 1) . '* ' . $i->agreement->title . ' · ' . self::stateText($i))->implode("\n");
+                $names = collect($candidates)->map(fn (AgreementItem $i) => $i->name());
+                $menu = collect($candidates)->map(fn (AgreementItem $i, $k) => '*' . ($k + 1) . '* ' . $i->name()
+                    . ($names->filter(fn ($n) => $n === $i->name())->count() > 1 ? ' · ' . ($i->agreement->project?->name ?? $i->agreement->title) : ''))
+                    ->implode("\n");
 
-                return ($party ? $party . "'la " : '') . count($candidates) . ' açık anlaşmada "' . ($line['description'] ?: $candidates[0]->name()) . "\" var:\n"
-                    . $menu . "\n*0* Anlaşma dışı";
+                return ($party ? '*' . $party . '* — ' : '') . "hangi iş / mal?\n" . $menu . "\n*0* Anlaşma dışı";
             }
         }
         foreach ($d['delivery_lines'] ?? [] as $line) {
@@ -174,8 +188,11 @@ class AgreementDeliveryDraft
         return null;
     }
 
-    /** "Kaç m³ geldi?" / "ne kadarı yapıldı?" sorusuna yalnız sayı ("44", "44,5", "300 bin"): eksik miktar ya da götürü tutar. */
-    public static function fillNumber(array $d, float $value): ?array
+    /**
+     * "Kaç m³ geldi?" / "ne kadarı yapıldı?" sorusuna yalnız sayı ("44", "44,5", "300 bin"): eksik miktar ya da götürü tutar.
+     * $money: cevap parayla yazıldı ("500 bin", "500.000 tl") — miktarlı kalemde tutar sayılır, miktar fiyattan hesaplanır.
+     */
+    public static function fillNumber(array $d, float $value, bool $money = false): ?array
     {
         if ($value <= 0 || self::awaitsNumber($d)) {
             return null;
@@ -183,6 +200,11 @@ class AgreementDeliveryDraft
         foreach ($d['delivery_lines'] ?? [] as $k => $line) {
             $item = self::openItem($line['agreement_item_id']);
             if ($item && ! $item->is_lump && $line['quantity'] === null) {
+                if ($money) {
+                    $d['delivery_lines'][$k]['amount'] = $value;
+
+                    return self::prepare($d);
+                }
                 $d['delivery_lines'][$k]['quantity'] = $value;
 
                 return $d;
@@ -279,6 +301,7 @@ class AgreementDeliveryDraft
                 'quantity'          => $line['quantity'],
                 'amount'            => $line['amount'],
                 'unit_price'        => $line['unit_price'],
+                'total'             => ! empty($line['from_amount']) ? $line['amount'] : null,
             ];
             $applyToRest = $applyToRest || ($line['price_choice'] ?? null) === 2;
         }
@@ -331,7 +354,7 @@ class AgreementDeliveryDraft
         }
         $price = ($line['unit_price'] !== null && ($line['price_choice'] ?? 1) !== 3) ? $line['unit_price'] : (float) $item->unit_price;
         $qty = (float) $line['quantity'];
-        $amount = round($qty * $price, 2);
+        $amount = ! empty($line['from_amount']) ? (float) $line['amount'] : round($qty * $price, 2);
         $rest = $item->isList() ? null : (float) $item->quantity - $item->deliveredQuantity() - $qty;
 
         return [$item->name() . ' ' . $item->quantityLabel($qty) . ' × ' . Money::format($price) . ' = ' . Money::format($amount) . $where

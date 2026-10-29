@@ -50,6 +50,12 @@ class WhatsappAmountScaleTest extends TestCase
             "yüzde 50'si ama model 50.000 → sorulur" => ["Hakan Öz 80 binin yüzde 50'sini gönderdi", 50000, true],
             '"80 binin" sonrası ayrı cümle → sorulur' => ['Hakan Öz 80 binin hepsini vermedi. 50 gönderdi', 50000, true],
             'eski vaka: maaşı 65 tl → 65.000 sorulur' => ['Erkan maaşı 65 tl', 65000, true],
+            // Birimli sayı para değil (Erkan 26.10: "15 kili peynir" → "15 TL mi, 15.000 TL mi?" soruldu).
+            '15 kili peynir (Erkan)' => ['Kelime Yılmaz 15 kili peynir vereceğim 5000 gönderdi kalan duruyor', 15000, false],
+            '15 kilo' => ['15 kilo peynir verdim', 15000, false],
+            '20 m² fayans' => ['20 m² fayans döşendi', 20000, false],
+            '3 çuval' => ['3 çuval un aldım', 3000, false],
+            '15 kilo ama tutar da 15 yazılı → sorulur' => ['15 kilo peynir 15 verdi', 15000, true],
         ];
     }
 

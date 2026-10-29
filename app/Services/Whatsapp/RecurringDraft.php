@@ -112,7 +112,7 @@ final class RecurringDraft
         return "🔁 *Düzenli gider — kontrol et:*\n"
             . '• ' . self::line($draft) . "\n"
             . ($category ? '• Kategori: ' . $category . "\n" : '')
-            . '• İlk kayıt: ' . $draft->event_date->format('d.m.Y') . ', sonra ' . $draft->scheduleText() . ' sabah kendiliğinden yazılır, sana haber veririm';
+            . '• İlk kayıt: ' . $draft->event_date->format('d.m.Y') . ', sonra ' . $draft->scheduleText() . ' ' . self::at($draft) . ' kendiliğinden yazılır, sana haber veririm';
     }
 
     /** @return array{0:string,1:?int} */
@@ -127,8 +127,8 @@ final class RecurringDraft
         $r = self::model($d, $phone);
         $r->expense_category_id = self::categoryId($d);
         $today = Carbon::now(Reminder::TIMEZONE)->startOfDay();
-        // "Bugünden" denirse bugünkü hemen yazılır; sıradaki yarından itibaren.
-        $written = $r->event_date->toDateString() === $today->toDateString();
+        // "Bugünden" denirse bugünkü hemen yazılır (saati söylendiyse ve henüz gelmediyse o saatte); sıradaki yarından itibaren.
+        $written = $r->event_date->toDateString() === $today->toDateString() && (empty($d['recurring_time']) || $r->eventAt()->lte(now()));
         $r->scheduleNext($written ? $today->copy()->endOfDay() : now());
         $r->save();
         if ($written) {
@@ -137,7 +137,7 @@ final class RecurringDraft
 
         return ['✅ Düzenli gider kuruldu: ' . self::line($r)
             . ($written ? "\n📝 Bugünkü yazıldı: " . Money::format((float) $r->amount) . ' ₺' : '')
-            . ($r->next_fire_at ? "\nSıradaki: " . $r->next_fire_at->setTimezone(Reminder::TIMEZONE)->format('d.m.Y') . ' sabah kendiliğinden yazılır, sana haber veririm.' : '')
+            . ($r->next_fire_at ? "\nSıradaki: " . $r->next_fire_at->setTimezone(Reminder::TIMEZONE)->format('d.m.Y') . ' ' . self::at($r) . ' kendiliğinden yazılır, sana haber veririm.' : '')
             . "\nDurdurmak için *" . mb_strtolower(trim($r->text)) . ' giderini durdur* yaz.', null];
     }
 
@@ -207,12 +207,21 @@ final class RecurringDraft
             'amount' => round((float) $d['amount'], 2),
             'project_id' => $d['project_id'] ?? null,
             'event_date' => $start->toDateString(),
-            'event_time' => sprintf('%02d:00', Reminder::DEFAULT_HOUR),
+            // Saat söylendiyse gider o saatte yazılır ve mesaj o saatte gider (Çiftlik 26.10 "her gün 16:00"), yoksa 08:00.
+            'event_time' => $d['recurring_time'] ?? sprintf('%02d:00', Reminder::DEFAULT_HOUR),
             'is_alarm' => true,
             'repeat' => $repeat,
             'anchor_day' => $repeat === 'monthly' && $day >= 1 && $day <= 31 ? $day : null,
             'status' => 'active',
         ]);
+    }
+
+    /** "sabah" (08:00) ya da "saat 16:00". */
+    private static function at(Reminder $r): string
+    {
+        $time = substr((string) $r->event_time, 0, 5);
+
+        return $time === '' || $time === sprintf('%02d:00', Reminder::DEFAULT_HOUR) ? 'sabah' : 'saat ' . $time;
     }
 
     private static function categoryName(array $d): ?string

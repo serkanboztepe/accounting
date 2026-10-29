@@ -106,6 +106,14 @@ class ExpenseContext
             $lines[] = '';
         }
 
+        // Son konuşulan kişi / proje (29.10, firma 7: Kamuran + Yeşilyurt konuşulurken "Alçı boya yapıldı" bağlamsız okundu).
+        if ($recent = self::recentSubject($phone)) {
+            $lines[] = 'SON KONUŞULAN (son 30 dk): ' . $recent . ' — yeni mesajda kişi / ' . mb_strtolower(\App\Support\Labels::project())
+                . ' adı geçmiyorsa ve mesaj buna uyuyorsa ("Alçı boya yapıldı", "kalanını da ödedim") bu kişi / ' . mb_strtolower(\App\Support\Labels::project())
+                . ' için say; başka biri söylenirse o geçerli.';
+            $lines[] = '';
+        }
+
         if (\App\Support\Features::places()) {
             $one = \App\Support\Labels::project();
             // Mimar (Ferhat): eski başlık aynen — davranışı değişmesin (kullanıcı kararı 15.10).
@@ -197,6 +205,26 @@ class ExpenseContext
      * Açık avans: " (önceden verdiğimiz para 1.005.000 — iş/mal bekleniyor)" / " (peşin aldık 15.000 — mal/iş teslim edilecek)".
      * Günlük dil (kullanıcı 20.10): etiketteki "avans" kelimesi AI'ın müşteriye yazdığı cümleye geçiyordu.
      */
+    /** Bu numaranın son 30 dakikadaki taslaklarından en yeni kişi ve proje: "Kamuran Narçin (cari 12) · Yeşilyurt (proje 3)". */
+    private static function recentSubject(?string $phone): ?string
+    {
+        if ($phone === null || $phone === '') {
+            return null;
+        }
+        $drafts = \App\Models\WhatsappPendingExpense::where('phone', $phone)->whereIn('status', ['awaiting_confirmation', 'confirmed'])
+            ->where('updated_at', '>=', now()->subMinutes(30))->latest('updated_at')->limit(5)->get(['id', 'extracted']);
+        $partyId = $drafts->map(fn ($p) => (int) ($p->extracted['party_id'] ?? 0))->first(fn ($id) => $id > 0);
+        $projectId = $drafts->map(fn ($p) => (int) ($p->extracted['project_id'] ?? 0))->first(fn ($id) => $id > 0);
+        $party = $partyId ? Party::find($partyId, ['id', 'name']) : null;
+        $project = $projectId && \App\Support\Features::places() ? Project::find($projectId, ['id', 'name']) : null;
+        $parts = array_filter([
+            $party ? $party->name . ' (cari ' . $party->id . ')' : null,
+            $project ? $project->name . ' (' . mb_strtolower(\App\Support\Labels::project()) . ' ' . $project->id . ')' : null,
+        ]);
+
+        return $parts === [] ? null : implode(' · ', $parts);
+    }
+
     private static function advanceNote($party): string
     {
         $ours = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
