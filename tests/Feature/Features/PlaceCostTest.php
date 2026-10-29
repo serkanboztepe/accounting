@@ -102,6 +102,23 @@ class PlaceCostTest extends TestCase
         $this->assertEquals(12.0, MonthlyResult::forPlace($field)['production'][0]['quantity'], 'sezon sonucunda görünür');
     }
 
+    public function test_place_menu_offers_new_place_only_on_farm(): void
+    {
+        Project::create(['name' => 'Çiftlik · 2026']);
+        $draft = ['kind' => ExpenseExtractor::KIND_EXPENSE, 'amount' => 700, 'project_needed' => true];
+
+        $this->assertStringNotContainsString('yeni yerin adını', implode("\n", ProjectChoice::lines($draft)), 'fırın: menü aynı');
+        $this->assertStringNotContainsString('yeni yerin adını', (string) ProjectChoice::blocker($draft));
+        $this->assertStringNotContainsString('listede OLMAYAN bir yer', \App\Services\Whatsapp\ExpenseContext::build());
+
+        $this->farm();
+        $this->assertStringContainsString('ya da yeni yerin adını yaz', implode("\n", ProjectChoice::lines($draft)));
+        $this->assertStringContainsString('ya da yeni yerin adını yaz', (string) ProjectChoice::blocker($draft));
+        $this->assertStringContainsString('listede OLMAYAN bir yer', \App\Services\Whatsapp\ExpenseContext::build(), 'AI yeni yeri önerir');
+        $this->assertContains('Tarla 88/7 (yeni)', array_map(fn ($l) => preg_replace('/^\S+ \S+: /u', '', $l),
+            ProjectChoice::lines(['kind' => ExpenseExtractor::KIND_EXPENSE, 'project_name' => 'Tarla 88/7'])));
+    }
+
     public function test_route_keeps_said_place_on_farm(): void
     {
         $feed = $this->feed();

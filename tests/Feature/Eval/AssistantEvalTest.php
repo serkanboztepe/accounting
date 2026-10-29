@@ -114,7 +114,7 @@ class AssistantEvalTest extends TestCase
         config([
             'modules' => ModuleProfiles::resolve($firm['profile'], ($firm['modules'] ?? []) + ['smart_assistant' => true]
                 + (getenv('EVAL_VOICE') ? ['natural_voice' => true] : [])),
-            'app.profile' => $firm['profile'], 'app.project_label' => null,
+            'app.profile' => $firm['profile'], 'app.project_label' => $firm['project_label'] ?? null,
             'app.sector' => $firm['sector'] ?? null, 'app.business_note' => $firm['business_note'] ?? null,
             'services.twilio.verify_signature' => false,
             'services.dev_usage.report_in_tests' => true, // gerçek AI harcaması hub'daki tahmini bakiyeye düşsün

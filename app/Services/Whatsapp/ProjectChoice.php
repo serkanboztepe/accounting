@@ -131,7 +131,8 @@ final class ProjectChoice
             return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz.';
         }
         if (! empty($d['project_needed']) && self::alwaysAsk($d) && self::applies($d)) {
-            return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz (0 = Genel).';
+            return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz (0 = Genel)'
+                . (\App\Support\Features::placeCost() ? ' ya da yeni yerin adını yaz.' : '.');
         }
 
         return null;
@@ -163,6 +164,10 @@ final class ProjectChoice
                 $choices[] = $inline ? '*0* Genel' : '   0) Genel / ortak';
             }
             $head = "{$icon} Hangi " . mb_strtolower($label) . '?';
+            // Çiftlik: menüden çıkış — yeni tarla adı yazılabilir (Oktay 28.10 "Tarla" yazdı, menü tekrar geldi).
+            if (\App\Support\Features::placeCost()) {
+                $choices[] = $inline ? 'ya da yeni yerin adını yaz' : '   ya da yeni yerin adını yaz';
+            }
 
             return $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
         }

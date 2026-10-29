@@ -113,7 +113,13 @@ class ExpenseContext
                 ? 'PROJELER (id: isim [ada/parsel]):'
                 : \App\Support\Labels::projectsUpper() . ' (id: isim' . ($one === 'Proje' ? ' [ada/parsel]' : '') . ') — kaydın ait olduğu '
                     . mb_strtolower($one) . '; mesajda adı geçiyorsa ("Ergenekon kasa", "Cumhuriyet için sıva", "dünkü Ergenekon ciro") `project_id` o '
-                    . mb_strtolower($one) . '. Geçmiyorsa null bırak (sistem sorar). Ödeme/tahsilatta doldurma:';
+                    . mb_strtolower($one) . '. Geçmiyorsa null bırak (sistem sorar). Ödeme/tahsilatta doldurma:'
+                    // Çiftlik (alışı yere yaz, 28.10 Oktay "123/50 tarla ya 15 römork gübre"): listede olmayan yer yeni açılır.
+                    . (\App\Support\Features::placeCost()
+                        ? ' Kullanıcı listede OLMAYAN bir yer söylüyorsa ("123/50 tarla", "123 ada 50 parsel tarlam", "yeni ahır", '
+                            . '"Hangi yer?" sorusuna liste dışı bir ad) `project_id` null, `project_name` = o yerin kısa adı ("Tarla 123/50") — '
+                            . 'onayla yeni yer açılır. Listedeki bir yere benziyorsa (aynı ada/parsel) onu seç, yeni açma.'
+                        : '');
             $lines[] = $projects->isEmpty()
                 ? '  (kayıtlı proje yok)'
                 : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->cadastral_parcel ? " [{$p->cadastral_parcel}]" : ''))->implode("\n");

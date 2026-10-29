@@ -45,6 +45,13 @@ return [
             'parties' => ['Damızlık Birliği' => [], 'Akkuş Fırın' => [], 'Boztepe Ticaret' => []],
             'products' => [['Yem', 'adet'], ['Ezme', 'adet'], ['Besi Yemi', 'adet']], 'categories' => ['Çobanlar'],
         ],
+        // Çiftlik 28.10 canlı ayarı: Yerler + "Alışı yere yaz" açık, yer adı "Yer".
+        'oktay_yer' => [
+            'profile' => 'trade', 'modules' => ['natural_voice' => true, 'projects' => true, 'place_cost' => true], 'sector' => 'farm', 'project_label' => 'Yer',
+            'projects' => ['Çiftlik · 2026', 'Tarla 123/50 · 2026'],
+            'parties' => ['Damızlık Birliği' => [], 'Akkuş Fırın' => [], 'Boztepe Ticaret' => []],
+            'products' => [['Yem', 'adet'], ['Ezme', 'adet'], ['Besi Yemi', 'adet']], 'categories' => ['Çobanlar', 'Market', 'Mal Alımı'],
+        ],
         'muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true], 'sector' => 'construction',
             'projects' => ['Cumhuriyet', 'Bahçelievler'],
@@ -672,6 +679,20 @@ return [
         ['id' => 'O1-hizmet-verene-odeme-adina-degil', 'firm' => 'muteahhit', 'group' => 'regression',
             'steps' => [['send' => 'Kuşak Betona 40 bin beton parası ödedim']],
             'expect' => ['reply_not' => ['adına']]],
+        // 28.10 Çiftlik 22:19: listede olmayan tarla söylendi → yeni yer önerilmedi, "Hangi yer? 1 Çiftlik · 0 Genel" menüsünde kaldı.
+        ['id' => 'O2-tarla-yeni-yer', 'firm' => 'oktay_yer', 'group' => 'regression',
+            'steps' => [['send' => '88/7 tarla ya 10 römork gubre doktum romork basi 2000 tl']],
+            'expect' => ['reply_has' => ['88/7', '(yeni)', '20.000'], 'reply_not' => ['Hangi yer']]],
+        ['id' => 'O2-tarla-menuden-yeni', 'firm' => 'oktay_yer', 'group' => 'regression',
+            'steps' => [['send' => '10 römork gübre döktüm römork başı 2000', 'expect' => ['reply_has' => ['Hangi yer', 'yeni yerin adını']]],
+                ['send' => 'Tarla 88/7']],
+            'expect' => ['reply_has' => ['88/7', '(yeni)'], 'reply_not' => ['Hangi yer']]],
+        ['id' => 'O2-tarla-mevcut-yer', 'firm' => 'oktay_yer', 'group' => 'regression',
+            'steps' => [['send' => '123 ada 50 parsel tarlaya 5000 tl mazot']],
+            'expect' => ['draft' => ['project_id' => '@project:Tarla 123/50 · 2026', 'project_name' => null], 'reply_not' => ['(yeni)', 'Hangi yer']]],
+        ['id' => 'O2-market-yer-sorar', 'firm' => 'oktay_yer', 'group' => 'regression',
+            'steps' => [['send' => 'Market 700 Tl']],
+            'expect' => ['reply_has' => ['Hangi yer'], 'reply_not' => ['(yeni)']]],
         // 22.10 Çiftlik: önceki mesaj "Ödendi" (ezme) → hep veresiye alan Akkuş'a süt peşin satış kartı geldi.
         ['id' => 'O1-ciftlik-sut-veresiye', 'firm' => 'oktay', 'group' => 'regression',
             'steps' => [['send' => '26 adet ezme geldi'], ['send' => 'Ödendi'], ['send' => 'Akkuş fırına 50 lt süt gitti']],
