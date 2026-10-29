@@ -2,16 +2,13 @@
 
 namespace App\Support;
 
-use App\Models\HubFirm;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
-use App\Tenancy\Tenancy;
-use Illuminate\Support\Facades\Cache;
-use Throwable;
 
 /**
- * Asistan karnesi (hub, Faz 0): firma firma son 7 gün — ne kadar yazıldı, ne kadarı kayda geçti, ne kadarı geri alındı /
- * iptal edildi / anlaşılmadı, cevap ne kadar sürdü (Twilio 15 sn bekler). Yalnız okuma; firma başına 10 dk önbellek.
+ * Asistan karnesi: bir firmada belli bir andan beri ne kadar yazıldı, ne kadarı kayda geçti, ne kadarı geri alındı /
+ * iptal edildi / anlaşılmadı, cevap ne kadar sürdü (Twilio 15 sn bekler). Yalnız okuma. Hub sayfası 29.10'da kalktı;
+ * rakamlar sabah dökümünün (conversations:dump) başında.
  */
 final class AssistantScorecard
 {
@@ -20,39 +17,10 @@ final class AssistantScorecard
     /** Twilio cevabı bu kadar bekler; aşan mesaja cevap gitmez. */
     public const TWILIO_LIMIT_SECONDS = 15;
 
-    public static function overview(): array
+    /** Firma içinde çalışır (Tenancy::run). $since verilmezse son 7 gün. */
+    public static function compute(?\Carbon\CarbonInterface $since = null): array
     {
-        $rows = HubFirm::where('is_active', true)->orderBy('name')->get()
-            ->map(fn (HubFirm $f) => ['name' => $f->name] + (self::firm($f) ?? ['error' => true]))
-            ->all();
-        $ok = array_filter($rows, fn ($r) => empty($r['error']));
-        $sum = fn (string $k) => array_sum(array_column($ok, $k));
-
-        return [
-            'days' => self::DAYS,
-            'rows' => $rows,
-            'total' => ['in' => $sum('in'), 'saved' => $sum('saved'), 'undo' => $sum('undo'), 'cancelled' => $sum('cancelled'),
-                'help' => $sum('help'), 'errors' => $sum('errors'), 'open' => $sum('open'), 'slow' => $sum('slow'),
-                'max' => $ok ? max(array_column($ok, 'max')) : null],
-            'eval' => self::lastEval(),
-        ];
-    }
-
-    public static function firm(HubFirm $firm): ?array
-    {
-        return Cache::remember('hub-scorecard:' . $firm->id, 600, function () use ($firm) {
-            try {
-                return Tenancy::run($firm, fn () => self::compute());
-            } catch (Throwable) {
-                return null;
-            }
-        });
-    }
-
-    /** Firma içinde çalışır (Tenancy::run). */
-    public static function compute(): array
-    {
-        $since = now()->subDays(self::DAYS);
+        $since ??= now()->subDays(self::DAYS);
         $in = WhatsappMessage::where('direction', 'in')->where('created_at', '>=', $since);
         $drafts = WhatsappPendingExpense::where('updated_at', '>=', $since);
 
@@ -90,17 +58,5 @@ final class AssistantScorecard
         }
 
         return $out;
-    }
-
-    /** Son deneme seti sonucu (yerelde `php artisan test --group=eval` yazar; canlıda yoksa null). */
-    private static function lastEval(): ?array
-    {
-        $path = storage_path('app/eval/son.json');
-        if (! is_file($path)) {
-            return null;
-        }
-        $data = json_decode((string) file_get_contents($path), true);
-
-        return is_array($data) ? ['at' => $data['tarih'] ?? null, 'summary' => $data['özet'] ?? []] : null;
     }
 }

@@ -182,12 +182,8 @@ class WhatsappWebhookController extends Controller
                 'num_media' => $numMedia, 'media_type' => $request->input('MediaContentType0'), 'message_sid' => $sid,
                 'queued' => (bool) $request->attributes->get('queued'), 'reread' => (bool) $request->attributes->get('reread'),
                 'button_payload' => $request->input('ButtonPayload')]);
-            // "Müşteriye sor" (Faz 3): ona sorulmuş soru varsa bu mesaj cevabıdır → derse yazılır (akış aynen sürer).
-            \App\Models\AssistantLesson::captureAnswer($phone, $body);
-            TurnTrace::read('RecordReview::captureAnswer', fn () => \App\Models\RecordReview::captureAnswer($phone, $body));
 
             $response = $this->respond($request, $extractor, $phone, $body, $numMedia);
-            $this->tagReviewDrafts($phone);
 
             // İlk kez yazan: cevabın ardından ikinci mesaj olarak KISA karşılama (ne yazabileceğini bilmeden
             // deneme-yanılmayla vazgeçmesin — Arda vakası). Uzun liste yalnız "nasıl"da: 30 satırlık rehberi alan
@@ -724,12 +720,7 @@ class WhatsappWebhookController extends Controller
         // Bekleyen taslak yokken gelen "evet"/"iptal"/numara: yeni kayıt SANMA (0 ₺'lik gider açılıyordu).
         // Taslak yokken "tamam" / "evet": az önce gönderilen hatırlatma(lar) görüldü (kayıt yok). Kalan
         // hatırlatmalar iptal edilmez — olay günü yine hatırlatılır.
-        // Açık kayıt kontrolüne kısa cevap ("evet" / "hayır"): 👍 ile geçmesin — asistan soruyla birlikte yorumlar
-        // ("kurayım mı?" → evet → önerilen işlemin kartı).
-        $reviewReply = ! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body))
-            && TurnTrace::read('RecordReview::activeFor', fn () => \App\Models\RecordReview::activeFor($phone)) !== null;
-
-        if (! $reviewReply && ! $pending && $image === null && $this->isConfirm($body)
+        if (! $pending && $image === null && $this->isConfirm($body)
             && ($seen = TurnTrace::read('Reminder::allAwaitingReply', fn () => Reminder::allAwaitingReply(Phone::normalize($phone))))->isNotEmpty()) {
             $this->inboundKind = 'reminder_ack';
             $lines = $seen->map(function (Reminder $r) {
@@ -748,7 +739,7 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($undone);
         }
 
-        if (! $reviewReply && ! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
+        if (! $pending && $image === null && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body))) {
             $this->inboundKind = 'no_draft';
             // "Tamam / ok" çoğu zaman sohbet kapanışıdır (Akkuş 17.10 22:46) — yarım kalan kayıt varsa adıyla sorulur.
             if ($this->isConfirm($body)) {
@@ -1504,8 +1495,6 @@ class WhatsappWebhookController extends Controller
             $fresh = true;
         }
         // Kayıt kontrolü cevabı: bu turda açılan taslak o kontrole bağlanır (onaylanınca "Düzeltildi").
-        $this->turnReview = TurnTrace::read('RecordReview::activeFor', fn () => \App\Models\RecordReview::activeFor($phone));
-        $this->pendingBefore = (int) TurnTrace::read('chatTurn.pendingBefore', fn () => WhatsappPendingExpense::max('id'));
         try {
             $result = app(ChatAssistant::class)->respond($phone, $body, $pending?->extracted, $fresh ?? false);
         } catch (DeferTurn $e) {
@@ -1557,25 +1546,6 @@ class WhatsappWebhookController extends Controller
                 $this->inboundKind = 'undo';
 
                 return $this->undoDraft($pending, $phone, $result['replacement'] ?? null, $result['find'] ?? null);
-            case 'review_ok':
-                $this->inboundKind = 'review';
-                if (! $this->turnReview) {
-                    return $this->ackWithoutDraft($phone);
-                }
-                // Bilgi sorusu (28.10): cevap yalnız not — "kayıt doğruymuş" denmez, yönetici hub'da okur.
-                if ($this->turnReview->isInfo()) {
-                    $this->turnReview->closeBy('correct', 'Müşteri cevabı: "' . mb_substr($body, 0, 300) . '"');
-
-                    return '👍 Teşekkürler, not aldım.';
-                }
-                if (($result['verdict'] ?? 'correct') === 'declined') {
-                    $this->turnReview->closeBy('dismissed', 'Müşteri istemedi: "' . mb_substr($body, 0, 300) . '"');
-
-                    return '👍 Tamam, dokunmadım.';
-                }
-                $this->turnReview->closeBy('correct', 'Müşteri doğru dedi: "' . mb_substr($body, 0, 300) . '"');
-
-                return '👍 Teşekkürler, kayıt doğruymuş — dokunmadım.';
             case 'return':
                 $this->inboundKind = 'return';
 
@@ -2378,24 +2348,8 @@ class WhatsappWebhookController extends Controller
         if ($created !== [] && TurnTrace::read('commit.status', fn () => $pending->fresh()?->status) === 'confirmed') {
             $pending->update(['extracted' => ['created_records' => $created] + $pending->extracted]);
         }
-        $this->closeReviewFor($pending);
 
         return $out;
-    }
-
-    private ?\App\Models\RecordReview $turnReview = null;
-
-    private int $pendingBefore = 0;
-
-    /** Kayıt kontrolüne cevap turunda açılan taslak(lar) o kontrole bağlanır — onaylanınca kontrol "Düzeltildi" olur. */
-    private function tagReviewDrafts(string $phone): void
-    {
-        if (! $this->turnReview) {
-            return;
-        }
-        foreach (WhatsappPendingExpense::where('phone', $phone)->where('id', '>', $this->pendingBefore)->where('status', 'awaiting_confirmation')->get() as $p) {
-            $p->update(['extracted' => ['review_id' => $this->turnReview->id] + $p->extracted]);
-        }
     }
 
     /** @var list<array{0:string,1:int}>|null commit sırasında oluşan [tür, id] */
@@ -2636,20 +2590,10 @@ class WhatsappWebhookController extends Controller
         };
     }
 
-    /** Kayıt kontrolüne bağlı taslak onaylandı → kontrol "Düzeltildi" (müşteri düzeltti). */
-    private function closeReviewFor(WhatsappPendingExpense $pending): void
-    {
-        $id = $pending->extracted['review_id'] ?? null;
-        if ($id && $pending->fresh()?->status === 'confirmed' && ($review = \App\Models\RecordReview::find($id))) {
-            $review->closeBy('resolved', 'Müşteri düzeltti: ' . mb_substr(preg_replace('/\s+/u', ' ', strip_tags((string) $pending->summary)), 0, 400));
-        }
-    }
-
     private function commitUndo(WhatsappPendingExpense $pending): string
     {
         try {
             $out = DB::transaction(fn () => $this->commitUndoInner($pending));
-            $this->closeReviewFor($pending);
 
             return $out;
         } catch (UndoAborted $e) {

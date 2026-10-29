@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\AiCredit;
-use App\Models\ConversationReport;
 use App\Models\DevUsage;
 use App\Support\HubCosts;
 use App\Support\HubSignature;
@@ -45,8 +44,7 @@ class HubCostsTest extends TestCase
         AiCredit::create(['balance_usd' => 21.83]);
         Carbon::setTestNow('2026-10-14 17:00');
         DevUsage::create(['model' => 'x', 'cost_usd' => 0.5]);
-        ConversationReport::create(['report_date' => '2026-10-15', 'message_count' => 1, 'firm_count' => 1,
-            'summary' => 's', 'body' => 'b', 'model' => 'x', 'cost_usd' => 0.33]);
+        DevUsage::create(['source' => HubCosts::ANALYSIS_SOURCE, 'model' => 'x', 'cost_usd' => 0.33]); // eski sabah analizi (29.10 taşındı)
 
         $credit = HubCosts::credit();
         $this->assertEqualsWithDelta(0.83, $credit['spent'], 0.0001);

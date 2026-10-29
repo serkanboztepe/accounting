@@ -348,14 +348,6 @@ class AssistantEvalTest extends TestCase
                 $m->created_at = now()->modify($row[3]);
                 $m->save();
             })(),
-            // Sorulmuş kayıt kontrolü (hub "Müşteriye sor"): ['review', şüpheli kayıt, soru] — soru mesajı da geçmişe yazılır.
-            'review' => (function () use ($row) {
-                \App\Models\RecordReview::create(['firm_name' => 'Eval', 'phone' => \App\Support\Phone::normalize($this->phone), 'problem' => $row[1],
-                    'question' => $row[2], 'status' => 'asked', 'asked_at' => now()->subHour()]);
-                $m = new \App\Models\WhatsappMessage(['phone' => \App\Support\Phone::normalize($this->phone), 'direction' => 'out', 'body' => $row[2], 'kind' => 'record_review']);
-                $m->created_at = now()->subHour();
-                $m->save();
-            })(),
             // Başlangıç stoğu: ['stock', ürün, miktar]
             'stock' => \App\Models\StockMovement::create(['product_id' => $this->ids['product'][$row[1]], 'direction' => \App\Models\StockMovement::DIRECTION_IN,
                 'reason' => \App\Models\StockMovement::REASON_ADJUSTMENT, 'quantity' => $row[2], 'movement_date' => now()->subDays(3)->toDateString()]),

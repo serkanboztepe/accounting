@@ -40,8 +40,6 @@ if (config('tenancy.enabled')) {
     // Yarım kalan kayıt: 30 dk sessizlikte bir kez, ertesi gün bir kez daha (gece ve 24 saat dışı yok).
     Schedule::command('tenants:run "drafts:follow-up"')->everyFiveMinutes()->withoutOverlapping(10);
     // Günlük konuşma analizi: dünün konuşmaları → numaralı rapor (hub) + yöneticiye WhatsApp özeti.
-    Schedule::command('conversations:analyze')->dailyAt('08:30')->timezone('Europe/Istanbul');
-    Schedule::command('parties:suggest-profiles')->dailyAt('08:45')->timezone('Europe/Istanbul'); // Faz 3.2: hub onayına cari tanımı
     Schedule::command('ai:credit-check')->hourly(); // Faz 5: tahmini kredi < 5 $ → yöneticiye WhatsApp (günde 1)
     // WhatsApp konuşma kaydı 90 günden eskiyse silinir (App\Models\WhatsappMessage tek Prunable model).
     Schedule::command('tenants:run "model:prune"')->daily()->at('04:30');

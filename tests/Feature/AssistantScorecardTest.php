@@ -43,16 +43,4 @@ class AssistantScorecardTest extends TestCase
         $this->assertSame(1, $after['slow'] - $before['slow']);
         $this->assertGreaterThanOrEqual(20, $after['max']);
     }
-
-    public function test_hub_page_renders(): void
-    {
-        if (! isset(\Filament\Facades\Filament::getPanels()['hub'])) {
-            $this->app->register(\App\Providers\Filament\HubPanelProvider::class);
-        }
-        \Filament\Facades\Filament::setCurrentPanel('hub');
-        $this->actingAs(\App\Models\HubUser::forceCreate(['name' => 'Hub', 'email' => 'hub-' . uniqid() . '@example.com', 'password' => 'x']), 'hub');
-
-        \Livewire\Livewire::test(\App\Filament\Hub\Pages\AssistantScorecardPage::class)
-            ->assertOk()->assertSee('Son 7 gün')->assertSee('15 sn üstü')->assertSee('Toplam');
-    }
 }

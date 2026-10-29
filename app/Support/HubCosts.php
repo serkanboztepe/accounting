@@ -3,7 +3,6 @@
 namespace App\Support;
 
 use App\Models\AiCredit;
-use App\Models\ConversationReport;
 use App\Models\DevUsage;
 use App\Models\HubFirm;
 use Illuminate\Support\Facades\Cache;
@@ -11,6 +10,9 @@ use Illuminate\Support\Facades\Cache;
 /** Hub maliyet hesabı: firma başına bu ay (WhatsApp + AI + numara payı) ve toplu tablo (analiz + yerel denemeler dahil). */
 class HubCosts
 {
+    /** hub_dev_usage.source: kaldırılan sabah analizinin (conversations:analyze) taşınan maliyeti. */
+    public const ANALYSIS_SOURCE = 'morning_analysis';
+
     /** Bir firmanın bu ayı: hub'daki mesaj sayıları + firmadan çekilen AI/şablon maliyeti (5 dk önbellek). */
     public static function firmMonth(HubFirm $firm): array
     {
@@ -54,8 +56,9 @@ class HubCosts
             ->all();
 
         $start = now()->startOfMonth();
-        $analysis = (float) ConversationReport::where('created_at', '>=', $start)->sum('cost_usd');
-        $dev = DevUsage::where('created_at', '>=', $start);
+        // Sabah analizi 29.10'da kalktı; eski raporların maliyeti hub_dev_usage'da (source morning_analysis) — ay toplamı aynı kalsın.
+        $analysis = (float) DevUsage::where('source', self::ANALYSIS_SOURCE)->where('created_at', '>=', $start)->sum('cost_usd');
+        $dev = DevUsage::where('source', '!=', self::ANALYSIS_SOURCE)->where('created_at', '>=', $start);
         $devCost = (float) (clone $dev)->sum('cost_usd');
         $devCalls = (clone $dev)->count();
 
@@ -102,8 +105,7 @@ class HubCosts
         }
         $since = $credit->created_at;
         $spent = HubFirm::all()->sum(fn (HubFirm $f) => (float) $f->aiCostSince($since))
-            + (float) ConversationReport::where('created_at', '>=', $since)->sum('cost_usd')
-            + (float) DevUsage::where('created_at', '>=', $since)->sum('cost_usd');
+            + (float) DevUsage::where('created_at', '>=', $since)->sum('cost_usd'); // eski sabah analizleri de burada
 
         return ['entered' => $credit->balance_usd, 'at' => $since, 'spent' => $spent, 'remaining' => $credit->balance_usd - $spent];
     }

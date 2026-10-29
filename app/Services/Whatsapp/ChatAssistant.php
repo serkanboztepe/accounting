@@ -219,8 +219,6 @@ class ChatAssistant
                     }
 
                     return ['type' => 'undo', 'replacement' => $replacement, 'find' => $find ?: null];
-                case 'review_answer':
-                    return ['type' => 'review_ok', 'verdict' => ($input['verdict'] ?? null) === 'declined' ? 'declined' : 'correct', 'text' => $said];
                 case 'return_items':
                     // İade (19.10): asıl kayıt durur, yanına iade yazılır. Yön bulunan kayıttan gelir; side yalnız ipucu.
                     $side = in_array($input['side'] ?? null, ['sale', 'purchase'], true) ? $input['side'] : null;
@@ -569,9 +567,8 @@ class ChatAssistant
           alanları doldur, tutar bilinmiyorsa `amount`=0, soruyu `question`'a yaz ("Doktor'a verdiğin peynir, kavurma
           ve mumbarın toplamı ne kadar?"). Böylece taslak açılır, kullanıcının cevabı ona bağlanır; `reply` ile
           sorarsan kayıt kaybolur. Türü tutar varmış gibi aynı kurallarla seç ("X'e yem verdim" = sale, "X'ten un aldım" = purchase).
-        - Bizim sorduğumuz kayıt kontrol sorusuna ("Bir kaydınızı kontrol etmek istiyorum: …") cevap gelir ve kayıt YANLIŞ çıkarsa:
-          `undo_last` + `find_date` / `find_amount` / `find_text` ile o kaydı bul ve `replacement` ile doğru hâlini öner (müşteri onaylar).
-          Kayıt doğruysa kısa teşekkür et, bir şey değiştirme.
+        - Bir mesajda hem onay hem yeni bir istek varsa ikisini de yap; yapamadığın kısmı açıkça söyle (eski ders, Yeni Yapı 19.10).
+        - Bekleyen yarım işin eksik bilgisini veren mesaj o işe eklenir — aynı iş için ikinci kayıt açma (eski ders, Yeni Yapı 19.10).
         - "Fotoğrafını / fişi / dekontu atıyorum, gönderiyorum, birazdan atacağım" = belge BİRAZDAN gelecek: kısa `reply` ile
           "Tamam, bekliyorum" de; "göremedim / takılmış" DEME, kayıt önerme (belge gelince birlikte okunur).
         - Bekleyen taslak YOKKEN kısa bir "ödendi / tamam / yaptım / verdim" gelirse: "BUGÜN SENİN KENDİLİĞİNDEN GÖNDERDİKLERİN"e ve
@@ -668,7 +665,6 @@ class ChatAssistant
             ['type' => 'text', 'text' => trim($context), 'cache_control' => ['type' => 'ephemeral']],
             ['type' => 'text', 'text' => "ŞU AN: {$today}\n\nBEKLEYEN TASLAK (kullanıcıya özeti gösterildi, onay bekliyor): {$draft}"
                 . self::todaysOutbound($phone)
-                . ($phone && ($review = \App\Models\RecordReview::activeFor($phone)) ? $review->promptBlock() : '')
                 . \App\Support\Reminders::contextBlock($phone)],
         ];
     }
@@ -770,15 +766,6 @@ class ChatAssistant
                         'amount' => ['type' => ['number', 'null'], 'description' => 'İade tutarı TL, yalnız söylendiyse'],
                         'money_back' => ['type' => ['boolean', 'null'], 'description' => 'true: parası da geri verildi/alındı ("parasını geri verdim", "parayı iade etti")'],
                     ],
-                ],
-            ],
-            [
-                'name' => 'review_answer',
-                'description' => 'Yalnız KAYIT KONTROLÜ bloğu varken: correct = kullanıcı sorduğumuz kaydın DOĞRU olduğunu söylüyor; declined = önerdiğimiz düzeltmeyi istemiyor. İkisinde de kayda dokunulmaz. Yanlış deyip doğrusunu söylüyorsa bu değil → undo_last + replacement.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => ['verdict' => ['type' => 'string', 'enum' => ['correct', 'declined']]],
-                    'required' => ['verdict'],
                 ],
             ],
             [
