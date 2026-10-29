@@ -32,16 +32,22 @@ class PurchaseOverviewCard extends Widget
             $overdueCount = (clone $overdue)->count();
             $payables = (float) PartyBalances::payables()->sum(fn ($r) => abs((float) $r['balance']));
             // Bize borçlu cariler = önceden ödediğimiz, malı/işi henüz gelmemiş para (müteahhitte satış yok). Ödenecek'e karışmaz.
-            $prepaid = PartyBalances::receivables();
+            // Alışı yazılmamış projeli ödeme maliyete girdiği için o kısım "önceden ödediğin"den düşer (iki yerde görünmesin).
+            $unbookedByParty = ProjectCost::unbookedPaymentRows()->groupBy('party_id')->map(fn ($rows) => (float) $rows->sum('amount'));
+            $prepaid = PartyBalances::receivables()
+                ->map(fn ($r) => ['party' => $r['party'], 'balance' => max(0, (float) $r['balance'] - ($unbookedByParty[$r['party']->id] ?? 0))])
+                ->filter(fn ($r) => $r['balance'] >= 0.01);
             $expenses = ProjectCost::expenses();
             $purchases = ProjectCost::purchases();
+            $unbooked = (float) $unbookedByParty->sum();
 
             return [
                 'simple'          => true,
                 'active_projects' => Project::query()->where('status', 'active')->count(),
                 'expenses_total'  => $expenses,
                 'purchase_total'  => $purchases,
-                'total_cost'      => $expenses + $purchases,
+                'unbooked_total'  => $unbooked,
+                'total_cost'      => $expenses + $purchases + $unbooked,
                 'payables'        => $payables,
                 'pending_checks'  => $pending,
                 'total_due'       => $payables + $pending,

@@ -84,6 +84,34 @@ class ProjectReports extends Page implements HasSchemas
         return $this->projectId ? Project::find($this->projectId) : null;
     }
 
+    /**
+     * Kalan borç: bu projede alışı olan ve bizim borçlu olduğumuz cariler — carinin TOPLAM bakiyesi
+     * (ödemeler çoğu zaman projesiz girilir; projeye bölünmez). Birden çok projede alışı varsa satırda söylenir.
+     *
+     * @return array<int, array{party:string, balance:float, projects:int}>
+     */
+    public function getDebtRows(): array
+    {
+        $project = $this->getSelectedProject();
+        if (! $project) {
+            return [];
+        }
+
+        $partyIds = PartyLedgerEntry::query()->where('project_id', $project->id)
+            ->where('type', PartyLedgerEntry::TYPE_PURCHASE)->distinct()->pluck('party_id')->filter();
+
+        return \App\Models\Party::whereIn('id', $partyIds)->get()
+            ->map(fn ($party) => ['party' => $party, 'balance' => (float) \App\Support\PartyStatement::build($party)['balance']])
+            ->filter(fn ($r) => $r['balance'] <= -0.01)   // < 0: biz cariye borçluyuz
+            ->map(fn ($r) => [
+                'party' => $r['party']->name,
+                'balance' => abs($r['balance']),
+                'projects' => PartyLedgerEntry::query()->where('party_id', $r['party']->id)->where('type', PartyLedgerEntry::TYPE_PURCHASE)
+                    ->whereNotNull('project_id')->distinct()->count('project_id'),
+            ])
+            ->sortByDesc('balance')->values()->all();
+    }
+
     public function getSummaryStats(): array
     {
         $project = $this->getSelectedProject();
@@ -151,6 +179,14 @@ class ProjectReports extends Page implements HasSchemas
         // (para çıkışı); alış iadesi düşer. Avanstan düşülen iş de alış satırıdır, bir kez sayılır.
         $purchaseCost = ProjectCost::purchases($project->id);
 
+        // Projeye verilmiş ama alışı yazılmamış para → maliyete girer, kartta ⚠ ile cari cari söylenir.
+        $unbookedRows = ProjectCost::unbookedPaymentRows($project->id);
+        $parties = \App\Models\Party::whereIn('id', $unbookedRows->pluck('party_id'))->pluck('name', 'id');
+        $unbooked = $unbookedRows
+            ->map(fn ($r) => ['party' => $parties[$r->party_id] ?? '-', 'amount' => $r->amount])
+            ->sortByDesc('amount')->values()->all();
+        $unbookedTotal = (float) array_sum(array_column($unbooked, 'amount'));
+
         return [
             'direct_expenses' => $directExpenses,
             'purchase_cost' => $purchaseCost,
@@ -160,7 +196,11 @@ class ProjectReports extends Page implements HasSchemas
             'remaining_contract_balance' => $remainingBalance,
             'checks_total' => $checksTotal,
             'delivery_cost' => $deliveryCost,
-            'total_cost' => $directExpenses + $deliveryCost + $purchaseCost,
+            'unbooked_payments' => $unbooked,
+            'unbooked_total' => $unbookedTotal,
+            'total_cost' => $directExpenses + $deliveryCost + $purchaseCost + $unbookedTotal,
+            'pending_project_checks' => (float) Check::query()->where('project_id', $project->id)->where('status', 'issued')->sum('amount'),
+            'paid_project_checks' => (float) Check::query()->where('project_id', $project->id)->whereIn('status', ['paid', 'collected'])->sum('amount'),
             'invoiced_total' => $invoicedTotal,
             'uninvoiced_total' => $uninvoicedTotal,
         ];

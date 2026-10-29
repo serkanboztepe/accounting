@@ -76,26 +76,57 @@
                         <div class="pr-eyebrow">Toplam Proje Maliyeti</div>
                         <div class="pr-hero tnum">{{ $m($summary['total_cost']) }}</div>
                     </div>
-                    <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Alış <b>{{ $m($summary['purchase_cost']) }}</b>@if ($withContracts) &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b>@endif</div>
+                    @if ($withContracts)
+                        <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Alış <b>{{ $m($summary['purchase_cost']) }}</b> &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b></div>
+                    @endif
                 </div>
 
                 @if (! $withContracts)
-                    <div class="pr-grid" @if (! $withChecks) style="grid-template-columns: 1fr;" @endif>
+                    @php
+                        // Sözleşmesiz kart: toplam yukarıda bir kez; altında yalnız iki kalem + pay (tekrar yok).
+                        $share = fn ($v) => $summary['total_cost'] > 0 ? '%' . round($v / $summary['total_cost'] * 100) : null;
+                    @endphp
+                    @php
+                        $debts = $this->getDebtRows();
+                    @endphp
+                    <div class="pr-grid" style="grid-template-columns: 1fr;">
                         <div class="pr-col">
-                            <div class="pr-colhead">Maliyet</div>
-                            <div class="pr-row"><span class="pr-k">Direkt gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }}</span></div>
-                            <div class="pr-row"><span class="pr-k">Alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }}</span></div>
-                            <div class="pr-row pr-hi"><span class="pr-k">Toplam</span><span class="pr-v tnum">{{ $m($summary['total_cost']) }}</span></div>
+                            <div class="pr-row"><span class="pr-k">Direkt gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }} <span class="pr-k">{{ $share($summary['direct_expenses']) }}</span></span></div>
+                            <div class="pr-row"><span class="pr-k">Alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }} <span class="pr-k">{{ $share($summary['purchase_cost']) }}</span></span></div>
+                            @if ($summary['unbooked_total'] > 0)
+                                <div class="pr-row"><span class="pr-k pr-warn">⚠ Alışı yazılmamış ödeme</span><span class="pr-v tnum pr-warn">{{ $m($summary['unbooked_total']) }} <span class="pr-k">{{ $share($summary['unbooked_total']) }}</span></span></div>
+                                @foreach ($summary['unbooked_payments'] as $row)
+                                    <div class="pr-row"><span class="pr-k" style="padding-left:14px">{{ $row['party'] }} — bu projeye para verildi, iş/malzeme alışı yazılmadı</span><span class="pr-v tnum">{{ $m($row['amount']) }}</span></div>
+                                @endforeach
+                            @endif
                         </div>
-                        @if ($withChecks)
-                            <div class="pr-col">
-                                <div class="pr-colhead">Çek</div>
-                                <div class="pr-row pr-hi"><span class="pr-k">Bu projeye yazılan çek</span><span class="pr-v tnum pr-pend">{{ $m($summary['checks_total']) }}</span></div>
-                            </div>
-                        @endif
                     </div>
 
-                    <div class="pr-foot tnum">Ödeme ve avans maliyete girmez (para çıkışıdır; maliyet iş/mal alındığında yazılır) · Alış iadesi düşülür</div>
+                    <div class="pr-grid" style="grid-template-columns: 1fr;">
+                        <div class="pr-col">
+                            <div class="pr-colhead">Kalan borç</div>
+                            @forelse ($debts as $row)
+                                <div class="pr-row"><span class="pr-k">{{ $row['party'] }}@if ($row['projects'] > 1) <span style="font-size:12px">(toplam borç, {{ $row['projects'] }} projede çalışıyor)</span>@endif</span><span class="pr-v tnum pr-warn">{{ $m($row['balance']) }}</span></div>
+                            @empty
+                                <div class="pr-row"><span class="pr-k">Bu projedeki carilere borç yok</span><span class="pr-v tnum">{{ $m(0) }}</span></div>
+                            @endforelse
+                            @if (count($debts) > 1)
+                                <div class="pr-row pr-hi"><span class="pr-k">Toplam</span><span class="pr-v tnum pr-warn">{{ $m(array_sum(array_column($debts, 'balance'))) }}</span></div>
+                            @endif
+                        </div>
+                    </div>
+
+                    @if ($withChecks)
+                        <div class="pr-grid" style="grid-template-columns: 1fr;">
+                            <div class="pr-col">
+                                <div class="pr-colhead">Çekler (maliyete eklenmez)</div>
+                                <div class="pr-row"><span class="pr-k">Vadesi gelmemiş</span><span class="pr-v tnum pr-pend">{{ $m($summary['pending_project_checks']) }}</span></div>
+                                <div class="pr-row"><span class="pr-k">Ödenmiş</span><span class="pr-v tnum pr-good">{{ $m($summary['paid_project_checks']) }}</span></div>
+                            </div>
+                        </div>
+                    @endif
+
+                    <div class="pr-foot tnum">Maliyet = gider + alış + projeye verilip alışı yazılmamış para · Alış yazılınca ⚠ satırı kendiliğinden kapanır · Projesiz ödeme maliyete girmez · Kalan borç carinin toplam bakiyesidir · Çekler yalnız bu projeye yazılanlar</div>
                 @else
                 <div class="pr-grid">
                     <div class="pr-col">

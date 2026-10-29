@@ -137,13 +137,15 @@ class ExpenseSummary
             $expenses = ProjectCost::expenses($project->id);
             $purchases = ProjectCost::purchases($project->id);
             $deliveries = \App\Support\Features::contracts() ? (float) ContractDelivery::where('project_id', $project->id)->sum('amount') : 0.0;
+            $unbooked = ProjectCost::unbookedPayments($project->id);
             $label = 'şu ana kadar';
         } else {
             $s = self::build($from, $to, $project->id);
             [$expenses, $purchases, $deliveries] = [$s['expenses'], $s['purchases'], $s['deliveries']];
+            $unbooked = 0.0;   // dönemli cevapta yok: fark tarih bazında değil, carinin o projedeki toplamından
             $label = self::periodLabel($s['from'], $s['to']);
         }
-        $total = $expenses + $purchases + $deliveries;
+        $total = $expenses + $purchases + $deliveries + $unbooked;
         if ($total < 0.01) {
             return '📊 ' . $project->name . ' — ' . $label . ' maliyet kaydı yok.';
         }
@@ -153,6 +155,7 @@ class ExpenseSummary
             $expenses >= 0.01 ? '• Gider: ' . Money::format($expenses) . ' ₺' : null,
             $purchases >= 0.01 ? '• Alışlar (iş / malzeme): ' . Money::format($purchases) . ' ₺' : null,
             $deliveries >= 0.01 ? '• Sözleşme teslimatı: ' . Money::format($deliveries) . ' ₺' : null,
+            $unbooked >= 0.01 ? '• ⚠ Alışı yazılmamış ödeme: ' . Money::format($unbooked) . ' ₺' : null,
         ]));
     }
 
@@ -162,7 +165,7 @@ class ExpenseSummary
         $label = $all ? 'şu ana kadar' : self::periodLabel(...self::period($from, $to));
         $cost = function (?int $projectId) use ($all, $from, $to): float {
             if ($all) {
-                return $projectId === null ? ProjectCost::expenses() + ProjectCost::purchases() : ProjectCost::expenses($projectId) + ProjectCost::purchases($projectId);
+                return ProjectCost::total($projectId);
             }
             $s = self::build($from, $to, $projectId);
 

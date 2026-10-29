@@ -60,6 +60,47 @@ class ProjectCostPurchasesTest extends TestCase
             ->assertDontSee('Sözleşme Teslimatları')->assertDontSee('Faturasız');
     }
 
+    /**
+     * 29.10 (Muhasebe/Barbaros, Ayhan Ergül): projeye verilmiş ama alışı yazılmamış para maliyete girer, ⚠ ile söylenir;
+     * alış yazılınca fark kapanır (çift sayılmaz). Projesiz ödeme girmez. Kalan borç = alışı olan carinin bakiyesi; çekler ayrı.
+     */
+    public function test_unbooked_project_payment_counts_until_purchase_written(): void
+    {
+        config(['modules' => ModuleProfiles::resolve('muteahhit', ['checks' => true]), 'app.profile' => 'muteahhit']);
+        $this->actingAs(User::factory()->create());
+        $barbaros = Project::create(['name' => 'Maliyet Testi Barbaros', 'status' => 'active']);
+        $elektrik = Party::create(['name' => 'Maliyet Testi Elektrikçi']);
+        $seramik = Party::create(['name' => 'Maliyet Testi Seramikçi']);
+        $beton = Party::create(['name' => 'Maliyet Testi Betoncu']);
+
+        $this->ledger($elektrik, $barbaros, PartyLedgerEntry::TYPE_PAYMENT, 650000, 'Ödeme — Elektrik');   // alışı yok
+        $this->ledger($seramik, $barbaros, PartyLedgerEntry::TYPE_PURCHASE, 146250, 'Seramik işçilik');   // ödenmedi
+        $this->ledger($beton, $barbaros, PartyLedgerEntry::TYPE_PURCHASE, 100000, 'Beton');
+        $this->ledger($beton, null, PartyLedgerEntry::TYPE_PAYMENT, 300000, 'Projesiz ödeme');           // maliyet değil
+        \App\Models\Check::create(['party_id' => $elektrik->id, 'project_id' => $barbaros->id, 'amount' => 600000, 'due_date' => now()->addMonth(), 'status' => 'issued']);
+        \App\Models\Check::create(['party_id' => $elektrik->id, 'project_id' => $barbaros->id, 'amount' => 50000, 'due_date' => now()->subMonth(), 'status' => 'paid']);
+
+        $page = Livewire::test(ProjectReports::class)->set('projectId', $barbaros->id);
+        $stats = $page->instance()->getSummaryStats();
+
+        $this->assertEqualsWithDelta(246250, $stats['purchase_cost'], 0.01);
+        $this->assertEqualsWithDelta(650000, $stats['unbooked_total'], 0.01);
+        $this->assertEqualsWithDelta(896250, $stats['total_cost'], 0.01);
+        $this->assertEqualsWithDelta(896250, \App\Support\ProjectCost::total($barbaros->id), 0.01);
+        $this->assertEqualsWithDelta(600000, $stats['pending_project_checks'], 0.01);
+        $this->assertEqualsWithDelta(50000, $stats['paid_project_checks'], 0.01);
+        $this->assertSame([['party' => 'Maliyet Testi Seramikçi', 'balance' => 146250.0, 'projects' => 1]], $page->instance()->getDebtRows());
+        $page->assertSee('Alışı yazılmamış ödeme')->assertSee('Maliyet Testi Elektrikçi')->assertSee('Kalan borç')
+            ->assertSee('Çekler (maliyete eklenmez)')->assertSee('896.250,00');
+
+        // Alış yazılınca ⚠ kapanır, maliyet aynı kalır (çift sayılmaz)
+        $this->ledger($elektrik, $barbaros, PartyLedgerEntry::TYPE_PURCHASE, 650000, 'Elektrik tesisatı');
+        $after = Livewire::test(ProjectReports::class)->set('projectId', $barbaros->id);
+        $this->assertEqualsWithDelta(0, $after->instance()->getSummaryStats()['unbooked_total'], 0.01);
+        $this->assertEqualsWithDelta(896250, $after->instance()->getSummaryStats()['total_cost'], 0.01);
+        $after->assertDontSee('Alışı yazılmamış ödeme');
+    }
+
     public function test_contract_firm_keeps_deliveries_and_flags_possible_double(): void
     {
         config(['modules' => ModuleProfiles::resolve('muteahhit', ['contracts' => true, 'purchase_contracts' => true, 'dashboard' => true])]);

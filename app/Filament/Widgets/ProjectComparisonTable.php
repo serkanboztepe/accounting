@@ -61,7 +61,7 @@ class ProjectComparisonTable extends TableWidget
                 Tables\Columns\TextColumn::make('total_cost')
                     ->label('Toplam Maliyet')
                     ->visible(! $contracts)
-                    ->getStateUsing(fn (Project $p): float => ProjectCost::purchases($p->id) + ProjectCost::expenses($p->id))
+                    ->getStateUsing(fn (Project $p): float => ProjectCost::total($p->id))
                     ->formatStateUsing(fn (float $state): string => Money::format($state) . ' ₺')
                     ->alignEnd()
                     ->weight('bold'),

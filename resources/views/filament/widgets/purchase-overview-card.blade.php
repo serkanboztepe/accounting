@@ -48,7 +48,7 @@
                 <div class="pc-eyebrow">Genel Durum · Maliyet</div>
                 <div class="pc-hero tnum">{{ $m($d['total_cost']) }}</div>
             </div>
-            <div class="pc-break tnum">{{ $d['active_projects'] }} aktif proje · Direkt gider <b>{{ $m($d['expenses_total']) }}</b> + Alış <b>{{ $m($d['purchase_total']) }}</b></div>
+            <div class="pc-break tnum">{{ $d['active_projects'] }} aktif proje · Direkt gider <b>{{ $m($d['expenses_total']) }}</b> + Alış <b>{{ $m($d['purchase_total']) }}</b>@if (($d['unbooked_total'] ?? 0) > 0) + <span style="color: var(--pc-warn)">⚠ Alışı yazılmamış ödeme <b>{{ $m($d['unbooked_total']) }}</b></span>@endif</div>
         </div>
 
         <div class="pc-grid">
@@ -73,7 +73,7 @@
             <div class="pc-foot tnum">📦 Önceden ödediğin, malı/işi gelecek: <b>{{ $m($d['prepaid']) }}</b> ({{ $d['prepaid_count'] }} kişi) — mal/iş geldikçe maliyete girer, ödenecekten ayrı</div>
         @endif
 
-        <div class="pc-foot tnum">Maliyet = direkt gider + alış (iş / malzeme) · Ödeme ve avans maliyete girmez · Çek verildiğinde borç düşer, vadesine kadar "Bekleyen Çek"te durur</div>
+        <div class="pc-foot tnum">Maliyet = direkt gider + alış (iş / malzeme) + projeye verilip alışı yazılmamış para · Projesiz ödeme ve avans maliyete girmez · Çek verildiğinde borç düşer, vadesine kadar "Bekleyen Çek"te durur</div>
     </div>
     @else
     <div class="pc-summary">
