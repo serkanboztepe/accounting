@@ -64,6 +64,7 @@ class EditHubFirm extends EditRecord
                     $this->record->update($data);
                     Notification::make()->success()->title('Kaydedildi')->send();
                 }),
+            \App\Filament\Hub\HubFirms\PlanActions::group($this->record),
             $this->modulesAction(),
             DeleteAction::make()
                 ->modalDescription(fn () => $this->record->isLocal()

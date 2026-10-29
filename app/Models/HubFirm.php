@@ -22,7 +22,8 @@ class HubFirm extends Model
 {
     use UsesCentralConnection;
 
-    protected $fillable = ['name', 'database', 'db_username', 'db_password', 'settings', 'url', 'secret', 'is_active'];
+    protected $fillable = ['name', 'database', 'db_username', 'db_password', 'settings', 'url', 'secret', 'is_active',
+        'plan', 'plan_amount', 'plan_started_on', 'plan_day', 'trial_ends_on', 'suspended_at'];
 
     protected $hidden = ['secret', 'db_password'];
 
@@ -30,6 +31,10 @@ class HubFirm extends Model
         'is_active'   => 'boolean',
         'settings'    => 'array',
         'db_password' => 'encrypted',
+        'plan_amount' => 'float',
+        'plan_started_on' => 'date',
+        'trial_ends_on' => 'date',
+        'suspended_at' => 'datetime',
     ];
 
     /** Firma ayarları varsayılanları (hub ekranında boş bırakılanlar). */
@@ -63,6 +68,20 @@ class HubFirm extends Model
             }
         });
 
+        // Ayarlar'dan "Aktif" açılırsa ödeme durdurması da kalkar (durdurulmuş ama aktif firma olmasın).
+        static::saving(function (HubFirm $firm) {
+            if ($firm->isDirty('is_active') && $firm->is_active) {
+                $firm->suspended_at = null;
+            }
+        });
+
+        // Abonelik / durdurma değişince kapanmış ayların raporu yeniden hesaplansın.
+        static::saved(function (HubFirm $firm) {
+            if ($firm->wasChanged(['plan', 'plan_amount', 'plan_started_on', 'plan_day', 'is_active', 'suspended_at'])) {
+                HubLedgerEntry::bumpReport();
+            }
+        });
+
         static::creating(function (HubFirm $firm) {
             if ($firm->url) {
                 $firm->secret = $firm->secret ?: Str::random(48);
@@ -79,6 +98,11 @@ class HubFirm extends Model
     public function messageLogs(): HasMany
     {
         return $this->hasMany(HubMessageLog::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(HubLedgerEntry::class, 'hub_firm_id')->where('kind', HubLedgerEntry::PAYMENT);
     }
 
     public function users(): HasMany

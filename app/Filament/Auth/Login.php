@@ -6,12 +6,14 @@ use App\Http\Middleware\IdentifyTenant;
 use App\Models\FirmUser;
 use App\Models\HubFirm;
 use App\Models\User;
+use App\Support\FirmPlan;
 use App\Tenancy\Tenancy;
 use DanHarrin\LivewireRateLimiting\Exceptions\TooManyRequestsException;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\Pages\Login as BaseLogin;
 use Filament\Schemas\Components\Component;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Tek panel girişi: e-posta → firma (merkezdeki firm_users), şifre o firmanın
@@ -40,6 +42,10 @@ class Login extends BaseLogin
 
                 return null;
             }
+            // Ödeme yok diye durdurulan firmanın doğru şifreli kullanıcısı: genel "eşleşmiyor" yerine durum söylenir (29.10).
+            if ($this->firmsAcceptingPassword((string) $data['email'], (string) $data['password'], suspended: true) !== []) {
+                throw ValidationException::withMessages(['data.email' => str_replace(['*', "\n"], ['', ' '], FirmPlan::SUSPENDED_REPLY)]);
+            }
             $this->throwFailureValidationException();
         }
 
@@ -51,14 +57,14 @@ class Login extends BaseLogin
     }
 
     /** @return list<HubFirm> */
-    private function firmsAcceptingPassword(string $email, string $password): array
+    private function firmsAcceptingPassword(string $email, string $password, bool $suspended = false): array
     {
         $firms = FirmUser::query()
             ->where('email', mb_strtolower(trim($email)))
             ->with('firm')
             ->get()
             ->pluck('firm')
-            ->filter(fn (?HubFirm $f) => $f && $f->is_active && $f->isLocal())
+            ->filter(fn (?HubFirm $f) => $f && $f->isLocal() && ($suspended ? ! $f->is_active && $f->suspended_at : $f->is_active))
             ->sortBy('name')
             ->values();
 

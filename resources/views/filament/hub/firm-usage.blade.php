@@ -3,7 +3,7 @@
     $usd = fn ($v) => '$' . \App\Support\Money::format((float) $v);
 @endphp
 <x-filament::section :heading="'Bu ay — ' . $monthLabel" icon="heroicon-o-banknotes"
-    :description="'Numara kirası ' . $usd(config('costs.twilio_number_monthly')) . '/ay, ' . $activeFirms . ' aktif firmaya bölünür. WhatsApp mesajı 0,005 $ (Twilio faturasıyla doğrulandı).'">
+    :description="'Firmanın kendi kullanımı. Sabit gider payı, abonelik ve kâr: Rapor. WhatsApp mesajı 0,005 $ (Twilio faturasıyla doğrulandı).'">
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div>
             <div class="text-xs text-gray-500 dark:text-gray-400">WhatsApp mesaj</div>
@@ -29,7 +29,7 @@
         <div>
             <div class="text-xs text-gray-500 dark:text-gray-400">Toplam</div>
             <div class="text-xl font-semibold text-primary-700 dark:text-primary-400">{{ $usd($total) }}</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">numara payı {{ $usd($numberShare) }} dahil</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400"><a href="{{ \App\Filament\Hub\Pages\CostOverview::getUrl(['ay' => now('Europe/Istanbul')->format('Y-m') < \App\Support\HubReport::START ? \App\Support\HubReport::START : now('Europe/Istanbul')->format('Y-m')]) }}" class="underline">kâr / zarar → Rapor</a></div>
         </div>
     </div>
 </x-filament::section>

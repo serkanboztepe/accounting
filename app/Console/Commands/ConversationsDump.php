@@ -6,6 +6,7 @@ use App\Models\HubFirm;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Support\AssistantScorecard;
+use App\Support\FirmPlan;
 use App\Support\Phone;
 use App\Tenancy\Tenancy;
 use Illuminate\Console\Command;
@@ -16,7 +17,7 @@ use Throwable;
  * Sabah dökümü (29.10, kullanıcı: "sabah ben döküm yap dediğimde yaparsın"): otomatik rapor / ders / kayıt kontrolü yerine
  * yönetici sohbette "döküm yap" der, bu komutun çıktısı okunur. YALNIZ OKUMA, AI çağrısı yok. Firma firma: karne rakamları
  * (gelen, kayıt, geri alma, iptal, anlaşılmayan, hata, 15 sn aşan cevap) + konuşma (saat, kim, mesaj, tür) + bu dönemde
- * kapanan/açık kalan taslaklar.
+ * kapanan/açık kalan taslaklar. En üstte ÖDEMELER (geciken abonelik, deneme biten/bitecek, durdurulan firma).
  *
  *   php artisan conversations:dump                 dün 00:00'dan şimdiye (İstanbul)
  *   php artisan conversations:dump --since=2026-10-26 --firm=9
@@ -39,6 +40,14 @@ class ConversationsDump extends Command
 
         $this->line('DÖKÜM — ' . $since->copy()->setTimezone('Europe/Istanbul')->format('d.m.Y H:i') . ' → '
             . now('Europe/Istanbul')->format('d.m.Y H:i'));
+        // Ödemeler (29.10): geciken, deneme biten/bitecek, durdurulan — en üstte.
+        $payments = HubFirm::orderBy('name')->get()->map(fn (HubFirm $f) => [$f, FirmPlan::status($f)])
+            ->filter(fn ($x) => in_array($x[1][0], ['danger', 'warning'], true) || ($x[0]->plan === 'trial' && $x[0]->trial_ends_on
+                && $x[0]->trial_ends_on->lte(now()->addDays(3))));
+        if ($payments->isNotEmpty() && ! $this->option('firm')) {
+            $this->line('ÖDEMELER:');
+            $payments->each(fn ($x) => $this->line("  #{$x[0]->id} {$x[0]->name}: {$x[1][1]}"));
+        }
         foreach ($firms as $firm) {
             $names = $firm->phones()->pluck('name', 'phone');
             try {

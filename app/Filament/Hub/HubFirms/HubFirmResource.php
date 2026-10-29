@@ -106,6 +106,11 @@ class HubFirmResource extends Resource
         return $table
             ->columns([
                 TextColumn::make('name')->label('Firma')->searchable()->sortable()->weight('semibold'),
+                TextColumn::make('plan')->label('Plan')->formatStateUsing(fn ($state) => \App\Support\FirmPlan::PLANS[$state] ?? '—')
+                    ->default('—')->color('gray'),
+                TextColumn::make('payment_status')->label('Ödeme durumu')->badge()
+                    ->state(fn (HubFirm $record) => \App\Support\FirmPlan::status($record)[1])
+                    ->color(fn (HubFirm $record) => \App\Support\FirmPlan::status($record)[0]),
                 TextColumn::make('phones_count')->label('Numara')->counts('phones')->badge(),
                 TextColumn::make('message_logs_count')
                     ->label('Bu ay mesaj')

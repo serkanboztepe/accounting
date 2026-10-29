@@ -61,6 +61,15 @@ class HubRouter
             ->with('firm')
             ->first();
 
+        // Ödeme yok diye durdurulan firma (29.10): "bu numara bağlı değil" DEĞİL — ödeme bekliyor, kayıtlar duruyor.
+        if (! $route && $phone !== '' && HubPhone::where('phone', $phone)->where('is_active', true)
+            ->whereHas('firm', fn ($q) => $q->where('is_active', false)->whereNotNull('suspended_at'))->exists()) {
+            $response = self::twimlMessage(\App\Support\FirmPlan::SUSPENDED_REPLY);
+            $this->log(null, $phone, $response->getContent());
+
+            return $response;
+        }
+
         if (! $route) {
             $response = self::unknownPhoneResponse((string) $request->input('From', ''));
             $this->log(null, $phone, $response->getContent());
