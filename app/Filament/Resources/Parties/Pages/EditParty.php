@@ -591,6 +591,34 @@ class EditParty extends EditRecord
             });
     }
 
+    /** Miktarı değiştir: kutu bugünkü miktarla dolu gelir; tutar ve kalan kendiliğinden. */
+    public function changeAgreementQuantityAction(): Action
+    {
+        return Action::make('changeAgreementQuantity')
+            ->modalHeading(fn (array $arguments): string => 'Miktarı değiştir · ' . ($this->agreementItemArg($arguments)?->name() ?? ''))
+            ->modalDescription(fn (array $arguments): ?string => ($item = $this->agreementItemArg($arguments))
+                ? ($item->isList() ? 'Şu an miktar yok (yalnız fiyat)' : 'Şu an ' . $item->quantityLabel((float) $item->quantity))
+                    . ' · gelen ' . $item->quantityLabel($item->deliveredQuantity()) . '. Gelenden az olamaz.'
+                : null)
+            ->modalSubmitActionLabel('Değiştir')
+            ->modalWidth('md')
+            ->fillForm(fn (array $arguments): array => ['quantity' => $this->agreementItemArg($arguments)?->quantity])
+            ->schema(fn (array $arguments): array => [
+                TextInput::make('quantity')->label('Yeni miktar'
+                    . (($unit = $this->agreementItemArg($arguments)?->unitName()) ? ' (' . $unit . ')' : ''))
+                    ->numeric()->required()->minValue(0.01)->autofocus(),
+            ])
+            ->action(function (array $data, array $arguments, Action $action): void {
+                try {
+                    AgreementDesk::changeQuantity($this->agreementItemArg($arguments), (float) $data['quantity']);
+                } catch (ValidationException $e) {
+                    Notification::make()->danger()->title(collect($e->errors())->flatten()->first())->send();
+                    $action->halt();
+                }
+                Notification::make()->success()->title('Miktar değişti')->send();
+            });
+    }
+
     /** Teslimatı olmayan kalemi sil. */
     public function deleteAgreementItemAction(): Action
     {
@@ -775,6 +803,7 @@ class EditParty extends EditRecord
                 $this->newCollectionAction(),
                 $this->addAgreementItemsAction(),
                 $this->changeAgreementPriceAction(),
+                $this->changeAgreementQuantityAction(),
                 $this->deleteAgreementItemAction(),
                 $this->editAgreementAction(),
                 $this->toggleAgreementAction(),

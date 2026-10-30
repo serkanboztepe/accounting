@@ -423,6 +423,46 @@ class AgreementPaymentsTest extends TestCase
         $this->assertStringNotContainsString('Malzeme:', $single, 'tek kalem → malzeme seçimi yok');
     }
 
+    /** Miktarı değiştir (30.10, "dolabı 6 girdim 8 yapacağım"): tutar ve kalan yenilenir, bitti → açık; gelenden aza inmez; liste fiyatına miktar yazılır. */
+    public function test_change_quantity_updates_amount_and_guards_delivered(): void
+    {
+        $dolap = $this->agreement('Dolap', 6, 7500);
+        $this->deliver($dolap, 6);
+        $item = $dolap->items[0]->fresh();
+        $this->assertSame(Agreement::STATUS_DONE, $dolap->fresh()->status);
+
+        AgreementDesk::changeQuantity($item, 8);
+        $item->refresh();
+        $this->assertEqualsWithDelta(8, (float) $item->quantity, 0.001);
+        $this->assertEqualsWithDelta(60000, (float) $item->amount, 0.01);
+        $this->assertEqualsWithDelta(2, $item->remainingQuantity(), 0.001);
+        $this->assertSame(Agreement::STATUS_OPEN, $dolap->fresh()->status, '6 gelmişti, 8 olunca yeniden açık');
+
+        try {
+            AgreementDesk::changeQuantity($item, 5);
+            $this->fail('gelenden aza inmemeli');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->assertStringContainsString('az olamaz', collect($e->errors())->flatten()->first());
+        }
+        $this->assertEqualsWithDelta(8, (float) $item->fresh()->quantity, 0.001);
+
+        $liste = AgreementDesk::create($this->party, [
+            'direction' => Agreement::DIRECTION_PURCHASE, 'agreement_date' => now()->toDateString(), 'title' => 'Liste',
+            'project_id' => $this->aBlok->id, 'lines' => [['product_id' => $this->product('AP Liste')->id, 'quantity' => null, 'unit_price' => 6500]],
+        ])->loadForCard();
+        $this->assertTrue($liste->items[0]->isList());
+        AgreementDesk::changeQuantity($liste->items[0], 200);
+        $this->assertEqualsWithDelta(1300000, (float) $liste->items[0]->fresh()->amount, 0.01);
+        $this->assertFalse($liste->items[0]->fresh()->isList());
+
+        $html = view('filament.resources.parties.agreement-summary', \App\Support\AgreementSummary::build($dolap->fresh()))->render();
+        $this->assertStringContainsString("mountAction('changeAgreementQuantity', { item: " . $item->id . ' })', $html);
+        $this->page()->mountAction('agreementSummary', ['agreement' => $dolap->id])
+            ->mountAction('changeAgreementQuantity', ['item' => $item->id])->assertHasNoErrors()
+            ->assertSet('mountedActions.1.name', 'changeAgreementQuantity')
+            ->assertSet('mountedActions.1.data.quantity', '8.00');
+    }
+
     /** Kalemli ekstre (27.10): belgeli alışın altında kalemler; basit alış, ödeme ve kalemsiz cari olduğu gibi. */
     public function test_detailed_statement_lists_document_lines_only(): void
     {

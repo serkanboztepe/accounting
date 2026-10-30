@@ -182,6 +182,10 @@
                                 @endif
                                 <td class="py-1.5 text-right whitespace-nowrap">
                                     @if ($isOpen && ! $closed)
+                                        @if (! $item->is_lump)
+                                            <button type="button" class="mr-2 text-primary-600 hover:underline dark:text-primary-400"
+                                                wire:click="mountAction('changeAgreementQuantity', { item: {{ $item->id }} })">Miktar</button>
+                                        @endif
                                         <button type="button" class="text-primary-600 hover:underline dark:text-primary-400"
                                             wire:click="mountAction('changeAgreementPrice', { item: {{ $item->id }} })">Fiyat</button>
                                         @if ($item->movements->isEmpty())

@@ -218,6 +218,28 @@ class AgreementDesk
     }
 
     /** Teslimatı olmayan kalemi sil. */
+    /**
+     * Miktarı değiştir (kullanıcı 30.10: "dolabı 6 girdim 8 yapacağım", "fayansın üzerine ekleme"). Tutar = miktar × fiyat;
+     * gelenden aza inmez. Fiyat listesine miktar yazılırsa miktarlı kalem olur. Götürü ve eski fiyat satırı değişmez.
+     */
+    public static function changeQuantity(AgreementItem $item, float $quantity): void
+    {
+        if ($item->is_lump || $item->isClosed()) {
+            throw ValidationException::withMessages(['quantity' => 'Bu kalemin miktarı değiştirilemez.']);
+        }
+        if ($quantity <= 0) {
+            throw ValidationException::withMessages(['quantity' => 'Yeni miktarı yaz.']);
+        }
+        $delivered = $item->deliveredQuantity();
+        if ($quantity + 0.0001 < $delivered) {
+            throw ValidationException::withMessages(['quantity' => 'Şimdiye kadar ' . $item->quantityLabel($delivered) . ' gelmiş; miktar bundan az olamaz.']);
+        }
+        DB::transaction(function () use ($item, $quantity) {
+            $item->update(['quantity' => $quantity, 'amount' => round($quantity * (float) $item->unit_price, 2)]);
+            self::refreshStatus($item->agreement);
+        });
+    }
+
     public static function deleteItem(AgreementItem $item): void
     {
         if ($item->movements()->exists()) {
