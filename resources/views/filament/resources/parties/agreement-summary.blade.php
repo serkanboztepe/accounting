@@ -68,14 +68,19 @@
         </dl>
 
         {{-- Proje seçimi: yalnız kalemler ve gelen mallar süzülür; rakamlar ve ödemeler anlaşmanın tamamı (ödeme projeye bağlı değil). --}}
-        <div x-data="{ p: '' }" class="space-y-6">
-        @if ($projects !== [])
-            <div class="flex flex-wrap items-center gap-2">
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ \App\Support\Labels::project() }}:</span>
-                @foreach (['' => 'Hepsi'] + $projects as $key => $name)
-                    <button type="button" x-on:click="p = @js($key)"
-                        class="rounded-full px-3 py-1 text-xs font-medium ring-1 ring-gray-200 dark:ring-white/10"
-                        x-bind:class="p === @js($key) ? 'bg-primary-600 text-white ring-primary-600' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5'">{{ $name }}</button>
+        {{-- Malzeme seçimi (30.10) proje seçimiyle birlikte çalışır: "Cumhuriyet'e gelen fayans". --}}
+        <div x-data="{ p: '', k: '' }" class="space-y-6">
+        @if ($projects !== [] || $items !== [])
+            <div class="space-y-2">
+                @foreach (array_filter(['p' => $projects !== [] ? [\App\Support\Labels::project(), $projects] : null, 'k' => $items !== [] ? ['Malzeme', $items] : null]) as $var => [$label, $options])
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ $label }}:</span>
+                        @foreach (['' => 'Hepsi'] + $options as $key => $name)
+                            <button type="button" x-on:click="{{ $var }} = @js($key)"
+                                class="rounded-full px-3 py-1 text-xs font-medium ring-1 ring-gray-200 dark:ring-white/10"
+                                x-bind:class="{{ $var }} === @js($key) ? 'bg-primary-600 text-white ring-primary-600' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5'">{{ $name }}</button>
+                        @endforeach
+                    </div>
                 @endforeach
             </div>
         @endif
@@ -95,7 +100,7 @@
                 @endif
                 <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                     @forelse ($deliveries as $d)
-                        <tr x-show="p === '' || p === @js($d['project'])"
+                        <tr x-show="(p === '' || p === @js($d['project'])) && (k === '' || k === @js($d['item']))"
                             class="{{ $d['return'] ? 'text-danger-600 dark:text-danger-400' : 'text-gray-700 dark:text-gray-300' }}">
                             <td class="py-1.5 pr-3 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $d['date']?->format('d.m.Y') }}</td>
                             <td class="py-1.5 pr-3">
@@ -112,12 +117,18 @@
                 @if ($deliveries->isNotEmpty())
                     <tfoot>
                         @foreach ($deliveryTotals as $key => $total)
-                            <tr x-show="p === @js($key)" @if ($key !== '') x-cloak @endif
+                            <tr x-show="p + '|' + k === @js($key)" @if ($key !== '|') x-cloak @endif
                                 class="border-t border-gray-200 font-semibold text-gray-950 dark:border-white/10 dark:text-white">
-                                <td class="py-2 pr-3" colspan="3">Toplam <span class="font-normal text-gray-500 dark:text-gray-400">({{ \App\Support\AgreementSummary::words($total) }})</span></td>
-                                <td class="py-2 text-right tabular-nums">{{ $total < 0 ? '−' : '' }}{{ $fmt($total) }}</td>
+                                <td class="py-2 pr-3" colspan="2">Toplam <span class="font-normal text-gray-500 dark:text-gray-400">({{ \App\Support\AgreementSummary::words($total['amount']) }})</span>
+                                    @if ($total['agreed']) <div class="font-normal text-gray-500 dark:text-gray-400">{{ $total['agreed'] }}</div> @endif
+                                </td>
+                                <td class="py-2 pr-3 text-right tabular-nums">{{ $total['qty'] }}</td>
+                                <td class="py-2 text-right tabular-nums">{{ $total['amount'] < 0 ? '−' : '' }}{{ $fmt($total['amount']) }}</td>
                             </tr>
                         @endforeach
+                        <tr x-show="! @js(array_keys($deliveryTotals)).includes(p + '|' + k)" x-cloak>
+                            <td class="py-2 text-gray-500 dark:text-gray-400" colspan="4">Bu seçimde gelen mal yok.</td>
+                        </tr>
                     </tfoot>
                 @endif
             </table>
@@ -139,7 +150,7 @@
                                 @php
                                     $cell = $byProject[$item->id][$key] ?? null;
                                 @endphp
-                                <tr x-show="p === @js($key)" x-cloak class="text-gray-700 dark:text-gray-300">
+                                <tr x-show="p === @js($key) && (k === '' || k === 'i{{ $item->id }}')" x-cloak class="text-gray-700 dark:text-gray-300">
                                     <td class="py-1.5 pr-3">{{ $item->name() }}</td>
                                     <td class="py-1.5 pr-3 text-right tabular-nums" colspan="4">
                                         @if ($cell === null) <span class="text-gray-400 dark:text-gray-500">gelmedi</span>
@@ -149,7 +160,7 @@
                                     <td></td>
                                 </tr>
                             @endforeach
-                            <tr x-show="p === ''" class="{{ $closed ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300' }}">
+                            <tr x-show="p === '' && (k === '' || k === 'i{{ $item->id }}')" class="{{ $closed ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300' }}">
                                 <td class="py-1.5 pr-3">{{ $item->name() }} @if ($closed) <span>✓ eski fiyat</span> @endif</td>
                                 @if ($item->is_lump)
                                     <td class="py-1.5 pr-3 text-right">götürü</td>

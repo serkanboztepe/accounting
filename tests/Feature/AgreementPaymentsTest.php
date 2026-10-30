@@ -377,11 +377,50 @@ class AgreementPaymentsTest extends TestCase
         // Gelen mallar: başlık + toplam (hepsi ve proje başına); kalemler ve ödemeler kapalı başlar, kalemler ödemelerin üstünde (27.10).
         $this->assertMatchesRegularExpression('/<th[^>]*>Tarih<\/th>.*<th[^>]*>Tutar<\/th>/s', $html);
         foreach (['832.000' => 'sekiz yüz otuz iki bin', '520.000' => 'beş yüz yirmi bin', '312.000' => 'üç yüz on iki bin'] as $total => $words) {
-            $this->assertMatchesRegularExpression('/Toplam <span[^>]*>\(' . $words . ' lira\)<\/span><\/td>\s*<td[^>]*>' . preg_quote($total) . ' ₺</u', $html);
+            $this->assertMatchesRegularExpression('/Toplam <span[^>]*>\(' . $words . ' lira\)<\/span>\s*<\/td>\s*<td[^>]*>[^<]*<\/td>\s*<td[^>]*>' . preg_quote($total) . ' ₺</u', $html);
         }
         $this->assertSame(2, substr_count($html, 'x-data="{ open: false }"'));
         $this->assertLessThan(strpos($html, 'Kalemler ('), strpos($html, 'Gelen mallar ('));
         $this->assertLessThan(strpos($html, 'Ödemeler ('), strpos($html, 'Kalemler ('));
+    }
+
+    /** Anlaşma penceresinde malzeme seçimi (30.10, Seramik Park: "fayans + Cumhuriyet"): proje × malzeme toplamı, miktar ve kalan. */
+    public function test_summary_item_picker_combines_with_project(): void
+    {
+        $banyo = AgreementDesk::create($this->party, [
+            'direction' => Agreement::DIRECTION_PURCHASE, 'agreement_date' => now()->subDays(5)->toDateString(), 'title' => 'Banyo',
+            'project_id' => null, 'lines' => [
+                ['product_id' => $this->product('AP Fayans')->id, 'quantity' => 100, 'unit_price' => 450],
+                ['product_id' => $this->product('AP Klozet')->id, 'quantity' => 14, 'unit_price' => 4000],
+            ],
+        ])->loadForCard();
+        $bBlok = Project::create(['name' => 'AP Test B Blok', 'status' => 'active']);
+        [$fayans, $klozet] = [$banyo->items[0], $banyo->items[1]];
+        $deliver = fn ($item, $qty, $project) => AgreementDesk::deliver($this->party, $banyo->direction,
+            [['agreement_item_id' => $item->id, 'quantity' => $qty]], now()->toDateString(), $project);
+        $deliver($fayans, 40, $this->aBlok->id);
+        $deliver($fayans, 25, $bBlok->id);
+        $deliver($klozet, 7, $this->aBlok->id);
+
+        $data = \App\Support\AgreementSummary::build($banyo->fresh());
+        $a = 'p' . $this->aBlok->id;
+        $f = 'i' . $fayans->id;
+        $this->assertSame(['i' . $fayans->id => 'AP Fayans', 'i' . $klozet->id => 'AP Klozet'], $data['items']);
+        $this->assertEqualsWithDelta(18000, $data['deliveryTotals'][$a . '|' . $f]['amount'], 0.01, 'A Blok fayans');
+        $this->assertStringContainsString('40', $data['deliveryTotals'][$a . '|' . $f]['qty']);
+        $this->assertStringContainsString('kalan 35', $data['deliveryTotals'][$a . '|' . $f]['agreed']);
+        $this->assertEqualsWithDelta(29250, $data['deliveryTotals']['|' . $f]['amount'], 0.01, 'tüm projelere fayans');
+        $this->assertEqualsWithDelta(46000, $data['deliveryTotals'][$a . '|']['amount'], 0.01, 'A Blok hepsi');
+        $this->assertEqualsWithDelta(57250, $data['deliveryTotals']['|']['amount'], 0.01, 'hepsi = Gelen');
+        $this->assertArrayNotHasKey('p' . $bBlok->id . '|i' . $klozet->id, $data['deliveryTotals'], 'B Blok klozet yok');
+
+        $html = view('filament.resources.parties.agreement-summary', $data)->render();
+        foreach (['Malzeme:', 'AP Fayans', 'AP Klozet', 'Bu seçimde gelen mal yok.', "k === '" . $f . "'"] as $text) {
+            $this->assertStringContainsString($text, $html);
+        }
+
+        $single = view('filament.resources.parties.agreement-summary', \App\Support\AgreementSummary::build($this->agreement('Beton', 10, 100)->fresh()))->render();
+        $this->assertStringNotContainsString('Malzeme:', $single, 'tek kalem → malzeme seçimi yok');
     }
 
     /** Kalemli ekstre (27.10): belgeli alışın altında kalemler; basit alış, ödeme ve kalemsiz cari olduğu gibi. */

@@ -36,7 +36,36 @@ final class AgreementSummary
             'amount'  => ($m->reason === StockMovement::REASON_RETURN ? -1 : 1) * (float) $m->amount,
             'return'  => $m->reason === StockMovement::REASON_RETURN,
             'project' => self::projectKey($m->project_id),
+            'item'    => 'i' . $item->id,
         ]))->sortByDesc('date')->values();
+
+        // Malzeme seçimi (kullanıcı 30.10: "Seramik'te fayans + Cumhuriyet") — yalnız birden çok kalem geldiyse.
+        $delivered = $agreement->items->filter(fn (AgreementItem $item) => $item->movements->isNotEmpty());
+        $items = $delivered->count() > 1 ? $delivered->mapWithKeys(fn (AgreementItem $item) => ['i' . $item->id => $item->name()])->all() : [];
+
+        // Gelen mallar toplamı her seçim için: 'proje|kalem' ('' = hepsi). Kalem seçiliyken miktar da (tek birim) yazılır.
+        $totals = [];
+        foreach ($agreement->items as $item) {
+            foreach ($item->movements as $m) {
+                $sign = $m->reason === StockMovement::REASON_RETURN ? -1 : 1;
+                foreach (['', self::projectKey($m->project_id)] as $p) {
+                    foreach (['', 'i' . $item->id] as $k) {
+                        $cell = &$totals[$p . '|' . $k];
+                        $cell['amount'] = ($cell['amount'] ?? 0) + $sign * (float) $m->amount;
+                        $cell['qty'] = $k === '' || $item->is_lump ? null : ($cell['qty'] ?? 0) + $sign * (float) $m->quantity;
+                        $cell['item'] = $k === '' ? null : $item;
+                        unset($cell);
+                    }
+                }
+            }
+        }
+        $deliveryTotals = collect($totals)->map(fn ($c) => [
+            'amount' => round($c['amount'], 2),
+            'qty'    => $c['qty'] === null ? null : $c['item']->quantityLabel($c['qty']),
+            'agreed' => $c['item'] && ! $c['item']->is_lump && ! $c['item']->isList()
+                ? 'anlaşılan ' . $c['item']->quantityLabel((float) $c['item']->quantity) . ' · kalan ' . $c['item']->quantityLabel($c['item']->remainingQuantity())
+                : null,
+        ])->all();
 
         // Kalem × proje: gelen miktar ve tutar (iade düşülür).
         $byProject = [];
@@ -76,10 +105,10 @@ final class AgreementSummary
             'deliveries'    => $deliveries,
             'payments'      => $payments,
             'projects'      => $projects,
+            'items'         => $items,
             'byProject'     => $byProject,
-            // Gelen mallar tablosunun altı: '' = hepsi (= Gelen), proje anahtarı = o projeye gelen (iade düşülür).
-            'deliveryTotals' => ['' => round($deliveries->sum('amount'), 2)]
-                + $deliveries->groupBy('project')->map(fn ($rows) => round($rows->sum('amount'), 2))->all(),
+            // Gelen mallar tablosunun altı: anahtar 'proje|kalem' ('' = hepsi; '|' = Gelen), iade düşülür.
+            'deliveryTotals' => $deliveryTotals,
         ];
     }
 
