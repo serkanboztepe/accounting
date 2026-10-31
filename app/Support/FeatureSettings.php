@@ -12,6 +12,7 @@ namespace App\Support;
  *   settings.assistant = asistan ayarları
  *   settings.legacy    = eski modüller (sözleşme, teklif) — yalnız açık olan firmada görünür
  *   settings.project_label = yer adı (Proje / Şantiye / Şube / Yer)
+ *   settings.agreement_direction = anlaşma yönü (purchase / sale / both; boş = both)
  *   settings.profile   = kutulardan TÜRETİLİR (seçilmez) — üslup/yardım metinleri bugünkü gibi ona bakar
  */
 final class FeatureSettings
@@ -44,6 +45,21 @@ final class FeatureSettings
     public const CORE_KEYS = ['cari_supplier', 'checks'];
 
     public const PLACE_LABELS = ['Proje', 'Şantiye', 'Şube', 'Yer'];
+
+    /** Anlaşma yönü (settings.agreement_direction, 31.10) — değerler Agreement::DIRECTION_* ile aynı + both. */
+    public const AGREEMENT_PURCHASE = 'purchase';
+
+    public const AGREEMENT_SALE = 'sale';
+
+    public const AGREEMENT_BOTH = 'both';
+
+    public const AGREEMENT_DIRECTIONS = [self::AGREEMENT_PURCHASE, self::AGREEMENT_SALE, self::AGREEMENT_BOTH];
+
+    public const AGREEMENT_DIRECTION_LABELS = [
+        self::AGREEMENT_PURCHASE => 'Yalnız alış',
+        self::AGREEMENT_SALE     => 'Yalnız satış',
+        self::AGREEMENT_BOTH     => 'Alış + satış',
+    ];
 
     /** Firma yeni düzene çevrildi mi (saklı liste var mı)? */
     public static function converted(array $settings): bool

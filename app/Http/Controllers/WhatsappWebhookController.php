@@ -757,6 +757,14 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, TradeDraft::toExpense($pending->extracted)));
         }
 
+        // Anlaşma: "Satış anlaşması mı yaptın, alış mı?" → "sattım" / "aldım" (AI'sız, kesin cevap; 31.10).
+        if ($pending && $image === null && AgreementDraft::awaitsDirection($pending->extracted)
+            && ($direction = AgreementDraft::directionAnswer($this->word($body))) !== null) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($this->saveDraft($pending, $phone, AgreementDraft::chooseDirection($pending->extracted, $direction)));
+        }
+
         // Satış mı alış mı belirsizdi → "sattım" / "aldım" (AI'sız, kesin cevap).
         if ($pending && $image === null && DraftGaps::needsSaleOrPurchase($pending->extracted)) {
             $kind = match ($this->word($body)) {
@@ -3172,6 +3180,13 @@ class WhatsappWebhookController extends Controller
                 $data[$k] = $data[$k] ?? $prev[$k] ?? null; // verilen karar düzeltme turunda kaybolmasın
             }
             $data['from_document'] = ! empty($data['from_document']) || ! empty($prev['from_document']);
+            // Yön bir kez belli olduysa (kullanıcı "sattım" dedi ya da ilk cümle söyledi) düzeltme turunda yeniden sorulmaz (31.10).
+            if (! empty($prev['direction_chosen']) && ! empty($data['agreement_direction_unclear'])
+                || empty($prev['agreement_direction_unclear']) && ! empty($data['agreement_direction_unclear'])) {
+                $data['agreement_direction'] = $prev['agreement_direction'] ?? $data['agreement_direction'] ?? null;
+                $data['agreement_direction_unclear'] = false;
+            }
+            $data['direction_chosen'] = ! empty($data['direction_chosen']) || ! empty($prev['direction_chosen']);
             // AI cevapta projeyi tekrarlamazsa önceki (belgeden / menüden) kalır; "0 = genel" seçimi de kaybolmaz.
             if (empty($data['project_id']) && empty($data['project_name'])) {
                 $data['project_id'] = $prev['project_id'] ?? null;

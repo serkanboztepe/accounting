@@ -84,6 +84,14 @@ return [
             'products' => [['Un', 'çuval'], ['Maya', 'paket']], 'categories' => ['Yakıt'],
         ],
         // Yeni müteahhit müşterisi (30.10, cases_muteahhit.php): iki şantiye, anlaşmalı usta + betoncu, avanslı asansörcü, borçlu müşteri.
+        // Satıcı tarafı (31.10): tuğla satan firma; Yapı Market Mehmet panelde "müşteri" işaretli (tip ipucu), Kuşak tedarikçi.
+        'satici' => [
+            'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true, 'checks' => true], 'sector' => 'construction',
+            'agreement_direction' => 'both', // tuğla satar, kum alır → yön belli değilse sorulur
+            'projects' => ['Cumhuriyet Apartmanı'],
+            'parties' => ['Yapı Market Mehmet' => ['kind' => 'customer'], 'Ahmet Yılmaz' => [], 'Kuşak Beton' => ['kind' => 'supplier']],
+            'products' => [['Tuğla', 'adet'], ['Kum', 'm3']], 'categories' => ['Yakıt', 'Nakliye'],
+        ],
         'yeni_muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true, 'checks' => true], 'sector' => 'construction',
             'projects' => ['Cumhuriyet Apartmanı', 'Barbaros Sitesi'],
@@ -786,6 +794,7 @@ return [
 
         // Yeni müteahhit müşterisi deneme seti (30.10).
         ...(require __DIR__ . '/cases_muteahhit.php'),
+        ...(require __DIR__ . '/cases_satici.php'),
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
@@ -810,6 +819,10 @@ return [
         'taner-osman-avans-sonda' => [['ledger', 'Asansör Osman', 'odeme', 20000, '-1 days', 'Asansör Osman avansı']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'ali-karo-iscilik' => [['agreement', 'Ali Usta', 'Karo döşeme işçiliği', 400, 250]],
+        'st-temel' => [
+            ['agreement', 'Yapı Market Mehmet', 'Tuğla', 10000, 100, null, 'sale'], ['agreement', 'Kuşak Beton', 'Kum', 100, 500],
+            ['ledger', 'Ahmet Yılmaz', 'satis', 300000, '-20 days', '3000 tuğla'],
+        ],
         'ym-temel' => [
             ['agreement', 'Ali Usta', 'Sıva işçiliği', 1000, 250, 'service'], ['agreement', 'Kuşak Beton', 'Beton', 500, 3800],
             ['ledger', 'Asansör Osman', 'odeme', 500000, '-14 days', 'Avans — asansör'],

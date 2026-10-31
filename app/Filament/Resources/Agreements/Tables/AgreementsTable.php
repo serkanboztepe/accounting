@@ -29,7 +29,9 @@ class AgreementsTable
                     ->label('Yön')
                     ->badge()
                     ->formatStateUsing(fn (string $state) => $state === Agreement::DIRECTION_SALE ? '📤 Satış' : '📥 Alış')
-                    ->color(fn (string $state) => $state === Agreement::DIRECTION_SALE ? 'info' : 'warning'),
+                    ->color(fn (string $state) => $state === Agreement::DIRECTION_SALE ? 'info' : 'warning')
+                    // Tek yönlü firmada (hub "Anlaşma yönü", 31.10) yön sütunu ve filtresi gereksiz.
+                    ->visible(fn () => \App\Support\Features::agreementFixedDirection() === null),
 
                 TextColumn::make('agreed')
                     ->label('Anlaşılan')
@@ -76,7 +78,8 @@ class AgreementsTable
                     ->default(Agreement::STATUS_OPEN),
                 SelectFilter::make('direction')
                     ->label('Yön')
-                    ->options(Agreement::DIRECTIONS),
+                    ->options(Agreement::DIRECTIONS)
+                    ->visible(fn () => \App\Support\Features::agreementFixedDirection() === null),
                 SelectFilter::make('party_id')
                     ->label('Kişi / Firma')
                     ->relationship('party', 'name')

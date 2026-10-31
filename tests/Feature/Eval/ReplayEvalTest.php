@@ -66,6 +66,7 @@ class ReplayEvalTest extends TestCase
         config([
             'modules' => ModuleProfiles::resolve($firm['profile'], ($firm['modules'] ?? []) + ['smart_assistant' => true]),
             'app.profile' => $firm['profile'], 'app.project_label' => null, 'app.sector' => $firm['sector'] ?? null,
+            'app.agreement_direction' => $firm['agreement_direction'] ?? 'purchase',
             'app.business_note' => $firm['business_note'] ?? null,
             'services.twilio.verify_signature' => false,
             'services.twilio.allowed_phones' => ['0555 999 00 01'],

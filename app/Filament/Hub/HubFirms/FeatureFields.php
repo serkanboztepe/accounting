@@ -4,6 +4,7 @@ namespace App\Filament\Hub\HubFirms;
 
 use App\Support\FeatureSettings;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -68,8 +69,18 @@ final class FeatureFields
                     Toggle::make('feat_place_cost')->label('Alışı yere yaz')
                         ->visible(fn (Get $get) => (bool) $get('feat_stock') && ((bool) $get('feat_places') || $placesLocked($get)))
                         ->helperText('Kapalı (fırın gibi): stok ortak, ürünlü alış hiçbir yere yazılmaz. Açık (çiftlik gibi): yem ahıra, gübre tarlaya yazılır; her yerin sezon sonucu görünür, genel gider dağıtılmaz.'),
-                    Toggle::make('feat_agreements')->label('Anlaşmalar')
+                    Toggle::make('feat_agreements')->label('Anlaşmalar')->live()
                         ->helperText('Cariyle kalem kalem anlaşma, gelen/kalan; WhatsApp\'ta sözleşme fotoğrafı okuma. Stok açıksa gelen mal stoğa girer.'),
+                    Radio::make('agreement_direction')->label('Anlaşma yönü')
+                        ->options(FeatureSettings::AGREEMENT_DIRECTION_LABELS)
+                        ->descriptions([
+                            FeatureSettings::AGREEMENT_PURCHASE => 'Müteahhit gibi: her anlaşma alış, satış sorulmaz.',
+                            FeatureSettings::AGREEMENT_SALE     => 'Tuğla / malzeme satan: her anlaşma satış, alış sorulmaz.',
+                            FeatureSettings::AGREEMENT_BOTH     => 'Alıp satan: cümlede belli değilse "satış mı, alış mı?" diye sorulur.',
+                        ])
+                        ->default(FeatureSettings::AGREEMENT_BOTH)
+                        ->visible(fn (Get $get) => (bool) $get('feat_agreements'))
+                        ->helperText('Panelin Anlaşmalar ekranında da yalnız seçilen yön görünür.'),
                     Toggle::make('feat_land_share')->label('Hisse Dağılımı')->live()->afterStateUpdated($lockPlaces)
                         ->helperText('Kat karşılığı hisse dağılımı. Yerler\'i de açar.'),
                     Toggle::make('feat_property_tax')->label('Emlak Beyanı')->live()->afterStateUpdated($lockPlaces)

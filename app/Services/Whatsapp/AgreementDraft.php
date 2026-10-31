@@ -77,7 +77,9 @@ class AgreementDraft
         }
 
         return [
-            'agreement_direction' => ($input['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE,
+            'agreement_direction' => self::direction($input['agreement_direction'] ?? null),
+            // İki yönlü firmada cümle yönü söylemedi → "satış mı, alış mı?" sorulur (31.10: "10.000 tuğla 1 milyondan Ali'ye anlaştık").
+            'agreement_direction_unclear' => self::directionUnclear($input['agreement_direction'] ?? null),
             'agreement_items'     => $items,
             'agreement_payments'  => $payments,
             // Belgede ödeme geçiyor mu (tutar okunamasa da) — liste boş kalırsa sorulur (Seramikpark 22.10: ödemeler sessizce düştü).
@@ -108,6 +110,48 @@ class AgreementDraft
         ];
     }
 
+    /** "sattım" / "aldım" — yön sorusunun cevabı (AI'sız). */
+    public const SALE_WORDS = ['sattım', 'sattim', 'satış', 'satis', 'satış anlaşması', 'satis anlasmasi', 'sattık', 'sattik', 'satıyorum', 'satış yaptım'];
+
+    public const PURCHASE_WORDS = ['aldım', 'aldim', 'alış', 'alis', 'alış anlaşması', 'alis anlasmasi', 'aldık', 'aldik', 'alıyorum', 'alış yaptım'];
+
+    /**
+     * Anlaşmanın yönü: tek yönlü firmada (hub ayarı) AI ne derse desin o yön; iki yönlüde AI'ın söylediği, söylemediyse alış
+     * (eski davranış — ama agreement_direction_unclear ile sorulur, sessiz geçmez).
+     */
+    public static function direction(mixed $said): string
+    {
+        return \App\Support\Features::agreementFixedDirection()
+            ?? ($said === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE);
+    }
+
+    private static function directionUnclear(mixed $said): bool
+    {
+        return \App\Support\Features::agreementFixedDirection() === null
+            && ! in_array($said, [Agreement::DIRECTION_SALE, Agreement::DIRECTION_PURCHASE], true);
+    }
+
+    /** Yön sorusu bekleniyor mu (iki yönlü firmada, kullanıcı henüz cevaplamadı). */
+    public static function awaitsDirection(array $d): bool
+    {
+        return self::handles($d) && ! empty($d['agreement_direction_unclear']) && \App\Support\Features::agreementFixedDirection() === null;
+    }
+
+    /** "sattım" / "aldım" cevabı → yön; tanınmayan cevap null. */
+    public static function directionAnswer(string $word): ?string
+    {
+        return match (true) {
+            in_array($word, self::SALE_WORDS, true) => Agreement::DIRECTION_SALE,
+            in_array($word, self::PURCHASE_WORDS, true) => Agreement::DIRECTION_PURCHASE,
+            default => null,
+        };
+    }
+
+    public static function chooseDirection(array $d, string $direction): array
+    {
+        return array_merge($d, ['agreement_direction' => $direction, 'agreement_direction_unclear' => false, 'direction_chosen' => true]);
+    }
+
     /**
      * Kaydetmeden önce sorulacak (kişi, eşleşme, kalem, fiyatı eksik kalem, okunamayan ödeme, okunamayan yer, vadesiz çek).
      * null = kart onaya hazır.
@@ -116,6 +160,10 @@ class AgreementDraft
     {
         if (empty($d['party_id']) && trim((string) ($d['party_name'] ?? '')) === '') {
             return 'Kiminle anlaştın? Kişinin ya da firmanın adını yaz.';
+        }
+        if (self::awaitsDirection($d)) {
+            return 'Satış anlaşması mı yaptın, alış mı? *sattım* (sen ona satıyorsun, o sana ödeyecek) ya da *aldım* (sen ondan alıyorsun, '
+                . 'sen ona ödeyeceksin) yaz.';
         }
         if (self::partyUnclear($d)) {
             return 'Belgede *' . trim((string) $d['party_said']) . '* yazıyor — listendeki *' . Party::find($d['party_id'])?->name
@@ -171,7 +219,7 @@ class AgreementDraft
         if (empty($d['party_id'])) {
             return collect();
         }
-        $direction = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE;
+        $direction = self::direction($d['agreement_direction'] ?? null);
 
         return Agreement::where('party_id', $d['party_id'])->where('direction', $direction)->where('status', Agreement::STATUS_OPEN)
             ->orderBy('agreement_date')->get();
@@ -621,7 +669,8 @@ class AgreementDraft
     {
         $isSale = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
         $party = self::partyName($d);
-        $lines = ['🤝 *Anlaşma* — ' . $party . ($isSale ? ' (satış)' : '')
+        $side = self::awaitsDirection($d) ? '' : ($isSale ? ' · *satış*' : ' · *alış*');
+        $lines = ['🤝 *Anlaşma* — ' . $party . $side
             . (! empty($d['remaining_only']) ? ' · *eski sözleşmeden kalan*' : ((int) ($d['pages'] ?? 1) > 1 ? ' · 📄 ' . $d['pages'] . ' sayfa' : ''))];
 
         $items = $d['agreement_items'] ?? [];
@@ -654,7 +703,9 @@ class AgreementDraft
         if (! empty($d['agreement_notes'])) {
             $lines[] = '📝 ' . mb_strimwidth(preg_replace('/\s+/u', ' ', $d['agreement_notes']), 0, 90, '…');
         }
-        $lines[] = 'Borç yazılmaz; ' . ($isSale ? 'teslim ettikçe' : 'mal/iş geldikçe') . ' anlaşmadan düşülür.';
+        if (! self::awaitsDirection($d)) {
+            $lines[] = 'Borç yazılmaz; ' . ($isSale ? 'teslim ettikçe' : 'mal/iş geldikçe') . ' anlaşmadan düşülür.';
+        }
 
         return implode("\n", $lines);
     }
@@ -668,7 +719,7 @@ class AgreementDraft
     {
         $party = ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
         $party ??= DraftGaps::exactParty($d['party_name'] ?? null) ?? Party::create(['name' => trim((string) $d['party_name'])]);
-        $isSale = ($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
+        $isSale = self::direction($d['agreement_direction'] ?? null) === Agreement::DIRECTION_SALE;
 
         $lines = [];
         foreach ($d['agreement_items'] ?? [] as $item) {

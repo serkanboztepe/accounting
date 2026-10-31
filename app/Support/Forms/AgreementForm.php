@@ -38,6 +38,9 @@ class AgreementForm
      */
     public static function createSchema(bool $withParty = false, ?string $fixedDirection = null): array
     {
+        // Firma tek yönlüyse (hub "Anlaşma yönü", 31.10) yön seçimi hiç görünmez — cari tipinden önce gelir.
+        $fixedDirection = \App\Support\Features::agreementFixedDirection() ?? $fixedDirection;
+
         return array_values(array_filter([
             $fixedDirection ? Hidden::make('direction')->default($fixedDirection) : ToggleButtons::make('direction')
                 ->hiddenLabel()
@@ -347,10 +350,11 @@ class AgreementForm
             ->visible(fn () => (bool) \App\Support\Features::places());
     }
 
-    /** Bu cariyle son anlaşmanın yönü (yoksa alış) — pencere o seçili açılır. */
+    /** Bu cariyle son anlaşmanın yönü (yoksa alış; tek yönlü firmada o yön) — pencere o seçili açılır. */
     public static function lastDirection(?int $partyId): string
     {
-        return ($partyId ? Agreement::where('party_id', $partyId)->latest('id')->value('direction') : null)
+        return \App\Support\Features::agreementFixedDirection()
+            ?? ($partyId ? Agreement::where('party_id', $partyId)->latest('id')->value('direction') : null)
             ?? Agreement::DIRECTION_PURCHASE;
     }
 

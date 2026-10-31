@@ -487,6 +487,10 @@ class ChatAssistant
             $pending['kind'] = ExpenseExtractor::KIND_STOCK_COUNT;
             $pending['stock_items'] = array_map(fn ($r) => array_diff_key($r, ['new' => 1, 'similar' => 1]), (array) ($pending['stock_items'] ?? []));
         }
+        // Yön sorusu bekleyen anlaşma: varsayılan "purchase" AI'a gösterilmez — geri yazıp sessizce alış yapmasın (31.10).
+        if ($pending !== null && ! empty($pending['agreement_direction_unclear'])) {
+            $pending['agreement_direction'] = null;
+        }
         $draft = $pending !== null
             ? json_encode(array_intersect_key($pending, array_flip([
                 'kind', 'amount', 'description', 'date', 'due_date', 'party_id', 'party_name', 'project_id', 'project_name',

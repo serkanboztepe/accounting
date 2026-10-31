@@ -543,10 +543,13 @@ class EditParty extends EditRecord
             : ' → bu ay ödeme yok' . ($off - $salary >= 0.01 ? ' · ' . Money::format($off - $salary) . ' ₺ sonraki aya kalır' : ''))];
     }
 
-    /** Cari tipi müşteriyse yalnız satış, tedarikçiyse yalnız alış anlaşması (27.10); ikisi de / boşsa seçilir. */
+    /**
+     * Firma tek yönlüyse o yön (hub "Anlaşma yönü", 31.10); değilse cari tipi müşteriyse yalnız satış, tedarikçiyse yalnız alış
+     * anlaşması (27.10); ikisi de / boşsa seçilir.
+     */
     private function fixedAgreementDirection(): ?string
     {
-        return match ($this->record->kind) {
+        return \App\Support\Features::agreementFixedDirection() ?? match ($this->record->kind) {
             \App\Models\Party::KIND_CUSTOMER => Agreement::DIRECTION_SALE,
             \App\Models\Party::KIND_SUPPLIER => Agreement::DIRECTION_PURCHASE,
             default => null,

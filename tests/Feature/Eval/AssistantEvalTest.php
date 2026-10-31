@@ -115,6 +115,8 @@ class AssistantEvalTest extends TestCase
             'modules' => ModuleProfiles::resolve($firm['profile'], ($firm['modules'] ?? []) + ['smart_assistant' => true]
                 + (getenv('EVAL_VOICE') ? ['natural_voice' => true] : [])),
             'app.profile' => $firm['profile'], 'app.project_label' => $firm['project_label'] ?? null,
+            // Anlaşma yönü (31.10): canlıda satış anlaşması olmayan firma "Yalnız alış" — deneme firmaları da öyle, satıcı firma kendisi söyler.
+            'app.agreement_direction' => $firm['agreement_direction'] ?? 'purchase',
             'app.sector' => $firm['sector'] ?? null, 'app.business_note' => $firm['business_note'] ?? null,
             'services.twilio.verify_signature' => false,
             'services.dev_usage.report_in_tests' => true, // gerçek AI harcaması hub'daki tahmini bakiyeye düşsün
@@ -225,8 +227,8 @@ class AssistantEvalTest extends TestCase
                 $fails[] = 'çekler: beklenen ' . json_encode($expect['draft_checks']) . ', gelen ' . json_encode($got);
             }
         }
-        if (isset($expect['draft_kind_not']) && $draft && ($draft->extracted['kind'] ?? null) === $expect['draft_kind_not']) {
-            $fails[] = 'taslak türü ' . $expect['draft_kind_not'] . ' olmamalı';
+        if (isset($expect['draft_kind_not']) && $draft && in_array($draft->extracted['kind'] ?? null, (array) $expect['draft_kind_not'], true)) {
+            $fails[] = 'taslak türü ' . implode('/', (array) $expect['draft_kind_not']) . ' olmamalı';
         }
         if (isset($expect['draft'])) {
             if (! $draft) {
@@ -354,7 +356,8 @@ class AssistantEvalTest extends TestCase
                 if (isset($row[5])) {
                     Product::whereKey($productId)->update(['type' => $row[5]]);
                 }
-                $agreement = \App\Models\Agreement::create(['party_id' => $this->ids['party'][$row[1]], 'direction' => \App\Models\Agreement::DIRECTION_PURCHASE,
+                $agreement = \App\Models\Agreement::create(['party_id' => $this->ids['party'][$row[1]],
+                    'direction' => ($row[6] ?? null) === 'sale' ? \App\Models\Agreement::DIRECTION_SALE : \App\Models\Agreement::DIRECTION_PURCHASE,
                     'title' => $row[2], 'agreement_date' => now()->subDays(10)->toDateString(), 'status' => \App\Models\Agreement::STATUS_OPEN]);
                 \App\Models\AgreementItem::create(['agreement_id' => $agreement->id, 'product_id' => $productId, 'quantity' => $row[3],
                     'unit_price' => $row[4], 'amount' => $row[3] * $row[4]]);

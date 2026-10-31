@@ -47,6 +47,9 @@ class WhatsappAgreementTest extends TestCase
 
     private function agreement(array $o): array
     {
+        // Sahte AI yönü söyler (eski vakalar alış); yön sorusu ayrı vakalarda (31.10).
+        $o += ['agreement_direction' => 'purchase'];
+
         return array_merge(['kind' => ExpenseExtractor::KIND_AGREEMENT, 'items' => [], 'amount' => 0, 'paid' => null,
             'date' => '2026-04-01', 'description' => '', 'party_id' => null, 'party_name' => null, 'project_id' => null,
             'project_name' => null, 'confidence' => 'high', 'question' => null, 'is_new_entry' => true],
@@ -591,7 +594,7 @@ class WhatsappAgreementTest extends TestCase
 
         $this->sendPhoto();
         $card = $this->send('3 Bodrum kapısı 5 iç kapı alacaklıyız');
-        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Gül (yeni kişi) · *eski sözleşmeden kalan*', $card);
+        $this->assertStringContainsString('🤝 *Anlaşma* — WA Anlaşma Gül (yeni kişi) · *alış* · *eski sözleşmeden kalan*', $card);
         $this->assertStringContainsString('• Bodrum kapısı 3 adet × 6.500,00 = 19.500,00', $card);
         $this->assertStringContainsString('• İç kapı 5 adet × 6.500,00 = 32.500,00', $card);
         $this->assertStringContainsString('💸 Önceden ödendi: 52.000,00', $card);
@@ -775,13 +778,122 @@ class WhatsappAgreementTest extends TestCase
             'agreement_items' => [['description' => 'WAA Daire', 'quantity' => 1, 'unit_price' => 4500000]],
             'agreement_payments' => [['method' => 'eft', 'amount' => 500000]]]));
         $card = $this->send('Ahmet Yılmaz');
-        $this->assertStringContainsString('WA Anlaşma Ahmet (yeni kişi) (satış)', $card);
+        $this->assertStringContainsString('WA Anlaşma Ahmet (yeni kişi) · *satış*', $card);
         $this->assertStringContainsString('💸 Alınan: EFT 500.000,00', $card);
         $this->send('evet');
 
         $party = Party::where('name', 'WA Anlaşma Ahmet')->sole();
         $this->assertSame(Agreement::DIRECTION_SALE, Agreement::where('party_id', $party->id)->sole()->direction);
         $this->assertSame(PartyLedgerEntry::TYPE_COLLECTION, PartyLedgerEntry::where('party_id', $party->id)->sole()->type);
+    }
+
+    /**
+     * Anlaşma yönü (31.10, kullanıcının cümlesi "10.000 tuğla 1 milyondan Ali Boztepe'ye anlaştık"): alış + satış yapan firmada yön
+     * belli değilse sorulur, "evet" kaydetmez; "sattım" → satış kartı → kayıt. Düzeltme turunda yön yeniden sorulmaz.
+     */
+    public function test_both_directions_unclear_is_asked_then_sattim_saves_sale(): void
+    {
+        config(['app.agreement_direction' => 'both']);
+        $tugla = fn (array $o = []) => $this->agreement($o + ['agreement_direction' => null, 'party_name' => 'WAD Ali Boztepe',
+            'agreement_items' => [['description' => 'WAD Tuğla', 'quantity' => 10000, 'unit' => 'adet', 'unit_price' => 100]]]);
+        $this->ai($tugla());
+
+        $card = $this->send("10.000 tuğla 1 milyondan Ali Boztepe'ye anlaştık");
+        $this->assertStringContainsString('Satış anlaşması mı yaptın, alış mı?', $card);
+        $this->assertStringContainsString('Anlaşılan: *1.000.000,00 ₺*', $card);
+        $this->assertStringNotContainsString('*alış*', $card, 'yön bilinmeden kartta alış yazmaz');
+        $this->assertStringNotContainsString('Kaydedeyim mi?', $card);
+
+        $this->assertStringContainsString('Satış anlaşması mı yaptın, alış mı?', $this->send('evet'), 'evet kaydetmez, soru tekrar');
+        $this->assertSame(0, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WAD Ali Boztepe'))->count());
+
+        $card = $this->send('sattım');
+        $this->assertStringContainsString('WAD Ali Boztepe (yeni kişi) · *satış*', $card);
+        $this->assertStringContainsString('teslim ettikçe anlaşmadan düşülür', $card);
+
+        // Düzeltme turu: AI yönü tekrarlamaz (null) → yeniden sorulmaz, satış kalır.
+        $this->ai($tugla(['is_new_entry' => false, 'agreement_items' => [['description' => 'WAD Tuğla', 'quantity' => 10000, 'unit' => 'adet', 'unit_price' => 105]]]));
+        $card = $this->send('adedi 105 olsun');
+        $this->assertStringNotContainsString('Satış anlaşması mı', $card);
+        $this->assertStringContainsString('· *satış*', $card);
+
+        $this->send('evet');
+        $a = Agreement::whereHas('party', fn ($q) => $q->where('name', 'WAD Ali Boztepe'))->sole();
+        $this->assertSame(Agreement::DIRECTION_SALE, $a->direction);
+    }
+
+    public function test_both_directions_aldim_answer_and_clear_sentence_not_asked(): void
+    {
+        config(['app.agreement_direction' => 'both']);
+        $this->ai($this->agreement(['agreement_direction' => null, 'party_name' => 'WAD Kuşak',
+            'agreement_items' => [['description' => 'WAD Kum', 'quantity' => 100, 'unit' => 'm3', 'unit_price' => 500]]]));
+        $this->send('Kuşakla 100 m3 kum 500den anlaştık');
+        $this->assertStringContainsString('WAD Kuşak (yeni kişi) · *alış*', $this->send('aldım'));
+
+        // Cümle yönü söylüyor (AI sale dedi) → soru yok.
+        WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
+        $this->ai($this->agreement(['agreement_direction' => 'sale', 'party_name' => 'WAD Mehmet',
+            'agreement_items' => [['description' => 'WAD Tuğla', 'quantity' => 2000, 'unit' => 'adet', 'unit_price' => 105]]]));
+        $card = $this->send("Mehmet'e 2000 tuğla sattım adedi 105, anlaştık");
+        $this->assertStringNotContainsString('Satış anlaşması mı', $card);
+        $this->assertStringContainsString('· *satış*', $card);
+    }
+
+    /** Yalnız alış yapan firma (müteahhit): AI "sale" dese de alış; soru yok. Yalnız satış yapan: yön söylenmese de satış. */
+    public function test_single_direction_firm_never_asks_and_fixes_direction(): void
+    {
+        config(['app.agreement_direction' => 'purchase']);
+        $this->ai($this->agreement(['agreement_direction' => 'sale', 'party_name' => 'WAD Usta',
+            'agreement_items' => [['description' => 'WAD Sıva', 'amount' => 400000]]]));
+        $card = $this->send("Ali Usta'ya sıvayı 400 bine anlaştık");
+        $this->assertStringNotContainsString('Satış anlaşması mı', $card);
+        $this->assertStringContainsString('WAD Usta (yeni kişi) · *alış*', $card);
+        $this->chooseProject();
+        $this->assertSame(Agreement::DIRECTION_PURCHASE, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WAD Usta'))->sole()->direction);
+
+        config(['app.agreement_direction' => 'sale']);
+        $this->ai($this->agreement(['agreement_direction' => null, 'party_name' => 'WAD Ali Boztepe',
+            'agreement_items' => [['description' => 'WAD Tuğla', 'quantity' => 10000, 'unit' => 'adet', 'unit_price' => 100]]]));
+        $card = $this->send("10.000 tuğla 1 milyondan Ali Boztepe'ye anlaştık");
+        $this->assertStringNotContainsString('Satış anlaşması mı', $card);
+        $this->assertStringContainsString('· *satış*', $card);
+        $this->send('evet');
+        $this->assertSame(Agreement::DIRECTION_SALE, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WAD Ali Boztepe'))->sole()->direction);
+    }
+
+    /** AI şeması ve yönergesi firma ayarına uyar: tek yönlüde yön alanı yok, iki yönlüde "TAHMİN ETME" kuralı. */
+    public function test_extractor_direction_schema_follows_setting(): void
+    {
+        $props = fn () => collect(json_decode(json_encode(app(ExpenseExtractor::class)->entrySchema()), true))->dot()->keys()
+            ->contains(fn ($k) => str_contains($k, 'agreement_direction'));
+
+        config(['app.agreement_direction' => 'purchase']);
+        $this->assertFalse($props());
+        $this->assertStringContainsString('YALNIZ ALIŞ anlaşması', ExpenseExtractor::kindGuide());
+
+        config(['app.agreement_direction' => 'sale']);
+        $this->assertStringContainsString('YALNIZ SATIŞ anlaşması', ExpenseExtractor::kindGuide());
+
+        config(['app.agreement_direction' => 'both']);
+        $this->assertTrue($props());
+        $this->assertStringContainsString("TEK BAŞINA yön söylemez", ExpenseExtractor::kindGuide());
+    }
+
+    /** Hub "Özellikler": anlaşma yönü saklanır, varsayılan Alış + satış; panel formu tek yönlüde o yönle açılır. */
+    public function test_hub_setting_round_trip_and_panel_default(): void
+    {
+        $s = \App\Models\HubFirm::settingsFromFeaturesForm(['feat_agreements' => true, 'agreement_direction' => 'sale']);
+        $this->assertSame('sale', $s['agreement_direction']);
+        $firm = new \App\Models\HubFirm(['settings' => $s]);
+        $this->assertSame('sale', $firm->settingsWithDefaults()['agreement_direction']);
+        $this->assertSame('sale', $firm->featuresFormData()['agreement_direction']);
+        $this->assertSame('both', (new \App\Models\HubFirm(['settings' => []]))->settingsWithDefaults()['agreement_direction']);
+        $this->assertSame('both', \App\Models\HubFirm::settingsFromFeaturesForm(['agreement_direction' => 'saçma'])['agreement_direction']);
+
+        config(['app.agreement_direction' => 'sale']);
+        $this->assertSame(Agreement::DIRECTION_SALE, \App\Support\Forms\AgreementForm::lastDirection(null));
+        config(['app.agreement_direction' => null]);
+        $this->assertSame('both', \App\Support\Features::agreementDirection());
     }
 
     /** Belge okundu ama türü anlaşılamadı (21.10 Alim Tok: kind=null → yardım menüsü gitti) → menü değil soru. */

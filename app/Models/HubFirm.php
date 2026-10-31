@@ -49,6 +49,7 @@ class HubFirm extends Model
         'cari_lock_minutes'   => 5,
         'check_reminder_days' => [3, 0],
         'project_label'       => null,  // "Proje" / "Şube" / serbest; boş = sektöre göre (Labels::project)
+        'agreement_direction' => null,  // anlaşma yönü: purchase | sale | both; boş = both (FeatureSettings::AGREEMENT_*)
         'sector'              => null,  // işletme türü (config/sectors.php) — asistan karşısındakinin işini bilsin; paketten ayrı
         'business_note'       => null,  // tek satır işletme notu ("çoğunlukla vadeli çekle öder")
     ];
@@ -128,6 +129,8 @@ class HubFirm extends Model
             'cari_lock_minutes'   => max(1, (int) $s['cari_lock_minutes']),
             'check_reminder_days' => array_values(array_map('intval', (array) $s['check_reminder_days'])),
             'project_label'       => is_string($s['project_label'] ?? null) && trim($s['project_label']) !== '' ? trim($s['project_label']) : null,
+            'agreement_direction' => in_array($s['agreement_direction'] ?? null, FeatureSettings::AGREEMENT_DIRECTIONS, true)
+                ? $s['agreement_direction'] : FeatureSettings::AGREEMENT_BOTH,
             'sector'              => array_key_exists((string) ($s['sector'] ?? ''), (array) config('sectors')) ? $s['sector'] : null,
             'business_note'       => is_string($s['business_note'] ?? null) && trim($s['business_note']) !== '' ? mb_substr(trim($s['business_note']), 0, 300) : null,
             'features'            => is_array($s['features'] ?? null) ? FeatureSettings::normalizeFeatures($s['features']) : null,
@@ -169,6 +172,8 @@ class HubFirm extends Model
             'legacy'              => collect(FeatureSettings::LEGACY)->mapWithKeys(fn (string $k) => [$k => (bool) ($data["legacy_{$k}"] ?? false)])->all(),
             'modules'             => [],
             'project_label'       => $label,
+            'agreement_direction' => in_array($data['agreement_direction'] ?? null, FeatureSettings::AGREEMENT_DIRECTIONS, true)
+                ? $data['agreement_direction'] : FeatureSettings::AGREEMENT_BOTH,
             'profile'             => FeatureSettings::deriveProfile($features, $label ?? 'Proje'),
             'cari_lock'           => (bool) ($data['cari_lock'] ?? false),
             'cari_lock_minutes'   => (int) (($data['cari_lock_minutes'] ?? null) ?: 5),
@@ -188,6 +193,7 @@ class HubFirm extends Model
 
         $data = [
             'project_label'       => $s['project_label'] ?? FeatureSettings::legacyPlaceLabel($s['profile']),
+            'agreement_direction' => $s['agreement_direction'],
             'sector'              => $s['sector'],
             'business_note'       => $s['business_note'],
             'cari_lock'           => $s['cari_lock'],

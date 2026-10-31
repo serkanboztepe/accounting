@@ -30,6 +30,9 @@ return [
     // "Proje" yerine görünen ad (hub → firma ayarı; boş = sektöre göre — App\Support\Labels).
     'project_label' => env('PROJECT_LABEL'),
 
+    // Anlaşma yönü: purchase | sale | both (boş = both). Firma ayarı (hub Özellikler) Tenancy ile buraya yazılır.
+    'agreement_direction' => env('AGREEMENT_DIRECTION'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

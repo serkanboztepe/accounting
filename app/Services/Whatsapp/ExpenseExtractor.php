@@ -832,6 +832,26 @@ class ExpenseExtractor
     }
 
     /** Anlaşma alanları (yalnız anlaşma modülü açıkken şemaya eklenir — diğer firmalarda şema değişmez). */
+    /**
+     * Anlaşma yönü kuralı (31.10, firma ayarı): tek yönlü firmada AI yön seçmez (kod sabitler); iki yönlüde yalnız cümle/belge
+     * açıkça söylüyorsa doldurur, yoksa null — sistem "satış mı, alış mı?" diye sorar ("10.000 tuğla 1 milyondan Ali'ye anlaştık").
+     */
+    private static function agreementDirectionRule(): string
+    {
+        return match (\App\Support\Features::agreementFixedDirection()) {
+            \App\Models\Agreement::DIRECTION_PURCHASE => '- ANLAŞMA YÖNÜ: bu firma YALNIZ ALIŞ anlaşması yapar (biz alırız / biz öderiz) — her anlaşma alıştır, yön sorma. '
+                . 'Teslimde de mal/iş BİZE gelir.',
+            \App\Models\Agreement::DIRECTION_SALE => '- ANLAŞMA YÖNÜ: bu firma YALNIZ SATIŞ anlaşması yapar (biz satarız / bize ödenir) — her anlaşma satıştır, yön sorma. '
+                . 'Teslimde mal ONA gider ("Mehmet\'e 5 bin tuğla gönderdim / teslim ettim / yolladık / indirdik", "3000 tuğla gitti").',
+            default => '- ANLAŞMA YÖNÜ: bu firma hem alış hem satış anlaşması yapar. `agreement_direction` YALNIZ cümle ya da belge yönü açıkça '
+                . 'söylüyorsa: sale ("sattım", "satacağız", "bize ödeyecek", "bizden alacak", belgede Satıcı biziz) · purchase ("aldım", '
+                . '"alacağız", "biz ödeyeceğiz", "bize getirecek", "X yapacak" — iş bize yapılıyor, belgede Alıcı/İşveren biziz). Kişi adındaki ek '
+                . '("Ali\'ye anlaştık", "Ali\'yle anlaştık", "Ali\'den anlaştık") ve "anlaştık" fiili TEK BAŞINA yön söylemez → null bırak, sistem '
+                . '"satış mı, alış mı?" diye sorar. TAHMİN ETME. Teslimde: "Mehmet\'e gönderdim / teslim ettim / yolladık / indirdik / gitti" '
+                . 'mal ONA gitti (satış anlaşmasının kalemi); "Kuşaktan geldi / getirdi" mal BİZE geldi (alış anlaşmasının kalemi).',
+        };
+    }
+
     private static function agreementProperties(): array
     {
         if (! \App\Support\Features::agreements()) {
@@ -839,8 +859,8 @@ class ExpenseExtractor
         }
 
         return [
-            'agreement_direction' => ['type' => ['string', 'null'], 'enum' => ['purchase', 'sale', null],
-                'description' => 'Only for kind=agreement: purchase = we buy / we pay; sale = we sell / they pay us'],
+            ...(\App\Support\Features::agreementFixedDirection() === null ? ['agreement_direction' => ['type' => ['string', 'null'], 'enum' => ['purchase', 'sale', null],
+                'description' => 'Only for kind=agreement: purchase = we buy / we pay; sale = we sell / they pay us; null = the message does not say (the user is asked)']] : []),
             'agreement_items' => [
                 'type' => 'array',
                 'description' => 'Only for kind=agreement: one row per agreed item, in document order',
@@ -1315,6 +1335,7 @@ class ExpenseExtractor
                 . 'geçmeyen harcamada seller_name boş.';
         }
         if (\App\Support\Features::agreements()) {
+            $guide .= "\n" . self::agreementDirectionRule();
             // Anlaşmalar açıkken "X'le Y'yi Z'ye anlaştık" kayıttır (kart, kalan), hafıza notu değil (21.10).
             $guide .= "\n" . '- ANLAŞMA ÖNCELİĞİ: cariyle ileride gelecek mal/iş için fiyat ya da tutar kararlaştırıldıysa ("…\'ye anlaştık", '
                 . '"…den anlaştık", sözleşme / sipariş belgesi) kind "agreement" — "remember" DEĞİL. remember yalnız para/mal kararı olmayan bilgi için.'

@@ -113,6 +113,33 @@ final class Features
         return self::on('agreements');
     }
 
+    /**
+     * Anlaşma yönü (hub Özellikler, 31.10): firma yalnız alış (müteahhit), yalnız satış (tuğla satan) ya da ikisini de yapar.
+     * Tek yönlü firmada WhatsApp yönü sormaz ve kod o yöne sabitler; panelde öteki yön görünmez. Boş = ikisi de (belirsizse sorulur).
+     */
+    public static function agreementDirection(): string
+    {
+        $v = config('app.agreement_direction');
+
+        return in_array($v, FeatureSettings::AGREEMENT_DIRECTIONS, true) ? $v : FeatureSettings::AGREEMENT_BOTH;
+    }
+
+    /** Firma bu yönde anlaşma yapar mı (purchase | sale)? */
+    public static function agreementDirectionAllowed(string $direction): bool
+    {
+        $mode = self::agreementDirection();
+
+        return $mode === FeatureSettings::AGREEMENT_BOTH || $mode === $direction;
+    }
+
+    /** Tek yönlü firmada o yön (purchase | sale), iki yönlüde null. */
+    public static function agreementFixedDirection(): ?string
+    {
+        $mode = self::agreementDirection();
+
+        return $mode === FeatureSettings::AGREEMENT_BOTH ? null : $mode;
+    }
+
     public static function landShare(): bool
     {
         return self::on('land_share');
