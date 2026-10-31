@@ -774,7 +774,15 @@ class WhatsappWebhookController extends Controller
             };
             if ($kind !== null) {
                 $this->inboundKind = 'quick';
+                // Stoklu taslakta stoklu karşılığı; kalemler yeni yöne göre yeniden hazırlanır (alışta stoğa girer, satışta düşer).
+                $trade = in_array($this->kind($pending->extracted), [ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE], true);
+                if ($trade) {
+                    $kind = $kind === ExpenseExtractor::KIND_SALE ? ExpenseExtractor::KIND_TRADE_SALE : ExpenseExtractor::KIND_TRADE_PURCHASE;
+                }
                 $data = ['kind' => $kind, 'direction_unclear' => false, 'question' => null] + $pending->extracted;
+                if ($trade) {
+                    $data = TradeDraft::route($data);
+                }
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
             }
@@ -3171,7 +3179,7 @@ class WhatsappWebhookController extends Controller
                 || (! empty($prev['party_confirmed']) && ($prev['party_id'] ?? null) === ($data['party_id'] ?? null));
             $data['has_payments'] = ! empty($data['has_payments']) || ! empty($prev['has_payments']);
             $data['document_total'] = $data['document_total'] ?? $prev['document_total'] ?? null;
-            foreach (['pages', 'agreement_notes', 'party_phone', 'party_address'] as $k) {
+            foreach (['pages', 'agreement_notes', 'party_phone', 'party_address', 'next_items'] as $k) {
                 $data[$k] = $data[$k] ?? $prev[$k] ?? null; // cevapta AI tekrarlamazsa kaybolmasın
             }
             $data['total_ok'] = ! empty($data['total_ok']) || ! empty($prev['total_ok']);
@@ -3199,7 +3207,9 @@ class WhatsappWebhookController extends Controller
         // Proje menüsü yalnız sorular bitince (numara cevabı soruyla karışmasın).
         $data = $question === null ? ProjectChoice::prepare($data, $phone)
             : array_merge($data, ['project_suggested' => false, 'project_needed' => false]);
-        $card = AgreementDraft::summary($data) . (($pl = ProjectChoice::lines($data)) ? "\n" . implode("\n", $pl) : '');
+        $card = AgreementDraft::summary($data) . (($pl = ProjectChoice::lines($data)) ? "\n" . implode("\n", $pl) : '')
+            // Aynı mesajdaki teslim ("…anlaştık, 3000 tuğla gitti", 31.10) görünsün — onaydan sonra sıradaki iş olarak işlenir.
+            . (! empty($data['next_items']) ? "\n➡️ Sırada: " . ExpenseExtractor::nextItemsLabel($data['next_items']) . ' (bunu onaylayınca sorarım)' : '');
         // Kişi bilinmiyorsa kart anlamsız — yalnız soru.
         $summary = empty($data['party_id']) && trim((string) ($data['party_name'] ?? '')) === '' ? '❓ ' . $question
             : $card . ($question !== null ? "\n\n❓ " . $question : '');

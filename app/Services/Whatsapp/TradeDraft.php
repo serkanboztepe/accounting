@@ -435,6 +435,10 @@ class TradeDraft
         if ($kind === ExpenseExtractor::KIND_TRADE_SALE && empty($d['paid']) && empty($d['party_id']) && empty($d['party_name'])) {
             return 'Kime veresiye verdin? Adını yazar mısın? (Parası alındıysa *peşin* yaz.)';
         }
+        // Yön belli değil (31.10: stoklu firmada "Mehmet Kaya 50 çuval un 850" — un hem alınıyor hem satılıyor): sormadan kayıt yok.
+        if (in_array($kind, [ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE], true) && DraftGaps::needsSaleOrPurchase($d)) {
+            return '*' . (self::partyName($d) ?: 'Bu kişi') . '*: sattın mı, aldın mı? *sattım* ya da *aldım* yaz.';
+        }
         foreach ($d['items'] ?? [] as $item) {
             if (! empty($item['product_id']) && $kind === ExpenseExtractor::KIND_TRADE_PURCHASE && empty($item['quantity'])) {
                 return 'Kaç ' . (Product::find($item['product_id'])?->unit?->name ?? 'tane') . ' aldın? (stoğa girecek)';

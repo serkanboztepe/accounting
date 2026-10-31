@@ -218,7 +218,8 @@ final class DraftGaps
     /** Mal ona mı gitti, ondan mı geldi belli değil ("Vedat 445 sebze ekmek getirdim") — kullanıcıya sorulur. */
     public static function needsSaleOrPurchase(array $d): bool
     {
-        return in_array(self::kind($d), [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_PURCHASE], true)
+        return in_array(self::kind($d), [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_PURCHASE,
+            ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE], true)
             && ! empty($d['direction_unclear'])
             && ! self::missingParty($d);
     }

@@ -177,7 +177,35 @@ class WhatsappPaidSupplierTest extends TestCase
     }
 
     /** "Ne aldın?" → "20 çuval un": AI miktarı satıra koymazsa mesajdan alınır; belirsizse dokunulmaz. */
-    public function test_stated_quantity_is_taken_from_the_message(): void
+    /**
+     * Stoklu firmada yön belirsiz (31.10: "Mehmet Kaya 50 çuval un 850" — un hem alınıp satılıyor, fiil yok): işaret stoklu türde de
+     * kalır, kayıt durur, "sattın mı, aldın mı?" sorulur; "sattım" → stoklu satış, kalemler satışa göre yeniden hazırlanır.
+     */
+    public function test_trade_direction_unclear_asks_and_sattim_makes_trade_sale(): void
+    {
+        $this->chat($this->entry(['kind' => ExpenseExtractor::KIND_TRADE_PURCHASE, 'amount' => 42500, 'paid' => false,
+            'party_name' => 'WPS Mehmet Kaya', 'description' => 'Un', 'category_name' => null, 'direction_unclear' => true,
+            'items' => [['description' => 'WPS Un', 'quantity' => 50, 'unit' => 'çuval', 'unit_price' => 850, 'amount' => 42500]]]));
+
+        $reply = $this->send('Mehmet Kaya 50 çuval un 850');
+        $this->assertStringContainsString('*WPS Mehmet Kaya*: sattın mı, aldın mı?', $reply);
+        $this->assertStringNotContainsString('Kaydedeyim mi', $reply);
+
+        $this->assertStringContainsString('sattın mı, aldın mı?', $this->send('evet'), 'evet kaydetmez');
+        $this->assertSame(0, Party::where('name', 'WPS Mehmet Kaya')->count());
+
+        $card = $this->send('sattım');
+        $this->assertStringNotContainsString('sattın mı', $card);
+        $this->assertStringContainsString('WPS Mehmet Kaya', $card);
+        $this->send('evet');
+
+        $party = Party::where('name', 'WPS Mehmet Kaya')->sole();
+        $this->assertSame(1, \App\Models\Sale::where('party_id', $party->id)->count());
+        $this->assertSame(0, \App\Models\Purchase::where('party_id', $party->id)->count());
+        $this->assertEqualsWithDelta(42500, \App\Support\PartyStatement::build($party)['balance'], 0.01, 'Mehmet bize borçlu');
+    }
+
+        public function test_stated_quantity_is_taken_from_the_message(): void
     {
         $q = fn (string $desc, string $text) => ExpenseExtractor::guardStatedQuantity(['kind' => ExpenseExtractor::KIND_TRADE_PURCHASE,
             'items' => [['description' => $desc, 'quantity' => null]]], $text)['items'][0]['quantity'];

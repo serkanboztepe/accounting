@@ -67,6 +67,18 @@ return [
             $s("Ali'ye 5 saat kepçe çalıştı", ['draft' => ['amount' => 7500], 'reply_has' => ['7.500'], 'reply_not' => ['7.000']]),
             $s('evet'),
         ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 7500]]],
+    // "unutma" demeden fiyat (kullanıcı 31.10: "kepçe saati 1400 demesi yeterli mi, hafriyat m3 130"): kişisiz + miktarsız fiyat = fiyat bilgisi
+    // → hatırlamayı önerir (iş kaydı değil); sonraki işte o fiyattan hesaplar.
+    ['id' => 'tok-yalin-kepce-fiyati', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [
+            $s('kepçe saati 1400', ['reply_any' => ['hatırla'], 'reply_not' => ['kaç saat', 'kimin']]), $s('evet'),
+            $s("Ali'ye 5 saat kepçe çalıştı", ['draft' => ['amount' => 7000], 'reply_has' => ['7.000']]), $s('evet'),
+        ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 7000]]],
+    ['id' => 'tok-yalin-hafriyat-fiyati', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [
+            $s('hafriyat m3 130', ['reply_any' => ['hatırla'], 'reply_not' => ['kaç m', 'kimin']]), $s('evet'),
+            $s("Ali'ye 200 m3 hafriyat yaptık", ['draft' => ['amount' => 26000], 'reply_has' => ['26.000']]), $s('evet'),
+        ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 26000]]],
     $c('hf-dokum', [$s('Ali Boztepe döküm')],
         ['reply_not' => ['Kimin hesap'], 'no_new_draft' => true]),
 ];

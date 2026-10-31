@@ -124,7 +124,10 @@ class ExpenseExtractor
         self::KIND_AGREEMENT => '- "agreement": ANLAŞMA / SÖZLEŞME — karşı tarafla ileride gelecek mal ya da yapılacak iş için FİYAT (ve çoğu zaman miktar) '
             . 'kararlaştırıldı; mal/iş henüz gelmedi ya da parça parça gelecek. Yazıyla ("Ali Usta\'yla tesisatı 1 milyona anlaştık", "Kuşakla 500 m³ '
             . 'betonu 3800\'den anlaştık") ya da belge fotoğrafıyla (sözleşme, sipariş/proforma dökümü, el yazısı fiyat listesi, senetli satış '
-            . 'sözleşmesi). Mal GELDİ / iş YAPILDI deniyorsa agreement DEĞİL (alış/satış). Borç yazılmaz. Doldur: `agreement_direction` '
+            . 'sözleşmesi). Mal GELDİ / iş YAPILDI deniyorsa agreement DEĞİL (alış/satış). Anlaşma ile AYNI mesajda o anlaşmadan '
+            . 'teslim de söylendiyse ("10 bin tuğlaya 1 milyona anlaştık, 3000 tuğla gitti", "…, 50 m³\'ü geldi") kind "agreement" kalır, '
+            . 'teslimi kullanıcının sözüyle `next_items`\'a yaz ("3000 tuğla gitti") — anlaşma kaydolunca teslim olarak işlenir; teslim '
+            . 'miktarını anlaşmanın kalemine KATMA. Borç yazılmaz. Doldur: `agreement_direction` '
             . '(purchase: biz alıyoruz / biz ödüyoruz · sale: biz satıyoruz / bize ödenecek); karşı taraf party_id/party_name — BİZİM FİRMA '
             . 'karşı taraf OLAMAZ ("BİZ" satırına bak — sözleşmede "İşveren" ya da "Alıcı" biz olabiliriz; şablondan kalma matbu ad yanlış olabilir: imza ve el yazısı düzeltme esastır; '
             . 'taraf belirsizse `unreadable`\'a yaz); `agreement_items` her kalem: miktar + birim fiyat (miktarlı) · yalnız toplam tutar (götürü '
@@ -795,7 +798,7 @@ class ExpenseExtractor
                     'project_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW project name if the user named one that is not in the list; null if matched or none named'],
                     'party_id' => ['type' => ['integer', 'null'], 'description' => 'Matched existing party id or null'],
                     'party_name' => ['type' => ['string', 'null'], 'description' => 'Proposed NEW party name if the user named one that is not in the list; null if matched or none named'],
-                    'direction_unclear' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=sale/purchase: true if it is unclear whether the goods went TO the party (sale) or came FROM the party (purchase); the user is asked'],
+                    'direction_unclear' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=sale/purchase/trade_sale/trade_purchase: true if it is unclear whether the goods went TO the party (sale) or came FROM the party (purchase); the user is asked'],
                     'debt_repayment' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=payment: true if this payment repays OUR existing debt ("borcum ödendi", "borç iade")'],
                     'bank_fee' => ['type' => ['number', 'null'], 'description' => 'Only from a bank receipt (dekont): transfer fee + BSMV total, NOT included in amount; else null'],
                     'seller_name' => ['type' => ['string', 'null'], 'description' => 'From a receipt/invoice image: the SELLER company name printed on it (market, fuel station…); in a stock business also the firm named in a text expense (see FİRMADAN ALIŞ); else null'],
@@ -857,7 +860,8 @@ class ExpenseExtractor
                 . 'söylüyorsa: sale ("sattım", "satacağız", "bize ödeyecek", "bizden alacak", belgede Satıcı biziz) · purchase ("aldım", '
                 . '"alacağız", "biz ödeyeceğiz", "bize getirecek", "X yapacak" — iş bize yapılıyor, belgede Alıcı/İşveren biziz). Kişi adındaki ek '
                 . '("Ali\'ye anlaştık", "Ali\'yle anlaştık", "Ali\'den anlaştık") ve "anlaştık" fiili TEK BAŞINA yön söylemez → null bırak, sistem '
-                . '"satış mı, alış mı?" diye sorar. TAHMİN ETME. Teslimde: "Mehmet\'e gönderdim / teslim ettim / yolladık / indirdik / gitti" '
+                . '"satış mı, alış mı?" diye sorar. TAHMİN ETME. Ama kişiyle AÇIK ANLAŞMALAR\'da aynı malda anlaşma varsa ("2000 tuğla DAHA '
+                . 'anlaştık" → o anlaşmanın yönü) ya da CARİLER\'de "(müşteri)" / "(mal-hizmet aldığımız)" notu varsa yön BELLİDİR — doldur. Teslimde: "Mehmet\'e gönderdim / teslim ettim / yolladık / indirdik / gitti" '
                 . 'mal ONA gitti (satış anlaşmasının kalemi); "Kuşaktan geldi / getirdi" mal BİZE geldi (alış anlaşmasının kalemi).',
         };
     }
@@ -1676,7 +1680,9 @@ class ExpenseExtractor
             'project_name' => \App\Support\Features::places() && ! empty($input['project_name']) ? trim((string) $input['project_name']) : null,
             'party_id' => isset($input['party_id']) ? (int) $input['party_id'] : null,
             'party_name' => ! empty($input['party_name']) ? trim((string) $input['party_name']) : null,
-            'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE], true) && \App\Support\Features::supplierSide()
+            // Stoklu satış / alış da (31.10: "Mehmet Kaya 50 çuval un 850" — iki yönlü malda işaret burada siliniyordu, hiç sorulmuyordu).
+            'direction_unclear' => in_array($kind, [self::KIND_SALE, self::KIND_PURCHASE, self::KIND_TRADE_SALE, self::KIND_TRADE_PURCHASE], true)
+                && \App\Support\Features::supplierSide()
                 && ! empty($input['direction_unclear']),
             'debt_repayment' => $kind === self::KIND_PAYMENT && ! empty($input['debt_repayment']),
             // Banka masrafı yalnız parayı BİZ gönderdiysek bizim gider (bize gelen dekontta masrafı gönderen öder — Fuat→Ferhat).
