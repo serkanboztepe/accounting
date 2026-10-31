@@ -1358,11 +1358,20 @@ class ExpenseExtractor
         }
         if (\App\Support\Features::supplierSide()) {
             // Vedat (Erkan, 14 Ekim): "Vedat Çağlar 275+170 sebze ekmek getirdim" sorulmadan alış sayıldı, satıştı.
-            $guide .= "\n" . '- YÖN BELİRSİZSE (sale mi purchase mı): malın ona mı gittiği, ondan mı geldiği cümleden anlaşılmıyorsa '
-                . '(kişi adında "-e/-a" ya da "-den/-dan" eki yok ve fiil iki yöne de okunuyor: "getirdim", "götürdüm", "geldi"; '
-                . 'ör. "Vedat Çağlar 275+170 sebze ekmek getirdim") en olası türü seç ama `direction_unclear`=true — sistem '
-                . '"ona mı götürdün, ondan mı aldın?" diye sorar. Ek ya da fiil yönü söylüyorsa ("Vedat\'a getirdim", '
-                . '"Vedat\'tan aldım", "X\'e verdim", "X\'ten aldım") ya da malı KİŞİ getirdiyse ("Hasan 2000 lira yem getirdi" → purchase) false.';
+            // 31.10 Alim Tok (hafriyat): "Uğur Altıntaş bugün 7 saat kepçe çalıştı" ek yok diye yön soruldu — kendi kepçesi, satıştı.
+            // Kullanıcı: "Türkiye'de Ayşe'ye iş yaptım demiyorlar, Ayşe Kara iş yaptım diyorlar" → ek yokluğu yön belirsizliği değil;
+            // yön işletmenin işinden çıkar (genel — müteahhitte aynı kalıp alıştır).
+            $guide .= "\n" . '- YÖN (sale mi purchase mı; KİŞİ geçen mesajda — kişi yoksa ve birim fiyat varsa "nakliye seferi 3000" fiyat öğretimidir, '
+                . 'remember\'daki YALIN BİRİM FİYAT kuralı): Türkçede kişi adı çoğu zaman EKSİZ yazılır ("Ayşe Kara iş yaptım", "Uğur Altıntaş '
+                . 'bugün 7 saat kepçe çalıştı") — ekin olmaması yön belirsiz demek DEĞİLDİR. Yönü sırayla çıkar: (1) açık ek ya da fiil '
+                . '("Vedat\'a getirdim", "X\'ten aldım", "X\'e verdim"; malı / işi KİŞİ getirdi-yaptı: "Hasan 2000 lira yem getirdi" → purchase); '
+                . '(2) İŞLETME bilgisi: mesajdaki iş ya da mal işletmenin SATTIĞI / YAPTIĞI şeyse → sale (hafriyat firmasında kepçe saati, '
+                . 'sefer, hafriyat, nakliye; fırında ekmek; fotoğrafçıda çekim; "… iş yaptım"); işletmenin DIŞARIDAN ALDIĞI şeyse → purchase '
+                . '(müteahhitte usta / kepçeci işçiliği, kepçe kirası, beton; fırında un) — bu ikisinde SORMA. (3) Hâlâ belli değilse — işletme o '
+                . 'malı hem alıp hem satıyor (stoklu işletmede ÜRÜNLER\'deki mal) ya da İŞLETME bilgisi yok, ve fiil iki yöne okunuyor ("getirdim", '
+                . '"götürdüm", "geldi"; ör. "Vedat Çağlar 275+170 sebze ekmek getirdim") ya da HİÇ fiil yok ("Mehmet Kaya 50 çuval un 850") — en '
+                . 'olası türü seç ama `direction_unclear`=true, sistem sorar. Kendin soru yazman '
+                . 'gerekirse basit sor ("Uğur\'a mı iş yaptın, yoksa Uğur mu sana çalıştı?"); cümlede olmayan kavram ("şantiye") ekleme.';
         }
 
         if (($nameless = self::namelessRule()) !== '') {

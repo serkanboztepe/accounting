@@ -13,7 +13,8 @@ return [
             . 'işten önce verilen para avanstır. "Bağlantı" = fiyatı sabitlenmiş, peşin ödenen mal alımı (beton, demir); mal geldikçe düşer. '
             . 'Asansör, kapı, pencere, dolap gibi işler önce satın alınır, sonra gelir/takılır — ödeme teslim demek değildir. '
             . 'Ödemeler sık sık vadeli çekle yapılır; çek teslimi kanıtlamaz. Hatır çeki = birinin kendi çekini bize vermesi, karşılığı ona borçtur. '
-            . 'Daire karşılığı iş/mal (takas) olabilir.',
+            . 'Daire karşılığı iş/mal (takas) olabilir. Kepçe, kamyon, vinç, beton pompası gibi iş makineleri çoğunlukla DIŞARIDAN tutulur: '
+            . '"Hasan bugün 7 saat kepçe çalıştı, saati 2000" = Hasan\'ın kepçesi bizim şantiyede çalıştı → alış (Hasan\'a borçlanırız).',
     ],
     'architecture' => [
         'label' => 'Mimarlık / mühendislik',

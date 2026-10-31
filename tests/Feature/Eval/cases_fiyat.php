@@ -11,9 +11,9 @@ $c = fn (string $id, string $firm, array $steps, array $expect = []) => ['id' =>
 
 return [
     // Hizmet veren, sektörü farklı: nakliye seferi fiyatı → hatırla, sonra o fiyattan hesap.
-    $c('fy-sefer-fiyati-ciftci', 'erkan', [
-        $s('nakliye seferi 3000', ['draft' => ['kind' => 'remember'], 'reply_any' => ['hatırla']]), $s('evet'),
-    ], ['saved' => ['ledger' => 0, 'sales' => 0, 'expenses' => 0]]),
+    // Çiftçide nakliye büyük ihtimalle dışarıdan alınan hizmet → hatırlamayı önermek de yönü sormak da doğru; sormadan kaydetmesin.
+    $c('fy-sefer-fiyati-ciftci', 'erkan', [$s('nakliye seferi 3000', ['asks' => true])],
+        ['saved' => ['ledger' => 0, 'sales' => 0, 'expenses' => 0]]),
     $c('fy-sut-litresi', 'erkan', [$s('süt litresi 18')], ['draft' => ['kind' => 'remember'], 'saved' => ['ledger' => 0, 'expenses' => 0]]),
     // Birim fiyat yok → gider (kural karışmaz).
     $c('fy-kira-gider', 'muteahhit', [$s('kira 20000')], ['draft_kind_not' => ['remember']]),
