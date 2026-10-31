@@ -599,7 +599,7 @@ class WhatsappUnderstandingTest extends TestCase
         Http::fake(['api.twilio.com/*' => Http::response([], 200), 'api.anthropic.com/*' => Http::response(['content' => [['type' => 'tool_use', 'name' => 'judge', 'input' => ['answers' => true]]], 'usage' => []])]);
 
         $q = $this->send('Usta boyayı bitirdi 80 bin verdim');
-        $this->assertStringContainsString("Borçlu Usta'e zaten 50.000,00 ₺ borcun görünüyor", $q);
+        $this->assertStringContainsString("Borçlu Usta'ya zaten 50.000,00 ₺ borcun görünüyor", $q);
         $this->assertStringNotContainsString('Kaydedeyim mi', $q);
 
         $this->send('yeni iş, boyanın parası');

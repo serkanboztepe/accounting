@@ -586,6 +586,9 @@ class ChatAssistant
         - Miktar ve birim fiyat varsa çarp (34 kg × 600 = 20.400) ve açıklamaya yaz.
         - Tek mesajda birden fazla kalem varsa ("5400 parça, 10.000 işçilik"): satışta `items` kullan; diğer
           türlerde İLK kalemi öner ve kalanları `next_items`'a yaz — kullanıcı onaylayınca sistem sıradakini sorar.
+          Virgülle sıralanmış giderler ("mazot 5 bin, kira 15 bin, yemek 2 bin") da böyle: "hepsini mi?" diye SORMA.
+        - Adı söylenmeyen birden çok işçiye aynı ücret ("3 işçiye 1500'den yevmiye verdim") → TEK gider, tutar çarpılır
+          (3 × 1.500 = 4.500), açıklama "3 işçi yevmiyesi"; adlarını SORMA.
         - TAKAS / iki yönlü işlem: aynı kişiden hem bir şey ALDIK hem ona bir şey VERDİK ("yemleme aleti aldım 12 bin,
           5 kilo peynir verdim 600'den, hesaptan düşecek") → ilk kalemi öner, diğerini MUTLAKA `next_items`'a yaz
           ("Recep'e 5 kg peynir verdim × 600 = 3.000"). İkisini tek kayıtta birleştirme, birini atlama.

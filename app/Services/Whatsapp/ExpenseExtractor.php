@@ -118,7 +118,8 @@ class ExpenseExtractor
             . 'kullanıcı fiyat söylediyse; miktarla birlikte TOPLAM tutar söylendiyse "10 m³ beton 40 bin" → unit_price = tutar ÷ miktar = 4000). '
             . 'Parası o an ödendiyse ("peşin ödedim", "parasını verdim") `paid`=true (satışta: parası alındıysa). Aynı mal birden çok açık kalemde varsa ve proje/fiyat/anlaşma adından hangisi olduğu anlaşılmıyorsa '
             . 'agreement_item_id null + `delivery_candidates` o kalemlerin id\'leri (sistem sorar — tahmin etme). Miktar da tutar da söylenmediyse quantity '
-            . 'null (sistem sorar). Mesajda proje adı geçiyorsa project_id. Anlaşmada olmayan ek kalem (nakliye vb.) next_items\'a. Gelen '
+            . 'null (sistem sorar). Mesajda proje adı geçiyorsa project_id. Anlaşmada olmayan ek kalem (nakliye vb.) next_items\'a. '
+            . 'Mal geldiği / iş yapıldığı SÖYLENMEDİYSE bu tür DEĞİLDİR — paradan miktar HESAPLAMA. Gelen '
             . 'mal listedeki hiçbir kaleme uymuyorsa normal alış/satış türünü seç.',
         self::KIND_AGREEMENT => '- "agreement": ANLAŞMA / SÖZLEŞME — karşı tarafla ileride gelecek mal ya da yapılacak iş için FİYAT (ve çoğu zaman miktar) '
             . 'kararlaştırıldı; mal/iş henüz gelmedi ya da parça parça gelecek. Yazıyla ("Ali Usta\'yla tesisatı 1 milyona anlaştık", "Kuşakla 500 m³ '
@@ -162,7 +163,7 @@ class ExpenseExtractor
             . 'çeklerin ödenip ödenmediğini de SORMA (sistem sorar). '
             . 'amount = anlaşılan toplam (miktarlı + götürü; fiyat listesi 0). description = kısa ad ("Seramik ve vitrifiye", "Mermer işçiliği"). '
             . 'date = anlaşma/belge tarihi.',
-        self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
+        self::KIND_REMEMBER => '- "remember": KALICI BİLGİ ÖĞRETİLİYOR, para hareketi yok — VERİLMİŞ para ("ödedim", "verdim", "çek verdim", "anlaşmasından düş") anlaşmalı cariye de olsa ASLA remember değildir → payment ("bundan sonra kalfa deyince Mehmet Kaya\'yı anla", "unutma Recep\'le peynirin kilosunu 280\'den anlaştık", "un çuvalını hep 850\'den alıyoruz", "bana kısa yaz", "0553 Ergenekon kasası"). `memory_kind`: alias (kişi/takma ad/numara kimin) · agreement (anlaşma, karar, fiyat sözü) · price (fiyat/alışkanlık) · preference (kullanıcının asistan tercihi — nasıl konuşulacağı YA DA gelecekteki kayıtların nasıl yazılacağı: "Kaya Petrol fişlerinden plakayı da kaydet", "yakıt fişlerinde açıklamaya hep plakayı yaz", "Ali Usta ödemelerini açıklamaya işçilik diye yaz") · note. Kayıt yazımıyla ilgili kalıcı istek ("hep", "bundan sonra", "fişlerimde/fişlerden" — tekrar eden işler için) "help"/"yapamıyorum" DEĞİL → remember; tek bir kayda yönelik ("BU fişe plakayı ekle") remember DEĞİL, o kaydın düzeltmesidir. `memory_subject`: kısa konu ("kalfa", "Recep peynir fiyatı"). `memory_fact`: tek cümle bilgi ("Kalfa = Mehmet Kaya", "Recep Demirci ile peynir kilosu 280 TL"). İlgili cari/ürün varsa party_id / product_id. amount=0.',
         self::KIND_RECURRING_EXPENSE => '- "recurring_expense": DÜZENLİ GİDER — her gün / her hafta / her ay KENDİLİĞİNDEN yazılacak aynı gider ("çobanlar günde 2 ekmek yiyor 17,30 TL her gün gider olarak ekle", "her ayın 1\'i kira 20 bin", "her pazartesi pazar 500"). `amount` = HER SEFERİNDEKİ tutar (miktar × birim fiyat: 2 × 17,30 = 34,60; "17:30 TL" saat değil 17,30 TL), `description` kısa ("Çobanlar ekmek"), `category_id`/`category_name`, `recurring_frequency` daily|weekly|monthly, `recurring_day` (haftalık: 1=pazartesi … 7=pazar; aylık: ayın kaçı), `recurring_start` (YYYY-MM-DD, yalnız "bugünden / yarından / 1 Kasım\'dan" denirse), `recurring_time` ("HH:MM", yalnız saat söylendiyse: "her gün 16:00\'da yaz" → "16:00"; söylenmediyse null — sabah 08:00). Bugün bir kez yapılan harcama bu DEĞİL → "expense". Hafızaya yazma.',
         self::KIND_RECURRING_LIST => '- "recurring_list": "düzenli giderlerim", "her gün ne yazılıyor" — kayıt yok. amount=0.',
         self::KIND_RECURRING_STOP => '- "recurring_stop": düzenli gideri durdur ("ekmek giderini durdur", "kira artık yazılmasın"). `description` = aranacak kelime ("ekmek"). amount=0.',
@@ -171,11 +172,15 @@ class ExpenseExtractor
         self::KIND_EMPLOYEE_SETTING => '- "employee_setting": PERSONEL BİLGİSİ — çalışanın maaşı / maaş günü söyleniyor, para hareketi YOK ("Abdullah Günhan personelim, maaşı 50 bin, ayın 15\'inde", "Ali\'nin maaşı 55 bin oldu", "Mehmet işçimiz ayın 1\'i maaş alıyor"). `party_id` (listede yoksa `party_name`), `salary_amount` (aylık), `salary_day` (ayın kaçı); söylenmeyen null; amount=0. Asistan az önce "maaşı ne kadar, ayın kaçında?" diye sorduysa cevap ("45 bin, ayın 5\'i", "45 bin") o kişi için employee_setting\'tir. "Maaşından ne kadar kaldı / ne kadar vereceğim" SORUSU kayıt değildir: CARİLER\'deki o kişinin notundaki "maaştan kalan" / "açık avans" rakamıyla cevap ver (hesap yapma).',
         self::KIND_SALARY => '- "salary": PERSONELE MAAŞ — bir çalışanın maaşı ödendi / hak edildi ("Abdullah\'ın maaşını verdim", "Ali\'ye Ekim maaşı 50 bin ödedim", "işçi maaşları: Mehmet 40 bin"). `party_id`/`party_name` = çalışan, `amount` = MAAŞIN TAMAMI (söylenmediyse 0 — karttaki maaş kullanılır), `paid` true (verildiyse) / false ("maaşı hak etti, henüz vermedim"), `month` = hangi ayın maaşı (YYYY-MM, söylendiyse). YEVMİYE / günlük / haftalık işçi ücreti de bu türdür ("İşçi Hasan\'a 2000 yevmiye verdim" → salary, amount 2000, paid true, description "yevmiye"). Avans DÜŞÜLMÜŞ tutarı yazma; sistem açık avansı kendisi düşer. AVANS maaş değildir → "payment" + payment_purpose "advance". MAAŞTAN KESİNTİ ("Ahmet\'in maaşından 5 bin kes, 2 gün izin yaptı", "kırdığı camı maaşından düş", "ücretsiz izin, maaşından düşelim") → salary + `salary_deduction` true, `amount` = kesilen tutar, `description` = nedeni; para ödenmez.',
         self::KIND_EXPENSE => '- "expense": CARİSİZ genel harcama — belli bir kişi/firma hesabına bağlı OLMAYAN masraf ("5 bin yakıt", "kira 20 bin ödendi", "elektrik faturası", "yemek 800", "markette 2 bin"). Ödendi de olsa ödenmedi de olsa gider budur. Bir KİŞİDEN/FİRMADAN (cari) mal ya da hizmet alındıysa ("Ahmet\'ten 100 bin malzeme aldım", "Abdullah Usta\'ya sıva yaptırdım") bu gider DEĞİL, "purchase"tır.',
-        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. YÖN: "X avans aldı", "X maaş aldı", "X\'e avans verdik" → para BİZDEN ÇIKTI → payment (X\'in "aldı" demesi tahsilat DEĞİLDİR; tahsilat yalnız X bize para VERDİYSE). Kişi BİZİM ÇALIŞANIMIZSA (anlamdan çıkar — personel, eleman, işçi, çoban, şoför, kalfa, çırak, "maaşından verdim" … ya da CARİLER\'de "personel") `is_staff`=true; çalışana verilen avans maaş avansıdır (payment_purpose "advance"). Çalışana amacı söylenmeden ödeme → `question`: "Maaş mı, avans mı?". Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş ya da sonra gelecek mal için peşin ("avans", "kapora", "iş yaptıracağım", "bağlantı" / "bağlantısı ödendi" — malı önceden parasını verip sabitlemek, "ön ödeme", "peşin verdim mal sonra gelecek") → "advance" (ör. "Sinan\'a yapılan 2026 bağlantısı 2.500.000 ödendi" → payment, advance); geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / gelmiş malın karşılığıysa ("sıva yaptırdım", "malzeme aldım ödedim") bu bir "purchase"tır (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable" (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note). BİR CARİ İÇİN / ADINA BAŞKASINA ödeme (müşterinin ruhsat harcı, tapu/noter/belediye masrafı, müşteri adına ustaya/firmaya verilen para: "Abdullah Uçar\'a 26500 Necati Çimen ruhsat için ödendi", "Ali Bey\'in tapu harcını yatırdım 8 bin", "Ayşe hanım için elektrikçiye 5 bin verdim") → "payment", `party` = hesabına yazılacak cari (adına ödenen; listede yoksa yeni cari, `party_name`), `payment_purpose`="on_behalf", `description` = parayı kim aldı / ne için ("Necati Çimen — ruhsat"). O cariden bir şey ALMADIK → "purchase" DEĞİL; kişili olduğu için gider DEĞİL; ondan alacağımız olmasa da hesabına yazılır (bize borçlanır). İş durumu sorma. İki addan hangisinin hesabına yazılacağı belli değilse sor.',
+        self::KIND_PAYMENT => '- "payment": BİZ bir cariye PARA VERDİK, ama yeni bir mal/hizmet tarif edilmiyor ("Ahmet\'e 100 bin ödedim", "Kuşak Beton\'a 50 bin havale ettim", "ustaya 20 bin verdim"). Önceki borcu kapatır. YÖN: "X avans aldı", "X maaş aldı", "X\'e avans verdik" → para BİZDEN ÇIKTI → payment (X\'in "aldı" demesi tahsilat DEĞİLDİR; tahsilat yalnız X bize para VERDİYSE). Kişi BİZİM ÇALIŞANIMIZSA (anlamdan çıkar — personel, eleman, işçi, çoban, şoför, kalfa, çırak, "maaşından verdim" … ya da CARİLER\'de "personel") `is_staff`=true; çalışana verilen avans maaş avansıdır (payment_purpose "advance"). Çalışana amacı söylenmeden ödeme → `question`: "Maaş mı, avans mı?". Paranın NE İÇİN verildiği söylendiyse `payment_purpose`: ileride yapılacak iş ya da sonra gelecek mal için peşin ("avans", "kapora", "iş yaptıracağım", "bağlantı" / "bağlantısı ödendi" — malı önceden parasını verip sabitlemek, "ön ödeme", "peşin verdim mal sonra gelecek") → "advance" (ör. "Sinan\'a yapılan 2026 bağlantısı 2.500.000 ödendi" → payment, advance); geri alınacak ödünç ("borç verdim", "ödünç", "geri alacağım") → "loan". Verilen para yapılmış bir işin / gelmiş malın karşılığıysa ("sıva yaptırdım", "malzeme aldım ödedim") bu bir "purchase"tır (paid=true). Söylenmediyse null. GELECEK ZAMAN ödeme DEĞİLDİR — para henüz verilmedi ("Yusuf\'a 67 bin vereceğim", "vereceğim var", "ödeyeceğim"): biz ona borçluyuz → "debt_note" `debt_side`="payable", `future_payment`=true (ne alındığı söylendiyse alış/gider, ödenmedi). "Borç aldım" da ödeme DEĞİLDİR (bkz. debt_note). BİR CARİ İÇİN / ADINA BAŞKASINA ödeme (müşterinin ruhsat harcı, tapu/noter/belediye masrafı, müşteri adına ustaya/firmaya verilen para: "Abdullah Uçar\'a 26500 Necati Çimen ruhsat için ödendi", "Ali Bey\'in tapu harcını yatırdım 8 bin", "Ayşe hanım için elektrikçiye 5 bin verdim") → "payment", `party` = hesabına yazılacak cari (adına ödenen; listede yoksa yeni cari, `party_name`), `payment_purpose`="on_behalf", `description` = parayı kim aldı / ne için ("Necati Çimen — ruhsat"). O cariden bir şey ALMADIK → "purchase" DEĞİL; kişili olduğu için gider DEĞİL; ondan alacağımız olmasa da hesabına yazılır (bize borçlanır). İş durumu sorma. İki addan hangisinin hesabına yazılacağı belli değilse sor. '
+            // 30.10 eval (Sonnet): "Karo işçiliğine 50 bin ödedim" → "200 m² yapıldı, peşin ödendi" kartı — para verildi diye iş yapılmış sayıldı.
+            . 'AÇIK ANLAŞMASI olan cariye PARA ya da ÇEK vermek de "payment"tır ("Ali ustaya 50 bin verdim", "Kuşak\'a 250 bin çek verdim", '
+            . '"anlaşmasından düş") — iş yapıldı / mal geldi denmediyse "agreement_delivery" DEĞİL, paradan miktar hesaplanmaz; hangi anlaşmaya '
+            . 'sayılacağını sistem sorar.',
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". "X\'e veresiye" / "X\'e veresiye yazdım" ("Ayşe hanıma 1.250 lira veresiye") → "sale", `paid`=false — veresiye = malı verdik, parası sonra alınacak; gider ya da borç kaydı DEĞİLDİR. Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") ve mal VERİLDİYSE `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null. Para alındı ama mal/iş SONRA verilecekse ("parasını aldım, peyniri sonra göndereceğim", "kapora aldım", "peşin verdi, malı sonra götüreceğim") bu satış DEĞİL → "collection" + `payment_purpose`="advance".',
         self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır. Para, mal/iş henüz VERİLMEDEN peşin alındıysa (müşteri avansı: "Zülfikar 3 bin verdi, peyniri sonra vereceğim", "kapora aldım", "parasını aldım malı sonra göndereceğim") → `payment_purpose`="advance", `description` ne verilecekse ("20 kg peynir"). Müşteri bize alacaklı olur; satış AÇMA. ÇEKLE TAHSİLAT ("Ahmet\'ten 3 çek aldım", "Ali çek verdi vadesi 30.11", çek fotoğrafı + "Ahmet verdi"): `payment_type`="other", her çek `checks`\'e ayrı satır (no, vade yazıldığı gibi, tutar); çekler KURAL olarak söylendiyse ("100\'er bin 3 çek, kasımdan itibaren") `check_plan`. Cari = çeki BİZE VEREN kişidir (mesajda adı geçen); çekin üstündeki matbu keşideci başkası olabilir (ciro edilmiş çek) — kullanıcı kimden aldığını yazmadıysa `question`: "Bu çeki kimden aldın?".',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0. Mesaj YALNIZ bir kişi adıysa (yanında "cari", "durum", "hesap", "ne durumda" olsun olmasın: "Özkan Varlı", "Özkan varlı cari", "Ahmet durum") ve açık bir soru / onay bekleyen kayıt yoksa bu türdür — "ne yapayım?" diye SORMA. Ad CARİLER\'de yoksa da yazılan adı `party_name`e koy (kod "bulamadım, ne yapmamı istersin?" der).',
-        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır. BORCU ÖDEDİYSEK bu borç kaydı DEĞİL, ÖDEMEDİR: "Hazal\'a borcum ödendi", "Ali\'ye borcumu ödedim", "borcumu kapattım", "borcumu iade ettim" → "payment" + `debt_repayment`=true (sistem kayıtlı borcu kapatır; kayıtlı borç yoksa eski borç + ödeme yazar, "ne için verdin?" sorulmaz).',
+        self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır (`future_payment`=true). BORCU ÖDEDİYSEK bu borç kaydı DEĞİL, ÖDEMEDİR: "Hazal\'a borcum ödendi", "Ali\'ye borcumu ödedim", "borcumu kapattım", "borcumu iade ettim" → "payment" + `debt_repayment`=true (sistem kayıtlı borcu kapatır; kayıtlı borç yoksa eski borç + ödeme yazar, "ne için verdin?" sorulmaz).',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
         self::KIND_PURCHASE => '- "purchase": bir CARİDEN mal/hizmet ALDIK ("Ahmet\'ten 10 bin mal aldım", "Kuşak\'tan 20 bin malzeme aldım, 15 Kasım\'da ödeyeceğim", "Mehmet\'ten 5 bin yem aldım nakit ödedim"). Cari zorunlu. `paid`: "ödedim / nakit / peşin / havale" → true; "sonra ödeyeceğim / veresiye / borç" ya da hiç söylenmediyse false. Ödeme tarihi söylendiyse `due_date`. Bu bir ÖDEME DEĞİLDİR ("Ahmet\'e 10 bin ödedim" → payment). Alınan şey HİZMET/İŞÇİLİKSE (nakliye, tamir, usta, işçilik) `is_service`=true; malsa false.',
         self::KIND_AGENDA => '- "agenda": TAKVİM / PROGRAM sorusu — bir günde ya da aralıkta ne var ("Yarın ne var?", "Bu hafta neler var?", "20 Ekim boş mu?", "Pazartesi programım ne?", "Bu ay ödemelerim ne zaman?"). Hiçbir şey kaydedilmez; amount=0. `date_from`/`date_to` (YYYY-MM-DD): tek gün sorulduysa ikisi de o gün; "bu hafta" / "önümüzdeki günler" → bugün / bugün+6 (hafta sonu sorulsa da 7 gün); "gelecek hafta" → gelecek Pazartesi / Pazar; "bu ay" → bugün / ay sonu; söylenmediyse ikisi de null (önümüzdeki 7 gün). Harcama sorusu ("bu hafta ne harcadım") DEĞİLDİR → "expense_summary"; yeni bir olay/hatırlatma bildirimi ("20 Ekim\'de düğünüm var") DEĞİLDİR → "reminder".',
@@ -538,6 +543,7 @@ class ExpenseExtractor
             . ' 💡 Harcamalarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin."';
         // Tedarikçi tarafı kapalı (mimar): "Hasan'a 10 bin ödedim" en yakın kalıp "sale" sanılıp yön ters çıkıyordu.
         $noSupplierRule = in_array(self::KIND_PAYMENT, self::allowedKinds(), true) ? '' : '- TEDARİKÇİ TARAFI KAPALI: bu hesapta yalnız MÜŞTERİ tarafı (yaptığımız işler, bize gelen paralar, alacaklar) tutulur. BİZ birine para verdiysek ("Hasan\'a 10 bin ödedim", "ustaya verdim") ya da birinden mal/hizmet aldıysak → "help", `reply`: "Bu hesapta yalnız müşteri hesapları tutuluyor; birine yaptığın ödemeler ve aldığın mal/hizmet kaydedilmiyor. 💡 Ödemelerini ve alımlarını da tutmak istersen Hesap Asistanım yetkilisinden bu özelliğin açılmasını isteyebilirsin." ASLA "sale" ya da "collection" SEÇME — yön ters olur.';
+        $namelessRule = self::namelessRule();
         // İnşaat dışı firmada (köylü/esnaf: peynir, bal satan) "inşaat şirketi" çerçevesi satışı gider sandırıyordu (Erkan, 12 Ekim).
         $intro = in_array(config('app.profile'), ['muteahhit', 'mimar'], true)
             ? 'Sen bir inşaat şirketinin kayıt asistanısın (kullanıcı müteahhit ya da mimar).'
@@ -613,11 +619,13 @@ class ExpenseExtractor
         {$ambiguousRule}
         {$noExpenseRule}
         {$noSupplierRule}
+        {$namelessRule}
         - `payment` / `sale` / `collection` / `debt_note` / `balance_query` / `statement` için CARİ zorunludur (kime/kimden).
           Kullanıcı cari söylemediyse `question`'a "Kime ödedin?" / "Kimden?" gibi kısa bir soru yaz.
-          Sadece genel bir unvan/meslek söylendiyse ("ustaya", "işçiye", "kamyoncuya") — İSİM yoksa —
+          Sadece işi belli olmayan genel bir unvan söylendiyse ("ustaya", "işçiye") — İSİM yoksa —
           mevcut bir cariyle EŞLEŞTİRME (adında "Usta" geçen cari olsa bile): `party_id` ve `party_name`
           null, `question`="Hangi usta? Adını yazar mısın?". Para yanlış kişinin hesabına yazılmasın.
+          SAYIYLA birden çok işçiye yevmiye ("3 işçiye 1500'den") bu kural DEĞİL → tek gider (tutar çarpılır), ad sorma.
         - `sale`'de birden fazla iş sayılırsa ("80 bine proje, 30 bine şantiye şefliği") her birini
           `items`'a ayrı yaz (description + amount); `amount` = toplamları.
         - `payment`/`collection`'da ödeme şekli söylendiyse `payment_type`: cash (nakit),
@@ -803,6 +811,11 @@ class ExpenseExtractor
                     'memory_subject' => ['type' => ['string', 'null'], 'description' => 'Only for kind=remember / forget: short subject ("kalfa")'],
                     'memory_fact' => ['type' => ['string', 'null'], 'description' => 'Only for kind=remember: one-sentence fact ("Kalfa = Mehmet Kaya")'],
                     'is_staff' => ['type' => ['boolean', 'null'], 'description' => 'kind=payment / salary: true if the person is OUR worker / employee — decide from MEANING, any wording (personel, eleman, işçi, çoban, şoför, garson, kalfa, çırak, "bizim çocuk", "maaşından", "haftalığı") or "personel" note in CARİLER; false if a supplier/craftsman/customer; null if unknown'],
+                    'money_only' => ['type' => ['boolean', 'null'], 'description' => 'true if the user ONLY says money / a check was paid or given ("ödedim", "verdim", "çek verdim", "anlaşmasından düş") and does NOT say goods arrived or work was done ("geldi", "yaptı", "bitirdi")'],
+                    'future_payment' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=debt_note: true if the user says they WILL pay this person (future tense: "vereceğim", "ödeyeceğim", "yarın göndereceğim") — a plan, not a new debt statement'],
+                    'unnamed_payee' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=expense or payment WITHOUT a person name: true if the money went to an UNNAMED craftsman / subcontractor / worker for their job ("asansörcüye", "karocuya", "karo işçiliğine", "sıva işçiliğine") — a person whose account could be tracked; false for rent, bills, fuel, food, market, materials, fees'],
+                    'payee_label' => ['type' => ['string', 'null'], 'description' => 'Only when unnamed_payee=true: the craftsman\'s trade as a short name ("Asansörcü", "Karocu", "Sıvacı", "Elektrikçi")'],
+                    'payee_party_id' => ['type' => ['integer', 'null'], 'description' => 'Only when unnamed_payee=true: id from CARİLER of the one cari who does exactly this job (name says the trade, or an open agreement item of the same kind); null if none'],
                     'salary_amount' => ['type' => ['number', 'null'], 'description' => 'Only for kind=employee_setting: monthly salary'],
                     'salary_deduction' => ['type' => ['boolean', 'null'], 'description' => 'Only for kind=salary: true if an amount is CUT from the worker\'s salary (unpaid leave, broken item, fine) — no money is paid; amount = cut amount, description = reason'],
                     'salary_day' => ['type' => ['integer', 'null'], 'description' => 'Only for kind=employee_setting: day of month the salary is paid (1-31)'],
@@ -1321,7 +1334,189 @@ class ExpenseExtractor
                 . '"Vedat\'tan aldım", "X\'e verdim", "X\'ten aldım") ya da malı KİŞİ getirdiyse ("Hasan 2000 lira yem getirdi" → purchase) false.';
         }
 
+        if (($nameless = self::namelessRule()) !== '') {
+            $guide .= "\n" . $nameless;
+        }
+
         return $guide;
+    }
+
+    /**
+     * Adsız ödeme (Muhasebe 30.10 "Karo işçiliğine 50 bin ödedim" → "Kime yapıldı?" soruldu; doğrusu gider).
+     * Açık anlaşmada aynı iş varsa iki kez maliyet yazılmasın diye sorulur; ödenmediyse borç birine aittir → cari.
+     */
+    private static function namelessRule(): string
+    {
+        if (! in_array(self::KIND_EXPENSE, self::allowedKinds(), true)) {
+            return '';
+        }
+
+        return '- KİŞİ ADI YOK, para bir İŞE / ŞEYE verildi ("Karo işçiliğine 50 bin ödedim", "nakliyeye 3 bin verdim", "kiraya 20 bin ödedim") → '
+            . 'bu "payment" DEĞİL, "expense" (`paid`=true, `description` işin adı, `party_id`/`party_name` null). "Kime ödedin?" SORMA. '
+            . 'Para adı söylenmeyen bir USTAYA / TAŞERONA işi için verildiyse ("asansörcüye", "Asansörcü ye", "karo işçiliğine") — türü ne seçersen seç — `unnamed_payee`=true ve '
+            . '`payee_label` = o ustanın meslek adı ("Asansörcü", "Karocu", "Sıvacı") — kira, fatura, yakıt, malzeme → false. Tutara göre tür DEĞİŞTİRME, '
+            . 'büyük tutarı sistem kendisi o meslek adıyla cariye yazar; "Hangi usta?" SORMA. '
+            . 'İki kez maliyet yazılmasın: CARİLER\'de bu işi yapan belli bir cari varsa (adı işi söylüyor: "asansörcüye" ↔ "Asansör Osman", '
+            . '"karocuya" ↔ "Seramik İşçisi") ya da AÇIK ANLAŞMALAR\'da AYNI ŞEYİN kalemi varsa `payee_party_id` = o carinin id\'si (soruyu SİSTEM sorar, '
+            . 'sen `question` YAZMA). Adında iş geçmeyen cariyi ("Ali Usta", "Mehmet") anlaşması yoksa TAHMİN ETME. AYNI ŞEY = işçilik ödemesi ↔ '
+            . 'İŞÇİLİK kalemi ("karo işçiliği" ↔ "Karo döşeme işçiliği"), malzeme ödemesi ↔ MALZEME kalemi ("fayans parası" ↔ "Fayans"); İŞÇİLİK '
+            . 'ödemesi bir MALZEME kalemine ASLA uymaz ("karo işçiliği" ile "Fayans" kalemi farklıdır — malzemeyi firma satar, işçiliği usta yapar). '
+            . '"Bu para X\'e mi gitti?" sorusuna cevap o cariyi gösteriyorsa ("ona", "Osman\'a", "anlaşmasından düş") → kind "payment", party o cari, '
+            . 'tutar AYNI — PARA ÖDEMESİDİR, "agreement_delivery" de "purchase" da DEĞİL. '
+            . '"ayrı gider" / "gider" cevabı → "expense" kalır. '
+            . 'İŞİ BELLİ meslek sözcüğü ("karocuya", "sıvacıya", "elektrikçiye", "nakliyeciye") de aynı kuraldır: "karocuya 50 bin ödedim" = "karo işçiliğine 50 bin ödedim" '
+            . '(description işin adı: "Karo işçiliği"). Yalnız İŞİ BELLİ OLMAYAN genel sözcükte ("ustaya", "işçiye", "adama") — ne için verildiği yoksa — '
+            . 'kişiye ödemedir: "payment", `question`="Hangi usta? Adını yazar mısın?". '
+            . 'SAYIYLA birden çok işçiye ücret / yevmiye ("3 işçiye 1500\'den yevmiye verdim", "5 amele 2 bin günlük") kişi ödemesi DEĞİL: TEK "expense", '
+            . 'tutar çarpılır (3 × 1.500 = 4.500), description "3 işçi yevmiyesi"; ad SORMA. '
+            . 'Bekleyen adsız gider taslağına kullanıcı yalnız bir KİŞİ ADI yazarsa ("Osman", "Asansörcü Osman\'a") bu bir DÜZELTMEDİR: kind "payment", '
+            . 'party o kişi (listede yoksa `party_name`), tutar AYNI, `is_new_entry`=false.'
+            . (in_array(self::KIND_PURCHASE, self::aiKinds(), true)
+                ? ' Adsız iş / mal ÖDENMEDİYSE ("Karo işçiliği 50 bin, ödemedim", "sonra ödeyeceğim") borç birine aittir → "purchase", `paid`=false, '
+                    . '`party_id`/`party_name` null, `question`="Kime borçlusun? Adını yazar mısın?".'
+                : '');
+    }
+
+    /** Adsız usta / taşeron ödemesi bu tutardan itibaren mesleğin adıyla cariye yazılır (kullanıcı 30.10); altı gider kalır. */
+    public const UNNAMED_PAYEE_PARTY_FROM = 100000;
+
+    /**
+     * Adsız usta ödemesi (kullanıcı 30.10), sırayla:
+     *  1. Bu işi yapan cari varsa (AI'ın işaretlediği ya da adında meslek kökü geçen: "Asansörcü" → "Asansör Osman") → gider taslağı +
+     *     kodun sorusu "Bu para Asansör Osman'a mı gitti, yoksa ayrı gider mi?" (`ask_party_id`; "evet" o cariye ödeme — commitThenNext).
+     *  2. Yoksa 100 bin ve üstü → mesleğin adıyla cariye ödeme ("Asansörcü"; "500 binlik iş yaptı" ondan düşer — Kent İnşaat akışı).
+     *  3. Altı → gider. Eşik kodda: AI tutara göre tür seçmez. Bir kez sorulduysa (`$asked`) cevap "gider" demektir — tekrar sorulmaz.
+     */
+    public static function unnamedPayeeToParty(array $d, bool $asked = false): array
+    {
+        $label = trim((string) ($d['payee_label'] ?? ''));
+        // AI'ın iş durumu sorusu ("Asansör takıldı mı?") kişiye ödemede korunur: cevap ("Takılmadı") ikinci gözde onunla karşılaştırılır —
+        // silinince soru döngüye giriyordu (eval 30.10). "Kime ödedin?" gibi ad sorusu korunmaz (ad meslekten gelir).
+        $workAsk = ($d['work_status_known'] ?? null) === false && ! empty($d['question']) ? $d['question'] : null;
+        // AI "Karocuya 50 bin ödedim"i kişisiz ödeme seçtiyse de aynı akış: önce gider sayılır, sonra aday / eşik.
+        if (($d['kind'] ?? null) === self::KIND_PAYMENT && ! empty($d['unnamed_payee']) && $label !== '' && empty($d['party_id']) && empty($d['party_name'])) {
+            $d = array_merge($d, ['kind' => self::KIND_EXPENSE, 'paid' => true, 'question' => null]);
+        }
+        // Adsız usta işi yaptı, para VERİLMEDİ ("Boyacı 80 bin iş yaptı, parasını vermedim"): ödenmemiş gider borcu kimsenin hesabında
+        // görünmez → alış + "Kime borçlusun?" (kullanıcı 30.10: ödemediyse cari olsun; Sonnet bazen gider seçiyordu).
+        if (($d['kind'] ?? null) === self::KIND_EXPENSE && ! empty($d['unnamed_payee']) && ($d['paid'] ?? null) === false
+            && empty($d['party_id']) && empty($d['party_name']) && in_array(self::KIND_PURCHASE, self::allowedKinds(), true)) {
+            return array_merge($d, ['kind' => self::KIND_PURCHASE, 'unnamed_payee' => false, 'category_id' => null, 'category_name' => null,
+                'question' => 'Kime borçlusun? Adını yazar mısın?']);
+        }
+        if (($d['kind'] ?? null) !== self::KIND_EXPENSE || empty($d['unnamed_payee']) || $label === '' || ! empty($d['party_id'])
+            || ! empty($d['party_name']) || ($d['paid'] ?? true) === false || ! in_array(self::KIND_PAYMENT, self::allowedKinds(), true)) {
+            return $d;
+        }
+        if ($asked) {
+            return array_merge($d, ['unnamed_payee' => false, 'ask_party_id' => null, 'question' => null]);
+        }
+        $toParty = fn (array $who) => array_merge($d, $who, ['kind' => self::KIND_PAYMENT, 'category_id' => null, 'category_name' => null,
+            'unnamed_payee' => false, 'question' => $workAsk]);
+        $party = (! empty($d['payee_party_id']) ? \App\Models\Party::find($d['payee_party_id']) : null) ?? self::tradeParty($label);
+        // Daha önce bu meslek adıyla açılmış cari ("Asansörcü") → sorulmadan ona; tutar küçük olsa da hesabı zaten tutuluyor.
+        if ($party !== null && mb_strtolower($party->name, 'UTF-8') === mb_strtolower(mb_convert_case($label, MB_CASE_TITLE, 'UTF-8'), 'UTF-8')) {
+            return $toParty(['party_id' => $party->id]);
+        }
+        if ($party !== null) {
+            $to = WorkChoice::dative($party->name);
+
+            return array_merge($d, ['ask_party_id' => $party->id,
+                'question' => 'Bu para ' . $to . ' ' . (preg_match('/a$/u', $to) ? 'mı' : 'mi') . ' gitti, yoksa ayrı gider mi? *evet* ya da *gider* yaz.']);
+        }
+        if ((float) ($d['amount'] ?? 0) < self::UNNAMED_PAYEE_PARTY_FROM) {
+            return array_merge($d, ['question' => null]);
+        }
+
+        return $toParty(['party_name' => mb_convert_case($label, MB_CASE_TITLE, 'UTF-8')]);
+    }
+
+    /**
+     * Yalnız para / çek verildi ama AI "anlaşmadan iş yapıldı" seçti (eval 30.10 Sonnet: "Sıva işçiliğine 50 bin ödedim" → "200 m² yapıldı,
+     * peşin ödendi") → o anlaşmanın carisine ÖDEME; hangi anlaşmaya sayılacağını "Hangisi için?" sorar. Para vermek iş yapıldı demek değil.
+     */
+    public static function moneyOnlyDelivery(array $d): array
+    {
+        if (($d['kind'] ?? null) !== self::KIND_AGREEMENT_DELIVERY || empty($d['money_only'])) {
+            return $d;
+        }
+        $lines = (array) ($d['delivery_lines'] ?? []);
+        $ids = array_filter(array_merge(array_column($lines, 'agreement_item_id'), (array) ($d['delivery_candidates'] ?? [])));
+        $partyIds = \App\Models\AgreementItem::with('agreement')->whereIn('id', $ids)->get()->pluck('agreement.party_id')->unique()->values();
+        $amount = (float) ($d['amount'] ?? 0) ?: (float) array_sum(array_column($lines, 'amount'));
+
+        return array_merge($d, ['kind' => self::KIND_PAYMENT, 'party_id' => $partyIds->count() === 1 ? $partyIds->first() : null,
+            'amount' => $amount, 'delivery_lines' => [], 'delivery_candidates' => [], 'work_status' => null, 'work_status_known' => false,
+            'question' => null, 'is_new_entry' => $d['is_new_entry'] ?? true]);
+    }
+
+    /**
+     * Anlaşmalı cariye yalnız para / çek verildi ama AI "iş yapıldı, alış" seçti (eval 30.10 Sonnet: "Ali ustaya 3 çek verdim" → alış)
+     * → ödeme; "Hangisi için?" anlaşmayı sorar. Anlaşması olmayan cariye dokunulmaz.
+     */
+    public static function moneyOnlyPurchase(array $d): array
+    {
+        if (($d['kind'] ?? null) !== self::KIND_PURCHASE || empty($d['money_only']) || ($d['paid'] ?? null) === false
+            || empty($d['party_id']) || (float) ($d['amount'] ?? 0) <= 0) {
+            return $d;
+        }
+        $payment = array_merge($d, ['kind' => self::KIND_PAYMENT, 'paid' => null, 'work_status' => null, 'work_status_known' => null,
+            'question' => null, 'category_id' => null, 'category_name' => null]);
+
+        return PaymentAgreementChoice::applies($payment) ? $payment : $d;
+    }
+
+    /**
+     * "Demirci Hasan'a yarın 40 bin vereceğim" ve ona zaten en az bu kadar borcumuz kayıtlı → yeni borç DEĞİL (borç iki kez yazılırdı,
+     * eval 30.10): ödeme günü hatırlatması. Kayıtlı borç yetmiyorsa null — eski akış (borç kaydı) sürer.
+     *
+     * @return array{0: array, 1: string}|null [hatırlatma taslağı, kullanıcıya not]
+     */
+    public static function futurePaymentReminder(array $d): ?array
+    {
+        if (($d['kind'] ?? null) !== self::KIND_DEBT_NOTE || ($d['debt_side'] ?? null) !== 'payable' || empty($d['future_payment'])
+            || empty($d['party_id']) || ($amount = (float) ($d['amount'] ?? 0)) <= 0
+            || ! in_array(self::KIND_REMINDER, self::allowedKinds(), true)
+            || ($party = \App\Models\Party::find($d['party_id'])) === null) {
+            return null;
+        }
+        $owed = -TurnTrace::statement('ExpenseExtractor::futurePaymentReminder', $party)['balance'];
+        if ($owed + 0.01 < $amount) {
+            return null;
+        }
+        $to = WorkChoice::dative($party->name);
+        $date = $d['due_date'] ?? null;
+
+        return [[
+            'kind' => self::KIND_REMINDER, 'party_id' => $party->id, 'amount' => 0, 'confidence' => 'high', 'is_new_entry' => true,
+            'description' => $to . ' ' . \App\Support\Money::format($amount) . ' ₺ ödeme',
+            'event_date' => $date, 'event_time' => null, 'notify_time' => null, 'lead_minutes' => null, 'is_alarm' => false, 'repeat' => null,
+            'question' => $date ? null : 'Ne zaman hatırlatayım?',
+        ], 'ℹ️ ' . $to . ' borcun zaten ' . \App\Support\Money::format($owed) . ' ₺ kayıtlı — yeni borç yazmıyorum. Ödeyince *ödedim* yaz, borçtan düşerim.'];
+    }
+
+    /** "Bu para X'e mi gitti?" sorusuna *evet*: aynı tutar o cariye ödeme olur (gider yazılmaz). */
+    public static function payToAskedParty(array $d): array
+    {
+        return array_merge($d, ['kind' => self::KIND_PAYMENT, 'party_id' => (int) $d['ask_party_id'], 'party_name' => null, 'ask_party_id' => null,
+            'question' => null, 'unnamed_payee' => false, 'category_id' => null, 'category_name' => null, 'work_status' => null,
+            'work_status_known' => false, 'is_new_entry' => false]);
+    }
+
+    /** Meslek adının kökü ("Asansörcü" → "asansör") tek bir carinin adında geçiyorsa o cari — AI sormayı unutsa da çift cari açılmasın. */
+    private static function tradeParty(string $label): ?\App\Models\Party
+    {
+        $fold = fn (string $t) => strtr(mb_strtolower(strtr($t, ['İ' => 'i', 'I' => 'ı']), 'UTF-8'), ['ı' => 'i', 'ğ' => 'g', 'ü' => 'u', 'ş' => 's', 'ö' => 'o', 'ç' => 'c']);
+        $stem = preg_replace('/c[iu]$/u', '', $fold(trim($label)));
+        if (mb_strlen($stem) < 4) {
+            return null;
+        }
+        $hits = \App\Models\Party::query()
+            // Deneme seti (ExpenseContext::$only): yalnız denemenin carileri — canlıda null.
+            ->when(ExpenseContext::$only !== null, fn ($q) => $q->whereIn('id', ExpenseContext::$only['parties'] ?? []))
+            ->get(['id', 'name'])->filter(fn ($p) => str_contains($fold((string) $p->name), $stem));
+
+        return $hits->count() === 1 ? $hits->first() : null;
     }
 
     /** @return list<string> sınıftaki tüm KIND_ sabitleri */
@@ -1408,6 +1603,14 @@ class ExpenseExtractor
             'cash_amount' => $kind === self::KIND_TRADE_SALE && isset($input['cash_amount']) ? (float) $input['cash_amount'] : null,
             'card_amount' => $kind === self::KIND_TRADE_SALE && isset($input['card_amount']) ? (float) $input['card_amount'] : null,
             'is_staff' => in_array($kind, [self::KIND_PAYMENT, self::KIND_SALARY], true) && ! empty($input['is_staff']),
+            // Adsız usta: AI türü "ödeme" seçse de işaret kabul edilir — kodun akışı türden bağımsız (eval 30.10, Sonnet).
+            'unnamed_payee' => in_array($kind, [self::KIND_EXPENSE, self::KIND_PAYMENT], true) && ! empty($input['unnamed_payee']),
+            'payee_label' => in_array($kind, [self::KIND_EXPENSE, self::KIND_PAYMENT], true) && ! empty($input['unnamed_payee']) && is_string($input['payee_label'] ?? null)
+                ? mb_substr(trim($input['payee_label']), 0, 60) : null,
+            'payee_party_id' => in_array($kind, [self::KIND_EXPENSE, self::KIND_PAYMENT], true) && ! empty($input['unnamed_payee']) && ! empty($input['payee_party_id'])
+                ? (int) $input['payee_party_id'] : null,
+            'money_only' => ! empty($input['money_only']),
+            'future_payment' => $kind === self::KIND_DEBT_NOTE && ! empty($input['future_payment']),
             'memory_kind' => $kind === self::KIND_REMEMBER && is_string($input['memory_kind'] ?? null) ? $input['memory_kind'] : null,
             'memory_subject' => in_array($kind, [self::KIND_REMEMBER, self::KIND_FORGET], true) && is_string($input['memory_subject'] ?? null)
                 ? mb_substr(trim($input['memory_subject']), 0, 120) : null,

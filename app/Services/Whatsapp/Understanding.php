@@ -222,6 +222,14 @@ final class Understanding
         $status = $d['work_status'];
         $paidNow = $kind === ExpenseExtractor::KIND_PAYMENT || ! empty($d['paid']);
 
+        // Anlaşmalı cariye PARA verildi ("Ali ustanın anlaşmasından 50 bin ödedim", "Kuşak'a 250 bin çek verdim"): hafızaya "anlaşma"
+        // notu DEĞİL — ödeme kalır, "Hangisi için?" anlaşmayı seçtirir (eval 30.10: para hatırlatma notuna dönüp kayboluyordu).
+        if ($status === self::AGREEMENT && $kind === ExpenseExtractor::KIND_PAYMENT && (float) ($d['amount'] ?? 0) > 0
+            && PaymentAgreementChoice::applies($d)) {
+            TurnTrace::note('apply', 'agreement_payment_kept');
+
+            return array_merge($d, ['work_status' => null, 'work_status_known' => null]);
+        }
         // Yalnız anlaşma: iş başlamadı, para verilmedi → borç YOK. Hafızaya "anlaşma" olarak önerilir (onaylı).
         if ($status === self::AGREEMENT || ($status === self::NOT_YET && ! $paidNow)) {
             TurnTrace::note('apply', 'agreement_to_memory');
@@ -258,7 +266,7 @@ final class Understanding
             TurnTrace::note('apply', ['branch' => 'done_payment_over_debt_ask', 'owed' => $owed]);
 
             return array_merge($d, ['work_status_known' => false, 'debt_asked' => true,
-                'question' => $party->name . "'e zaten " . Money::format($owed) . ' ₺ borcun görünüyor. Bu ' . Money::format((float) $d['amount'])
+                'question' => WorkChoice::dative($party->name) . " zaten " . Money::format($owed) . ' ₺ borcun görünüyor. Bu ' . Money::format((float) $d['amount'])
                     . ' ₺ o borçtan mı düşsün, yoksa yeni bitmiş bir işin parası mı?']);
         }
         // İş bitti + para verildi → alış + ödeme (bakiye değişmez). "Ne için verdin?" kalıbı sorulmaz.
@@ -345,6 +353,26 @@ final class Understanding
         }
 
         return (float) $d['amount'] <= (float) TurnTrace::statement('Understanding::purposeQuestionIsMoot', $party)['balance'] + 0.01;
+    }
+
+    /**
+     * Borcumuz olan cariye ödeme (30.10, "Demirci Hasan'a 50 bin ödedim" — 120.000 borç varken "hangi iş/mal için?"): AI iş durumunu
+     * bilmiyor (`work_status_known`=false) ama tutar açık borca sığıyor → açık borca ödeme kuralı: borçtan düşer, soru sorulmaz.
+     * Anlaşma / sözleşme varsa ("Hangisi için?"), kişi belirsizse ya da tutar borcu aşıyorsa soru kalır.
+     */
+    public static function paymentPurposeIsMoot(array $d): bool
+    {
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_PAYMENT || ($d['work_status_known'] ?? null) !== false
+            || trim((string) ($d['question'] ?? '')) === '' || ($d['party_certain'] ?? null) === false || ! empty($d['payment_purpose'])
+            || ! empty($d['contract_id']) || ! empty($d['agreement_id']) || ! empty($d['is_staff']) || ! empty($d['staff_hint'])
+            || (float) ($d['amount'] ?? 0) <= 0 || ! ($party = self::party($d)) || self::partyUnclear($d)) {
+            return false;
+        }
+        if ($party->is_employee || DraftGaps::activeContracts($party)->isNotEmpty() || PaymentAgreementChoice::applies($d)) {
+            return false;
+        }
+
+        return (float) $d['amount'] <= -(float) TurnTrace::statement('Understanding::paymentPurposeIsMoot', $party)['balance'] + 0.01;
     }
 
     /**
@@ -500,6 +528,7 @@ final class Understanding
         $kind = $d['kind'] ?? null;
         $hasParty = ! empty($d['party_id']) || ! empty($d['party_name']);
         $name = $hasParty ? self::partyName($d) : null;
+        $to = $name !== null ? WorkChoice::dative($name) : null; // "Usta'ya", "Beton'a" — elle "'e" eki "Usta'e" yazıyordu (eval 30.10)
         $amount = Money::format((float) ($d['amount'] ?? 0)) . ' ₺';
         $paid = ! empty($d['paid']);
         $staff = ! empty($d['is_staff']) || ! empty($d['staff_hint']) || (bool) self::party($d)?->is_employee;
@@ -512,7 +541,7 @@ final class Understanding
 
             return $kind === ExpenseExtractor::KIND_PURCHASE
                 ? "{$name}'den {$amount} iş/mal alındı (yapıldı); bunun " . Money::format($used) . " ₺'si önceden ona verilen paradan düşüldü, yeni para çıkmadı.{$restText}"
-                : "{$name}'e {$amount} mal/iş verildi; bunun " . Money::format($used) . " ₺'si önceden ondan alınan paradan düşüldü, yeni para alınmadı.{$restText}";
+                : "{$to} {$amount} mal/iş verildi; bunun " . Money::format($used) . " ₺'si önceden ondan alınan paradan düşüldü, yeni para alınmadı.{$restText}";
         }
 
         return match ($kind) {
@@ -524,27 +553,27 @@ final class Understanding
                 ? "{$name}'den {$amount} iş/mal alındı (geldi/yapıldı) ve parası ödendi; borç kalmadı."
                 : "{$name}'den {$amount} iş/mal alındı (geldi/yapıldı), parası ödenmedi; ona {$amount} borçlusunuz.",
             ExpenseExtractor::KIND_PAYMENT => match (true) {
-                ($d['payment_purpose'] ?? null) === 'loan' => "{$name}'e {$amount} borç para verildi, geri alınacak.",
-                $staff => "Çalışanınız {$name}'e {$amount} maaş avansı verildi; maaşından düşülecek.",
-                ! empty($d['advance']) || ($d['payment_purpose'] ?? null) === 'advance' => "{$name}'e {$amount} iş/mal gelmeden önce (peşin) verildi; iş/mal sonra gelecek.",
-                ! empty($d['debt_repayment']) => "{$name}'e olan eski borcunuz için {$amount} ödendi.",
-                default => "{$name}'e {$amount} ödendi.",
+                ($d['payment_purpose'] ?? null) === 'loan' => "{$to} {$amount} borç para verildi, geri alınacak.",
+                $staff => "Çalışanınız {$to} {$amount} maaş avansı verildi; maaşından düşülecek.",
+                ! empty($d['advance']) || ($d['payment_purpose'] ?? null) === 'advance' => "{$to} {$amount} iş/mal gelmeden önce (peşin) verildi; iş/mal sonra gelecek.",
+                ! empty($d['debt_repayment']) => "{$to} olan eski borcunuz için {$amount} ödendi.",
+                default => "{$to} {$amount} ödendi.",
             },
             ExpenseExtractor::KIND_DEBT_NOTE => match ($d['debt_side'] ?? null) {
                 'payable' => ($d['work_status'] ?? null) === self::NO_WORK
                     ? "{$name}'den {$amount} borç para aldınız; ona borçlusunuz."
-                    : "{$name}'e {$amount} borçlusunuz (yeni borç; ödeme yok).",
+                    : "{$to} {$amount} borçlusunuz (yeni borç; ödeme yok).",
                 'receivable' => "{$name} size {$amount} borçlu (yeni alacak).",
                 default => null,
             },
             ExpenseExtractor::KIND_SALE => $paid
-                ? "{$name}'e {$amount} mal/iş verildi ve parası alındı."
-                : "{$name}'e {$amount} mal/iş verildi, parası alınmadı; o size borçlu.",
+                ? "{$to} {$amount} mal/iş verildi ve parası alındı."
+                : "{$to} {$amount} mal/iş verildi, parası alınmadı; o size borçlu.",
             ExpenseExtractor::KIND_COLLECTION => ($d['payment_purpose'] ?? null) === 'advance'
                 ? "{$name}'den {$amount} peşin para alındı; mal/iş henüz verilmedi."
                 : "{$name} size {$amount} ödedi; borcu azaldı.",
             ExpenseExtractor::KIND_TRADE_SALE => $hasParty
-                ? "{$name}'e {$amount} mal satıldı" . ($paid ? ', parası alındı.' : ', parası alınmadı (veresiye); o size borçlu.')
+                ? "{$to} {$amount} mal satıldı" . ($paid ? ', parası alındı.' : ', parası alınmadı (veresiye); o size borçlu.')
                 : "Günün peşin satışı (kasa) {$amount}"
                     . (($d['cash_amount'] ?? null) !== null || ($d['card_amount'] ?? null) !== null
                         ? ' (nakit ' . Money::format((float) ($d['cash_amount'] ?? 0)) . ', kart ' . Money::format((float) ($d['card_amount'] ?? 0)) . ')' : '') . '.',
@@ -556,7 +585,7 @@ final class Understanding
                     ? '; ödeme konuşulmadı (kartta "veresiye yazılır, peşinse söyle" diye soruluyor).' : ', parası ödenmedi; ona borçlusunuz.') : '.')),
             ExpenseExtractor::KIND_SALARY => ! empty($d['salary_deduction'])
                 ? "Çalışanınız {$name}'in maaşından {$amount} kesiliyor; para ödenmedi, maaşından düşülecek."
-                : "Çalışanınız {$name}'e maaş {$amount}" . ($paid ? ' ödendi.' : ' hak edildi, henüz ödenmedi.'),
+                : "Çalışanınız {$to} maaş {$amount}" . ($paid ? ' ödendi.' : ' hak edildi, henüz ödenmedi.'),
             default => null,
         };
     }
@@ -716,6 +745,15 @@ final class Understanding
     private static function party(array $d): ?Party
     {
         return ! empty($d['party_id']) ? TurnTrace::read('Understanding::party', fn () => Party::find($d['party_id']), ['party_id' => $d['party_id']]) : null;
+    }
+
+    /**
+     * İkinci gözün karşılaştıracağı anlamlı iş durumu sorusu — numaralı "— ne için?" başlığına "Takılmadı" cevap sayılmıyordu
+     * (eval 30.10: AI kişiyi kendisi yazıp kendi sorusunu eklemeyince Kent İnşaat asansörcü akışı döngüye girdi).
+     */
+    public static function workQuestion(array $d): string
+    {
+        return self::partyName($d) . ' işi yaptı mı (mal geldi mi), yoksa iş yapılmadan peşin mi ödedin?';
     }
 
     private static function partyName(array $d): string

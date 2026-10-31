@@ -348,6 +348,17 @@ class AssistantEvalTest extends TestCase
                 $m->created_at = now()->modify($row[3]);
                 $m->save();
             })(),
+            // Açık alış anlaşması: ['agreement', cari, ürün, miktar, birim fiyat, (ürün türü: 'service')]
+            'agreement' => (function () use ($row) {
+                $productId = $this->ids['product'][$row[2]];
+                if (isset($row[5])) {
+                    Product::whereKey($productId)->update(['type' => $row[5]]);
+                }
+                $agreement = \App\Models\Agreement::create(['party_id' => $this->ids['party'][$row[1]], 'direction' => \App\Models\Agreement::DIRECTION_PURCHASE,
+                    'title' => $row[2], 'agreement_date' => now()->subDays(10)->toDateString(), 'status' => \App\Models\Agreement::STATUS_OPEN]);
+                \App\Models\AgreementItem::create(['agreement_id' => $agreement->id, 'product_id' => $productId, 'quantity' => $row[3],
+                    'unit_price' => $row[4], 'amount' => $row[3] * $row[4]]);
+            })(),
             // Başlangıç stoğu: ['stock', ürün, miktar]
             'stock' => \App\Models\StockMovement::create(['product_id' => $this->ids['product'][$row[1]], 'direction' => \App\Models\StockMovement::DIRECTION_IN,
                 'reason' => \App\Models\StockMovement::REASON_ADJUSTMENT, 'quantity' => $row[2], 'movement_date' => now()->subDays(3)->toDateString()]),

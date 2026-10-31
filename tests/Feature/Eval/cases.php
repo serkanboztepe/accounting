@@ -58,6 +58,13 @@ return [
             'parties' => ['Abdullah Uçar' => [], 'Sinan' => [], 'Ali Usta' => [], 'Kuşak Beton' => [], 'Serkan' => []],
             'categories' => ['Yakıt', 'Kira'],
         ],
+        // Muhasebe (firma 2) gibi: müteahhit + anlaşmalar açık (adsız ödeme ↔ açık anlaşma kalemi, 30.10).
+        'muteahhit_anlasma' => [
+            'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true], 'sector' => 'construction',
+            'projects' => ['Cumhuriyet', 'Barbaros'],
+            'parties' => ['Sibel Yılmaz- Seramik Park' => [], 'Seramik İşçisi' => [], 'Ali Usta' => [], 'Kuşak Beton' => []],
+            'products' => [['Fayans', 'm2'], ['Seramik', 'm2'], ['Karo döşeme işçiliği', 'm2']], 'categories' => ['İşçilik', 'Yakıt'],
+        ],
         // Firma 7 (Serkan'ın deneme firması, canlı ayarlarıyla): sade müteahhit + iki şantiye + doğal konuşma + hızlı kayıt.
         'firma7' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true, 'natural_voice' => true, 'fast_save' => true], 'sector' => 'construction',
@@ -75,6 +82,13 @@ return [
             'profile' => 'trade', 'modules' => [],
             'parties' => ['Ak Un' => [], 'Mehmet Kaya' => []],
             'products' => [['Un', 'çuval'], ['Maya', 'paket']], 'categories' => ['Yakıt'],
+        ],
+        // Yeni müteahhit müşterisi (30.10, cases_muteahhit.php): iki şantiye, anlaşmalı usta + betoncu, avanslı asansörcü, borçlu müşteri.
+        'yeni_muteahhit' => [
+            'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true, 'checks' => true], 'sector' => 'construction',
+            'projects' => ['Cumhuriyet Apartmanı', 'Barbaros Sitesi'],
+            'parties' => ['Asansör Osman' => [], 'Ali Usta' => [], 'Kuşak Beton' => [], 'Demirci Hasan' => [], 'Ahmet Yılmaz' => [], 'Yusuf Dündar' => []],
+            'products' => [['Sıva işçiliği', 'm2'], ['Beton', 'm3'], ['Demir', 'ton']], 'categories' => ['Yakıt', 'Kira', 'İşçilik', 'Yemek'],
         ],
     ],
 
@@ -164,6 +178,46 @@ return [
         ['id' => 'muteahhit-alista-proje-sorar', 'firm' => 'muteahhit', 'group' => 'regression',
             'steps' => [['send' => "Kuşak Beton'dan 50 bin beton aldım"]],
             'expect' => ['draft' => ['kind' => 'purchase'], 'reply_has' => ['Hangi proje']]],
+
+        // Adsız ödeme (Muhasebe 30.10 "Karo işçiliğine 50 bin ödedim" → "Kime yapıldı?" soruldu): işe ödendiyse gider, ödenmediyse cari sorulur.
+        ['id' => 'muteahhit-adsiz-ise-odeme-gider', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Karo işçiliğine 50 bin ödedim']],
+            'expect' => ['draft' => ['kind' => 'expense', 'amount' => 50000], 'reply_not' => ['kime', 'Hangi usta']]],
+        ['id' => 'muteahhit-adsiz-odenmedi-cari-sorar', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Karo işçiliği 50 bin, ödemedim']],
+            'expect' => ['draft' => ['kind' => 'purchase', 'amount' => 50000], 'reply_any' => ['borçlu', 'adını']]],
+        // Kullanıcı kararı 30.10: işi belli meslek ("karocuya") = işe ödeme; yalnız işi belli olmayan "ustaya" ad sorar.
+        ['id' => 'muteahhit-karocuya-gider', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Karocuya 50 bin ödedim']],
+            'expect' => ['draft' => ['kind' => 'expense', 'amount' => 50000], 'reply_not' => ['Hangi usta', 'kime']]],
+        ['id' => 'muteahhit-karocuya-anlasmali-iscisine-sorar', 'firm' => 'muteahhit_anlasma', 'group' => 'regression', 'seed' => 'muhasebe-seramik',
+            'steps' => [['send' => 'Karocuya 50 bin ödedim']],
+            'expect' => ['reply_has' => ['Seramik İşçisi'], 'reply_not' => ['Sibel']]],
+        ['id' => 'muteahhit-ustaya-ad-sorar', 'firm' => 'muteahhit', 'group' => 'regression',
+            'steps' => [['send' => 'Ustaya 20 bin verdim']],
+            'expect' => ['draft_kind_not' => 'expense', 'reply_any' => ['Hangi usta', 'adını']]],
+        ['id' => 'muteahhit-adsiz-iscilik-anlasmasi-sorar', 'firm' => 'muteahhit_anlasma', 'group' => 'regression', 'seed' => 'ali-karo-iscilik',
+            'steps' => [['send' => 'Karo işçiliğine 50 bin ödedim', 'expect' => ['reply_has' => ['Ali Usta'], 'reply_any' => ['gider', 'Hangisi', 'önceden'], 'draft_kind_not' => 'agreement_delivery']],
+                // Cevap "düş" → ustaya PARA ÖDEMESİ; "iş yapıldı" (agreement_delivery) değil — anlaşmanın kalanı değişmez.
+                ['send' => 'Ali ustanın anlaşmasından düş']],
+            'expect' => ['draft' => ['kind' => 'payment', 'party_id' => '@party:Ali Usta', 'amount' => 50000], 'reply_not' => ['Gider', 'Hangisi']]],
+        // Ustayla WhatsApp'tan anlaşma → sonra adsız ödeme: anlaşmadan habersiz düşülmez, sorulur; cevaba göre ustanın hesabına ödeme olur.
+        ['id' => 'muteahhit-ustayla-anlasma-sonra-adsiz-odeme', 'firm' => 'muteahhit_anlasma', 'group' => 'regression',
+            'steps' => [
+                ['send' => "Ali usta ile karo döşeme işçiliğine anlaştım, m2'si 250 TL'den 400 m2", 'expect' => ['draft' => ['kind' => 'agreement']]],
+                ['send' => 'evet', 'expect' => ['reply_has' => ['Hangi proje']]],
+                ['send' => '1', 'expect' => ['reply_not' => ['Hangi proje']]],
+                ['send' => 'Karo işçiliğine 50 bin ödedim', 'expect' => ['reply_has' => ['Ali Usta'], 'reply_any' => ['gider', 'Hangisi', 'önceden'], 'draft_kind_not' => 'agreement_delivery']],
+                ['send' => 'Ali ustanın anlaşmasından düş']],
+            'expect' => ['draft' => ['kind' => 'payment', 'party_id' => '@party:Ali Usta', 'amount' => 50000], 'reply_not' => ['Gider', 'Hangisi']]],
+        // Adlı ödeme anlaşmalı ustaya gider: gider değil, ustanın hesabına ödeme; anlaşma sorusu yok.
+        ['id' => 'muteahhit-anlasmali-ustaya-adli-odeme', 'firm' => 'muteahhit_anlasma', 'group' => 'regression', 'seed' => 'ali-karo-iscilik',
+            'steps' => [['send' => 'Ali ustaya 50 bin ödedim']],
+            'expect' => ['draft' => ['kind' => 'payment', 'party_id' => '@party:Ali Usta', 'amount' => 50000], 'reply_not' => ['Gider', 'ayrı gider']]],
+        // Muhasebe'nin canlı tablosu: Sibel'de fayans MALZEMESİ, Seramik İşçisi'nde seramik İŞÇİLİĞİ — işçilik ödemesi işçiye sorulur, malzemeciye değil.
+        ['id' => 'muteahhit-adsiz-iscilik-iscisine-sorar', 'firm' => 'muteahhit_anlasma', 'group' => 'regression', 'seed' => 'muhasebe-seramik',
+            'steps' => [['send' => 'Karo işçiliğine 50 bin ödedim']],
+            'expect' => ['draft' => ['kind' => 'expense', 'amount' => 50000], 'reply_has' => ['Seramik İşçisi'], 'reply_not' => ['Sibel']]],
 
         // Sade müteahhit (20.10): proje maliyetin oluştuğu yerde (alış / gider) sorulur, paranın çıktığı yerde (ödeme / avans) sorulmaz.
         ['id' => 'muteahhit-alis-proje-secer', 'firm' => 'muteahhit', 'group' => 'regression',
@@ -729,6 +783,9 @@ return [
         ['id' => 'Y-cek-verdim-tahsilat-olmaz', 'firm' => 'ferhat_cek', 'group' => 'regression',
             'steps' => [['send' => 'Bahadır Pire 50 bin çek verdim vadesi 15.12.2026']],
             'expect' => ['reply_not' => ['birinden mi aldın', 'sana*: 50.000'], 'draft_kind_not' => 'collection']],
+
+        // Yeni müteahhit müşterisi deneme seti (30.10).
+        ...(require __DIR__ . '/cases_muteahhit.php'),
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
@@ -752,6 +809,15 @@ return [
         'taner-osman-avans' => [['ledger', 'Asansör Osman', 'odeme', 1005000, '-14 days', 'Avans — Atatürk mahallesi asansörü']],
         'taner-osman-avans-sonda' => [['ledger', 'Asansör Osman', 'odeme', 20000, '-1 days', 'Asansör Osman avansı']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
+        'ali-karo-iscilik' => [['agreement', 'Ali Usta', 'Karo döşeme işçiliği', 400, 250]],
+        'ym-temel' => [
+            ['agreement', 'Ali Usta', 'Sıva işçiliği', 1000, 250, 'service'], ['agreement', 'Kuşak Beton', 'Beton', 500, 3800],
+            ['ledger', 'Asansör Osman', 'odeme', 500000, '-14 days', 'Avans — asansör'],
+            ['ledger', 'Demirci Hasan', 'alis', 120000, '-10 days', '4 ton demir'],
+            ['ledger', 'Ahmet Yılmaz', 'satis', 3000000, '-30 days', 'Cumhuriyet 3 numaralı daire'],
+            ['ledger', 'Ahmet Yılmaz', 'tahsilat', 1000000, '-30 days', 'Peşinat'],
+        ],
+        'muhasebe-seramik' => [['agreement', 'Sibel Yılmaz- Seramik Park', 'Fayans', 337, 450], ['agreement', 'Seramik İşçisi', 'Seramik', 900, 300, 'service']],
         'erkan-hafiza' => [['memory', 'agreement', 'Recep peynir fiyatı', 'Recep Demirci ile peynir kilosu 280 TL', 'Recep Demirci']],
         'erkan-gecmis' => [['ledger', 'Recep Demirci', 'odeme', 8000, '-1 days', 'Ödeme'], ['ledger', 'Hüseyin', 'odeme', 2500, '-2 days', 'Ödeme']],
         'akkus-kasalar' => [

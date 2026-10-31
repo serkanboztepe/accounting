@@ -960,6 +960,8 @@ class WhatsappWebhookController extends Controller
         if (ChatAssistant::enabled() && $image === null && $body !== ''
             && ! ($pending && ($this->isConfirm($body) || $this->isCancel($body) || ctype_digit($body)
                 || (WorkChoice::shown($pending->extracted) && WorkChoice::match($pending->extracted, $body) !== null)
+                // "Hangisi için?" yazıyla ("demir için", "anlaşmasından düş") kodda — AI'a gidince soru tekrarlanıyordu (eval 30.10, Sonnet).
+                || (PaymentAgreementChoice::shown($pending->extracted) && PaymentAgreementChoice::match($pending->extracted, $body) !== null)
                 // Stok sorusu cevabı ("1 20 çuval", "20 çuval") kodda — AI'a gidince soru tekrarlanıyordu (eval 21.10, Sonnet).
                 || (StockChoice::shown($pending->extracted) && StockChoice::answer($pending->extracted, $body) !== null)))) {
             return $this->twiml($this->chatTurn($pending, $phone, $body));
@@ -1290,6 +1292,10 @@ class WhatsappWebhookController extends Controller
      */
     private function commitThenNext(WhatsappPendingExpense $pending, string $phone): string|array
     {
+        // "Bu para Asansör Osman'a mı gitti, yoksa ayrı gider mi?" → *evet* = o cariye ödeme; gider yazılmaz (30.10).
+        if (! empty($pending->extracted['ask_party_id']) && $this->kind($pending->extracted) === ExpenseExtractor::KIND_EXPENSE) {
+            return $this->saveDraft($pending, $phone, ExpenseExtractor::payToAskedParty($pending->extracted));
+        }
         // Önce anla: "Sinan Sele mi?" sorusuna "evet" = kişi teyidi (kayıt onayı değil) → kişi netleşir, tam özet onaya gelir.
         if (! empty($pending->extracted['party_asked']) && empty($pending->extracted['party_confirmed'])
             && (int) $pending->extracted['party_asked'] === (int) ($pending->extracted['party_id'] ?? 0)) {
@@ -1739,6 +1745,22 @@ class WhatsappWebhookController extends Controller
         if (AgreementDraft::handles($data)) {
             return $this->saveAgreementDraft($pending, $phone, $data);
         }
+        // Yalnız para / çek verildi → anlaşmadan "iş yapıldı" yazılmaz, o carinin ödemesi olur (30.10).
+        $data = TurnTrace::step('moneyOnlyDelivery', ExpenseExtractor::moneyOnlyPurchase(ExpenseExtractor::moneyOnlyDelivery($data)));
+        // "Hasan'a yarın 40 bin vereceğim" + borç zaten kayıtlı → yeni borç değil, ödeme günü hatırlatması (30.10).
+        if (($future = ExpenseExtractor::futurePaymentReminder($data)) !== null) {
+            [$data, $note] = $future;
+            $data['source_text'] = $pending?->extracted['source_text'] ?? ($this->inboundBody !== '' ? mb_substr($this->inboundBody, 0, 1000) : null);
+            if (! empty($data['event_date'])) {
+                return $note . "\n\n" . $this->saveReminderDraft($pending, $phone, $data);
+            }
+            $text = $note . "\n\n❓ " . $data['question'] . "\nVazgeçmek için *iptal*.";
+            $pending
+                ? $pending->update(['extracted' => $data, 'summary' => $text])
+                : WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $data, 'summary' => $text, 'status' => 'awaiting_confirmation']);
+
+            return $text;
+        }
         if (AgreementDeliveryDraft::handles($data)) {
             return $this->saveAgreementDeliveryDraft($pending, $phone, $data);
         }
@@ -1767,6 +1789,9 @@ class WhatsappWebhookController extends Controller
         if ($pending === null && ChatAssistant::enabled()) {
             $data = TurnTrace::step('guardSwap', ExpenseExtractor::guardSwap($data, $this->inboundBody)); // yeni kayıtta; düzeltmede AI kuralı yeterli
         }
+        // Adsız usta ödemesi (30.10): işi yapan cari varsa "Bu para Osman'a mı gitti?" (kod sorar); yoksa 100 bin+ mesleğin adıyla cariye
+        // ("Asansörcü" — hesap tutulur), altı gider. Bir kez sorulduysa cevap "gider"dir.
+        $data = TurnTrace::step('unnamedPayeeToParty', ExpenseExtractor::unnamedPayeeToParty($data, ! empty($pending?->extracted['ask_party_id'])));
         // Tutar ikinci mesajda gelince AI kişinin yazılışını tekrarlamıyor — "aynı kişi mi?" kaybolmasın.
         if ($pending && empty($data['party_said']) && ! empty($pending->extracted['party_said'])
             && ($data['party_id'] ?? null) === ($pending->extracted['party_id'] ?? null)) {
@@ -1986,6 +2011,13 @@ class WhatsappWebhookController extends Controller
             $ask = PaymentAgreementChoice::question($data);
             $askSource = 'agreement_choice';
             $workAsk = false;
+            // Soruya verilen cevap anlaşmayı zaten gösteriyorsa ("Bu para Ali'ye mi gitti?" → "Ali ustanın anlaşmasından düş") ikinci kez sorma (30.10).
+            if (! empty($pending?->extracted['question']) && ($n = PaymentAgreementChoice::match($data, $this->inboundBody)) !== null
+                && ($chosen = PaymentAgreementChoice::choose($data, $n)) !== null) {
+                $data = $chosen;
+                $ask = null;
+                $askSource = null;
+            }
         }
         // İş durumu belirsizse serbest soru yerine numaralı seçenek (kullanıcı 20.10: "yazmak zor, 1 / 2 gibi olsun").
         $data['work_choice'] = null;
@@ -1993,6 +2025,9 @@ class WhatsappWebhookController extends Controller
             // AI'ın asıl sorusu ("Asansör takıldı mı, yoksa peşin mi?") saklanır: serbest cevabı ("Takılmadı") ikinci göz onunla
             // karşılaştırır — numaralı başlık ("— ne için?") cevabı anlamsız gösteriyordu (eval 21.10, soru döngüsü).
             $data['work_question'] = str_contains($ask, '*1* ') ? ($pending?->extracted['work_question'] ?? $ask) : $ask;
+            if (str_contains($data['work_question'], 'ne için?')) {
+                $data['work_question'] = Understanding::workQuestion($data); // başlık değil, anlamlı soru (30.10)
+            }
             $ask = WorkChoice::question($data);
             $askSource = 'work_choice:' . $askSource;
             $data['work_choice'] = true;
@@ -2163,6 +2198,11 @@ class WhatsappWebhookController extends Controller
             TurnTrace::note('question_dropped', ['reason' => 'collection_purpose_same_record', 'text' => $data['question']]);
             $data['question'] = null;
             $data['question_about'] = null;
+        }
+        // Borcumuz olan cariye borca sığan ödeme: "hangi iş için?" sorulmaz, borçtan düşer (30.10).
+        if (Understanding::paymentPurposeIsMoot($data)) {
+            TurnTrace::note('question_dropped', ['reason' => 'payment_to_open_debt', 'text' => $data['question']]);
+            $data = array_merge($data, ['question' => null, 'question_about' => null, 'debt_repayment' => true]);
         }
         // AI şüphelendiyse ("Bu borç ona mı, ondan mı?") alanlar dolu olsa bile soruyu göster — tahmin sessizce geçmesin.
         if (! empty($data['question']) && ! $this->missingParty($data) && ! $this->needsDebtSide($data) && ! DraftGaps::needsSaleOrPurchase($data)

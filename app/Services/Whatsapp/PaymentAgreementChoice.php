@@ -108,6 +108,10 @@ final class PaymentAgreementChoice
 
             return $i === false ? null : $i + 1;
         }
+        // Tek anlaşma varken "anlaşmasından düş" / "anlaşmaya say" o anlaşmadır (30.10: yazıyla cevap anlaşılmayıp soru tekrarlandı).
+        if (preg_match('/\banlasma/u', $text) && count(array_filter($ids)) === 1) {
+            return array_key_first(array_filter($ids)) + 1;
+        }
         $titles = Agreement::whereIn('id', array_filter($ids))->pluck('title', 'id');
         $hits = [];
         foreach ($ids as $i => $id) {
