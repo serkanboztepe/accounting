@@ -31,6 +31,13 @@ class ExpenseContext
         if ($phone !== null && $phone !== '') {
             $names[] = (string) \App\Models\HubPhone::where('phone', \App\Support\Phone::normalize($phone))->value('name');
         }
+        // Panel → Firma Bilgileri → Ünvan (31.10): belgede çoğu zaman tam ünvan yazar ("Tok Hafriyat İnşaat Ltd. Şti.").
+        // Okuma yalnız — CompanySettings::current() satır açar, burada kullanılmaz.
+        try {
+            $names[] = (string) \App\Models\CompanySettings::query()->value('title');
+        } catch (\Throwable) {
+            // tablo yok (eski kurulum) — ünvansız devam
+        }
 
         return array_values(array_unique(array_filter(array_map('trim', $names),
             fn ($n) => $n !== '' && count(PartyNameCheck::words($n)) >= 2)));

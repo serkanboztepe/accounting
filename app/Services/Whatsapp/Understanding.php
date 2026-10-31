@@ -447,7 +447,9 @@ final class Understanding
 
     /** Sayıdan sonra gelen ölçü birimi (miktar, para değil). */
     private const UNIT_WORD = '/^(kil[oi]\p{L}*|kg|gr|gram\p{L}*|lt|litre\p{L}*|m|m[²³]|metre\p{L}*|metrekare\p{L}*|metreküp\p{L}*|ton\p{L}*|adet\p{L}*|tane\p{L}*|'
-        . 'çuval\p{L}*|paket\p{L}*|koli\p{L}*|kasa\p{L}*|kutu\p{L}*|torba\p{L}*|bidon\p{L}*|teneke\p{L}*|parça\p{L}*|kalıp\p{L}*|baş|başı|daire\p{L}*)$/u';
+        . 'çuval\p{L}*|paket\p{L}*|koli\p{L}*|kasa\p{L}*|kutu\p{L}*|torba\p{L}*|bidon\p{L}*|teneke\p{L}*|parça\p{L}*|kalıp\p{L}*|baş|başı|daire\p{L}*|'
+        // Hafriyat / iş makinesi (31.10 Alim Tok demosu): "1300 mükap", "4 saat kepçe", "20 sefer", "3 kamyon"; metreküpün halk yazımları.
+        . 'm[iıüu]k[aâ][pb]\p{L}*|metrek[uü]p\p{L}*|saat\p{L}*|sefer\p{L}*|kamyon\p{L}*|dekar\p{L}*|dönüm\p{L}*)$/u';
 
     /**
      * Yazılandan farklı tutar (17.10, Emre: "Erkan maaşı 65 tl" → sessizce 65.000): kayıttaki tutar mesajda yazan bir sayının
@@ -486,9 +488,35 @@ final class Understanding
         if ($written === []) {
             return null;
         }
+        // Tutar mesajdaki iki sayının çarpımıysa hesaplanmıştır, ölçek hatası değil (31.10 Alim Tok demosu: "4 saat kepçe saati 1000tl"
+        // → 4.000, "1000 mükap … 130 tl" → 130.000 — "4 TL mi?" / "130 TL mi?" soruldu). Birimli sayılar da çarpana girer.
+        $numbers = [];
+        if (preg_match_all('/(\d[\d.,]*)\s*(bin|milyon)?/iu', mb_strtolower($text), $all, PREG_SET_ORDER)) {
+            foreach ($all as $x) {
+                $n = Money::parse($x[1]) * match (true) {
+                    str_starts_with((string) ($x[2] ?? ''), 'milyon') => 1_000_000,
+                    ($x[2] ?? '') !== '' => 1000,
+                    default => 1,
+                };
+                if ($n > 0) {
+                    $numbers[] = $n;
+                }
+            }
+        }
+        $product = function (float $v) use ($numbers): bool {
+            foreach ($numbers as $i => $a) {
+                foreach ($numbers as $j => $b) {
+                    if ($i !== $j && abs($a * $b - $v) < 0.01) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
         foreach (['amount', 'salary_amount'] as $field) {
             $v = round((float) ($d[$field] ?? 0), 2);
-            if ($v <= 0 || in_array($v, $written, true)) {
+            if ($v <= 0 || in_array($v, $written, true) || $product($v)) {
                 continue;
             }
             foreach ($written as $n) {

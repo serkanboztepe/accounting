@@ -56,6 +56,12 @@ class WhatsappAmountScaleTest extends TestCase
             '20 m² fayans' => ['20 m² fayans döşendi', 20000, false],
             '3 çuval' => ['3 çuval un aldım', 3000, false],
             '15 kilo ama tutar da 15 yazılı → sorulur' => ['15 kilo peynir 15 verdi', 15000, true],
+            // Hesaplanan tutar (iki sayının çarpımı) ve hafriyat birimleri (31.10 Alim Tok demosu: "4 TL mi?", "130 TL mi?" soruldu).
+            'kepçe 4 saat × 1000 (Alim Tok)' => ['Ali boztepeye 4 saat kepçe saati 1000tl', 4000, false],
+            'mükap hafriyat 1000 × 130 (Alim Tok)' => ['Abdullah uçar 1000 mükap hafriyat alındı mükap 130 tl', 130000, false],
+            '1300 mikap 130' => ["Ali Boztepe'den 1300 mikap aldım 130 tl", 169000, false],
+            '20 sefer' => ['20 sefer döküm yaptık', 20000, false],
+            '4 saat ama tutar 4 tl, model 4.000 → sorulur' => ["Ali'ye 4 saat kepçe 4 tl", 4000, true],
         ];
     }
 
@@ -65,6 +71,25 @@ class WhatsappAmountScaleTest extends TestCase
         $q = Understanding::amountScaleQuestion(['kind' => ExpenseExtractor::KIND_COLLECTION, 'amount' => $amount, 'party_name' => 'Hakan Öz'], $text);
 
         $asks ? $this->assertNotNull($q, $text) : $this->assertNull($q, $text . ' → ' . $q);
+    }
+
+    /** Panel → Firma Bilgileri → Ünvan da "BİZ" sayılır — sözleşme fotoğrafında tam ünvan yazar (31.10). */
+    public function test_company_title_is_self_name(): void
+    {
+        \App\Models\CompanySettings::query()->delete();
+        \App\Models\CompanySettings::create(['title' => 'Tok Hafriyat İnşaat Ltd. Şti.']);
+
+        $this->assertContains('Tok Hafriyat İnşaat Ltd. Şti.', \App\Services\Whatsapp\ExpenseContext::selfNames());
+    }
+
+    /** Hafriyat sektörü: iş bilgisi AI bağlamına girer (yön: "Ali'den hafriyat aldım" = Ali'ye iş yaptık). */
+    public function test_excavation_sector_knowledge_in_context(): void
+    {
+        config(['app.sector' => 'excavation']);
+
+        $context = \App\Services\Whatsapp\ExpenseContext::build(self::PHONE);
+        $this->assertStringContainsString('İŞLETME: Hafriyat / iş makinesi', $context);
+        $this->assertStringContainsString("Ali'ye İŞ YAPTIK → satış (hizmet)", $context);
     }
 
     public function test_hakan_message_records_50000_without_question(): void

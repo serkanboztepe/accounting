@@ -92,6 +92,12 @@ return [
             'parties' => ['Yapı Market Mehmet' => ['kind' => 'customer'], 'Ahmet Yılmaz' => [], 'Kuşak Beton' => ['kind' => 'supplier']],
             'products' => [['Tuğla', 'adet'], ['Kum', 'm3']], 'categories' => ['Yakıt', 'Nakliye'],
         ],
+        // Hafriyat / iş makinesi (31.10, cases_hafriyat.php — Alim Tok demosu): kepçe + hafriyat hizmeti, toptan tuğla satışı.
+        'hafriyat' => [
+            'profile' => 'trade', 'modules' => ['agreements' => true, 'checks' => true], 'sector' => 'excavation', 'agreement_direction' => 'both',
+            'parties' => ['Ali Boztepe' => [], 'Abdullah Uçar' => [], 'Akdağ Tuğla Fabrikası' => ['kind' => 'supplier']],
+            'products' => [['Tuğla', 'adet'], ['Çimento', 'torba']], 'categories' => ['Yakıt'],
+        ],
         'yeni_muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true, 'checks' => true], 'sector' => 'construction',
             'projects' => ['Cumhuriyet Apartmanı', 'Barbaros Sitesi'],
@@ -795,6 +801,7 @@ return [
         // Yeni müteahhit müşterisi deneme seti (30.10).
         ...(require __DIR__ . '/cases_muteahhit.php'),
         ...(require __DIR__ . '/cases_satici.php'),
+        ...(require __DIR__ . '/cases_hafriyat.php'),
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).

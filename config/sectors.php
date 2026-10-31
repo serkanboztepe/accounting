@@ -25,6 +25,15 @@ return [
         'knowledge' => 'Şubeler her akşam kasa girer: nakit + pos = o günün peşin satışı. Un, yağ, susam gibi hammadde tedarikçiden alınır '
             . '(çoğu veresiye, sonra ödenir). Personele maaş ve avans verilir.',
     ],
+    'excavation' => [
+        'label' => 'Hafriyat / iş makinesi',
+        'knowledge' => 'Kepçe, ekskavatör ve kamyonla MÜŞTERİNİN şantiyesinde hafriyat (kazı, toprak çıkarma/taşıma, döküm) ve saatlik '
+            . 'kepçe işi yapar; çoğu zaman yapı malzemesi de (tuğla, çimento, kiremit, kum) toptan satar. İşin yönü: "Ali\'den 1300 mikap '
+            . 'hafriyat aldım, mikabı 130" / "Ali\'nin şantiyesinden 50 sefer toprak çıkardık" = Ali\'nin toprağını BİZ kaldırdık, Ali\'ye İŞ '
+            . 'YAPTIK → satış (hizmet), Ali bize borçlanır; "Ali\'ye 4 saat kepçe çalıştı" da satış. Hafriyat, kepçe saati, sefer, nakliye '
+            . 'HİZMETTİR, stoğa girmez. Gerçek alış: tedarikçiden/fabrikadan malzeme (tuğla, çimento, kum, mıcır), mazot, yedek parça; '
+            . 'operatör ve şoföre maaş/yevmiye. "Mikap", "mükap", "mikab" = metreküp (m³).',
+    ],
     'hardware' => [
         'label' => 'Nalbur / yapı market',
         'knowledge' => 'Ürünlü alış-satış yapar; müşteriye veresiye satar ve tahsilat yapar; toptancıdan mal alır.',
