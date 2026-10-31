@@ -59,6 +59,14 @@ return [
             $s("Ali'ye 5 saat kepçe çalıştı", ['draft' => ['amount' => 7000], 'reply_has' => ['7.000']]),
             $s('evet'),
         ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 7000]]],
+    // Fiyat değişince hafıza güncellenir, eski fiyat kullanılmaz (31.10).
+    ['id' => 'tok-kepce-hafiza-guncelle', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [
+            $s('kepçe saati 1400, unutma'), $s('evet'),
+            $s('kepçe saati artık 1500'), $s('evet'),
+            $s("Ali'ye 5 saat kepçe çalıştı", ['draft' => ['amount' => 7500], 'reply_has' => ['7.500'], 'reply_not' => ['7.000']]),
+            $s('evet'),
+        ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 7500]]],
     $c('hf-dokum', [$s('Ali Boztepe döküm')],
         ['reply_not' => ['Kimin hesap'], 'no_new_draft' => true]),
 ];
