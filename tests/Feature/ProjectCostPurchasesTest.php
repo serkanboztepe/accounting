@@ -135,6 +135,11 @@ class ProjectCostPurchasesTest extends TestCase
         $line = $page->instance()->getPurchaseRows()[0]['items'][0]['lines'][0];
         $this->assertSame('Kalem Testi Tuğla', $line['name']);
         $this->assertSame('3.000 ' . $unit->name . ' × ₺10,00', $line['detail']);
-        $page->assertSee('Kalem Testi Tuğla')->assertSee('3.000 ' . $unit->name . ' × ₺10,00');
+        $page->assertSee('Kalem Testi Tuğla')->assertSee('3.000 ' . $unit->name . ' × ₺10,00')->assertSee('Çıktı Al / Yazdır');
+
+        // Çıktı sayfası: özet + kalemler
+        $this->get(route('project-report.print', $project))->assertOk()
+            ->assertSee('Kalem Testi Proje')->assertSee('Toplam Proje Maliyeti')->assertSee('30.000,00')
+            ->assertSee('Kalem Testi Tuğla')->assertSee('3.000 ' . $unit->name . ' × ₺10,00', false);
     }
 }

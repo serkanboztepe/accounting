@@ -87,6 +87,22 @@ Route::get('/satis-ozeti/yazdir', function (\Illuminate\Http\Request $request) {
     ]);
 })->middleware('auth')->name('sales-summary.print');
 
+Route::get('/proje-raporu/{project}/yazdir', function (\App\Models\Project $project) {
+    abort_unless(\App\Filament\Pages\ProjectReports::canAccess(), 403);
+    $page = new \App\Filament\Pages\ProjectReports();
+    $page->projectId = $project->id;
+
+    return view('print.project-report', [
+        'company'   => \App\Models\CompanySettings::current(),
+        'project'   => $project,
+        'title'     => $page->getTitle(),
+        'summary'   => $page->getSummaryStats(),
+        'expenses'  => $page->getExpenseRows(),
+        'purchases' => $page->getPurchaseRows(),
+        'withContracts' => (bool) \App\Support\Features::contracts(),
+    ]);
+})->middleware('auth')->name('project-report.print');
+
 Route::get('/satislar/{sale}/yazdir', function (\App\Models\Sale $sale) {
     $sale->load(['party', 'project', 'lines.product', 'returns.product']);
 

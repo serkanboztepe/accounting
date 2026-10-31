@@ -58,6 +58,20 @@ class ProjectReports extends Page implements HasSchemas
         ]);
     }
 
+    protected function getHeaderActions(): array
+    {
+        return [
+            \Filament\Actions\Action::make('print')
+                ->label('Çıktı Al / Yazdır')
+                ->icon(Heroicon::OutlinedPrinter)
+                ->color('gray')
+                ->visible(fn (): bool => (bool) $this->getSelectedProject())
+                ->url(fn (): ?string => $this->getSelectedProject()
+                    ? route('project-report.print', $this->getSelectedProject()) : null)
+                ->openUrlInNewTab(),
+        ];
+    }
+
     public function form(Schema $schema): Schema
     {
         return $schema
