@@ -506,7 +506,8 @@ class AgreementForm
         } catch (\Throwable) {
             $normalized = [];
         }
-        $total = collect($normalized)->sum(fn ($l) => $l['quantity'] === null ? 0 : $l['quantity'] * $l['unit_price']);
+        // Kaydedilecek tutarın aynısı (toplam söylendiyse o; 31.10 — miktar × yuvarlı fiyat değil).
+        $total = collect($normalized)->sum(fn ($l) => $l['quantity'] === null ? 0 : (float) ($l['amount'] ?? $l['quantity'] * $l['unit_price']));
 
         return 'Anlaşılan toplam: ' . Money::format($total) . ' ₺';
     }

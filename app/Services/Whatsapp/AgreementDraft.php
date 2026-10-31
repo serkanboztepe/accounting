@@ -728,6 +728,7 @@ class AgreementDraft
                 : AgreementForm::quickProduct($item['description'], ['unit_name' => $item['unit']], ! $isSale);
             $lines[] = match (true) {
                 $item['free']                                      => ['product_id' => $productId, 'quantity' => $item['quantity'] ?? 1, 'free' => true],
+                self::totalSaid($item)                             => ['product_id' => $productId, 'quantity' => $item['quantity'], 'amount' => $item['amount']],
                 $item['quantity'] !== null && $item['unit_price'] !== null => ['product_id' => $productId, 'quantity' => $item['quantity'], 'unit_price' => $item['unit_price']],
                 $item['quantity'] !== null                         => ['product_id' => $productId, 'quantity' => $item['quantity'], 'amount' => $item['amount']],
                 $item['unit_price'] !== null && $item['amount'] === null => ['product_id' => $productId, 'unit_price' => $item['unit_price']],
@@ -786,10 +787,23 @@ class AgreementDraft
     }
 
     /** Anlaşılan toplam: miktarlı + götürü (fiyat listesi ve bedelsiz girmez). */
+    /**
+     * Miktarlı kalemde söylenen toplam esas mı: "3000 tuğla 1 milyona" → AI miktar 3000 + tutar 1.000.000 + fiyat 333,33 verir;
+     * kart ve kayıt 1.000.000 (3000 × 333,33 = 999.990 değil, 31.10). Fiyat ayrıca söylenip tutar tutmuyorsa fiyat esas (eski kural).
+     */
+    private static function totalSaid(array $i): bool
+    {
+        $qty = (float) ($i['quantity'] ?? 0);
+        $amount = (float) ($i['amount'] ?? 0);
+
+        return $qty > 0 && $amount > 0 && ($i['unit_price'] === null || abs($qty * $i['unit_price'] - $amount) <= $qty * 0.005 + 0.01);
+    }
+
     public static function agreedTotal(array $items): float
     {
         return round(array_sum(array_map(fn ($i) => match (true) {
             $i['free'] => 0,
+            self::totalSaid($i) => (float) $i['amount'],
             $i['quantity'] !== null && $i['unit_price'] !== null => $i['quantity'] * $i['unit_price'],
             $i['quantity'] === null && $i['amount'] === null => 0, // fiyat listesi
             default => (float) $i['amount'],
@@ -803,6 +817,11 @@ class AgreementDraft
 
         return match (true) {
             $i['free'] => $i['description'] . ($i['quantity'] !== null ? ' ' . $qty() . $unit : '') . ' — bedelsiz',
+            // "Tuğla 3.000 adet = 1.000.000,00 (adedi ≈333,33)" — toplam söylendiği gibi, fiyat yuvarlıysa ≈.
+            self::totalSaid($i) => $i['description'] . ' ' . $qty() . $unit . ' = ' . Money::format((float) $i['amount'])
+                . ' (' . ($i['unit'] ? mb_strtolower($i['unit']) . ' ' : 'birim ') . 'fiyatı '
+                . (abs($i['quantity'] * round($i['amount'] / $i['quantity'], 2) - $i['amount']) > 0.001 ? '≈' : '')
+                . Money::format(round($i['amount'] / $i['quantity'], 2)) . ')',
             $i['quantity'] !== null && $i['unit_price'] !== null => $i['description'] . ' ' . $qty() . $unit . ' × ' . Money::format($i['unit_price'])
                 . ' = ' . Money::format($i['quantity'] * $i['unit_price']),
             $i['quantity'] === null && $i['unit_price'] !== null && $i['amount'] === null => $i['description'] . ' · ' . Money::format($i['unit_price']) . ' ₺'

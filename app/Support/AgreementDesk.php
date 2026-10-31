@@ -114,8 +114,13 @@ class AgreementDesk
             }
             $changed = $item->unit_price !== null && abs($price - (float) $item->unit_price) > 0.001;
             // WhatsApp'ta yalnız tutar söylendiyse miktar tutardan hesaplandı (küsuratlı) — tutar söylendiği gibi kalır.
+            // Anlaşma fiyatıyla: kuruşsuz fiyattan, son teslim kalan tutarı alır (AgreementItem::amountFor, 31.10).
             $total = (float) ($line['total'] ?? 0);
-            $amount = $total > 0 && abs($total - $qty * $price) < max(1.0, $price) ? round($total, 2) : round($qty * $price, 2);
+            $amount = match (true) {
+                $total > 0 && abs($total - $qty * $price) < max(1.0, $price) => round($total, 2),
+                ! $changed => $item->amountFor($qty),
+                default => round($qty * $price, 2),
+            };
             $prepared[] = ['item' => $item, 'quantity' => $qty, 'unit_price' => $price, 'amount' => $amount,
                 'new_price' => $changed && $applyPriceToRest ? $price : null];
         }
@@ -201,7 +206,8 @@ class AgreementDesk
             $rest = $item->isList() ? null : round((float) $item->quantity - $delivered, 2);
             $item->update([
                 'quantity'  => $item->isList() ? null : $delivered,
-                'amount'    => $item->isList() ? null : round($delivered * (float) $item->unit_price, 2),
+                // Gelen kısım eski fiyattan kapanır: gelenlerin gerçek tutarı (kuruşsuz fiyattan yazıldılar).
+                'amount'    => $item->isList() ? null : round($item->deliveredAmount(), 2),
                 'closed_at' => now(),
             ]);
             if ($rest === null || $rest > 0) {
@@ -235,7 +241,8 @@ class AgreementDesk
             throw ValidationException::withMessages(['quantity' => 'Şimdiye kadar ' . $item->quantityLabel($delivered) . ' gelmiş; miktar bundan az olamaz.']);
         }
         DB::transaction(function () use ($item, $quantity) {
-            $item->update(['quantity' => $quantity, 'amount' => round($quantity * (float) $item->unit_price, 2)]);
+            // Kuruşsuz fiyattan (3000 tuğla 1.000.000 → 4000 = 1.333.333,33; 31.10).
+            $item->update(['quantity' => $quantity, 'amount' => round($quantity * $item->exactPrice(), 2)]);
             self::refreshStatus($item->agreement);
         });
     }
@@ -324,11 +331,16 @@ class AgreementDesk
             if (! empty($line['free'])) { // bedelsiz kalem (sözleşmede "klozet kapağı 14 adet" fiyatsız): gelecek ama tutarı yok
                 $out[] = ['product_id' => $productId, 'quantity' => $qty !== null && $qty > 0 ? $qty : 1.0, 'unit_price' => 0.0, 'amount' => 0.0, 'is_lump' => false];
             } elseif ($qty !== null && $qty > 0) {
-                $price = $price > 0 ? $price : ($amount > 0 ? round($amount / $qty, 2) : 0.0);
+                // Toplam söylendiyse ("3000 tuğla 1 milyona") tutar o kalır; fiyat yalnız gösterim için kuruşa yuvarlanır (31.10:
+                // 3000 × 333,33 = 999.990 yazılıyordu). Fiyat da yazıldıysa tutar ancak yuvarlama farkı kadar ayrıksa toplam esas.
+                $derived = $amount > 0 ? round($amount / $qty, 2) : 0.0;
+                $keepAmount = $amount > 0 && ($price <= 0 || abs($qty * $price - $amount) <= $qty * 0.005 + 0.01);
+                $price = $price > 0 ? $price : $derived;
                 if ($price <= 0) {
                     throw ValidationException::withMessages(['lines' => $name . ': birim fiyat ya da tutar yaz.']);
                 }
-                $out[] = ['product_id' => $productId, 'quantity' => $qty, 'unit_price' => $price, 'amount' => round($qty * $price, 2), 'is_lump' => false];
+                $out[] = ['product_id' => $productId, 'quantity' => $qty, 'unit_price' => $price,
+                    'amount' => $keepAmount ? round($amount, 2) : round($qty * $price, 2), 'is_lump' => false];
             } elseif ($amount > 0) { // miktarsız tutar = götürü (karttan gelen fiyat dursa da)
                 $out[] = ['product_id' => $productId, 'quantity' => 1.0, 'unit_price' => $amount, 'amount' => $amount, 'is_lump' => true];
             } elseif ($price > 0) {

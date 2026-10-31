@@ -94,10 +94,48 @@ class AgreementItem extends Model
         return round((float) $this->quantity - $this->deliveredQuantity(), $this->is_lump ? 4 : 2);
     }
 
-    /** Anlaşılan tutar (fiyat listesinde yok). */
+    /**
+     * Anlaşılan tutar (fiyat listesinde yok). Miktarlı kalemde SAKLI tutar esastır: "3000 tuğla 1 milyona" → 1.000.000
+     * (miktar × kuruşa yuvarlı fiyat 999.990 çıkıyordu, 31.10). Tutarı boş eski satırda miktar × fiyat.
+     */
     public function agreedAmount(): float
     {
-        return $this->isList() ? 0.0 : round((float) $this->quantity * (float) $this->unit_price, 2);
+        if ($this->isList()) {
+            return 0.0;
+        }
+        if (! $this->is_lump && $this->amount !== null && (float) $this->amount > 0) {
+            return round((float) $this->amount, 2);
+        }
+
+        return round((float) $this->quantity * (float) $this->unit_price, 2);
+    }
+
+    /** Kuruşu yuvarlanmamış birim fiyat: miktarlı kalemde anlaşılan tutar ÷ miktar (1.000.000 ÷ 3000 = 333,333…). */
+    public function exactPrice(): float
+    {
+        $qty = (float) $this->quantity;
+        if (! $this->is_lump && ! $this->isList() && $qty > 0 && $this->amount !== null && (float) $this->amount > 0) {
+            return (float) $this->amount / $qty;
+        }
+
+        return (float) $this->unit_price;
+    }
+
+    /**
+     * Anlaşma fiyatından $qty teslimin tutarı: kuruşsuz fiyattan (400 tuğla → 133.333,33); kalan miktarı BİTİREN teslim kalan
+     * tutarı alır — hepsi teslim edilince toplam tam anlaşılan tutar olur (son kuruş farkı kalmaz).
+     */
+    public function amountFor(float $qty): float
+    {
+        $rest = $this->is_lump ? null : $this->remainingQuantity();
+        if ($rest !== null && $rest > 0 && abs($qty - $rest) < 0.005) {
+            $left = round($this->agreedAmount() - $this->deliveredAmount(), 2);
+            if ($left > 0) {
+                return $left;
+            }
+        }
+
+        return round($qty * $this->exactPrice(), 2);
     }
 
     /** Kalan tutar = kalan miktar × anlaşma fiyatı (eksiye inmez). Götürüde düz çıkarma: anlaşılan − gelen tutar. */
@@ -109,7 +147,7 @@ class AgreementItem extends Model
         }
         $rest = $this->remainingQuantity();
 
-        return $rest === null ? 0.0 : max(0.0, round($rest * (float) $this->unit_price, 2));
+        return $rest === null ? 0.0 : max(0.0, round($rest * $this->exactPrice(), 2));
     }
 
     /** Ekranda kalem adı (ürün kartı adı). */

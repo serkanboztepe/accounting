@@ -896,6 +896,63 @@ class WhatsappAgreementTest extends TestCase
         $this->assertSame('both', \App\Support\Features::agreementDirection());
     }
 
+    /**
+     * Toplam söylenen anlaşma (31.10 Yeni Yapı: "Ali boztepeye 3000 tuğla 1 milyondan anlaştım" → 3000 × 333,33 = 999.990 yazıldı):
+     * anlaşılan tam 1.000.000; 400 teslim = 133.333,33; kalan 2600'ün teslimi kuruşu kapatır → satışlar toplamı tam 1.000.000.
+     */
+    public function test_total_said_agreement_keeps_total_and_deliveries_add_up(): void
+    {
+        config(['app.agreement_direction' => 'sale']);
+        $this->ai($this->agreement(['party_name' => 'WAK Ali Boztepe',
+            'agreement_items' => [['description' => 'WAK Tuğla', 'quantity' => 3000, 'unit' => 'adet', 'unit_price' => 333.33, 'amount' => 1000000]]]));
+        $card = $this->send('Ali boztepeye 3000 tuğla 1 milyondan anlaştım');
+        $this->assertStringContainsString('WAK Tuğla 3.000 adet = 1.000.000,00 (adet fiyatı ≈333,33)', $card);
+        $this->assertStringContainsString('Anlaşılan: *1.000.000,00 ₺*', $card);
+        $this->assertStringNotContainsString('999.990', $card);
+        $this->send('evet');
+
+        $party = Party::where('name', 'WAK Ali Boztepe')->sole();
+        $a = Agreement::where('party_id', $party->id)->sole()->loadForCard();
+        $item = $a->items[0];
+        $this->assertEqualsWithDelta(1000000, $a->agreedTotal(), 0.001);
+        $this->assertEqualsWithDelta(333.33, (float) $item->unit_price, 0.001);
+
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $item->id, 'quantity' => 400]]]));
+        $card = $this->send('Ali boztepeye 400 tuğla gönderdim');
+        $this->assertStringContainsString('133.333,33', $card);
+        $this->send('evet');
+        $this->assertEqualsWithDelta(866666.67, $a->fresh()->loadForCard()->remainingTotal(), 0.001);
+
+        $this->ai($this->delivery(['delivery_lines' => [['agreement_item_id' => $item->id, 'quantity' => 2600]]]));
+        $this->assertStringContainsString('866.666,67', $this->send('kalan 2600 tuğlayı da gönderdim'));
+        $this->send('evet');
+
+        $this->assertEqualsWithDelta(1000000, (float) \App\Models\Sale::where('party_id', $party->id)->sum('total_amount'), 0.001);
+        $this->assertEqualsWithDelta(1000000, PartyStatement::build($party)['balance'], 0.001);
+        $fresh = $a->fresh()->loadForCard();
+        $this->assertEqualsWithDelta(0, $fresh->remainingTotal(), 0.001);
+        $this->assertEqualsWithDelta(1000000, $fresh->deliveredTotal(), 0.001);
+    }
+
+    /** Fiyatla söylenen anlaşma eskisi gibi (miktar × fiyat); panel yolu: miktar + yalnız tutar → tutar korunur, Miktar düğmesi orantılı. */
+    public function test_price_said_unchanged_and_panel_total_and_quantity_change(): void
+    {
+        $party = Party::create(['name' => 'WAK Kuşak']);
+        $a = $this->deliveryAgreement($party, [['product_id' => $this->product('WAK Beton', 'm³'), 'quantity' => 500, 'unit_price' => 3800]]);
+        $this->assertEqualsWithDelta(1900000, $a->agreedTotal(), 0.001);
+        // Fiyat yazılmış ama tutar başka (yuvarlama değil) → fiyat esas, eski kural.
+        $lines = \App\Support\AgreementDesk::normalizeLines([['product_id' => $this->product('WAK Kum', 'm³'), 'quantity' => 10, 'unit_price' => 500, 'amount' => 9000]]);
+        $this->assertEqualsWithDelta(5000, $lines[0]['amount'], 0.001);
+
+        $b = $this->deliveryAgreement($party, [['product_id' => $this->product('WAK Tuğla', 'adet'), 'quantity' => 3000, 'amount' => 1000000]]);
+        $item = $b->items[0];
+        $this->assertEqualsWithDelta(1000000, $b->agreedTotal(), 0.001);
+        $this->assertEqualsWithDelta(333.33, (float) $item->unit_price, 0.001);
+
+        \App\Support\AgreementDesk::changeQuantity($item, 4000);
+        $this->assertEqualsWithDelta(1333333.33, $item->fresh()->agreedAmount(), 0.001);
+    }
+
     /** Belge okundu ama türü anlaşılamadı (21.10 Alim Tok: kind=null → yardım menüsü gitti) → menü değil soru. */
     public function test_unclear_document_asks_instead_of_help_menu(): void
     {

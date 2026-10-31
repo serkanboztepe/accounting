@@ -353,9 +353,15 @@ class AgreementDeliveryDraft
 
             return [$item->name() . ' · ' . Money::format($amount) . ' ₺' . $where, $amount];
         }
-        $price = ($line['unit_price'] !== null && ($line['price_choice'] ?? 1) !== 3) ? $line['unit_price'] : (float) $item->unit_price;
+        $own = $line['unit_price'] !== null && ($line['price_choice'] ?? 1) !== 3 && abs($line['unit_price'] - (float) $item->unit_price) > 0.001;
+        $price = $own ? $line['unit_price'] : (float) $item->unit_price;
         $qty = (float) $line['quantity'];
-        $amount = ! empty($line['from_amount']) ? (float) $line['amount'] : round($qty * $price, 2);
+        // Anlaşma fiyatıyla: kayıttaki hesabın aynısı (kuruşsuz fiyat, son teslim kalanı alır — AgreementItem::amountFor).
+        $amount = match (true) {
+            ! empty($line['from_amount']) => (float) $line['amount'],
+            $own => round($qty * $price, 2),
+            default => $item->amountFor($qty),
+        };
         $rest = $item->isList() ? null : (float) $item->quantity - $item->deliveredQuantity() - $qty;
 
         return [$item->name() . ' ' . $item->quantityLabel($qty) . ' × ' . Money::format($price) . ' = ' . Money::format($amount) . $where
