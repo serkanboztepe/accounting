@@ -29,6 +29,36 @@ return [
         'steps' => [$s("Ali Boztepe'den 15.12 vadeli 200 bin çek aldım", ['draft' => ['kind' => 'collection', 'party_id' => '@party:Ali Boztepe',
             'amount' => 200000], 'reply_has' => ['15.12'], 'reply_not' => ['verdin', 'ödedin']]), $s('evet')],
         'expect' => ['balance' => ['@party:Ali Boztepe' => 100000]]],
+    // Kart açılır mı (31.10): anlaşmasız iş = düz satış (kart yok); fiyat anlaşması = kalem kartı + teslimde düşer; kişisiz fiyat = sorulur.
+    ['id' => 'tok-kepce-1500', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [$s("Ali'ye 4 saat kepçe, saati 1500", ['draft' => ['kind' => 'sale', 'party_id' => '@party:Ali Boztepe', 'amount' => 6000],
+            'reply_not' => ['TL mi', 'ürün kartı']]), $s('evet')],
+        'expect' => ['balance' => ['@party:Ali Boztepe' => 6000]]],
+    ['id' => 'tok-hafriyat-140-anlasma', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [
+            $s("Ali'yle hafriyatın m3'ünü 140'tan anlaştık", ['draft' => ['kind' => 'agreement', 'agreement_direction' => 'sale',
+                'party_id' => '@party:Ali Boztepe'], 'reply_has' => ['140']]),
+            $s('evet'),
+            $s("Ali'ye 500 m3 hafriyat yaptık", ['draft' => ['kind' => 'agreement_delivery', 'delivery_direction' => 'sale'], 'reply_has' => ['70.000']]),
+            $s('evet'),
+        ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 70000]]],
+    ['id' => 'tok-kepce-saati-kisisiz', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [$s('kepçe saati 1500')], 'expect' => ['saved' => ['ledger' => 0, 'sales' => 0]]],
+    // Önceden söylenen saat fiyatı (kullanıcı 31.10: "5 saat kepçe çalıştı dediğinde önceden söylediyse 5 × 1400 yapsın").
+    ['id' => 'tok-kepce-anlasma-1400', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [
+            $s("Ali'yle kepçe saatini 1400'den anlaştık", ['draft' => ['kind' => 'agreement', 'agreement_direction' => 'sale'], 'reply_has' => ['1.400']]),
+            $s('evet'),
+            $s("Ali'ye 5 saat kepçe çalıştı", ['draft' => ['kind' => 'agreement_delivery', 'delivery_direction' => 'sale'], 'reply_has' => ['7.000']]),
+            $s('evet'),
+        ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 7000]]],
+    ['id' => 'tok-kepce-hafiza-1400', 'firm' => 'tok', 'group' => 'capability',
+        'steps' => [
+            $s('kepçe saati 1400, unutma'),
+            $s('evet'),
+            $s("Ali'ye 5 saat kepçe çalıştı", ['draft' => ['amount' => 7000], 'reply_has' => ['7.000']]),
+            $s('evet'),
+        ], 'expect' => ['balance' => ['@party:Ali Boztepe' => 7000]]],
     $c('hf-dokum', [$s('Ali Boztepe döküm')],
         ['reply_not' => ['Kimin hesap'], 'no_new_draft' => true]),
 ];
