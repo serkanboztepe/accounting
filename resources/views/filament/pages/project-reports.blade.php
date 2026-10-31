@@ -86,9 +86,6 @@
                         // Sözleşmesiz kart: toplam yukarıda bir kez; altında yalnız iki kalem + pay (tekrar yok).
                         $share = fn ($v) => $summary['total_cost'] > 0 ? '%' . round($v / $summary['total_cost'] * 100) : null;
                     @endphp
-                    @php
-                        $debts = $this->getDebtRows();
-                    @endphp
                     <div class="pr-grid" style="grid-template-columns: 1fr;">
                         <div class="pr-col">
                             <div class="pr-row"><span class="pr-k">Direkt gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }} <span class="pr-k">{{ $share($summary['direct_expenses']) }}</span></span></div>
@@ -102,31 +99,6 @@
                         </div>
                     </div>
 
-                    <div class="pr-grid" style="grid-template-columns: 1fr;">
-                        <div class="pr-col">
-                            <div class="pr-colhead">Kalan borç</div>
-                            @forelse ($debts as $row)
-                                <div class="pr-row"><span class="pr-k">{{ $row['party'] }}@if ($row['projects'] > 1) <span style="font-size:12px">(toplam borç, {{ $row['projects'] }} projede çalışıyor)</span>@endif</span><span class="pr-v tnum pr-warn">{{ $m($row['balance']) }}</span></div>
-                            @empty
-                                <div class="pr-row"><span class="pr-k">Bu projedeki carilere borç yok</span><span class="pr-v tnum">{{ $m(0) }}</span></div>
-                            @endforelse
-                            @if (count($debts) > 1)
-                                <div class="pr-row pr-hi"><span class="pr-k">Toplam</span><span class="pr-v tnum pr-warn">{{ $m(array_sum(array_column($debts, 'balance'))) }}</span></div>
-                            @endif
-                        </div>
-                    </div>
-
-                    @if ($withChecks)
-                        <div class="pr-grid" style="grid-template-columns: 1fr;">
-                            <div class="pr-col">
-                                <div class="pr-colhead">Çekler (maliyete eklenmez)</div>
-                                <div class="pr-row"><span class="pr-k">Vadesi gelmemiş</span><span class="pr-v tnum pr-pend">{{ $m($summary['pending_project_checks']) }}</span></div>
-                                <div class="pr-row"><span class="pr-k">Ödenmiş</span><span class="pr-v tnum pr-good">{{ $m($summary['paid_project_checks']) }}</span></div>
-                            </div>
-                        </div>
-                    @endif
-
-                    <div class="pr-foot tnum">Maliyet = gider + alış + projeye verilip alışı yazılmamış para · Alış yazılınca ⚠ satırı kendiliğinden kapanır · Projesiz ödeme maliyete girmez · Kalan borç carinin toplam bakiyesidir · Çekler yalnız bu projeye yazılanlar</div>
                 @else
                 <div class="pr-grid">
                     <div class="pr-col">
@@ -300,17 +272,32 @@
                         >
                             <div class="divide-y divide-gray-100 dark:divide-white/5">
                                 @foreach ($group['items'] as $item)
-                                    <div class="flex items-center gap-2 py-3">
-                                        <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
-                                        <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
-                                            {{ $item['description'] }}
-                                            @if ($item['maybe_duplicate'])
-                                                <span class="text-xs font-medium text-orange-600 dark:text-orange-400">· ⚠️ aynı tutar sözleşme teslimatında da var, iki kez girilmiş olabilir</span>
-                                            @endif
-                                        </span>
-                                        <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
-                                            ₺{{ \App\Support\Money::format($item['amount']) }}
-                                        </span>
+                                    <div class="py-3">
+                                        <div class="flex items-center gap-2">
+                                            <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
+                                            <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
+                                                {{ $item['description'] }}
+                                                @if ($item['maybe_duplicate'])
+                                                    <span class="text-xs font-medium text-orange-600 dark:text-orange-400">· ⚠️ aynı tutar sözleşme teslimatında da var, iki kez girilmiş olabilir</span>
+                                                @endif
+                                            </span>
+                                            <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
+                                                ₺{{ \App\Support\Money::format($item['amount']) }}
+                                            </span>
+                                        </div>
+                                        @foreach ($item['lines'] as $line)
+                                            <div class="mt-1 flex items-center gap-2 pl-[5.5rem] text-xs text-gray-500 dark:text-gray-400">
+                                                <span class="min-w-0 flex-1 truncate">
+                                                    <span class="font-medium text-gray-700 dark:text-gray-300">{{ $line['name'] }}</span>
+                                                    @if ($line['detail'])
+                                                        · {{ $line['detail'] }}
+                                                    @endif
+                                                </span>
+                                                @if (count($item['lines']) > 1)
+                                                    <span class="shrink-0 text-right">₺{{ \App\Support\Money::format($line['amount']) }}</span>
+                                                @endif
+                                            </div>
+                                        @endforeach
                                     </div>
                                 @endforeach
                             </div>

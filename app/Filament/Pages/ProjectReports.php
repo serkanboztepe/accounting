@@ -84,34 +84,6 @@ class ProjectReports extends Page implements HasSchemas
         return $this->projectId ? Project::find($this->projectId) : null;
     }
 
-    /**
-     * Kalan borç: bu projede alışı olan ve bizim borçlu olduğumuz cariler — carinin TOPLAM bakiyesi
-     * (ödemeler çoğu zaman projesiz girilir; projeye bölünmez). Birden çok projede alışı varsa satırda söylenir.
-     *
-     * @return array<int, array{party:string, balance:float, projects:int}>
-     */
-    public function getDebtRows(): array
-    {
-        $project = $this->getSelectedProject();
-        if (! $project) {
-            return [];
-        }
-
-        $partyIds = PartyLedgerEntry::query()->where('project_id', $project->id)
-            ->where('type', PartyLedgerEntry::TYPE_PURCHASE)->distinct()->pluck('party_id')->filter();
-
-        return \App\Models\Party::whereIn('id', $partyIds)->get()
-            ->map(fn ($party) => ['party' => $party, 'balance' => (float) \App\Support\PartyStatement::build($party)['balance']])
-            ->filter(fn ($r) => $r['balance'] <= -0.01)   // < 0: biz cariye borçluyuz
-            ->map(fn ($r) => [
-                'party' => $r['party']->name,
-                'balance' => abs($r['balance']),
-                'projects' => PartyLedgerEntry::query()->where('party_id', $r['party']->id)->where('type', PartyLedgerEntry::TYPE_PURCHASE)
-                    ->whereNotNull('project_id')->distinct()->count('project_id'),
-            ])
-            ->sortByDesc('balance')->values()->all();
-    }
-
     public function getSummaryStats(): array
     {
         $project = $this->getSelectedProject();
@@ -199,8 +171,6 @@ class ProjectReports extends Page implements HasSchemas
             'unbooked_payments' => $unbooked,
             'unbooked_total' => $unbookedTotal,
             'total_cost' => $directExpenses + $deliveryCost + $purchaseCost + $unbookedTotal,
-            'pending_project_checks' => (float) Check::query()->where('project_id', $project->id)->where('status', 'issued')->sum('amount'),
-            'paid_project_checks' => (float) Check::query()->where('project_id', $project->id)->whereIn('status', ['paid', 'collected'])->sum('amount'),
             'invoiced_total' => $invoicedTotal,
             'uninvoiced_total' => $uninvoicedTotal,
         ];
@@ -310,10 +280,41 @@ class ProjectReports extends Page implements HasSchemas
                 ->flip()->all()
             : [];
 
+        // Belgenin kalemleri (ürün · miktar × birim fiyat) — "Alış #12" yerine ne alındığı görünsün.
+        $linesByDoc = [];
+        foreach (['purchase_id', 'purchase_return_id'] as $column) {
+            $ids = $entries->pluck($column)->filter()->unique()->values();
+            if ($ids->isEmpty()) {
+                continue;
+            }
+            \App\Models\StockMovement::query()
+                ->with(['product.unit', 'agreementItem'])
+                ->whereIn($column, $ids)
+                ->orderBy('id')
+                ->get()
+                ->each(function ($line) use (&$linesByDoc, $column) {
+                    $qty = abs((float) $line->quantity);
+                    $unit = $line->product?->unit?->name ?? '';
+                    $qtyText = fmod($qty, 1.0) === 0.0 ? \App\Support\Money::format($qty, 0) : \App\Support\Money::format($qty);
+                    $lump = (bool) $line->agreementItem?->is_lump;
+                    // Birim fiyat boş yazılmış olabilir (yalnız tutar) → tutar ÷ miktar.
+                    $price = (float) $line->unit_price > 0 ? (float) $line->unit_price : ($qty > 0 ? abs((float) $line->amount) / $qty : 0);
+                    $linesByDoc[$column][(int) $line->{$column}][] = [
+                        'name'   => $line->product?->name ?? '—',
+                        'detail' => $lump || $qty <= 0 ? null
+                            : trim($qtyText . ' ' . $unit) . ' × ₺' . \App\Support\Money::format($price),
+                        'amount' => abs((float) $line->amount),
+                    ];
+                });
+        }
+
         $grouped = [];
         foreach ($entries as $entry) {
             $key = $entry->party_id ?? 0;
             $sign = $entry->type === PartyLedgerEntry::TYPE_PURCHASE_RETURN ? -1 : 1;
+            $lines = $entry->purchase_return_id
+                ? ($linesByDoc['purchase_return_id'][(int) $entry->purchase_return_id] ?? [])
+                : ($entry->purchase_id ? ($linesByDoc['purchase_id'][(int) $entry->purchase_id] ?? []) : []);
 
             if (! isset($grouped[$key])) {
                 $grouped[$key] = [
@@ -329,6 +330,7 @@ class ProjectReports extends Page implements HasSchemas
                 'description'     => ($sign < 0 ? 'İade — ' : '') . ($entry->description ?: '—'),
                 'amount'          => $sign * (float) $entry->amount,
                 'maybe_duplicate' => $sign > 0 && isset($deliveryKeys[$key . '|' . round((float) $entry->amount, 2)]),
+                'lines'           => $lines,
             ];
         }
 

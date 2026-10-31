@@ -62,7 +62,7 @@ class ProjectCostPurchasesTest extends TestCase
 
     /**
      * 29.10 (Muhasebe/Barbaros, Ayhan Ergül): projeye verilmiş ama alışı yazılmamış para maliyete girer, ⚠ ile söylenir;
-     * alış yazılınca fark kapanır (çift sayılmaz). Projesiz ödeme girmez. Kalan borç = alışı olan carinin bakiyesi; çekler ayrı.
+     * alış yazılınca fark kapanır (çift sayılmaz). Projesiz ödeme girmez. (31.10: Kalan borç / Çekler / dipnot karttan kaldırıldı.)
      */
     public function test_unbooked_project_payment_counts_until_purchase_written(): void
     {
@@ -87,11 +87,8 @@ class ProjectCostPurchasesTest extends TestCase
         $this->assertEqualsWithDelta(650000, $stats['unbooked_total'], 0.01);
         $this->assertEqualsWithDelta(896250, $stats['total_cost'], 0.01);
         $this->assertEqualsWithDelta(896250, \App\Support\ProjectCost::total($barbaros->id), 0.01);
-        $this->assertEqualsWithDelta(600000, $stats['pending_project_checks'], 0.01);
-        $this->assertEqualsWithDelta(50000, $stats['paid_project_checks'], 0.01);
-        $this->assertSame([['party' => 'Maliyet Testi Seramikçi', 'balance' => 146250.0, 'projects' => 1]], $page->instance()->getDebtRows());
-        $page->assertSee('Alışı yazılmamış ödeme')->assertSee('Maliyet Testi Elektrikçi')->assertSee('Kalan borç')
-            ->assertSee('Çekler (maliyete eklenmez)')->assertSee('896.250,00');
+        $page->assertSee('Alışı yazılmamış ödeme')->assertSee('Maliyet Testi Elektrikçi')->assertSee('896.250,00')
+            ->assertDontSee('Kalan borç')->assertDontSee('Çekler (maliyete eklenmez)')->assertDontSee('Projesiz ödeme maliyete girmez');
 
         // Alış yazılınca ⚠ kapanır, maliyet aynı kalır (çift sayılmaz)
         $this->ledger($elektrik, $barbaros, PartyLedgerEntry::TYPE_PURCHASE, 650000, 'Elektrik tesisatı');
@@ -119,5 +116,25 @@ class ProjectCostPurchasesTest extends TestCase
         $this->assertEqualsWithDelta(80000, $page->instance()->getSummaryStats()['total_cost'], 0.01);
         $this->assertTrue($page->instance()->getPurchaseRows()[0]['items'][0]['maybe_duplicate']);
         $page->assertSee('Sözleşme Teslimatları')->assertSee('iki kez girilmiş olabilir');
+    }
+
+    /** 31.10: Alışlar bölümünde "Alış #12" altında kalemler (ürün · miktar birim × birim fiyat) görünür. */
+    public function test_purchase_rows_show_items(): void
+    {
+        config(['modules' => ModuleProfiles::resolve('muteahhit'), 'app.profile' => 'muteahhit']);
+        $this->actingAs(User::factory()->create());
+        $project = Project::create(['name' => 'Kalem Testi Proje', 'status' => 'active']);
+        $party = Party::create(['name' => 'Kalem Testi Tuğlacı']);
+        $unit = \App\Models\Unit::firstOrCreate(['code' => 'adet'], ['name' => 'adet']);
+        $brick = \App\Models\Product::create(['name' => 'Kalem Testi Tuğla', 'type' => \App\Models\Product::TYPE_PRODUCT, 'unit_id' => $unit->id]);
+
+        \App\Support\TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $party->id, 'project_id' => $project->id, 'keep_project' => true,
+            'lines' => [['product_id' => $brick->id, 'quantity' => 3000, 'amount' => '30.000,00']]]);
+
+        $page = Livewire::test(ProjectReports::class)->set('projectId', $project->id);
+        $line = $page->instance()->getPurchaseRows()[0]['items'][0]['lines'][0];
+        $this->assertSame('Kalem Testi Tuğla', $line['name']);
+        $this->assertSame('3.000 ' . $unit->name . ' × ₺10,00', $line['detail']);
+        $page->assertSee('Kalem Testi Tuğla')->assertSee('3.000 ' . $unit->name . ' × ₺10,00');
     }
 }
