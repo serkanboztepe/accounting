@@ -704,9 +704,26 @@ final class Understanding
                 }
             }
         }
+        // İşletmenin işi (31.10 Alim Tok: süzgeç "Yapı Marketten 50 bin aldım"a "borç mu aldınız?" dedi — müşteri olduğunu görmüyordu).
+        $sector = config('sectors.' . config('app.sector'));
+        if ($sector || config('app.business_note')) {
+            $lines[] = 'İŞLETME: ' . trim(($sector['label'] ?? '') . (config('app.business_note') ? ' — ' . config('app.business_note') : ''), ' —');
+        }
         if ($party = self::party($d)) {
-            $lines[] = 'CARİ ' . $party->name . ': ' . \App\Support\PartyBalances::line($party->name, TurnTrace::statement('Understanding::crossContext', $party)['balance'])
+            $kindNote = match ($party->kind) {
+                Party::KIND_CUSTOMER => ' (müşteri)',
+                Party::KIND_SUPPLIER => ' (mal-hizmet aldığımız)',
+                default => '',
+            };
+            $lines[] = 'CARİ ' . $party->name . $kindNote . ': ' . \App\Support\PartyBalances::line($party->name, TurnTrace::statement('Understanding::crossContext', $party)['balance'])
                 . ($party->is_employee ? ' (çalışan)' : '');
+            if (\App\Support\Features::agreements()) {
+                $open = \App\Models\Agreement::where('party_id', $party->id)->where('status', \App\Models\Agreement::STATUS_OPEN)->get(['direction', 'title']);
+                foreach ($open->groupBy('direction') as $direction => $rows) {
+                    $lines[] = '  açık ' . ($direction === \App\Models\Agreement::DIRECTION_SALE ? 'SATIŞ (biz satıyoruz, o bize öder)' : 'ALIŞ (biz alıyoruz, biz öderiz)')
+                        . ' anlaşması: ' . $rows->pluck('title')->filter()->implode(', ');
+                }
+            }
             foreach (\App\Models\PartyLedgerEntry::where('party_id', $party->id)->latest('entry_date')->latest('id')->limit(5)->get() as $e) {
                 $lines[] = '  ' . $e->entry_date?->format('d.m') . ' ' . $e->type . ' ' . Money::format((float) $e->amount) . ' ' . mb_substr((string) $e->description, 0, 60);
             }

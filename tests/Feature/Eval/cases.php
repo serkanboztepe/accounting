@@ -104,7 +104,8 @@ return [
             'sector' => 'excavation', 'agreement_direction' => 'sale',
             'business_note' => 'Kepçe ve hafriyat işi yapar, toptan tuğla, çimento, kiremit satar. Mal fabrikadan doğrudan müşterinin şantiyesine gider, '
                 . 'deposu yok. Müşterileri müteahhitlerdir, çoğunlukla çekle tahsil eder. Kepçe saatlik, hafriyat metreküp ya da sefer hesabıyla',
-            'parties' => ['Ali Boztepe' => []], 'categories' => ['Yakıt'],
+            'parties' => ['Ali Boztepe' => [], 'Yapı Market Mehmet' => ['kind' => 'customer']], 'categories' => ['Yakıt'],
+            'products' => [['Tuğla', 'adet']],
         ],
         'yeni_muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true, 'checks' => true], 'sector' => 'construction',
@@ -838,6 +839,7 @@ return [
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'ali-karo-iscilik' => [['agreement', 'Ali Usta', 'Karo döşeme işçiliği', 400, 250]],
         'tok-ali-borclu' => [['ledger', 'Ali Boztepe', 'satis', 300000, '-10 days', 'Tuğla']],
+        'tok-yapi-tugla' => [['agreement', 'Yapı Market Mehmet', 'Tuğla', 10000, 100, 'service', 'sale']],
         'st-temel' => [
             ['agreement', 'Yapı Market Mehmet', 'Tuğla', 10000, 100, null, 'sale'], ['agreement', 'Kuşak Beton', 'Kum', 100, 500],
             ['ledger', 'Ahmet Yılmaz', 'satis', 300000, '-20 days', '3000 tuğla'],

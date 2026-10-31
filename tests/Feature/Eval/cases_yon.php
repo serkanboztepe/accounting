@@ -26,6 +26,22 @@ return [
     // Mimar: eksiz ad + kendi işi → satış.
     $c('yn-mimar-eksiz-proje', 'ferhat', [$s('Bahadır Pir 40 bin proje çizimi yaptım')],
         ['draft' => ['kind' => 'sale', 'amount' => 40000]]),
+    // Satış anlaşmalı müşteriden para (31.10, kullanıcı: "anlaşmadan düş kimse demez, 50 bin aldım der, devamını biz getiririz").
+    ['id' => 'tc-50-bin-aldim', 'firm' => 'tok', 'group' => 'capability', 'seed' => 'tok-yapi-tugla',
+        // 26.10 kararı: anlaşmalı cariye para HER SEFERİNDE "Hangisi için?" (*1* Tuğla · *2* Diğer satışlar) — numara ile bağlanır.
+        'steps' => [$s('Yapı Marketten 50 bin aldım', ['draft' => ['kind' => 'collection', 'party_id' => '@party:Yapı Market Mehmet', 'amount' => 50000],
+            'reply_has' => ['Hangisi için', 'Tuğla'], 'reply_not' => ['Hatırla', 'teslim', 'aldın mı']]), $s('1'), $s('evet')],
+        'expect' => ['balance' => ['@party:Yapı Market Mehmet' => -50000]]],
+    ['id' => 'tc-50-bin-verdi', 'firm' => 'tok', 'group' => 'capability', 'seed' => 'tok-yapi-tugla',
+        'steps' => [$s('Yapı Market 50 bin verdi', ['draft' => ['kind' => 'collection', 'party_id' => '@party:Yapı Market Mehmet', 'amount' => 50000],
+            'reply_has' => ['Hangisi için']]), $s('1'), $s('evet')],
+        'expect' => ['balance' => ['@party:Yapı Market Mehmet' => -50000]]],
+    ['id' => 'tc-200-bin-cek', 'firm' => 'tok', 'group' => 'capability', 'seed' => 'tok-yapi-tugla',
+        'steps' => [$s('Yapı Marketten 200 bin çek aldım', ['draft' => ['kind' => 'collection', 'party_id' => '@party:Yapı Market Mehmet',
+            'amount' => 200000], 'reply_not' => ['verdin', 'Hatırla']])]],
+    ['id' => 'tc-cimento-alis', 'firm' => 'tok', 'group' => 'capability', 'seed' => 'tok-yapi-tugla',
+        'steps' => [$s('Yapı Marketten 50 binlik çimento aldım', ['draft_kind_not' => ['collection', 'remember'],
+            'reply_not' => ['ödedi']])]],
     // Stoklu, hem alıp hem satan: un hem Ak Un'dan alınır hem satılır → yön sorulmalı ya da açık fiil yoksa tahmin etmemeli.
     $c('yn-toptan-iki-yon-sorar', 'stok', [$s('Mehmet Kaya 50 çuval un 850')],
         ['asks' => true]),

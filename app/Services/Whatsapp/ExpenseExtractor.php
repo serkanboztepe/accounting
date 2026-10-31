@@ -188,7 +188,11 @@ class ExpenseExtractor
             . '"anlaşmasından düş") — iş yapıldı / mal geldi denmediyse "agreement_delivery" DEĞİL, paradan miktar hesaplanmaz; hangi anlaşmaya '
             . 'sayılacağını sistem sorar.',
         self::KIND_SALE => '- "sale": BİZ bir cariye İŞ YAPTIK / SATTIK, karşılığında o bize borçlanır ("Ahmet X\'e 80 bine proje yaptım", "şantiye şefliği 30 bin"). Bir cariye MAL VERDİYSEK de satıştır: "X\'e verilen / X\'e verdim / X\'e gitti" + mal adı ya da miktarı ("Şeker\'in kardeşine verilen peynir 25 kilo 15 bin", "Ali\'ye 10 kilo bal verdim 6 bin") → "sale" — bu bir gider ya da ödeme DEĞİLDİR (biz mal ALMADIK, para VERMEDİK). "X\'e verdim" yalnız PARA ise ("ustaya 20 bin verdim") → "payment". "X\'e veresiye" / "X\'e veresiye yazdım" ("Ayşe hanıma 1.250 lira veresiye") → "sale", `paid`=false — veresiye = malı verdik, parası sonra alınacak; gider ya da borç kaydı DEĞİLDİR. Parası hemen alındıysa ("parasını aldım", "peşin sattım", "nakit aldım") ve mal VERİLDİYSE `paid`=true (peşin satış: cari borçlanmaz); söylenmediyse null. Para alındı ama mal/iş SONRA verilecekse ("parasını aldım, peyniri sonra göndereceğim", "kapora aldım", "peşin verdi, malı sonra götüreceğim") bu satış DEĞİL → "collection" + `payment_purpose`="advance".',
-        self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır. Para, mal/iş henüz VERİLMEDEN peşin alındıysa (müşteri avansı: "Zülfikar 3 bin verdi, peyniri sonra vereceğim", "kapora aldım", "parasını aldım malı sonra göndereceğim") → `payment_purpose`="advance", `description` ne verilecekse ("20 kg peynir"). Müşteri bize alacaklı olur; satış AÇMA. ÇEKLE TAHSİLAT ("Ahmet\'ten 3 çek aldım", "Ali çek verdi vadesi 30.11", çek fotoğrafı + "Ahmet verdi"): `payment_type`="other", her çek `checks`\'e ayrı satır (no, vade yazıldığı gibi, tutar); çekler KURAL olarak söylendiyse ("100\'er bin 3 çek, kasımdan itibaren") `check_plan`. Cari = çeki BİZE VEREN kişidir (mesajda adı geçen); çekin üstündeki matbu keşideci başkası olabilir (ciro edilmiş çek) — kullanıcı kimden aldığını yazmadıysa `question`: "Bu çeki kimden aldın?".',
+        self::KIND_COLLECTION => '- "collection": CARİ BİZE PARA VERDİ ("Ahmet X 50 bin ödedi", "Ahmet\'ten 20 bin tahsil ettim"). '
+            // 31.10 Alim Tok: "Yapı Marketten 50 bin aldım" (satış anlaşmalı müşteri) bir turda "mal mı aldın, ödeme mi yaptın?" diye soruldu.
+            . 'AÇIK SATIŞ ANLAŞMASI olan ya da "(müşteri)" notlu cariden mal adı geçmeden PARA / ÇEK "aldım" da collection\'dır ("Yapı Marketten '
+            . '50 bin aldım", "Yapı Market 50 bin verdi", "Mehmet\'ten 200 bin çek aldım") — mal alışı ya da teslim DEĞİL; hangi anlaşmaya '
+            . 'sayılacağını sistem sorar. Mal adı geçiyorsa ("Yapı Marketten 50 binlik çimento aldım") alıştır. DİKKAT: "ödedim" (biz verdik → payment) ile "ödedi" (o verdi → collection) farklıdır. Para, mal/iş henüz VERİLMEDEN peşin alındıysa (müşteri avansı: "Zülfikar 3 bin verdi, peyniri sonra vereceğim", "kapora aldım", "parasını aldım malı sonra göndereceğim") → `payment_purpose`="advance", `description` ne verilecekse ("20 kg peynir"). Müşteri bize alacaklı olur; satış AÇMA. ÇEKLE TAHSİLAT ("Ahmet\'ten 3 çek aldım", "Ali çek verdi vadesi 30.11", çek fotoğrafı + "Ahmet verdi"): `payment_type`="other", her çek `checks`\'e ayrı satır (no, vade yazıldığı gibi, tutar); çekler KURAL olarak söylendiyse ("100\'er bin 3 çek, kasımdan itibaren") `check_plan`. Cari = çeki BİZE VEREN kişidir (mesajda adı geçen); çekin üstündeki matbu keşideci başkası olabilir (ciro edilmiş çek) — kullanıcı kimden aldığını yazmadıysa `question`: "Bu çeki kimden aldın?".',
         self::KIND_BALANCE_QUERY => '- "balance_query": kayıt değil, SORU ("Ahmet\'e ne kadar borcum var?", "Ahmet\'in bakiyesi ne?"). Belirli bir cari ADI şart; isim yoksa ("Borcum ne kadar", "Tüm borç", "Alacağım ne kadar") → "totals_query". Hiçbir şey kaydedilmez; amount=0. Mesaj YALNIZ bir kişi adıysa (yanında "cari", "durum", "hesap", "ne durumda" olsun olmasın: "Özkan Varlı", "Özkan varlı cari", "Ahmet durum") ve açık bir soru / onay bekleyen kayıt yoksa bu türdür — "ne yapayım?" diye SORMA. Ad CARİLER\'de yoksa da yazılan adı `party_name`e koy (kod "bulamadım, ne yapmamı istersin?" der).',
         self::KIND_DEBT_NOTE => '- "debt_note": işlem fiili OLMADAN söylenen bir ALACAK/BORÇ durumu — eski/devreden hesap, veresiye ("Ali\'den 40 bin alacağım var", "Ahmet bana 20 bin borçlu", "Mehmet\'e 15 bin borcum var", "Kuşak Beton\'a 50 bin borçluyum"). `debt_side`: o bize borçlu → "receivable", biz ona borçluyuz → "payable"; yön fiilden AÇIKÇA anlaşılmıyorsa ("Serkan adına 10000 borç", "Ali 5 bin borç", "Veli ile 3 bin hesap") → "unclear" — TAHMİN ETME, kullanıcıya sorulur. Cari zorunlu (isim yoksa `question`="Kimden alacağın var? Adını yazar mısın?" ya da "Kime borcun var? Adını yazar mısın?"). Soru cümlesi DEĞİLDİR ("Ali\'ye ne kadar borcum var?" → balance_query). PARAYI BİZ ALDIYSAK ve geri vereceksek ("Ali\'den 10 bin borç aldım", "Ali\'den ödünç aldım", "Ali\'den 5 bin daha borç aldım") → "debt_note", `debt_side`="payable" (biz ona borçlandık), `description`="Borç alındı" — bu "payment"/"loan" (borç VERDİM) DEĞİLDİR, yön terstir. Gelecek zamanda verilecek para ("Ahmet\'e 20 bin vereceğim", "vereceğim var") da "payable"dır (`future_payment`=true). BORCU ÖDEDİYSEK bu borç kaydı DEĞİL, ÖDEMEDİR: "Hazal\'a borcum ödendi", "Ali\'ye borcumu ödedim", "borcumu kapattım", "borcumu iade ettim" → "payment" + `debt_repayment`=true (sistem kayıtlı borcu kapatır; kayıtlı borç yoksa eski borç + ödeme yazar, "ne için verdin?" sorulmaz).',
         self::KIND_PARTY_LIST => '- "party_list": carilerin LİSTESİ isteniyor, belirli bir isim yok ("Hangi carim var?", "Carilerimi göster", "Cari hesabı kontrol et", "Kimlerle hesabım var?"). Hiçbir şey kaydedilmez; amount=0.',
@@ -1481,15 +1485,25 @@ class ExpenseExtractor
      */
     public static function moneyOnlyDelivery(array $d): array
     {
-        if (($d['kind'] ?? null) !== self::KIND_AGREEMENT_DELIVERY || empty($d['money_only'])) {
+        // Çek geçiyorsa da para demektir (31.10 Alim Tok: "Yapı Marketten 200 bin çek aldım" teslim sanıldı, "anlaşma bulamadım").
+        if (($d['kind'] ?? null) !== self::KIND_AGREEMENT_DELIVERY || (empty($d['money_only']) && empty($d['checks']))) {
             return $d;
         }
         $lines = (array) ($d['delivery_lines'] ?? []);
         $ids = array_filter(array_merge(array_column($lines, 'agreement_item_id'), (array) ($d['delivery_candidates'] ?? [])));
-        $partyIds = \App\Models\AgreementItem::with('agreement')->whereIn('id', $ids)->get()->pluck('agreement.party_id')->unique()->values();
+        $items = \App\Models\AgreementItem::with('agreement')->whereIn('id', $ids)->get();
+        $partyIds = $items->pluck('agreement.party_id')->unique()->values();
+        $partyId = $partyIds->count() === 1 ? $partyIds->first() : ($d['party_id'] ?? null);
         $amount = (float) ($d['amount'] ?? 0) ?: (float) array_sum(array_column($lines, 'amount'));
+        // Satış anlaşmasının carisinden gelen para tahsilattır (müteahhitte alış anlaşmasına giden para ödeme — 30.10).
+        $directions = $items->pluck('agreement.direction')->unique();
+        if ($directions->isEmpty() && $partyId) {
+            $directions = \App\Models\Agreement::where('party_id', $partyId)->where('status', \App\Models\Agreement::STATUS_OPEN)->pluck('direction')->unique();
+        }
+        $direction = $directions->count() === 1 ? $directions->first() : \App\Support\Features::agreementDefaultDirection();
+        $kind = $direction === \App\Models\Agreement::DIRECTION_SALE ? self::KIND_COLLECTION : self::KIND_PAYMENT;
 
-        return array_merge($d, ['kind' => self::KIND_PAYMENT, 'party_id' => $partyIds->count() === 1 ? $partyIds->first() : null,
+        return array_merge($d, ['kind' => $kind, 'party_id' => $partyId,
             'amount' => $amount, 'delivery_lines' => [], 'delivery_candidates' => [], 'work_status' => null, 'work_status_known' => false,
             'question' => null, 'is_new_entry' => $d['is_new_entry'] ?? true]);
     }

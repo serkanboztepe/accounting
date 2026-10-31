@@ -149,6 +149,31 @@ class WhatsappUnnamedPayeeTest extends TestCase
         $this->assertSame(ExpenseExtractor::KIND_AGREEMENT_DELIVERY, ExpenseExtractor::moneyOnlyDelivery($delivery + ['money_only' => false])['kind'], '"300 m2 sıva yaptı" teslimattır');
     }
 
+    /**
+     * Satış anlaşmalı müşteriden para / çek (31.10 Alim Tok: "Yapı Marketten 200 bin çek aldım" teslim sanıldı) → TAHSİLAT;
+     * kalem bulunmasa da carinin açık anlaşmasının yönünden; çek geçiyorsa "yalnız para" işareti olmasa da para.
+     */
+    public function test_money_or_check_to_sale_agreement_party_is_collection(): void
+    {
+        config(['modules.agreements' => true]);
+        $mehmet = Party::create(['name' => 'UP Yapı Market']);
+        $product = \App\Models\Product::create(['name' => 'UP Tuğla', 'type' => \App\Models\Product::TYPE_SERVICE]);
+        $agreement = \App\Models\Agreement::create(['party_id' => $mehmet->id, 'direction' => 'sale', 'title' => 'Tuğla', 'agreement_date' => now()->toDateString()]);
+        $item = \App\Models\AgreementItem::create(['agreement_id' => $agreement->id, 'product_id' => $product->id, 'quantity' => 10000, 'unit_price' => 100, 'amount' => 1000000]);
+
+        $withLine = ExpenseExtractor::moneyOnlyDelivery(['kind' => ExpenseExtractor::KIND_AGREEMENT_DELIVERY, 'amount' => 50000, 'money_only' => true,
+            'delivery_lines' => [['agreement_item_id' => $item->id, 'quantity' => null, 'amount' => 50000.0, 'unit_price' => null, 'description' => null]]]);
+        $this->assertSame(ExpenseExtractor::KIND_COLLECTION, $withLine['kind']);
+        $this->assertSame($mehmet->id, $withLine['party_id']);
+
+        // Kalem yok, yalnız cari + çek (AI "yalnız para" işaretlemedi).
+        $check = ExpenseExtractor::moneyOnlyDelivery(['kind' => ExpenseExtractor::KIND_AGREEMENT_DELIVERY, 'amount' => 200000, 'party_id' => $mehmet->id,
+            'delivery_lines' => [], 'checks' => [['amount' => 200000, 'due_date' => null, 'number' => null]]]);
+        $this->assertSame(ExpenseExtractor::KIND_COLLECTION, $check['kind']);
+        $this->assertSame($mehmet->id, $check['party_id']);
+        $this->assertEqualsWithDelta(200000, $check['amount'], 0.01);
+    }
+
     /** "Asansör Osman" varken: kod sorar; *evet* → Osman'a ödeme (gider değil). */
     public function test_matching_party_is_asked_and_yes_pays_that_party(): void
     {
