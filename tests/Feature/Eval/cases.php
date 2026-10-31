@@ -98,6 +98,14 @@ return [
             'parties' => ['Ali Boztepe' => [], 'Abdullah Uçar' => [], 'Akdağ Tuğla Fabrikası' => ['kind' => 'supplier']],
             'products' => [['Tuğla', 'adet'], ['Çimento', 'torba']], 'categories' => ['Yakıt'],
         ],
+        // Tok Hafriyat (firma 14) ile birebir (31.10): stok ve Yerler kapalı, Gider + Anlaşmalar açık, yön "Satış (alım derse alım)".
+        'tok' => [
+            'profile' => 'alacak_verecek', 'modules' => ['expenses' => true, 'agreements' => true, 'checks' => true, 'cari_supplier' => true],
+            'sector' => 'excavation', 'agreement_direction' => 'sale',
+            'business_note' => 'Kepçe ve hafriyat işi yapar, toptan tuğla, çimento, kiremit satar. Mal fabrikadan doğrudan müşterinin şantiyesine gider, '
+                . 'deposu yok. Müşterileri müteahhitlerdir, çoğunlukla çekle tahsil eder. Kepçe saatlik, hafriyat metreküp ya da sefer hesabıyla',
+            'parties' => ['Ali Boztepe' => []], 'categories' => ['Yakıt'],
+        ],
         'yeni_muteahhit' => [
             'profile' => 'muteahhit', 'modules' => ['projects' => true, 'agreements' => true, 'checks' => true], 'sector' => 'construction',
             'projects' => ['Cumhuriyet Apartmanı', 'Barbaros Sitesi'],
@@ -827,6 +835,7 @@ return [
         'taner-osman-avans-sonda' => [['ledger', 'Asansör Osman', 'odeme', 20000, '-1 days', 'Asansör Osman avansı']],
         'taner-sinan-avans' => [['ledger', 'Sinan Sele', 'odeme', 2500000, '-3 days', 'Avans — 2026 bağlantısı']],
         'ali-karo-iscilik' => [['agreement', 'Ali Usta', 'Karo döşeme işçiliği', 400, 250]],
+        'tok-ali-borclu' => [['ledger', 'Ali Boztepe', 'satis', 300000, '-10 days', 'Tuğla']],
         'st-temel' => [
             ['agreement', 'Yapı Market Mehmet', 'Tuğla', 10000, 100, null, 'sale'], ['agreement', 'Kuşak Beton', 'Kum', 100, 500],
             ['ledger', 'Ahmet Yılmaz', 'satis', 300000, '-20 days', '3000 tuğla'],

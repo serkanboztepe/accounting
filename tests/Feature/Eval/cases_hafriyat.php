@@ -24,6 +24,11 @@ return [
         ['draft' => ['kind' => 'expense', 'amount' => 8000]]),
     $c('hf-tugla-satis-anlasma', [$s("Ali Boztepe'ye 10.000 tuğla 1 milyondan anlaştık sattım")],
         ['draft' => ['kind' => 'agreement', 'agreement_direction' => 'sale', 'party_id' => '@party:Ali Boztepe'], 'reply_has' => ['1.000.000']]),
+    // Alim Tok'a giden tanıtım mesajındaki çek cümlesi — firma 14 ile aynı ayarlı "tok" firmasında (31.10).
+    ['id' => 'tok-cek-aldim', 'firm' => 'tok', 'group' => 'capability', 'seed' => 'tok-ali-borclu',
+        'steps' => [$s("Ali Boztepe'den 15.12 vadeli 200 bin çek aldım", ['draft' => ['kind' => 'collection', 'party_id' => '@party:Ali Boztepe',
+            'amount' => 200000], 'reply_has' => ['15.12'], 'reply_not' => ['verdin', 'ödedin']]), $s('evet')],
+        'expect' => ['balance' => ['@party:Ali Boztepe' => 100000]]],
     $c('hf-dokum', [$s('Ali Boztepe döküm')],
         ['reply_not' => ['Kimin hesap'], 'no_new_draft' => true]),
 ];
