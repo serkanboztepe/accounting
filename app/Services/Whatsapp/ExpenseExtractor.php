@@ -838,11 +838,14 @@ class ExpenseExtractor
      */
     private static function agreementDirectionRule(): string
     {
-        return match (\App\Support\Features::agreementFixedDirection()) {
-            \App\Models\Agreement::DIRECTION_PURCHASE => '- ANLAŞMA YÖNÜ: bu firma YALNIZ ALIŞ anlaşması yapar (biz alırız / biz öderiz) — her anlaşma alıştır, yön sorma. '
+        return match (\App\Support\Features::agreementDirection()) {
+            \App\Support\FeatureSettings::AGREEMENT_PURCHASE => '- ANLAŞMA YÖNÜ: bu firma YALNIZ ALIŞ anlaşması yapar (biz alırız / biz öderiz) — her anlaşma alıştır, yön sorma. '
                 . 'Teslimde de mal/iş BİZE gelir.',
-            \App\Models\Agreement::DIRECTION_SALE => '- ANLAŞMA YÖNÜ: bu firma YALNIZ SATIŞ anlaşması yapar (biz satarız / bize ödenir) — her anlaşma satıştır, yön sorma. '
-                . 'Teslimde mal ONA gider ("Mehmet\'e 5 bin tuğla gönderdim / teslim ettim / yolladık / indirdik", "3000 tuğla gitti").',
+            // 31.10 Alim Tok: genelde satar, nadiren fabrikadan alır — soru yok, açıkça "aldım" denirse alış.
+            \App\Support\FeatureSettings::AGREEMENT_SALE => '- ANLAŞMA YÖNÜ: bu firma GENELDE SATIŞ anlaşması yapar (biz satarız / bize ödenir) — yön SORMA. '
+                . '`agreement_direction` = sale; YALNIZ kullanıcı açıkça kendisinin aldığını söylerse purchase ("aldım", "alım yaptım", '
+                . '"fabrikadan / tedarikçiden alacağız", "biz ödeyeceğiz", belgede Alıcı biziz). Kişi adındaki ek ("Ali\'ye anlaştık") yön '
+                . 'söylemez → sale. Teslimde mal ONA gider ("Mehmet\'e 5 bin tuğla gönderdim / teslim ettim / yolladık / indirdik", "3000 tuğla gitti").',
             default => '- ANLAŞMA YÖNÜ: bu firma hem alış hem satış anlaşması yapar. `agreement_direction` YALNIZ cümle ya da belge yönü açıkça '
                 . 'söylüyorsa: sale ("sattım", "satacağız", "bize ödeyecek", "bizden alacak", belgede Satıcı biziz) · purchase ("aldım", '
                 . '"alacağız", "biz ödeyeceğiz", "bize getirecek", "X yapacak" — iş bize yapılıyor, belgede Alıcı/İşveren biziz). Kişi adındaki ek '

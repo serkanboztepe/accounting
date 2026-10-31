@@ -94,7 +94,7 @@ return [
         ],
         // Hafriyat / iş makinesi (31.10, cases_hafriyat.php — Alim Tok demosu): kepçe + hafriyat hizmeti, toptan tuğla satışı.
         'hafriyat' => [
-            'profile' => 'trade', 'modules' => ['agreements' => true, 'checks' => true], 'sector' => 'excavation', 'agreement_direction' => 'both',
+            'profile' => 'trade', 'modules' => ['agreements' => true, 'checks' => true], 'sector' => 'excavation', 'agreement_direction' => 'sale',
             'parties' => ['Ali Boztepe' => [], 'Abdullah Uçar' => [], 'Akdağ Tuğla Fabrikası' => ['kind' => 'supplier']],
             'products' => [['Tuğla', 'adet'], ['Çimento', 'torba']], 'categories' => ['Yakıt'],
         ],

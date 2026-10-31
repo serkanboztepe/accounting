@@ -132,8 +132,17 @@ final class Features
         return $mode === FeatureSettings::AGREEMENT_BOTH || $mode === $direction;
     }
 
-    /** Tek yönlü firmada o yön (purchase | sale), iki yönlüde null. */
+    /**
+     * Yönü KESİN sabit firma: yalnız "Yalnız alış" (müteahhit) → purchase; AI ne derse desin alış, panelde yön seçimi yok.
+     * "Satış (alım derse alım)" sabit DEĞİL (31.10 Alim Tok: genelde satar, nadiren fabrikadan alır) → null.
+     */
     public static function agreementFixedDirection(): ?string
+    {
+        return self::agreementDirection() === FeatureSettings::AGREEMENT_PURCHASE ? FeatureSettings::AGREEMENT_PURCHASE : null;
+    }
+
+    /** Söylenmezse yön: yalnız alış → purchase, satış → sale; "Alış + satış"ta null (belirsizse sorulur). */
+    public static function agreementDefaultDirection(): ?string
     {
         $mode = self::agreementDirection();
 

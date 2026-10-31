@@ -839,7 +839,7 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('· *satış*', $card);
     }
 
-    /** Yalnız alış yapan firma (müteahhit): AI "sale" dese de alış; soru yok. Yalnız satış yapan: yön söylenmese de satış. */
+    /** Yalnız alış yapan firma (müteahhit): AI "sale" dese de alış; soru yok. Satış firması: yön söylenmese satış, "aldım" derse alış. */
     public function test_single_direction_firm_never_asks_and_fixes_direction(): void
     {
         config(['app.agreement_direction' => 'purchase']);
@@ -859,6 +859,15 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('· *satış*', $card);
         $this->send('evet');
         $this->assertSame(Agreement::DIRECTION_SALE, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WAD Ali Boztepe'))->sole()->direction);
+
+        // "Satış (alım derse alım)" (31.10 Alim Tok): açıkça alım söylenirse alış — soru yine yok.
+        $this->ai($this->agreement(['agreement_direction' => 'purchase', 'party_name' => 'WAD Akdağ Fabrika',
+            'agreement_items' => [['description' => 'WAD Tuğla', 'quantity' => 50000, 'unit' => 'adet', 'unit_price' => 6]]]));
+        $card = $this->send('Akdağ fabrikadan 50 bin tuğla aldım tanesi 6, anlaştık');
+        $this->assertStringNotContainsString('Satış anlaşması mı', $card);
+        $this->assertStringContainsString('WAD Akdağ Fabrika (yeni kişi) · *alış*', $card);
+        $this->chooseProject();
+        $this->assertSame(Agreement::DIRECTION_PURCHASE, Agreement::whereHas('party', fn ($q) => $q->where('name', 'WAD Akdağ Fabrika'))->sole()->direction);
     }
 
     /** AI şeması ve yönergesi firma ayarına uyar: tek yönlüde yön alanı yok, iki yönlüde "TAHMİN ETME" kuralı. */
@@ -872,7 +881,8 @@ class WhatsappAgreementTest extends TestCase
         $this->assertStringContainsString('YALNIZ ALIŞ anlaşması', ExpenseExtractor::kindGuide());
 
         config(['app.agreement_direction' => 'sale']);
-        $this->assertStringContainsString('YALNIZ SATIŞ anlaşması', ExpenseExtractor::kindGuide());
+        $this->assertTrue($props(), 'satışta alım da yazılabilir → yön alanı var');
+        $this->assertStringContainsString('GENELDE SATIŞ anlaşması', ExpenseExtractor::kindGuide());
 
         config(['app.agreement_direction' => 'both']);
         $this->assertTrue($props());
@@ -903,7 +913,7 @@ class WhatsappAgreementTest extends TestCase
     public function test_total_said_agreement_keeps_total_and_deliveries_add_up(): void
     {
         config(['app.agreement_direction' => 'sale']);
-        $this->ai($this->agreement(['party_name' => 'WAK Ali Boztepe',
+        $this->ai($this->agreement(['agreement_direction' => null, 'party_name' => 'WAK Ali Boztepe',
             'agreement_items' => [['description' => 'WAK Tuğla', 'quantity' => 3000, 'unit' => 'adet', 'unit_price' => 333.33, 'amount' => 1000000]]]));
         $card = $this->send('Ali boztepeye 3000 tuğla 1 milyondan anlaştım');
         $this->assertStringContainsString('WAK Tuğla 3.000 adet = 1.000.000,00 (adet fiyatı ≈333,33)', $card);

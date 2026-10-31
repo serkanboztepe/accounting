@@ -355,6 +355,7 @@ class AgreementForm
     {
         return \App\Support\Features::agreementFixedDirection()
             ?? ($partyId ? Agreement::where('party_id', $partyId)->latest('id')->value('direction') : null)
+            ?? \App\Support\Features::agreementDefaultDirection()
             ?? Agreement::DIRECTION_PURCHASE;
     }
 

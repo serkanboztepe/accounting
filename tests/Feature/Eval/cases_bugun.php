@@ -2,7 +2,7 @@
 
 /*
  * 31.10 Yeni Yapı demosunun GERÇEK cümleleri (kullanıcı Alim Tok'a sunum öncesi denedi) — firma "hafriyat" (Alim Tok düzeni:
- * sektör hafriyat, stoklu, anlaşma yönü both). Beklenen = doğru davranış; demoda bozulanlar: 999.990, "4 TL mi?", "130 TL mi?",
+ * sektör hafriyat, stoklu, anlaşma yönü "Satış (alım derse alım)"). Beklenen = doğru davranış; demoda bozulanlar: 999.990, "4 TL mi?", "130 TL mi?",
  * hafriyat alış sanıldı, "zaten kaydettik" (yeni/aynı sorulmadı), uydurma açıklama.
  */
 
@@ -11,11 +11,10 @@ $c = fn (string $id, array $steps, array $expect = []) => ['id' => $id, 'firm' =
 $s = fn (string $text, array $expect = []) => $expect === [] ? ['send' => $text] : ['send' => $text, 'expect' => $expect];
 
 return [
-    // 11:01 — yön sorusu → "Satış" → 1.000.000 (999.990 değil) → 400 tuğla teslimi 133.333,33.
+    // 11:01 — firma "Satış (alım derse alım)": yön sorulmaz → 1.000.000 (999.990 değil) → 400 tuğla teslimi 133.333,33.
     $c('bg-tugla-1milyon-teslim', [
-        $s('Ali boztepeye 3000 tuğla 1 milyondan anlaştım', ['reply_any' => ['sattım', 'satış anlaşması'], 'reply_not' => ['999.990']]),
-        $s('Satış', ['draft' => ['kind' => 'agreement', 'agreement_direction' => 'sale', 'party_id' => '@party:Ali Boztepe'],
-            'reply_has' => ['1.000.000'], 'reply_not' => ['999.990']]),
+        $s('Ali boztepeye 3000 tuğla 1 milyondan anlaştım', ['draft' => ['kind' => 'agreement', 'agreement_direction' => 'sale',
+            'party_id' => '@party:Ali Boztepe'], 'reply_has' => ['1.000.000'], 'reply_not' => ['999.990', 'Satış anlaşması mı']]),
         $s('Evet'),
         $s('Ali boztepeye 400 tuğla gönderdim', ['draft' => ['kind' => 'agreement_delivery', 'delivery_direction' => 'sale'],
             'reply_has' => ['133.333,33']]),

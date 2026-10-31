@@ -113,7 +113,7 @@ class AgreementDeliveryDraft
         $d['delivery_candidates'] = $candidates;
         $d['party_id'] = $partyId ?? ($d['party_id'] ?? null);
         // Kalem bulunmadıysa: tek yönlü firmada o yön (yalnız satış yapan tuğlacıda "5 bin tuğla gönderdim" satış, 31.10).
-        $d['delivery_direction'] = $direction ?? \App\Support\Features::agreementFixedDirection() ?? ($d['delivery_direction'] ?? Agreement::DIRECTION_PURCHASE);
+        $d['delivery_direction'] = $direction ?? \App\Support\Features::agreementDefaultDirection() ?? ($d['delivery_direction'] ?? Agreement::DIRECTION_PURCHASE);
 
         return $d;
     }

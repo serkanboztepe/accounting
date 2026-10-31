@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Hafriyat deneme seti (31.10, Alim Tok demosu) — firma "hafriyat" (sektör excavation, stoklu, anlaşma yönü both).
+ * Hafriyat deneme seti (31.10, Alim Tok demosu) — firma "hafriyat" (sektör excavation, stoklu, anlaşma yönü sale = "alım derse alım").
  * "X'ten hafriyat aldım" = X'e iş yaptık (satış, hizmet, stoğa girmez); hesaplanan tutara ölçek sorusu yok; malzeme alışı gerçek alış.
  */
 

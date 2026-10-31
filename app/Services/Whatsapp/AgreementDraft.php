@@ -116,25 +116,27 @@ class AgreementDraft
     public const PURCHASE_WORDS = ['aldım', 'aldim', 'alış', 'alis', 'alış anlaşması', 'alis anlasmasi', 'aldık', 'aldik', 'alıyorum', 'alış yaptım'];
 
     /**
-     * Anlaşmanın yönü: tek yönlü firmada (hub ayarı) AI ne derse desin o yön; iki yönlüde AI'ın söylediği, söylemediyse alış
-     * (eski davranış — ama agreement_direction_unclear ile sorulur, sessiz geçmez).
+     * Anlaşmanın yönü: "Yalnız alış" firmada AI ne derse desin alış; değilse AI'ın söylediği; söylemediyse firmanın varsayılanı
+     * ("Satış (alım derse alım)" → satış); "Alış + satış"ta alış yazılır ama agreement_direction_unclear ile SORULUR, sessiz geçmez.
      */
     public static function direction(mixed $said): string
     {
         return \App\Support\Features::agreementFixedDirection()
-            ?? ($said === Agreement::DIRECTION_SALE ? Agreement::DIRECTION_SALE : Agreement::DIRECTION_PURCHASE);
+            ?? (in_array($said, [Agreement::DIRECTION_SALE, Agreement::DIRECTION_PURCHASE], true) ? $said : null)
+            ?? \App\Support\Features::agreementDefaultDirection()
+            ?? Agreement::DIRECTION_PURCHASE;
     }
 
     private static function directionUnclear(mixed $said): bool
     {
-        return \App\Support\Features::agreementFixedDirection() === null
+        return \App\Support\Features::agreementDefaultDirection() === null
             && ! in_array($said, [Agreement::DIRECTION_SALE, Agreement::DIRECTION_PURCHASE], true);
     }
 
     /** Yön sorusu bekleniyor mu (iki yönlü firmada, kullanıcı henüz cevaplamadı). */
     public static function awaitsDirection(array $d): bool
     {
-        return self::handles($d) && ! empty($d['agreement_direction_unclear']) && \App\Support\Features::agreementFixedDirection() === null;
+        return self::handles($d) && ! empty($d['agreement_direction_unclear']) && \App\Support\Features::agreementDefaultDirection() === null;
     }
 
     /** "sattım" / "aldım" cevabı → yön; tanınmayan cevap null. */

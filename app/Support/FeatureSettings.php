@@ -57,7 +57,7 @@ final class FeatureSettings
 
     public const AGREEMENT_DIRECTION_LABELS = [
         self::AGREEMENT_PURCHASE => 'Yalnız alış',
-        self::AGREEMENT_SALE     => 'Yalnız satış',
+        self::AGREEMENT_SALE     => 'Satış (alım derse alım)',
         self::AGREEMENT_BOTH     => 'Alış + satış',
     ];
 

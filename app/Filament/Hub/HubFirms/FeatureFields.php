@@ -75,12 +75,12 @@ final class FeatureFields
                         ->options(FeatureSettings::AGREEMENT_DIRECTION_LABELS)
                         ->descriptions([
                             FeatureSettings::AGREEMENT_PURCHASE => 'Müteahhit gibi: her anlaşma alış, satış sorulmaz.',
-                            FeatureSettings::AGREEMENT_SALE     => 'Tuğla / malzeme satan: her anlaşma satış, alış sorulmaz.',
+                            FeatureSettings::AGREEMENT_SALE     => 'Malzeme / hizmet satan: yön sorulmaz, anlaşma satıştır; "aldım / alım yaptım" derse alış.',
                             FeatureSettings::AGREEMENT_BOTH     => 'Alıp satan: cümlede belli değilse "satış mı, alış mı?" diye sorulur.',
                         ])
                         ->default(FeatureSettings::AGREEMENT_BOTH)
                         ->visible(fn (Get $get) => (bool) $get('feat_agreements'))
-                        ->helperText('Panelin Anlaşmalar ekranında da yalnız seçilen yön görünür.'),
+                        ->helperText('Yalnız alışta panelin Anlaşmalar ekranında yön seçimi de görünmez.'),
                     Toggle::make('feat_land_share')->label('Hisse Dağılımı')->live()->afterStateUpdated($lockPlaces)
                         ->helperText('Kat karşılığı hisse dağılımı. Yerler\'i de açar.'),
                     Toggle::make('feat_property_tax')->label('Emlak Beyanı')->live()->afterStateUpdated($lockPlaces)
