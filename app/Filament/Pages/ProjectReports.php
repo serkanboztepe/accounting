@@ -64,7 +64,7 @@ class ProjectReports extends Page implements HasSchemas
             \Filament\Actions\Action::make('print')
                 ->label('Çıktı Al / Yazdır')
                 ->icon(Heroicon::OutlinedPrinter)
-                ->color('gray')
+                ->color('primary')
                 ->visible(fn (): bool => (bool) $this->getSelectedProject())
                 ->url(fn (): ?string => $this->getSelectedProject()
                     ? route('project-report.print', $this->getSelectedProject()) : null)
