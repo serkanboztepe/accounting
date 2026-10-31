@@ -32,8 +32,10 @@ class AgreementDeliveryDraft
             ->with(['agreement.party', 'agreement.project', 'product.unit', 'movements'])
             ->whereNull('closed_at')
             ->whereHas('agreement', fn ($q) => $q->where('status', Agreement::STATUS_OPEN)
-                // Deneme seti (ExpenseContext::$only): yalnız denemenin carileri — canlıda null.
-                ->when(ExpenseContext::$only !== null, fn ($w) => $w->whereIn('party_id', ExpenseContext::$only['parties'] ?? [])))
+                // Deneme seti (ExpenseContext::$only): yalnız denemenin carileri + konuşmada açılanlar (31.10: yeni cariyle yapılan
+                // anlaşma listede yoktu, "Alime 500 tuğla gitti" kalem bulamadı) — canlıda null.
+                ->when(ExpenseContext::$only !== null, fn ($w) => $w->where(fn ($p) => $p->whereIn('party_id', ExpenseContext::$only['parties'] ?? [])
+                    ->when(isset(ExpenseContext::$only['_after']['parties']), fn ($n) => $n->orWhere('party_id', '>', ExpenseContext::$only['_after']['parties'])))))
             ->latest('id')->limit(self::CONTEXT_LIMIT * 2)->get()
             ->filter(fn (AgreementItem $i) => $i->isList() || $i->remainingQuantity() > 0.0001)
             ->take(self::CONTEXT_LIMIT)

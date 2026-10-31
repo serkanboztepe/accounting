@@ -802,6 +802,7 @@ return [
         ...(require __DIR__ . '/cases_muteahhit.php'),
         ...(require __DIR__ . '/cases_satici.php'),
         ...(require __DIR__ . '/cases_hafriyat.php'),
+        ...(require __DIR__ . '/cases_bugun.php'),
     ],
 
     // Yetenek vakaları için geçmiş veri (vaka içinde yazılır, vaka sonunda geri alınır).
