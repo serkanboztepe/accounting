@@ -281,9 +281,12 @@
                                                     <span class="text-xs font-medium text-orange-600 dark:text-orange-400">· ⚠️ aynı tutar sözleşme teslimatında da var, iki kez girilmiş olabilir</span>
                                                 @endif
                                             </span>
-                                            <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
-                                                ₺{{ \App\Support\Money::format($item['amount']) }}
-                                            </span>
+                                            {{-- Çok kalemli alışta tutar kalemlerde; başlıkta tekrar yok (3.11: üstte toplam kafa karıştırıyor). --}}
+                                            @if (count($item['lines']) <= 1)
+                                                <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
+                                                    ₺{{ \App\Support\Money::format($item['amount']) }}
+                                                </span>
+                                            @endif
                                         </div>
                                         @foreach ($item['lines'] as $line)
                                             <div class="mt-1 flex items-center gap-2 pl-[5.5rem] text-xs text-gray-500 dark:text-gray-400">

@@ -90,7 +90,7 @@
                 <tbody class="grp">
                     <tr class="group"><td colspan="3">{{ $group['party'] }}</td></tr>
                     @foreach ($group['items'] as $item)
-                        <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] }}</td><td class="num">{{ $m($item['amount']) }}</td></tr>
+                        <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] }}</td><td class="num">@if (count($item['lines']) <= 1){{ $m($item['amount']) }}@endif</td></tr>
                         @foreach ($item['lines'] as $line)
                             <tr class="sub">
                                 <td></td>
