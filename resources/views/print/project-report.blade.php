@@ -6,31 +6,31 @@
     <title>{{ $project->name }} — Rapor</title>
     <style>
         * { box-sizing: border-box; }
-        body { font-family: "DejaVu Sans", Arial, sans-serif; color: #111; margin: 0; padding: 24px; font-size: 14px; }
-        /* Yazı boyu sırası (3.11): firma 20 › rapor + proje adı = bölüm başlığı 17 › cari/kategori 15 › satır 14 › alt kalem 13. */
+        body { font-family: "DejaVu Sans", Arial, sans-serif; color: #111; margin: 0; padding: 24px; font-size: 15px; }
+        /* Yazı boyu sırası (3.11): firma 22 › rapor + proje adı = bölüm başlığı 19 › cari/kategori 16 › satır 15 › alt kalem 14. */
         .sheet { max-width: 820px; margin: 0 auto; }
         .letterhead { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 6px; }
-        .letterhead .name { font-size: 20px; font-weight: bold; }
-        .letterhead .contact { color: #555; font-size: 12px; margin-top: 3px; }
+        .letterhead .name { font-size: 22px; font-weight: bold; }
+        .letterhead .contact { color: #555; font-size: 13px; margin-top: 3px; }
         .doc-type { text-align: right; margin-bottom: 12px; }
-        .doc-type .t { color: #111; font-size: 17px; font-weight: bold; line-height: 1.35; }
-        .doc-type .d { color: #666; font-size: 12px; margin-top: 2px; }
-        h2 { font-size: 17px; margin: 26px 0 6px; }
+        .doc-type .t { color: #111; font-size: 19px; font-weight: bold; line-height: 1.35; }
+        .doc-type .d { color: #666; font-size: 13px; margin-top: 2px; }
+        h2 { font-size: 19px; margin: 26px 0 6px; }
         table.st { width: 100%; border-collapse: collapse; margin-top: 6px; }
-        table.st th, table.st td { border: 1px solid #999; padding: 5px 8px; vertical-align: top; }
-        table.st th { background: #f0f0f0; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; text-align: left; }
+        table.st th, table.st td { border: 1px solid #999; padding: 6px 9px; vertical-align: top; }
+        table.st th { background: #f0f0f0; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; text-align: left; }
         table.st td.num, table.st th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         table.st td.date { white-space: nowrap; width: 82px; }
-        table.st tr.group td { background: #f6f6f6; font-weight: bold; font-size: 15px; }
-        table.st tr.sub td { border-top: 0; color: #444; font-size: 13px; }
+        table.st tr.group td { background: #f6f6f6; font-weight: bold; font-size: 16px; }
+        table.st tr.sub td { border-top: 0; color: #444; font-size: 14px; }
         table.st tr.sub td.desc { padding-left: 22px; }
         /* Tutar sütunu her satırda aynı boy ve biraz büyük (PDF'te okunacak, 3.11). */
-        table.st td.num, table.st tr.sub td.num { font-size: 14px; color: #111; }
+        table.st td.num, table.st tr.sub td.num { font-size: 15px; color: #111; }
         table.st tr.foot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
         /* Bir carinin / kategorinin satırları sayfa arasında bölünmesin (başlık bir sayfada, kalemler öbüründe kalmasın). */
         table.st tbody.grp { break-inside: avoid; page-break-inside: avoid; }
         table.sum td { border: 1px solid #999; padding: 6px 8px; }
-        table.sum tr.total td { font-weight: bold; font-size: 17px; background: #f0f0f0; }
+        table.sum tr.total td { font-weight: bold; font-size: 19px; background: #f0f0f0; }
         .warn { color: #b45309; }
         .empty { color: #888; text-align: center; }
         .toolbar { max-width: 820px; margin: 0 auto 16px; text-align: right; }
