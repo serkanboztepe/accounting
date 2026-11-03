@@ -305,7 +305,8 @@
                                                         · {{ $line['detail'] }}
                                                     @endif
                                                 </span>
-                                                <span @class(['shrink-0 text-right', 'font-medium text-gray-950 dark:text-white' => $item['title_line']])>₺{{ \App\Support\Money::format($line['amount']) }}</span>
+                                                {{-- Tutar her satırda aynı boy (3.11). --}}
+                                                <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">₺{{ \App\Support\Money::format($line['amount']) }}</span>
                                             </div>
                                         @endforeach
                                     </div>

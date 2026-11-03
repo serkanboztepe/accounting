@@ -22,6 +22,8 @@
         table.st tr.group td { background: #f6f6f6; font-weight: bold; }
         table.st tr.sub td { border-top: 0; color: #444; font-size: 12px; }
         table.st tr.sub td.desc { padding-left: 22px; }
+        /* Tutar sütunu her satırda aynı boy ve biraz büyük (PDF'te okunacak, 3.11). */
+        table.st td.num, table.st tr.sub td.num { font-size: 14px; color: #111; }
         table.st tr.foot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
         /* Bir carinin / kategorinin satırları sayfa arasında bölünmesin (başlık bir sayfada, kalemler öbüründe kalmasın). */
         table.st tbody.grp { break-inside: avoid; page-break-inside: avoid; }
