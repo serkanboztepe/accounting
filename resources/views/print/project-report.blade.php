@@ -28,7 +28,11 @@
         table.st td.num, table.st tr.sub td.num { font-size: 15px; color: #111; }
         table.st tr.foot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
         /* Bir carinin / kategorinin satırları sayfa arasında bölünmesin (başlık bir sayfada, kalemler öbüründe kalmasın). */
-        table.st tbody.grp { break-inside: avoid; page-break-inside: avoid; }
+        /* Küçük grup (≤ 8 satır) bölünmez; büyük grup bölünebilir — yoksa sığmayan büyük grup sayfanın yarısını boş bırakıyordu (3.11).
+           Grup başlığı ve bölüm başlığı sayfa sonunda tek başına kalmaz. */
+        table.st tbody.keep { break-inside: avoid; page-break-inside: avoid; }
+        table.st tr.group { break-after: avoid; page-break-after: avoid; }
+        h2 { break-after: avoid; page-break-after: avoid; }
         table.sum td { border: 1px solid #999; padding: 6px 8px; }
         table.sum tr.total td { font-weight: bold; font-size: 19px; background: #f0f0f0; }
         .warn { color: #b45309; }
@@ -79,7 +83,7 @@
         <table class="st">
             <thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead>
             @forelse ($expenses as $group)
-                <tbody class="grp">
+                <tbody @class(['keep' => count($group['items']) <= 8])>
                     <tr class="group"><td colspan="3">{{ $group['category'] }}</td></tr>
                     @foreach ($group['items'] as $item)
                         <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] ?: '—' }}</td><td class="num">{{ $m($item['amount']) }}</td></tr>
@@ -95,7 +99,10 @@
         <table class="st">
             <thead><tr><th>Tarih</th><th>Açıklama / Kalem</th><th class="num">Tutar</th></tr></thead>
             @forelse ($purchases as $group)
-                <tbody class="grp">
+                @php
+                    $rowCount = array_sum(array_map(fn ($i) => 1 + count($i['sub_lines']), $group['items']));
+                @endphp
+                <tbody @class(['keep' => $rowCount <= 8])>
                     <tr class="group"><td colspan="3">{{ $group['party'] }}</td></tr>
                     @foreach ($group['items'] as $item)
                         <tr><td class="date">{{ $item['date'] }}</td><td>@if ($item['title_line'])<b>{{ $item['title_line']['name'] }}</b>@if ($item['title_line']['detail']) · {{ $item['title_line']['detail'] }}@endif @else{{ $item['title'] }}@endif</td><td class="num">@if ($item['title_amount'] !== null){{ $m($item['title_amount']) }}@endif</td></tr>
