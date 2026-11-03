@@ -24,6 +24,7 @@
         table.st tr.group td { background: #f6f6f6; font-weight: bold; font-size: 16px; }
         table.st tr.sub td { border-top: 0; color: #444; font-size: 14px; }
         table.st tr.sub td.desc { padding-left: 22px; }
+        table.st td.cat { color: #555; font-size: 13px; white-space: nowrap; width: 1%; }
         /* Tutar sütunu her satırda aynı boy ve biraz büyük (PDF'te okunacak, 3.11). */
         table.st td.num, table.st tr.sub td.num { font-size: 15px; color: #111; }
         table.st tr.foot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
@@ -81,17 +82,20 @@
 
         <h2>Giderler</h2>
         <table class="st">
-            <thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead>
-            @forelse ($expenses as $group)
-                <tbody @class(['keep' => count($group['items']) <= 8])>
-                    <tr class="group"><td colspan="3">{{ $group['category'] }}</td></tr>
-                    @foreach ($group['items'] as $item)
-                        <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] ?: '—' }}</td><td class="num">{{ $m($item['amount']) }}</td></tr>
-                    @endforeach
-                </tbody>
-            @empty
-                <tbody><tr><td colspan="3" class="empty">Gider yok.</td></tr></tbody>
-            @endforelse
+            {{-- Çıktıda giderler TARİH sırasıyla, kategori ayrı sütun (3.11 kullanıcı; panel kategoriye göre kalır). --}}
+            @php
+                $expenseList = collect($expenses)
+                    ->flatMap(fn ($g) => array_map(fn ($i) => $i + ['category' => $g['category']], $g['items']))
+                    ->sortBy('sort')->values();
+            @endphp
+            <thead><tr><th>Tarih</th><th>Açıklama</th><th>Kategori</th><th class="num">Tutar</th></tr></thead>
+            <tbody>
+                @forelse ($expenseList as $item)
+                    <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] ?: '—' }}</td><td class="cat">{{ $item['category'] }}</td><td class="num">{{ $m($item['amount']) }}</td></tr>
+                @empty
+                    <tr><td colspan="4" class="empty">Gider yok.</td></tr>
+                @endforelse
+            </tbody>
             {{-- Bölüm toplamı yok (3.11 kullanıcı: kafa karıştırıyor) — tek rakam üstteki Toplam Proje Maliyeti. --}}
         </table>
 

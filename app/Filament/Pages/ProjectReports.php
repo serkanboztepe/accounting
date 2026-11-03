@@ -260,6 +260,7 @@ class ProjectReports extends Page implements HasSchemas
             $grouped[$key]['total'] += (float) $expense->amount;
             $grouped[$key]['items'][] = [
                 'date'        => optional($expense->expense_date)->format('d.m.Y'),
+                'sort'        => optional($expense->expense_date)->format('Y-m-d') . sprintf('-%010d', $expense->id), // çıktı tarih sırası
                 'description' => $expense->description,
                 'party'       => null,
                 'amount'      => (float) $expense->amount,
