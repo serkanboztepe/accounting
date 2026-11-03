@@ -22,7 +22,9 @@
         table.st tr.group td { background: #f6f6f6; font-weight: bold; }
         table.st tr.sub td { border-top: 0; color: #444; font-size: 12px; }
         table.st tr.sub td.desc { padding-left: 22px; }
-        table.st tfoot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
+        table.st tr.foot td { font-weight: bold; border-top: 2px solid #333; background: #f0f0f0; }
+        /* Bir carinin / kategorinin satırları sayfa arasında bölünmesin (başlık bir sayfada, kalemler öbüründe kalmasın). */
+        table.st tbody.grp { break-inside: avoid; page-break-inside: avoid; }
         table.sum td { border: 1px solid #999; padding: 6px 8px; }
         table.sum tr.total td { font-weight: bold; font-size: 15px; background: #f0f0f0; }
         .warn { color: #b45309; }
@@ -52,8 +54,6 @@
 
         <table class="st sum">
             <tbody>
-                <tr><td>Direkt gider</td><td class="num">{{ $m($summary['direct_expenses']) }}</td></tr>
-                <tr><td>Alış (iş / malzeme)</td><td class="num">{{ $m($summary['purchase_cost']) }}</td></tr>
                 @if ($withContracts)
                     <tr><td>Sözleşme teslimatı</td><td class="num">{{ $m($summary['delivery_cost']) }}</td></tr>
                 @endif
@@ -70,27 +70,28 @@
         <h2>Direkt Giderler</h2>
         <table class="st">
             <thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead>
-            <tbody>
-                @forelse ($expenses as $group)
-                    <tr class="group"><td colspan="2">{{ $group['category'] }}</td><td class="num">{{ $m($group['total']) }}</td></tr>
+            @forelse ($expenses as $group)
+                <tbody class="grp">
+                    <tr class="group"><td colspan="3">{{ $group['category'] }}</td></tr>
                     @foreach ($group['items'] as $item)
                         <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] ?: '—' }}</td><td class="num">{{ $m($item['amount']) }}</td></tr>
                     @endforeach
-                @empty
-                    <tr><td colspan="3" class="empty">Gider yok.</td></tr>
-                @endforelse
-            </tbody>
+                </tbody>
+            @empty
+                <tbody><tr><td colspan="3" class="empty">Gider yok.</td></tr></tbody>
+            @endforelse
             @if (count($expenses) > 0)
-                <tfoot><tr><td colspan="2">Toplam</td><td class="num">{{ $m(array_sum(array_column($expenses, 'total'))) }}</td></tr></tfoot>
+                {{-- tfoot değil: tarayıcı tfoot'u her sayfanın altına tekrar basıyor. --}}
+                <tbody><tr class="foot"><td colspan="2">Toplam</td><td class="num">{{ $m(array_sum(array_column($expenses, 'total'))) }}</td></tr></tbody>
             @endif
         </table>
 
         <h2>Alışlar</h2>
         <table class="st">
             <thead><tr><th>Tarih</th><th>Açıklama / Kalem</th><th class="num">Tutar</th></tr></thead>
-            <tbody>
-                @forelse ($purchases as $group)
-                    <tr class="group"><td colspan="2">{{ $group['party'] }}</td><td class="num">{{ $m($group['total']) }}</td></tr>
+            @forelse ($purchases as $group)
+                <tbody class="grp">
+                    <tr class="group"><td colspan="3">{{ $group['party'] }}</td></tr>
                     @foreach ($group['items'] as $item)
                         <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] }}</td><td class="num">{{ $m($item['amount']) }}</td></tr>
                         @foreach ($item['lines'] as $line)
@@ -101,12 +102,12 @@
                             </tr>
                         @endforeach
                     @endforeach
-                @empty
-                    <tr><td colspan="3" class="empty">Alış yok.</td></tr>
-                @endforelse
-            </tbody>
+                </tbody>
+            @empty
+                <tbody><tr><td colspan="3" class="empty">Alış yok.</td></tr></tbody>
+            @endforelse
             @if (count($purchases) > 0)
-                <tfoot><tr><td colspan="2">Toplam</td><td class="num">{{ $m(array_sum(array_column($purchases, 'total'))) }}</td></tr></tfoot>
+                <tbody><tr class="foot"><td colspan="2">Toplam</td><td class="num">{{ $m(array_sum(array_column($purchases, 'total'))) }}</td></tr></tbody>
             @endif
         </table>
     </div>
