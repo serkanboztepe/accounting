@@ -276,19 +276,19 @@
                                         <div class="flex items-center gap-2">
                                             <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
                                             <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
-                                                {{ $item['description'] }}
+                                                {{ $item['title'] }}
                                                 @if ($item['maybe_duplicate'])
                                                     <span class="text-xs font-medium text-orange-600 dark:text-orange-400">· ⚠️ aynı tutar sözleşme teslimatında da var, iki kez girilmiş olabilir</span>
                                                 @endif
                                             </span>
-                                            {{-- Tutar HEP kalemin yanında; başlıkta yalnız kalemsiz alışta (3.11: tek/çok kalem farkı kafa karıştırdı). --}}
-                                            @if (count($item['lines']) === 0)
+                                            {{-- Tutar hep kalemin yanında; başlık kalemin aynısıysa ilk kalem bu satırda (ProjectReports::getPurchaseRows). --}}
+                                            @if ($item['title_amount'] !== null)
                                                 <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
-                                                    ₺{{ \App\Support\Money::format($item['amount']) }}
+                                                    ₺{{ \App\Support\Money::format($item['title_amount']) }}
                                                 </span>
                                             @endif
                                         </div>
-                                        @foreach ($item['lines'] as $line)
+                                        @foreach ($item['sub_lines'] as $line)
                                             <div class="mt-1 flex items-center gap-2 pl-[5.5rem] text-xs text-gray-500 dark:text-gray-400">
                                                 <span class="min-w-0 flex-1 truncate">
                                                     <span class="font-medium text-gray-700 dark:text-gray-300">{{ $line['name'] }}</span>

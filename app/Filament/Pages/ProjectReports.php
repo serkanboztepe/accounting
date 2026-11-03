@@ -339,19 +339,26 @@ class ProjectReports extends Page implements HasSchemas
             }
 
             $label = self::purchaseLabel($entry->description, $sign);
-            // Tek kalem başlığın aynısıysa ("Kaba İnşaat" altında "Kaba İnşaat") tekrar etmesin → tek satır, tutar başlıkta (3.11).
-            if (count($lines) === 1 && $lines[0]['detail'] === null
-                && mb_strtolower(trim($lines[0]['name'])) === mb_strtolower($label)) {
-                $lines = [];
-            }
+            $description = ($sign < 0 ? 'İade — ' : '') . $label;
+            $amount = $sign * (float) $entry->amount;
 
-            $grouped[$key]['total'] += $sign * (float) $entry->amount;
+            // Başlık kalem adının aynısıysa ("Demir" altında "Demir · 7.100 kg…", "Kaba İnşaat" altında "Kaba İnşaat")
+            // ayrı başlık satırı yok: ilk kalem tarih satırına çıkar, kalanlar altında (3.11 kullanıcı). Tutar hep kalemde.
+            $sameName = $sign > 0 && $lines !== []
+                && collect($lines)->every(fn ($l) => mb_strtolower(trim($l['name'])) === mb_strtolower($label));
+            $lineText = fn (array $l) => $l['name'] . ($l['detail'] ? ' · ' . $l['detail'] : '');
+
+            $grouped[$key]['total'] += $amount;
             $grouped[$key]['items'][] = [
                 'date'            => optional($entry->entry_date)->format('d.m.Y'),
-                'description'     => ($sign < 0 ? 'İade — ' : '') . $label,
-                'amount'          => $sign * (float) $entry->amount,
+                'description'     => $description,
+                'amount'          => $amount,
                 'maybe_duplicate' => $sign > 0 && isset($deliveryKeys[$key . '|' . round((float) $entry->amount, 2)]),
                 'lines'           => $lines,
+                // Gösterim: tarih satırı (title + title_amount) ve altındaki kalemler (sub_lines).
+                'title'           => $sameName ? $lineText($lines[0]) : $description,
+                'title_amount'    => $sameName ? $lines[0]['amount'] : ($lines === [] ? $amount : null),
+                'sub_lines'       => $sameName ? array_slice($lines, 1) : $lines,
             ];
         }
 

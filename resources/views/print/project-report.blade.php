@@ -90,8 +90,8 @@
                 <tbody class="grp">
                     <tr class="group"><td colspan="3">{{ $group['party'] }}</td></tr>
                     @foreach ($group['items'] as $item)
-                        <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['description'] }}</td><td class="num">@if (count($item['lines']) === 0){{ $m($item['amount']) }}@endif</td></tr>
-                        @foreach ($item['lines'] as $line)
+                        <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['title'] }}</td><td class="num">@if ($item['title_amount'] !== null){{ $m($item['title_amount']) }}@endif</td></tr>
+                        @foreach ($item['sub_lines'] as $line)
                             <tr class="sub">
                                 <td></td>
                                 <td class="desc"><b>{{ $line['name'] }}</b>@if ($line['detail']) · {{ $line['detail'] }}@endif</td>
