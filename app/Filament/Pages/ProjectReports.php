@@ -338,10 +338,17 @@ class ProjectReports extends Page implements HasSchemas
                 ];
             }
 
+            $label = self::purchaseLabel($entry->description, $sign);
+            // Tek kalem başlığın aynısıysa ("Kaba İnşaat" altında "Kaba İnşaat") tekrar etmesin → tek satır, tutar başlıkta (3.11).
+            if (count($lines) === 1 && $lines[0]['detail'] === null
+                && mb_strtolower(trim($lines[0]['name'])) === mb_strtolower($label)) {
+                $lines = [];
+            }
+
             $grouped[$key]['total'] += $sign * (float) $entry->amount;
             $grouped[$key]['items'][] = [
                 'date'            => optional($entry->entry_date)->format('d.m.Y'),
-                'description'     => ($sign < 0 ? 'İade — ' : '') . self::purchaseLabel($entry->description, $sign),
+                'description'     => ($sign < 0 ? 'İade — ' : '') . $label,
                 'amount'          => $sign * (float) $entry->amount,
                 'maybe_duplicate' => $sign > 0 && isset($deliveryKeys[$key . '|' . round((float) $entry->amount, 2)]),
                 'lines'           => $lines,
