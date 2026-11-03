@@ -77,7 +77,7 @@
                         <div class="pr-hero tnum">{{ $m($summary['total_cost']) }}</div>
                     </div>
                     @if ($withContracts)
-                        <div class="pr-break tnum">Direkt gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Alış <b>{{ $m($summary['purchase_cost']) }}</b> &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b></div>
+                        <div class="pr-break tnum">Gider <b>{{ $m($summary['direct_expenses']) }}</b> &nbsp;+&nbsp; Alış <b>{{ $m($summary['purchase_cost']) }}</b> &nbsp;+&nbsp; Teslimat <b>{{ $m($summary['delivery_cost']) }}</b></div>
                     @endif
                 </div>
 
@@ -88,7 +88,7 @@
                     @endphp
                     <div class="pr-grid" style="grid-template-columns: 1fr;">
                         <div class="pr-col">
-                            <div class="pr-row"><span class="pr-k">Direkt gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }} <span class="pr-k">{{ $share($summary['direct_expenses']) }}</span></span></div>
+                            <div class="pr-row"><span class="pr-k">Gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }} <span class="pr-k">{{ $share($summary['direct_expenses']) }}</span></span></div>
                             <div class="pr-row"><span class="pr-k">Alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }} <span class="pr-k">{{ $share($summary['purchase_cost']) }}</span></span></div>
                             @if ($summary['unbooked_total'] > 0)
                                 <div class="pr-row"><span class="pr-k pr-warn">⚠ Alışı yazılmamış ödeme</span><span class="pr-v tnum pr-warn">{{ $m($summary['unbooked_total']) }} <span class="pr-k">{{ $share($summary['unbooked_total']) }}</span></span></div>
@@ -159,7 +159,7 @@
             @endif
 
             <div class="grid gap-6 xl:grid-cols-2">
-                <x-filament::section heading="Direkt Giderler">
+                <x-filament::section heading="Giderler">
                     @php
                         $expenseGroups = $this->getExpenseRows();
                     @endphp
