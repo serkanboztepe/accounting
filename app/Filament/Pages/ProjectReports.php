@@ -341,7 +341,7 @@ class ProjectReports extends Page implements HasSchemas
             $grouped[$key]['total'] += $sign * (float) $entry->amount;
             $grouped[$key]['items'][] = [
                 'date'            => optional($entry->entry_date)->format('d.m.Y'),
-                'description'     => ($sign < 0 ? 'İade — ' : '') . ($entry->description ?: '—'),
+                'description'     => ($sign < 0 ? 'İade — ' : '') . self::purchaseLabel($entry->description, $sign),
                 'amount'          => $sign * (float) $entry->amount,
                 'maybe_duplicate' => $sign > 0 && isset($deliveryKeys[$key . '|' . round((float) $entry->amount, 2)]),
                 'lines'           => $lines,
@@ -351,6 +351,20 @@ class ProjectReports extends Page implements HasSchemas
         uasort($grouped, fn ($a, $b) => $b['total'] <=> $a['total']);
 
         return array_values($grouped);
+    }
+
+    /**
+     * Rapordaki alış başlığı: kayıttaki teknik ön ek ("Alış #211 — Anlaşma: …") kullanıcıyı şaşırtıyor (3.11);
+     * yalnız anlaşma adı / açıklama kalır. Kayıt değişmez, sadece gösterim.
+     */
+    private static function purchaseLabel(?string $description, int $sign): string
+    {
+        $text = trim((string) $description);
+        $text = preg_replace('/^(Alış|Alım|İade)\s*#\d+\s*(—|-)?\s*/u', '', $text);
+        $text = preg_replace('/^Anlaşma:\s*/u', '', $text);
+        $text = trim($text);
+
+        return $text !== '' ? $text : ($sign < 0 ? 'Alış iadesi' : 'Alış');
     }
 
     public function getContractRows(): array

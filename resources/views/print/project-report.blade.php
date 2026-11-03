@@ -80,10 +80,7 @@
             @empty
                 <tbody><tr><td colspan="3" class="empty">Gider yok.</td></tr></tbody>
             @endforelse
-            @if (count($expenses) > 0)
-                {{-- tfoot değil: tarayıcı tfoot'u her sayfanın altına tekrar basıyor. --}}
-                <tbody><tr class="foot"><td colspan="2">Toplam</td><td class="num">{{ $m(array_sum(array_column($expenses, 'total'))) }}</td></tr></tbody>
-            @endif
+            {{-- Bölüm toplamı yok (3.11 kullanıcı: kafa karıştırıyor) — tek rakam üstteki Toplam Proje Maliyeti. --}}
         </table>
 
         <h2>Alışlar</h2>
@@ -106,9 +103,6 @@
             @empty
                 <tbody><tr><td colspan="3" class="empty">Alış yok.</td></tr></tbody>
             @endforelse
-            @if (count($purchases) > 0)
-                <tbody><tr class="foot"><td colspan="2">Toplam</td><td class="num">{{ $m(array_sum(array_column($purchases, 'total'))) }}</td></tr></tbody>
-            @endif
         </table>
     </div>
 </body>
