@@ -276,7 +276,11 @@
                                         <div class="flex items-center gap-2">
                                             <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
                                             <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
-                                                {{ $item['title'] }}
+                                                @if ($item['title_line'])
+                                                    <span class="font-medium">{{ $item['title_line']['name'] }}</span>@if ($item['title_line']['detail']) · {{ $item['title_line']['detail'] }}@endif
+                                                @else
+                                                    {{ $item['title'] }}
+                                                @endif
                                                 @if ($item['maybe_duplicate'])
                                                     <span class="text-xs font-medium text-orange-600 dark:text-orange-400">· ⚠️ aynı tutar sözleşme teslimatında da var, iki kez girilmiş olabilir</span>
                                                 @endif
@@ -289,14 +293,19 @@
                                             @endif
                                         </div>
                                         @foreach ($item['sub_lines'] as $line)
-                                            <div class="mt-1 flex items-center gap-2 pl-[5.5rem] text-xs text-gray-500 dark:text-gray-400">
+                                            {{-- Tarih satırındaki kalemin devamıysa (aynı ad) o satırla aynı boy/renk; değilse küçük alt kalem. --}}
+                                            <div @class([
+                                                'mt-1 flex items-center gap-2 pl-[5.5rem]',
+                                                'text-sm text-gray-700 dark:text-gray-300' => $item['title_line'],
+                                                'text-xs text-gray-500 dark:text-gray-400' => ! $item['title_line'],
+                                            ])>
                                                 <span class="min-w-0 flex-1 truncate">
                                                     <span class="font-medium text-gray-700 dark:text-gray-300">{{ $line['name'] }}</span>
                                                     @if ($line['detail'])
                                                         · {{ $line['detail'] }}
                                                     @endif
                                                 </span>
-                                                <span class="shrink-0 text-right">₺{{ \App\Support\Money::format($line['amount']) }}</span>
+                                                <span @class(['shrink-0 text-right', 'font-medium text-gray-950 dark:text-white' => $item['title_line']])>₺{{ \App\Support\Money::format($line['amount']) }}</span>
                                             </div>
                                         @endforeach
                                     </div>

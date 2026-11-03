@@ -357,6 +357,7 @@ class ProjectReports extends Page implements HasSchemas
                 'lines'           => $lines,
                 // Gösterim: tarih satırı (title + title_amount) ve altındaki kalemler (sub_lines).
                 'title'           => $sameName ? $lineText($lines[0]) : $description,
+                'title_line'      => $sameName ? $lines[0] : null, // kalemle aynı görünsün diye (ad kalın) ayrıca
                 'title_amount'    => $sameName ? $lines[0]['amount'] : ($lines === [] ? $amount : null),
                 'sub_lines'       => $sameName ? array_slice($lines, 1) : $lines,
             ];

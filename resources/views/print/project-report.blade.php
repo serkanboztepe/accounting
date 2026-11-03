@@ -90,11 +90,12 @@
                 <tbody class="grp">
                     <tr class="group"><td colspan="3">{{ $group['party'] }}</td></tr>
                     @foreach ($group['items'] as $item)
-                        <tr><td class="date">{{ $item['date'] }}</td><td>{{ $item['title'] }}</td><td class="num">@if ($item['title_amount'] !== null){{ $m($item['title_amount']) }}@endif</td></tr>
+                        <tr><td class="date">{{ $item['date'] }}</td><td>@if ($item['title_line'])<b>{{ $item['title_line']['name'] }}</b>@if ($item['title_line']['detail']) · {{ $item['title_line']['detail'] }}@endif @else{{ $item['title'] }}@endif</td><td class="num">@if ($item['title_amount'] !== null){{ $m($item['title_amount']) }}@endif</td></tr>
                         @foreach ($item['sub_lines'] as $line)
-                            <tr class="sub">
+                            {{-- Tarih satırına çıkan kalemin devamıysa (aynı ad) o satırla birebir aynı görünüm; değilse başlık altı kalem. --}}
+                            <tr @class(['sub' => ! $item['title_line']])>
                                 <td></td>
-                                <td class="desc"><b>{{ $line['name'] }}</b>@if ($line['detail']) · {{ $line['detail'] }}@endif</td>
+                                <td @class(['desc' => ! $item['title_line']])><b>{{ $line['name'] }}</b>@if ($line['detail']) · {{ $line['detail'] }}@endif</td>
                                 <td class="num">{{ $m($line['amount']) }}</td>
                             </tr>
                         @endforeach
