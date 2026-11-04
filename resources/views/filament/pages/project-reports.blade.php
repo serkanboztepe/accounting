@@ -152,14 +152,16 @@
                 </div>
             @endif
 
-            {{-- 4.11: Giderler + Alışlar TEK kutu; gider kategorileri ve cariler tutara göre karışık, açılır kapanır; genel toplam yok
-                 (tek rakam üstteki Toplam Proje Maliyeti). Çekler bölümü de kaldırıldı (maliyete girmez, Çekler ekranında var). --}}
+            {{-- 4.11: Giderler + Alışlar TEK kutu, açılır kapanır; önce gider kategorileri, hemen ardından cariler (her biri kendi içinde
+                 tutara göre); genel toplam yok (tek rakam üstteki Toplam Proje Maliyeti). Çekler bölümü kaldırıldı (Çekler ekranında var). --}}
             @php
                 $costGroups = collect($this->getExpenseRows())
                     ->map(fn ($g) => ['kind' => 'expense', 'heading' => $g['category'], 'label' => 'Gider'] + $g)
+                    ->sortByDesc('total')
                     ->concat(collect($this->getPurchaseRows())
-                        ->map(fn ($g) => ['kind' => 'purchase', 'heading' => $g['party'], 'label' => 'Alış'] + $g))
-                    ->sortByDesc('total')->values();
+                        ->map(fn ($g) => ['kind' => 'purchase', 'heading' => $g['party'], 'label' => 'Alış'] + $g)
+                        ->sortByDesc('total'))
+                    ->values();
             @endphp
             <x-filament::section heading="Gider ve Alışlar">
                 <div class="space-y-3">
