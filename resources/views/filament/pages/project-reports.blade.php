@@ -26,7 +26,6 @@
             @php
                 // Sözleşmesiz firma (sade müteahhit): maliyet = direkt gider + cari alış; sözleşme/fatura bölümleri gizli.
                 $withContracts = (bool) \App\Support\Features::contracts();
-                $withChecks = (bool) \App\Support\Features::checks();
             @endphp
 
             {{-- Defter tablo özet — kendi style bloğuyla, Tailwind derlemesinden bağımsız --}}
@@ -158,7 +157,8 @@
                 </div>
             @endif
 
-            <div class="grid gap-6 xl:grid-cols-2">
+            {{-- 4.11: Çekler bölümü kaldırıldı (maliyete girmez, Çekler ekranında var) — Giderler tam genişlik. --}}
+            <div class="grid gap-6">
                 <x-filament::section heading="Giderler">
                     @php
                         $expenseGroups = $this->getExpenseRows();
@@ -208,53 +208,6 @@
                     </div>
                 </x-filament::section>
 
-                @if ($withChecks)
-                <x-filament::section heading="Çekler">
-                    <div class="space-y-3">
-                        <div class="hidden rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 lg:grid lg:grid-cols-12 lg:gap-x-3">
-                            <div class="col-span-5">Kişi / Firma</div>
-                            <div class="col-span-3">Vade</div>
-                            <div class="col-span-2 text-right">Tutar</div>
-                            <div class="col-span-2 text-right">Durum</div>
-                        </div>
-
-                        @forelse ($this->getCheckRows() as $row)
-                            <div class="rounded-2xl border border-gray-200 bg-white px-4 py-4 shadow-sm dark:border-white/10 dark:bg-white/5 lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-3">
-                                <div class="mb-2 min-w-0 overflow-hidden lg:col-span-5 lg:mb-0">
-                                    <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Kişi / Firma</div>
-                                    <div class="truncate font-medium text-gray-950 dark:text-white">{{ $row['party'] }}</div>
-                                </div>
-                                <div class="mb-2 lg:col-span-3 lg:mb-0">
-                                    <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Vade</div>
-                                    <div class="text-sm text-gray-700 dark:text-gray-300">{{ $row['due_date'] }}</div>
-                                </div>
-                                <div class="mb-2 lg:col-span-2 lg:mb-0 lg:text-right">
-                                    <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Tutar</div>
-                                    <div class="text-sm font-semibold text-gray-950 dark:text-white">₺{{ \App\Support\Money::format($row['amount']) }}</div>
-                                </div>
-                                <div class="lg:col-span-2 lg:text-right">
-                                    <div class="text-xs uppercase tracking-wide text-gray-400 lg:hidden">Durum</div>
-                                    <span class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-white/10 dark:text-gray-300">
-                                        {{ match($row['status']) {
-                                            'portfolio' => 'Portföyde',
-                                            'issued'    => 'Verildi',
-                                            'collected' => 'Tahsil Edildi',
-                                            'paid'      => 'Ödendi',
-                                            'cancelled' => 'İptal',
-                                            'bounced'   => 'Karşılıksız',
-                                            default     => $row['status'],
-                                        } }}
-                                    </span>
-                                </div>
-                            </div>
-                        @empty
-                            <div class="rounded-2xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 dark:border-white/10 dark:text-gray-400">
-                                Kayıt yok.
-                            </div>
-                        @endforelse
-                    </div>
-                </x-filament::section>
-                @endif
             </div>
 
             <x-filament::section heading="Alışlar">

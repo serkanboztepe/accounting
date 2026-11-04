@@ -440,30 +440,6 @@ class ProjectReports extends Page implements HasSchemas
             ->all();
     }
 
-    public function getCheckRows(): array
-    {
-        $project = $this->getSelectedProject();
-
-        if (! $project) {
-            return [];
-        }
-
-        return Check::query()
-            ->with('party')
-            ->where('project_id', $project->id)
-            ->orderBy('due_date')
-            ->get()
-            ->map(fn (Check $check) => [
-                'party' => $check->party?->name,
-                'check_number' => $check->check_number,
-                'bank_name' => $check->bank_name,
-                'due_date' => optional($check->due_date)->format('d.m.Y'),
-                'amount' => (float) $check->amount,
-                'status' => $check->status,
-            ])
-            ->all();
-    }
-
     public function getDeliveryRows(): array
     {
         $project = $this->getSelectedProject();
