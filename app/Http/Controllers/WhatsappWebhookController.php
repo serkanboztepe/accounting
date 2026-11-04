@@ -341,6 +341,7 @@ class WhatsappWebhookController extends Controller
                         ->where('status', 'awaiting_confirmation')->first()) : null;
                     if (! empty($turn['source'])) {
                         $this->inboundBody = $turn['source']; // sıradaki kalem: emniyetler asıl mesajı görsün
+                        $this->nextItemTurn = true;
                     }
                     try {
                         $out = $this->chatTurn($pending, $phone, $turn['body']);
@@ -586,6 +587,9 @@ class WhatsappWebhookController extends Controller
 
     /** Gelen mesajın metni — kod emniyetleri (ör. teslim edilmemiş satış = avans) AI'dan bağımsız buna bakar. */
     private string $inboundBody = '';
+
+    /** Sıradaki kalem işleniyor: asıl mesaj emniyetlere gider, ama K4 (kasa + gider) asıl mesajdan bütün satışı yeniden kurmasın. */
+    private bool $nextItemTurn = false;
 
     /** @var list<string|array{0:string,1:string}> bu isteğin cevap(lar)ı — kayıt ve ilk mesaj rehberi için */
     private array $replies = [];
@@ -1395,6 +1399,7 @@ class WhatsappWebhookController extends Controller
         $data['source_text'] = $source !== '' ? $source : null;
         $said = $this->inboundBody;
         $this->inboundBody = $source !== '' ? $source : $said;
+        $this->nextItemTurn = true;
         try {
             Understanding::$deferOnTimeout = ChatAssistant::$deadline !== null;
             $out = $this->saveDraft(null, $phone, $data);
@@ -1403,6 +1408,7 @@ class WhatsappWebhookController extends Controller
         } finally {
             Understanding::$deferOnTimeout = false;
             $this->inboundBody = $said;
+            $this->nextItemTurn = false;
         }
 
         return is_string($out) ? $done . "\n\n➡️ *Sıradaki:*\n" . $out : $done;
@@ -1601,6 +1607,15 @@ class WhatsappWebhookController extends Controller
                 if ($pending && empty($data['next_items']) && ! empty($pending->extracted['next_items'])) {
                     $data['next_items'] = $pending->extracted['next_items'];
                 }
+                // K4 kasa mesajındaki ayrı gider soru-cevap turunda kaybolmasın (Akkuş 03.11: "Ödeme" cevabıyla gider düştü, AI onu
+                // "Sırada: 1400 TL gider" yaptı). Gider zaten kayıtta; aynı gider sıraya ikinci kez girmez.
+                if ($pending && ($data['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_SALE && empty($data['extra_expense'])
+                    && (float) ($pending->extracted['extra_expense']['amount'] ?? 0) > 0) {
+                    $data['extra_expense'] = $pending->extracted['extra_expense'];
+                    if (! empty($data['next_items']) && preg_match('/gider|masraf/u', mb_strtolower((string) $data['next_items']))) {
+                        $data['next_items'] = null;
+                    }
+                }
                 // Süzgeç / ikinci göz için senkron süre yetmezse tur arka plana (DeferTurn) — kontrol atlanmaz (17.10).
                 try {
                     Understanding::$deferOnTimeout = ChatAssistant::$deadline !== null;
@@ -1790,7 +1805,10 @@ class WhatsappWebhookController extends Controller
         $data = TurnTrace::step('fitToModules(2)', ExpenseExtractor::fitToModules($data));
         $data = TurnTrace::step('guardUndeliveredSale', ExpenseExtractor::guardUndeliveredSale($data, $this->inboundBody));
         $data = TurnTrace::step('guardDebtRepayment', ExpenseExtractor::guardDebtRepayment($data, $this->inboundBody));
-        $data = TurnTrace::step('guardSaleWithExpense', ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody));
+        // Sıradaki kalemde asıl mesaj yeniden okunmaz (Akkuş 03.11: "1400 TL gider" kalemi bütün kasa satışını ikinci kez kurdu).
+        if (! $this->nextItemTurn) {
+            $data = TurnTrace::step('guardSaleWithExpense', ExpenseExtractor::guardSaleWithExpense($data, $this->inboundBody));
+        }
         $data = TurnTrace::step('guardNightTill', ExpenseExtractor::guardNightTill($data, $this->inboundBody));
         if ($pending === null) {
             $data = TurnTrace::step('guardAssumedQuantity', ExpenseExtractor::guardAssumedQuantity($data, $this->inboundBody)); // yeni kayıtta; düzeltmede miktar önceki mesajda

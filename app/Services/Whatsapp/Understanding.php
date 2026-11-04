@@ -629,6 +629,12 @@ final class Understanding
         if ((float) ($d['amount'] ?? 0) <= 0) {
             return null;
         }
+        // K4 kasa + gider (Akkuş 03.11 "22107 kart 2450 nakit 1400 gider"): rakamları kod mesajdan ayırdı, kartta ikisi ayrı yazıyor;
+        // carisiz kasada yön/teslim/borç çelişkisi olamaz. Süzgeç "1.400 gider ayrı mı düşülsün?" diye sorunca zincir bozuluyordu.
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_TRADE_SALE && empty($d['party_id']) && empty($d['party_name'])
+            && (float) ($d['extra_expense']['amount'] ?? 0) > 0) {
+            return null;
+        }
         $record = self::recordSentence($d);
         $meaning = trim((string) ($d['meaning'] ?? ''));
         $apiKey = (string) config('services.anthropic.api_key');
