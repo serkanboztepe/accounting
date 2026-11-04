@@ -81,22 +81,17 @@
                 </div>
 
                 @if (! $withContracts)
-                    @php
-                        // Sözleşmesiz kart: toplam yukarıda bir kez; altında yalnız iki kalem + pay (tekrar yok).
-                        $share = fn ($v) => $summary['total_cost'] > 0 ? '%' . round($v / $summary['total_cost'] * 100) : null;
-                    @endphp
+                    {{-- 4.11: Gider / Alış ayrımı kutusu kaldırıldı (yalnız toplam); alışı yazılmamış ödeme uyarısı varsa kalır. --}}
+                    @if ($summary['unbooked_total'] > 0)
                     <div class="pr-grid" style="grid-template-columns: 1fr;">
                         <div class="pr-col">
-                            <div class="pr-row"><span class="pr-k">Gider</span><span class="pr-v tnum">{{ $m($summary['direct_expenses']) }} <span class="pr-k">{{ $share($summary['direct_expenses']) }}</span></span></div>
-                            <div class="pr-row"><span class="pr-k">Alış (iş / malzeme)</span><span class="pr-v tnum">{{ $m($summary['purchase_cost']) }} <span class="pr-k">{{ $share($summary['purchase_cost']) }}</span></span></div>
-                            @if ($summary['unbooked_total'] > 0)
-                                <div class="pr-row"><span class="pr-k pr-warn">⚠ Alışı yazılmamış ödeme</span><span class="pr-v tnum pr-warn">{{ $m($summary['unbooked_total']) }} <span class="pr-k">{{ $share($summary['unbooked_total']) }}</span></span></div>
-                                @foreach ($summary['unbooked_payments'] as $row)
-                                    <div class="pr-row"><span class="pr-k" style="padding-left:14px">{{ $row['party'] }} — bu projeye para verildi, iş/malzeme alışı yazılmadı</span><span class="pr-v tnum">{{ $m($row['amount']) }}</span></div>
-                                @endforeach
-                            @endif
+                            <div class="pr-row"><span class="pr-k pr-warn">⚠ Alışı yazılmamış ödeme (toplama dahil)</span><span class="pr-v tnum pr-warn">{{ $m($summary['unbooked_total']) }}</span></div>
+                            @foreach ($summary['unbooked_payments'] as $row)
+                                <div class="pr-row"><span class="pr-k" style="padding-left:14px">{{ $row['party'] }} — bu projeye para verildi, iş/malzeme alışı yazılmadı</span><span class="pr-v tnum">{{ $m($row['amount']) }}</span></div>
+                            @endforeach
                         </div>
                     </div>
+                    @endif
 
                 @else
                 <div class="pr-grid">
@@ -157,73 +152,42 @@
                 </div>
             @endif
 
-            {{-- 4.11: Çekler bölümü kaldırıldı (maliyete girmez, Çekler ekranında var) — Giderler tam genişlik. --}}
-            <div class="grid gap-6">
-                <x-filament::section heading="Giderler">
-                    @php
-                        $expenseGroups = $this->getExpenseRows();
-                    @endphp
-                    <div class="space-y-3">
-                        @forelse ($expenseGroups as $group)
-                            <x-filament::section
-                                :heading="$group['category']"
-                                :description="'₺' . \App\Support\Money::format($group['total']) . ' · ' . count($group['items']) . ' kayıt'"
-                                collapsible
-                                collapsed
-                                compact
-                            >
-                                <div class="divide-y divide-gray-100 dark:divide-white/5">
-                                    @foreach ($group['items'] as $item)
-                                        <div class="flex items-center gap-2 py-3">
-                                            <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
-                                            <span class="shrink-0 text-xs text-gray-300 dark:text-gray-600">-</span>
-                                            <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
-                                                {{ $item['description'] ?: ($item['party'] ?: '-') }}
-                                                @if ($item['description'] && $item['party'])
-                                                    <span class="text-xs text-gray-400">· {{ $item['party'] }}</span>
-                                                @endif
-                                            </span>
-                                            <span class="shrink-0 text-xs text-gray-300 dark:text-gray-600">-</span>
-                                            <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
-                                                ₺{{ \App\Support\Money::format($item['amount']) }}
-                                            </span>
-                                        </div>
-                                    @endforeach
-                                </div>
-                            </x-filament::section>
-                        @empty
-                            <div class="rounded-2xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500 dark:border-white/10 dark:text-gray-400">
-                                Kayıt yok.
-                            </div>
-                        @endforelse
-
-                        @if (count($expenseGroups) > 1)
-                            <div class="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-white/10 dark:bg-white/5">
-                                <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">Genel Toplam</span>
-                                <span class="text-sm font-bold text-gray-950 dark:text-white">
-                                    ₺{{ \App\Support\Money::format(array_sum(array_column($expenseGroups, 'total'))) }}
-                                </span>
-                            </div>
-                        @endif
-                    </div>
-                </x-filament::section>
-
-            </div>
-
-            <x-filament::section heading="Alışlar">
-                @php
-                    $purchaseGroups = $this->getPurchaseRows();
-                @endphp
+            {{-- 4.11: Giderler + Alışlar TEK kutu; gider kategorileri ve cariler tutara göre karışık, açılır kapanır; genel toplam yok
+                 (tek rakam üstteki Toplam Proje Maliyeti). Çekler bölümü de kaldırıldı (maliyete girmez, Çekler ekranında var). --}}
+            @php
+                $costGroups = collect($this->getExpenseRows())
+                    ->map(fn ($g) => ['kind' => 'expense', 'heading' => $g['category'], 'label' => 'Gider'] + $g)
+                    ->concat(collect($this->getPurchaseRows())
+                        ->map(fn ($g) => ['kind' => 'purchase', 'heading' => $g['party'], 'label' => 'Alış'] + $g))
+                    ->sortByDesc('total')->values();
+            @endphp
+            <x-filament::section heading="Gider ve Alışlar">
                 <div class="space-y-3">
-                    @forelse ($purchaseGroups as $group)
+                    @forelse ($costGroups as $group)
                         <x-filament::section
-                            :heading="$group['party']"
-                            :description="'₺' . \App\Support\Money::format($group['total']) . ' · ' . count($group['items']) . ' kayıt'"
+                            :heading="$group['heading']"
+                            :description="$group['label'] . ' · ₺' . \App\Support\Money::format($group['total']) . ' · ' . count($group['items']) . ' kayıt'"
                             collapsible
                             collapsed
                             compact
                         >
                             <div class="divide-y divide-gray-100 dark:divide-white/5">
+                            @if ($group['kind'] === 'expense')
+                                @foreach ($group['items'] as $item)
+                                    <div class="flex items-center gap-2 py-3">
+                                        <span class="w-20 shrink-0 text-xs text-gray-400">{{ $item['date'] }}</span>
+                                        <span class="min-w-0 flex-1 truncate text-sm text-gray-700 dark:text-gray-300">
+                                            {{ $item['description'] ?: ($item['party'] ?: '-') }}
+                                            @if ($item['description'] && $item['party'])
+                                                <span class="text-xs text-gray-400">· {{ $item['party'] }}</span>
+                                            @endif
+                                        </span>
+                                        <span class="shrink-0 text-right text-sm font-medium text-gray-950 dark:text-white">
+                                            ₺{{ \App\Support\Money::format($item['amount']) }}
+                                        </span>
+                                    </div>
+                                @endforeach
+                            @else
                                 @foreach ($group['items'] as $item)
                                     <div class="py-3">
                                         <div class="flex items-center gap-2">
@@ -264,6 +228,7 @@
                                         @endforeach
                                     </div>
                                 @endforeach
+                            @endif
                             </div>
                         </x-filament::section>
                     @empty
@@ -271,15 +236,6 @@
                             Kayıt yok.
                         </div>
                     @endforelse
-
-                    @if (count($purchaseGroups) > 1)
-                        <div class="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-white/10 dark:bg-white/5">
-                            <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">Genel Toplam</span>
-                            <span class="text-sm font-bold text-gray-950 dark:text-white">
-                                ₺{{ \App\Support\Money::format(array_sum(array_column($purchaseGroups, 'total'))) }}
-                            </span>
-                        </div>
-                    @endif
                 </div>
             </x-filament::section>
 
