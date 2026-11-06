@@ -7,6 +7,7 @@ use App\Models\PropertyTaxProject;
 use App\Models\PropertyTaxTaxpayer;
 use App\Models\PropertyTaxUnitTaxpayer;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -235,6 +236,13 @@ class DeclarationExporter
      */
     private function normalizePageSetup(Worksheet $sheet): void
     {
+        // Baskı alanı (A1:EN70) dışındaki boş-biçimli şablon hücreleri (EO:IW, ≈5 bin hücre) — basılmaz,
+        // yalnız bellek/süre yer (proje çıktısı 25 mükellefte 128 MB'ı aşıyordu, Yıldız 06.11).
+        foreach ($sheet->getCellCollection()->getCoordinates() as $coord) {
+            if (Coordinate::columnIndexFromString(preg_replace('/\d+/', '', $coord)) > 144) {
+                $sheet->getCellCollection()->delete($coord);
+            }
+        }
         $sheet->setShowGridlines(false);
         $ps = $sheet->getPageSetup();
         $ps->setOrientation(PageSetup::ORIENTATION_PORTRAIT);

@@ -114,6 +114,7 @@ Route::get('/satislar/{sale}/yazdir', function (\App\Models\Sale $sale) {
 
 // Emlak Beyanı — mükellef başına çıktı (dompdf PDF, LibreOffice Formatlı PDF)
 Route::get('/emlak-beyani-mukellef/{taxpayer}/pdf', function (\App\Models\PropertyTaxTaxpayer $taxpayer) {
+    \App\Services\PropertyTax\PdfConverter::allowHeavyRequest();
     $taxpayer->load(['project', 'allocations.unit.block.project']);
     $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
     $name = 'Beyanname-'.$slug($taxpayer->project?->name ?? 'proje').'-'.$slug($taxpayer->fullName()).'.pdf';
@@ -124,6 +125,7 @@ Route::get('/emlak-beyani-mukellef/{taxpayer}/pdf', function (\App\Models\Proper
 })->middleware('auth')->name('property-tax.taxpayer.pdf');
 
 Route::get('/emlak-beyani-mukellef/{taxpayer}/formatli-pdf', function (\App\Models\PropertyTaxTaxpayer $taxpayer) {
+    \App\Services\PropertyTax\PdfConverter::allowHeavyRequest();
     $exporter = new \App\Services\PropertyTax\DeclarationExporter();
     $xlsx = $exporter->exportForTaxpayer($taxpayer);
 
@@ -139,6 +141,7 @@ Route::get('/emlak-beyani-mukellef/{taxpayer}/formatli-pdf', function (\App\Mode
 
 // Proje geneli — tüm mükellefler tek dosyada
 Route::get('/emlak-beyani-proje/{project}/pdf', function (\App\Models\PropertyTaxProject $project) {
+    \App\Services\PropertyTax\PdfConverter::allowHeavyRequest();
     $taxpayers = $project->taxpayers()->with(['allocations.unit.block.project'])->get()
         ->filter(fn ($t) => $t->allocations->count() > 0)->values();
     $slug = fn (string $s) => trim(preg_replace('/[^A-Za-z0-9]+/', '-', $s), '-');
@@ -150,6 +153,7 @@ Route::get('/emlak-beyani-proje/{project}/pdf', function (\App\Models\PropertyTa
 })->middleware('auth')->name('property-tax.project.pdf');
 
 Route::get('/emlak-beyani-proje/{project}/formatli-pdf', function (\App\Models\PropertyTaxProject $project) {
+    \App\Services\PropertyTax\PdfConverter::allowHeavyRequest();
     $exporter = new \App\Services\PropertyTax\DeclarationExporter();
     $xlsx = $exporter->exportForProject($project);
 

@@ -13,7 +13,14 @@
 <div class="page kroki">
     <h2>{{ trim($krokiBlock->name) && $krokiBlock->name !== '-' ? $krokiBlock->name.' — ' : '' }}BİNA KROKİSİ</h2>
     <table class="kroki-grid">
-        @php $roofHalf = max(60, $maxPos * 49); $roofH = max(45, $maxPos * 30); @endphp
+        @php
+            // A4 dikey (10mm kenar) ≈ 718px; kat etiketi + kenarlıklar → kutulara ≈ 590px. Sabit 95px'te 7+ daire
+            // taşıyordu (Yıldız 30.10, katta 10). Kutu daralır, yazı küçülür; çatı kutularla birlikte.
+            $boxW = min(95, intdiv(590, $maxPos));
+            $small = $boxW < 85;
+            $roofHalf = max(60, intdiv($maxPos * ($boxW + 4), 2));
+            $roofH = min(160, max(45, $maxPos * 30));
+        @endphp
         <tr>
             <td class="kat"></td>
             <td colspan="{{ $maxPos }}" class="roof-cell">
@@ -34,9 +41,9 @@
                 <td class="kat">{{ (int) $floor === 0 ? 'ZEMİN' : $floor.'.KAT' }}</td>
                 @foreach ($floorUnits as $idx => $u)
                     @php $span = $base + ($idx < $rem ? 1 : 0); @endphp
-                    <td class="dbox" colspan="{{ $span }}">
-                        <div class="no">{{ $u->unit_no }} NOLU {{ mb_strtoupper($u->effectiveUsageType() ?: 'DAİRE') }}</div>
-                        <div class="m2">{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
+                    <td class="dbox" colspan="{{ $span }}" style="width: {{ $boxW * $span }}px;">
+                        <div class="no" @if ($small) style="font-size: 7.5px;" @endif>{{ $u->unit_no }} NOLU {{ mb_strtoupper($u->effectiveUsageType() ?: 'DAİRE') }}</div>
+                        <div class="m2" @if ($small) style="font-size: 7px;" @endif>{{ $u->area !== null ? $fmtNum($u->area).' m²' : '' }}</div>
                     </td>
                 @endforeach
             </tr>

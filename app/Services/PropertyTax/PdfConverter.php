@@ -14,6 +14,16 @@ use Symfony\Component\Process\Process;
  */
 class PdfConverter
 {
+    /**
+     * Beyanname PDF istekleri ağır: sunucu varsayılanı 128 MB / 30 sn, 25 mükellefli proje çıktısı
+     * ≈ 470 MB / 42 sn istiyor → 500 (Yıldız 06.11, NERMİN KARTAL). Yalnız bu istekte sınır yükselir.
+     */
+    public static function allowHeavyRequest(): void
+    {
+        @ini_set('memory_limit', '1024M');
+        @set_time_limit(180);
+    }
+
     public function fromXlsx(string $xlsxPath): string
     {
         $soffice = config('property_tax.soffice');
