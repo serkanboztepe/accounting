@@ -5,6 +5,7 @@ namespace App\Services\Whatsapp;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Models\WhatsappPendingExpense;
+use App\Support\Features;
 use App\Support\Labels;
 use App\Support\Phone;
 use Illuminate\Support\Collection;
@@ -101,6 +102,11 @@ final class ProjectChoice
         }
         $projects = self::projects();
         if ($projects->isEmpty()) {
+            // Hiç proje yokken maliyet sessizce Genel'e düşüyordu (Kaya İnşaat 06.11) — adı yazılabilen firmada sorulur.
+            if (self::alwaysAsk($d) && self::offersNewName()) {
+                $d['project_needed'] = true;
+            }
+
             return $d;
         }
         if (self::alwaysAsk($d)) {
@@ -131,8 +137,12 @@ final class ProjectChoice
             return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz.';
         }
         if (! empty($d['project_needed']) && self::alwaysAsk($d) && self::applies($d)) {
+            if (self::offersNewName() && self::projects()->isEmpty()) {
+                return 'Hangi ' . mb_strtolower(Labels::project()) . '? Adını yaz (0 = Genel).';
+            }
+
             return 'Hangi ' . mb_strtolower(Labels::project()) . '? Numarasını yaz (0 = Genel)'
-                . (\App\Support\Features::placeCost() ? ' ya da yeni yerin adını yaz.' : '.');
+                . (self::offersNewName() ? ' ' . self::newNameHint() . '.' : '.');
         }
 
         return null;
@@ -164,9 +174,15 @@ final class ProjectChoice
                 $choices[] = $inline ? '*0* Genel' : '   0) Genel / ortak';
             }
             $head = "{$icon} Hangi " . mb_strtolower($label) . '?';
-            // Çiftlik: menüden çıkış — yeni tarla adı yazılabilir (Oktay 28.10 "Tarla" yazdı, menü tekrar geldi).
-            if (\App\Support\Features::placeCost()) {
-                $choices[] = $inline ? 'ya da yeni yerin adını yaz' : '   ya da yeni yerin adını yaz';
+            // Hiç kayıt yok: tek çıkış adını yazmak (Kaya İnşaat 06.11).
+            if ($projects->isEmpty() && self::offersNewName()) {
+                $example = Features::placeCost() ? '"Tarla 123/50"' : '"Çamlık Konutları"';
+
+                return [$head . ' Henüz ' . mb_strtolower($label) . " yok — adını yaz (ör. {$example}) · *0* Genel"];
+            }
+            // Çiftlik + müteahhit: menüden çıkış — yeni ad yazılabilir (Oktay 28.10 "Tarla" yazdı, menü tekrar geldi).
+            if (self::offersNewName()) {
+                $choices[] = ($inline ? '' : '   ') . self::newNameHint();
             }
 
             return $inline ? [$head . ' ' . implode(' · ', $choices)] : array_merge([$head], $choices);
@@ -195,6 +211,20 @@ final class ProjectChoice
 
         return $p ? array_merge($d, ['project_id' => $p->id, 'project_name' => null, 'project_choice_done' => true,
             'project_suggested' => false, 'project_needed' => false]) : null;
+    }
+
+    /**
+     * Menüde "yeni adı yaz" çıkışı (AI liste dışı adı `project_name` yapar, onayla açılır): çiftlik (yer) + müteahhit (proje,
+     * kullanıcı 06.11 — yeni şantiye WhatsApp'tan da açılır). Mimar (Ferhat) ve şubeli fırın eskisi gibi.
+     */
+    public static function offersNewName(): bool
+    {
+        return Features::placeCost() || config('app.profile') === 'muteahhit';
+    }
+
+    public static function newNameHint(): string
+    {
+        return Features::placeCost() ? 'ya da yeni yerin adını yaz' : 'ya da yeni projenin adını yaz';
     }
 
     public static function menuShown(array $d): bool

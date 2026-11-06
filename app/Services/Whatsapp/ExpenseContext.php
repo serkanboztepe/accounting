@@ -126,7 +126,12 @@ class ExpenseContext
                         ? ' Kullanıcı listede OLMAYAN bir yer söylüyorsa ("123/50 tarla", "123 ada 50 parsel tarlam", "yeni ahır", '
                             . '"Hangi yer?" sorusuna liste dışı bir ad) `project_id` null, `project_name` = o yerin kısa adı ("Tarla 123/50") — '
                             . 'onayla yeni yer açılır. Listedeki bir yere benziyorsa (aynı ada/parsel) onu seç, yeni açma.'
-                        : '');
+                        // Müteahhit (06.11 Kaya İnşaat): yeni şantiye adı da yazılabilir; proje yokken "Hangi proje?" cevabı adın kendisi.
+                        : (\App\Services\Whatsapp\ProjectChoice::offersNewName()
+                            ? ' Kullanıcı listede OLMAYAN bir proje/şantiye söylüyorsa ("Çamlık şantiyesine demir", "Hangi proje?" sorusuna '
+                                . 'liste dışı bir ad, ör. "Çamlık konutları") `project_id` null, `project_name` = projenin kısa adı ("Çamlık Konutları") — '
+                                . 'onayla yeni proje açılır. Listedeki bir projeye benziyorsa onu seç, yeni açma.'
+                            : ''));
             $lines[] = $projects->isEmpty()
                 ? '  (kayıtlı proje yok)'
                 : $projects->map(fn ($p) => sprintf('  %d: %s%s', $p->id, $p->name, $p->cadastral_parcel ? " [{$p->cadastral_parcel}]" : ''))->implode("\n");

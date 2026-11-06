@@ -4106,6 +4106,17 @@ class WhatsappWebhookController extends Controller
         $lines[] = '';
         $lines[] = '*Kaydetmek için:*';
         array_push($lines, ...$pick($record));
+        // Yerler açık firmada proje / şube / yer (kullanıcı 06.11): kayıtta adı geçerse oraya yazılır; adı yazılabilen firmada yenisi açılır.
+        if (\App\Support\Features::places()) {
+            $label = \App\Support\Labels::project();
+            $example = match (true) {
+                \App\Support\Features::placeCost() => '"Tarlaya 15 römork gübre, 20 bin"',
+                $label === 'Şube' => '"Merkez şube kirası 20 bin"',
+                default => '"Çamlık şantiyesine 20 bin demir"',
+            };
+            $lines[] = ($label === 'Şube' ? '🏪' : '🏗') . " {$label}: kayıtta adını geç — {$example}; söylemezsen sorarım."
+                . (ProjectChoice::offersNewName() ? (\App\Support\Features::placeCost() ? ' Yeni yerse' : ' Yeni projeyse') . ' adını yaz, açarım.' : '');
+        }
         $lines[] = '';
         $lines[] = '*Sormak için:*';
         array_push($lines, ...$pick($ask));
