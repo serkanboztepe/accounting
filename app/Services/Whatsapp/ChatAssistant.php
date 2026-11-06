@@ -85,6 +85,7 @@ class ChatAssistant
         $maxTokens = 1024;
         $deep = false;
         $claimRetried = false;
+        $nameRetried = false;
         $confirmRetried = false;
         for ($step = 0; $step < self::MAX_STEPS; $step++) {
             $timeout = 60;
@@ -245,6 +246,17 @@ class ChatAssistant
                         break;
                     }
 
+                    // Olmayan adı "kayıtlı" demesin (Akkuş 06.11 "Tokgöz stok": Tokgöz cari değildi, talimattaki örnekten sandı).
+                    if ($unknown = self::unknownNames((array) ($input['registered_names'] ?? []))) {
+                        if ($nameRetried) {
+                            return ['type' => 'reply', 'text' => self::unknownNamesReply($unknown)];
+                        }
+                        $nameRetried = true;
+                        $messages[] = ['role' => 'assistant', 'content' => self::echoable($content)];
+                        $messages[] = ['role' => 'user', 'content' => self::toolResults($content, [$call['id'] => self::nameRejected($unknown)])];
+                        break;
+                    }
+
                     return ['type' => 'reply', 'text' => self::whatsappFormat(trim((string) ($input['text'] ?? ''))) ?: 'Tam anlayamadım, biraz daha açık yazar mısın?'];
                 case 'query_records':
                 case 'search_conversations':
@@ -352,6 +364,52 @@ class ChatAssistant
         . 'kaydetmez; kayıt ve ayar yalnız propose_entry + kullanıcının onayıyla olur. Kullanıcı bir şeyin yapılmasını istiyorsa propose_entry '
         . 'ile öner (ör. "her gün düş" → stock_setting + stock_items[usage_amount]; miktarı bilmiyorsan question ile sor). Yalnız bilgi veriyorsan bağlamda '
         . '(ÜRÜNLER, CARİLER) GÖRDÜĞÜNÜ "yaptım" demeden anlat; bağlamda yazmayan ayar YOKTUR.';
+
+    /**
+     * Cevapta "kayıtlı" denen adlardan CARİLER / ÜRÜNLER / hafızada olmayanlar. Esnek eşleşme (büyük-küçük harf, ek, kısaltma):
+     * "Muhyiddin" ↔ "Uncu Muhyiddin", "Onur" ↔ "Onur Sünnetçi" bilinir sayılır — yanlış geri çevirme yerine kaçırma tercih.
+     *
+     * @param  list<mixed>  $names
+     * @return list<string>
+     */
+    public static function unknownNames(array $names): array
+    {
+        $norm = fn (string $t) => trim(preg_replace('/[^\p{L}\p{N} ]+/u', ' ', mb_strtolower(strtr($t, ['İ' => 'i', 'I' => 'ı']), 'UTF-8')) ?? '');
+        $names = array_values(array_filter(array_map(fn ($n) => is_string($n) ? trim($n) : '', $names), fn ($n) => mb_strlen($n) >= 3));
+        if ($names === []) {
+            return [];
+        }
+        $known = \App\Models\Party::pluck('name')
+            ->merge(\Illuminate\Support\Facades\Schema::hasTable('products') ? \App\Models\Product::pluck('name') : [])
+            ->map(fn ($n) => $norm((string) $n))->filter()->values();
+        $memory = $norm(\App\Models\AssistantMemory::where('status', 'active')->get(['subject', 'fact'])
+            ->map(fn ($m) => $m->subject . ' ' . $m->fact)->implode(' '));
+
+        // Tam kelime eşleşmesi ("tokgöz" ≠ "stok"); kesme işaretinden sonrası ek ("Tokgöz'den" → "tokgöz").
+        $word = fn (string $needle, string $hay) => $needle !== '' && preg_match('/(^| )' . preg_quote($needle, '/') . '( |$)/u', $hay) === 1;
+
+        return array_values(array_filter($names, function ($name) use ($norm, $known, $memory, $word) {
+            $n = $norm(preg_split("/['’]/u", $name)[0]);
+
+            return $n !== '' && ! $known->contains(fn ($k) => $word($n, $k) || $word($k, $n)) && ! $word($n, $memory);
+        }));
+    }
+
+    /** @param list<string> $names */
+    private static function nameRejected(array $names): string
+    {
+        return 'GERİ ÇEVRİLDİ — kullanıcıya GİTMEDİ: "' . implode('", "', $names) . '" CARİLER / ÜRÜNLER\'de YOK (talimattaki örnek adlar kayıt '
+            . 'değildir). Cevabı düzelt: adın kayıtlı OLMADIĞINI açıkça söyle; eski konuşmada geçiyorsa `search_conversations` ile bak ve '
+            . 'bulduğunu söyle; ne istendiği belli değilse tahmin etme, seçenekli kısa soru sor ("X\'ten aldığın malın stoğunu mu soruyorsun, '
+            . 'yoksa X\'i yeni kişi olarak mı ekleyeyim?").';
+    }
+
+    /** @param list<string> $names */
+    public static function unknownNamesReply(array $names): string
+    {
+        return '"' . implode('", "', $names) . '" adında kayıtlı bir kişi ya da ürün bulamadım. Ne yapmak istediğini biraz açar mısın? '
+            . 'Mesela: "' . $names[0] . ' yeni kişi olarak ekle" ya da hangi malı sorduğunu yaz.';
+    }
 
     private const NOT_DONE_REPLY = 'Bunu henüz kaydetmedim. Ne yapmamı istediğini kısaca yazar mısın? (ör. "yem günde 16 adet gidiyor")';
 
@@ -522,7 +580,7 @@ class ChatAssistant
         }
         // Kartı olmayan mal alışında stok sorusunu KOD sorar (StockChoice, 21.10 Akkuş "börek unu ödemesi" stoğa girmedi).
         if ($stock && \App\Support\Features::stockPurchases()) {
-            $modules[] = '- Alış ya da ödeme TEK bir mal içinse (un, yağ, susam, şeker, lastik…) `goods_name` alanına malın adını yaz — adet/fiyat söylenmese de, cari olsun olmasın, gider olarak yazsan bile ("25.000 börek unu ödemesi yapıldı" → "Börek unu"; "3000 tl susam aldım nakit" → "Susam"; "Tokgöz\'e yağ parası verdim" → "Yağ"). Hizmet, işçilik, nakliye, kira, fatura, yakıt, yemek ve karışık market/toptancı alışverişinde null. Malın nerede olduğunu ya da kaç tane geldiğini SEN sorma — kod numaralı soruyla sorar.';
+            $modules[] = '- Alış ya da ödeme TEK bir mal içinse (un, yağ, susam, şeker, lastik…) `goods_name` alanına malın adını yaz — adet/fiyat söylenmese de, cari olsun olmasın, gider olarak yazsan bile ("25.000 börek unu ödemesi yapıldı" → "Börek unu"; "3000 tl susam aldım nakit" → "Susam"; "yağcıya yağ parası verdim" → "Yağ"). Hizmet, işçilik, nakliye, kira, fatura, yakıt, yemek ve karışık market/toptancı alışverişinde null. Malın nerede olduğunu ya da kaç tane geldiğini SEN sorma — kod numaralı soruyla sorar.';
         }
         if (\App\Support\Features::agreements()) {
             // 21.10: anlaşma kayıttır (kart, kalan); hafızadaki "X'le Y'den anlaştık → remember" kuralını bu hesapta ezer.
@@ -611,6 +669,12 @@ class ChatAssistant
           (geri kalan her şey önceki kayıttaki gibi). Sistem ikisini gösterip tek onay ister. SON kayıt değil de DAHA ESKİ
           bir kayıt tarif ediliyorsa ("kategorisiz olan 25.113 yanlış", "14.10'daki gideri sil", "Ergenekon gideri yanlış") → yine
           `undo_last` + `find_amount` / `find_date` / `find_text` (sistem bulup gösterir). Kayıt bilgisi istemek için `reply` KULLANMA.
+        - ADLAR: bir kişinin, firmanın ya da ürünün KAYITLI olduğunu yalnız CARİLER / ÜRÜNLER'de o adı
+          GÖRÜYORSAN söyle — bu talimattaki örnek adlar kayıt DEĞİLDİR. `reply`'da kayıtlı dediğin adları `registered_names`'e yaz.
+          Listede olmayan bir ad geçiyorsa önce `search_conversations` ile o adı ara (eskiden konuşulmuş olabilir), sonra cevapta adın
+          kayıtlı OLMADIĞINI açıkça söyle. Kısa ve belirsiz mesajda ("Yılmazlar stok", "Ali hesap") ne istendiğini TAHMİN ETME: bulduğunu
+          söyle ve seçenekli kısa soru sor ("Yılmazlar kayıtlı kişi değil. 3 Ekim'de Yılmazlar'dan diye 40 koli yağ girmiştin — onun
+          stoğunu mu soruyorsun, yoksa Yılmazlar'ı yeni kişi olarak mı ekleyeyim?").
         - Kullanıcının söylediğini GENEL BİLGİYLE SORGULAMA ("fırın süt satmaz", "bu mantıklı değil" DEME — Oktay 18.10): CARİLER,
           hafıza ve geçmiş kayıtlar esastır; anlamadıysan kibarca ne demek istediğini sor. Kaydedilmiş bir işlemi kişiyle anıp
           "düş / iptal et / sil / yanlış oldu / saymayalım" diyorsa ("Akkuş fırından 50 litre süt düş",
@@ -722,7 +786,11 @@ class ChatAssistant
                 'description' => 'Kullanıcıya düz mesaj: soru sor, bilgi ver, yapamadığını söyle. ASLA kayıt özeti ya da "kaydedeyim mi?" yazma — kayıt için propose_entry.',
                 'input_schema' => [
                     'type' => 'object',
-                    'properties' => ['text' => ['type' => 'string', 'description' => 'Kısa WhatsApp mesajı (en fazla 2-3 cümle)']],
+                    'properties' => [
+                        'text' => ['type' => 'string', 'description' => 'Kısa WhatsApp mesajı (en fazla 2-3 cümle)'],
+                        'registered_names' => ['type' => 'array', 'items' => ['type' => 'string'],
+                            'description' => 'Cevapta KAYITLI / listede var / hesabı var dediğin kişi, firma ve ürün adları (yoksa boş). Sistem listeye bakar.'],
+                    ],
                     'required' => ['text'],
                 ],
             ],
