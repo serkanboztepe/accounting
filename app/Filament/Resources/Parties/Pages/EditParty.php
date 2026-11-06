@@ -66,10 +66,15 @@ class EditParty extends EditRecord
                 ->modalHeading('Kişi / firma bilgileri')
                 ->modalSubmitActionLabel('Kaydet')
                 ->modalWidth('2xl')
-                ->fillForm(fn (): array => ['kind' => $this->record->kind ?? ($this->record->is_employee ? Party::KIND_EMPLOYEE : null)]
+                ->fillForm(fn (): array => ['kind' => $this->settingsKind()]
                     + $this->record->only(['name', 'phone', 'notes', 'salary_amount', 'salary_day', 'salary_auto']))
                 ->schema(\App\Filament\Resources\Parties\Schemas\PartyForm::components(requireKind: false))
                 ->action(function (array $data): void {
+                    // Kişisel / Ticari düzeninde "Ticari" = alım/satış/ikisi/boş hepsi; Ticari'de kaldıysa eski tip korunur (veri değişmesin).
+                    if (($data['kind'] ?? null) === Party::KIND_BOTH && \App\Support\Features::personalPartyGroups()
+                        && in_array($this->record->kind, [null, Party::KIND_CUSTOMER, Party::KIND_SUPPLIER], true)) {
+                        unset($data['kind']);
+                    }
                     $this->record->update($data);
                     EmployeeDraft::syncFromCard($this->record);
                 }),
@@ -547,6 +552,17 @@ class EditParty extends EditRecord
      * Firma tek yönlüyse o yön (hub "Anlaşma yönü", 31.10); değilse cari tipi müşteriyse yalnız satış, tedarikçiyse yalnız alış
      * anlaşması (27.10); ikisi de / boşsa seçilir.
      */
+    /** Ayarlar penceresinde seçili tip: kişisel düzende alım/satış/boş tipli ticari kişi "Ticari" görünür. */
+    private function settingsKind(): ?string
+    {
+        $kind = $this->record->kind ?? ($this->record->is_employee ? Party::KIND_EMPLOYEE : null);
+        if (\App\Support\Features::personalPartyGroups() && ! in_array($kind, [Party::KIND_PERSONAL, Party::KIND_EMPLOYEE], true)) {
+            return Party::KIND_BOTH;
+        }
+
+        return $kind;
+    }
+
     private function fixedAgreementDirection(): ?string
     {
         return \App\Support\Features::agreementFixedDirection() ?? match ($this->record->kind) {

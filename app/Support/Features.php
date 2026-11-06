@@ -124,6 +124,19 @@ final class Features
         return in_array($v, FeatureSettings::AGREEMENT_DIRECTIONS, true) ? $v : FeatureSettings::AGREEMENT_BOTH;
     }
 
+    /** Kişi grupları (hub Özellikler, 06.11): trade (herkes) | personal (Ticari / Kişisel / Personel). */
+    public static function partyGroups(): string
+    {
+        $v = config('app.party_groups');
+
+        return in_array($v, FeatureSettings::PARTY_GROUPS, true) ? $v : FeatureSettings::PARTY_GROUPS_TRADE;
+    }
+
+    public static function personalPartyGroups(): bool
+    {
+        return self::partyGroups() === FeatureSettings::PARTY_GROUPS_PERSONAL;
+    }
+
     /** Firma bu yönde anlaşma yapar mı (purchase | sale)? */
     public static function agreementDirectionAllowed(string $direction): bool
     {

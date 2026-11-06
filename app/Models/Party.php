@@ -104,10 +104,21 @@ class Party extends Model
     public const KIND_BOTH = 'both';
     public const KIND_EMPLOYEE = 'employee';
 
+    /** Kişisel (06.11, Yıldız): şirketle ilgisi olmayan; düğmeler "ikisi de" gibi hepsi. Yalnız hub "Kişisel / Ticari ayrımı" açıkken seçilir. */
+    public const KIND_PERSONAL = 'personal';
+
+    // 06.11 kullanıcı: "Ödeme aldığım/yaptığım" → "Satış yaptığım/Alım yaptığım" (28.10'daki adın yerine, bilerek).
     public const KINDS = [
-        self::KIND_CUSTOMER => 'Ödeme aldığım',
-        self::KIND_SUPPLIER => 'Ödeme yaptığım',
+        self::KIND_CUSTOMER => 'Satış yaptığım',
+        self::KIND_SUPPLIER => 'Alım yaptığım',
         self::KIND_BOTH     => 'İkisi de',
+        self::KIND_EMPLOYEE => 'Personel',
+    ];
+
+    /** Kişisel / Ticari ayrımı açık firmada kartın seçimi. Ticari = "ikisi de" değeri (tüm düğmeler). */
+    public const PERSONAL_KINDS = [
+        self::KIND_BOTH     => 'Ticari',
+        self::KIND_PERSONAL => 'Kişisel',
         self::KIND_EMPLOYEE => 'Personel',
     ];
 
@@ -118,9 +129,24 @@ class Party extends Model
     public const KIND_HINTS = [
         self::KIND_CUSTOMER => 'müşteri',
         self::KIND_SUPPLIER => 'mal / hizmet aldığım',
-        self::KIND_BOTH     => 'hem alır hem öderim',
+        self::KIND_BOTH     => 'hem satarım hem alırım',
         self::KIND_EMPLOYEE => 'maaş ve avans',
     ];
+
+    public const PERSONAL_KIND_HINTS = [
+        self::KIND_BOTH     => 'iş / şirket',
+        self::KIND_PERSONAL => 'şirketle ilgisi yok',
+        self::KIND_EMPLOYEE => 'maaş ve avans',
+    ];
+
+    /** Firmanın ayarına göre kartın seçenekleri: [değer => [ad, alt satır]]. */
+    public static function kindChoices(): array
+    {
+        [$labels, $hints] = \App\Support\Features::personalPartyGroups()
+            ? [self::PERSONAL_KINDS, self::PERSONAL_KIND_HINTS] : [self::KINDS, self::KIND_HINTS];
+
+        return collect($labels)->map(fn (string $label, string $kind) => [$label, $hints[$kind]])->all();
+    }
 
     /** Personel işareti (is_employee) ile tip senkron: biri değişince öteki de (WhatsApp "personelim" is_employee'yi açar). */
     protected static function booted(): void
@@ -137,13 +163,13 @@ class Party extends Model
     /** Satış tarafı düğmeleri (Satış Yaptım, Ödeme Aldım, satış anlaşması). */
     public function sellsTo(): bool
     {
-        return in_array($this->kind, [null, self::KIND_CUSTOMER, self::KIND_BOTH], true);
+        return in_array($this->kind, [null, self::KIND_CUSTOMER, self::KIND_BOTH, self::KIND_PERSONAL], true);
     }
 
     /** Alış tarafı düğmeleri (Alım Yaptım, Ödeme Yaptım, alış anlaşması). */
     public function buysFrom(): bool
     {
-        return in_array($this->kind, [null, self::KIND_SUPPLIER, self::KIND_BOTH], true);
+        return in_array($this->kind, [null, self::KIND_SUPPLIER, self::KIND_BOTH, self::KIND_PERSONAL], true);
     }
 
     /**

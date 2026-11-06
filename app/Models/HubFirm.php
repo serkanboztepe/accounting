@@ -50,6 +50,7 @@ class HubFirm extends Model
         'check_reminder_days' => [3, 0],
         'project_label'       => null,  // "Proje" / "Şube" / serbest; boş = sektöre göre (Labels::project)
         'agreement_direction' => null,  // anlaşma yönü: purchase | sale | both; boş = both (FeatureSettings::AGREEMENT_*)
+        'party_groups'        => null,  // kişi grupları: trade | personal; boş = trade (FeatureSettings::PARTY_GROUPS_*)
         'sector'              => null,  // işletme türü (config/sectors.php) — asistan karşısındakinin işini bilsin; paketten ayrı
         'business_note'       => null,  // tek satır işletme notu ("çoğunlukla vadeli çekle öder")
     ];
@@ -131,6 +132,8 @@ class HubFirm extends Model
             'project_label'       => is_string($s['project_label'] ?? null) && trim($s['project_label']) !== '' ? trim($s['project_label']) : null,
             'agreement_direction' => in_array($s['agreement_direction'] ?? null, FeatureSettings::AGREEMENT_DIRECTIONS, true)
                 ? $s['agreement_direction'] : FeatureSettings::AGREEMENT_BOTH,
+            'party_groups'        => in_array($s['party_groups'] ?? null, FeatureSettings::PARTY_GROUPS, true)
+                ? $s['party_groups'] : FeatureSettings::PARTY_GROUPS_TRADE,
             'sector'              => array_key_exists((string) ($s['sector'] ?? ''), (array) config('sectors')) ? $s['sector'] : null,
             'business_note'       => is_string($s['business_note'] ?? null) && trim($s['business_note']) !== '' ? mb_substr(trim($s['business_note']), 0, 300) : null,
             'features'            => is_array($s['features'] ?? null) ? FeatureSettings::normalizeFeatures($s['features']) : null,
@@ -174,6 +177,7 @@ class HubFirm extends Model
             'project_label'       => $label,
             'agreement_direction' => in_array($data['agreement_direction'] ?? null, FeatureSettings::AGREEMENT_DIRECTIONS, true)
                 ? $data['agreement_direction'] : FeatureSettings::AGREEMENT_BOTH,
+            'party_groups'        => ! empty($data['personal_parties']) ? FeatureSettings::PARTY_GROUPS_PERSONAL : FeatureSettings::PARTY_GROUPS_TRADE,
             'profile'             => FeatureSettings::deriveProfile($features, $label ?? 'Proje'),
             'cari_lock'           => (bool) ($data['cari_lock'] ?? false),
             'cari_lock_minutes'   => (int) (($data['cari_lock_minutes'] ?? null) ?: 5),
@@ -194,6 +198,7 @@ class HubFirm extends Model
         $data = [
             'project_label'       => $s['project_label'] ?? FeatureSettings::legacyPlaceLabel($s['profile']),
             'agreement_direction' => $s['agreement_direction'],
+            'personal_parties'    => $s['party_groups'] === FeatureSettings::PARTY_GROUPS_PERSONAL,
             'sector'              => $s['sector'],
             'business_note'       => $s['business_note'],
             'cari_lock'           => $s['cari_lock'],

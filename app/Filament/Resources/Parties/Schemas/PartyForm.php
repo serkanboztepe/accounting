@@ -30,11 +30,14 @@ class PartyForm
             // Cari tipi (27.10): cari sayfasında yalnız bu tipin düğmeleri çıkar. Açarken zorunlu; eski (boş) kayıtta seçilebilir.
             // Kutu düğmeler (28.10, kullanıcı: radyo yerine): başlık + küçük açıklama; seçilen panelin ana renginde.
             ToggleButtons::make('kind')->label('Bu kişi / firmayla ne tür iş yapıyorsun?')
-                ->options(collect(Party::KINDS)->map(fn (string $label, string $kind) => new HtmlString(e($label)
-                    . '<span class="block text-xs font-normal opacity-75">' . e(Party::KIND_HINTS[$kind]) . '</span>'))->all())
+                // Seçenekler firmanın ayarına göre (06.11): Satış/Alım yaptığım/İkisi de/Personel ya da Ticari/Kişisel/Personel.
+                ->options(collect(Party::kindChoices())->map(fn (array $c) => new HtmlString(e($c[0])
+                    . '<span class="block text-xs font-normal opacity-75">' . e($c[1]) . '</span>'))->all())
                 ->icons([Party::KIND_CUSTOMER => 'heroicon-o-arrow-up-tray', Party::KIND_SUPPLIER => 'heroicon-o-arrow-down-tray',
-                    Party::KIND_BOTH => 'heroicon-o-arrows-right-left', Party::KIND_EMPLOYEE => 'heroicon-o-user'])
-                ->colors(array_fill_keys(array_keys(Party::KINDS), 'primary'))   // tek renk (28.10: dört ayrı renk dağınık duruyordu)
+                    Party::KIND_BOTH => \App\Support\Features::personalPartyGroups() ? 'heroicon-o-briefcase' : 'heroicon-o-arrows-right-left',
+                    Party::KIND_PERSONAL => 'heroicon-o-home', Party::KIND_EMPLOYEE => 'heroicon-o-user'])
+                ->colors(array_fill_keys(array_keys(Party::kindChoices()), 'primary'))   // tek renk (28.10: dört ayrı renk dağınık duruyordu)
+                ->default(fn () => \App\Support\Features::personalPartyGroups() ? Party::KIND_BOTH : null)   // yeni kişi: Ticari seçili
                 ->columns(['default' => 1, 'sm' => 2])->live()->columnSpanFull()
                 ->required($requireKind),
             Textarea::make('notes')->label('Notlar')->columnSpanFull(),

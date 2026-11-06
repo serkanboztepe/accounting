@@ -42,6 +42,8 @@ final class FeatureFields
                 ->schema([
                     Placeholder::make('core_info')->hiddenLabel()
                         ->content('Cariler + ekstre · Satış Yaptım / Ödeme Aldım / Alım Yaptım / Ödeme Yaptım · Çekler · Hatırlatmalar + Takvim · İşlem Geçmişi · WhatsApp asistanı'),
+                    Toggle::make('personal_parties')->label('Kişisel / Ticari ayrımı')
+                        ->helperText('Kişiler: Ticari / Kişisel (şirketle ilgisi yok) / Personel / Hepsi. Kapalıyken: Satış yaptıklarım / Alım yaptıklarım / Personel / Hepsi. Kayıt ve bakiye değişmez.'),
                 ]),
 
             Section::make('Özellikler')

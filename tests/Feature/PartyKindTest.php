@@ -85,7 +85,11 @@ class PartyKindTest extends TestCase
         $b = Party::create(['name' => 'PK Sekme İkisi', 'kind' => Party::KIND_BOTH]);
         $e = Party::create(['name' => 'PK Sekme Personel', 'kind' => Party::KIND_EMPLOYEE]);
 
-        Livewire::test(ListParties::class)->assertSeeHtml("\$set('activeTab', 'suppliers')")->assertSee('Ödeme yaptıklarım')->assertSee('Ödeme aldıklarım')->assertSeeHtml('<span class="opacity-70">(')
+        // 06.11: adlar Satış / Alım yaptıklarım; sıra Satış · Alım · Personel · Hepsi; açılışta Hepsi seçili.
+        Livewire::test(ListParties::class)->assertSet('activeTab', 'all')
+            ->assertSeeInOrder(['Satış yaptıklarım', 'Alım yaptıklarım', 'Personel', 'Hepsi'])
+            ->assertDontSee('Ödeme yaptıklarım')->assertDontSee('Ticari')
+            ->assertSeeHtml("\$set('activeTab', 'suppliers')")->assertSeeHtml('<span class="opacity-70">(')
             ->assertDontSeeHtml('fi-tabs')->assertSee('Kişiler ve Firmalar');   // sekme değil yuvarlak düğme; yeni ad
         Livewire::test(ListParties::class)->set('activeTab', 'customers')->assertCanSeeTableRecords([$c, $b])->assertCanNotSeeTableRecords([$s, $e]);
         Livewire::test(ListParties::class)->set('activeTab', 'suppliers')->assertCanSeeTableRecords([$s, $b])->assertCanNotSeeTableRecords([$c, $e]);
@@ -210,5 +214,45 @@ class PartyKindTest extends TestCase
         $this->assertMatchesRegularExpression("/{$b->id}: PK İpucu İkisi\n/", $context);
         $this->assertMatchesRegularExpression("/{$e->id}: PK İpucu Boş\n/", $context);
         $this->assertStringContainsString('Mesajdaki açık fiil her zaman nottan önce gelir', $context);
+    }
+
+    /** 06.11 Yıldız: hub "Kişisel / Ticari ayrımı" açık → Ticari (seçili) · Kişisel · Personel · Hepsi; kişisel kişide tüm düğmeler. */
+    public function test_personal_party_groups_tabs_and_card(): void
+    {
+        config(['app.party_groups' => \App\Support\FeatureSettings::PARTY_GROUPS_PERSONAL]);
+        $s = Party::create(['name' => 'PK Kş Tedarikçi', 'kind' => Party::KIND_SUPPLIER]);
+        $b = Party::create(['name' => 'PK Kş İkisi', 'kind' => Party::KIND_BOTH]);
+        $n = Party::create(['name' => 'PK Kş Boş']);
+        $k = Party::create(['name' => 'PK Kş Ev Kirası', 'kind' => Party::KIND_PERSONAL]);
+        $e = Party::create(['name' => 'PK Kş Personel', 'kind' => Party::KIND_EMPLOYEE]);
+
+        Livewire::test(ListParties::class)->assertSet('activeTab', 'commercial')
+            ->assertSeeInOrder(['Ticari', 'Kişisel', 'Personel', 'Hepsi'])->assertDontSee('Satış yaptıklarım')
+            ->searchTable('PK Kş')->assertCanSeeTableRecords([$s, $b, $n])->assertCanNotSeeTableRecords([$k, $e]);
+        Livewire::test(ListParties::class)->set('activeTab', 'personal')->searchTable('PK Kş')->assertCanSeeTableRecords([$k])->assertCanNotSeeTableRecords([$s, $b, $n, $e]);
+        Livewire::test(ListParties::class)->set('activeTab', 'employees')->searchTable('PK Kş')->assertCanSeeTableRecords([$e])->assertCanNotSeeTableRecords([$s, $b, $n, $k]);
+        Livewire::test(ListParties::class)->set('activeTab', 'all')->searchTable('PK Kş')->assertCanSeeTableRecords([$s, $b, $n, $k, $e]);
+
+        $this->assertFalse($k->fresh()->is_employee);
+        $this->assertTrue($k->sellsTo() && $k->buysFrom(), 'kişiselde tüm düğmeler');
+        $this->assertSame(['both', 'personal', 'employee'], array_keys(Party::kindChoices()));
+
+        // Ayarlar penceresi: alım tipli ticari kişi "Ticari" görünür, Ticari'de kalırsa eski tip korunur; Kişisel seçilirse olur.
+        $this->page($s)->mountAction('settings')->assertSet('mountedActions.0.data.kind', Party::KIND_BOTH);
+        $this->page($s)->callAction('settings', ['name' => 'PK Kş Tedarikçi', 'kind' => Party::KIND_BOTH])->assertHasNoActionErrors();
+        $this->assertSame(Party::KIND_SUPPLIER, $s->fresh()->kind);
+        $this->page($b)->callAction('settings', ['name' => 'PK Kş İkisi', 'kind' => Party::KIND_PERSONAL])->assertHasNoActionErrors();
+        $this->assertSame(Party::KIND_PERSONAL, $b->fresh()->kind);
+    }
+
+    /** Hub kutusu saklanır; varsayılan (kayıtsız) firma Alım–Satış — diğer firmalar değişmez. */
+    public function test_party_groups_hub_setting_round_trip(): void
+    {
+        $on = \App\Models\HubFirm::settingsFromFeaturesForm(['personal_parties' => true]);
+        $this->assertSame('personal', $on['party_groups']);
+        $this->assertTrue((new \App\Models\HubFirm(['settings' => $on]))->featuresFormData()['personal_parties']);
+        $this->assertSame('trade', \App\Models\HubFirm::settingsFromFeaturesForm([])['party_groups']);
+        $this->assertSame('trade', (new \App\Models\HubFirm(['settings' => []]))->settingsWithDefaults()['party_groups']);
+        $this->assertFalse(\App\Support\Features::personalPartyGroups());
     }
 }

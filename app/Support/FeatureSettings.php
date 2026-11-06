@@ -61,6 +61,16 @@ final class FeatureSettings
         self::AGREEMENT_BOTH     => 'Alış + satış',
     ];
 
+    /**
+     * Kişi grupları (settings.party_groups, 06.11): Kişiler listesindeki düğmeler + kişi kartındaki tür seçimi.
+     * trade (herkes): Satış yaptıklarım / Alım yaptıklarım / Personel / Hepsi. personal (hub kutusu, Yıldız): Ticari / Kişisel / Personel / Hepsi.
+     */
+    public const PARTY_GROUPS_TRADE = 'trade';
+
+    public const PARTY_GROUPS_PERSONAL = 'personal';
+
+    public const PARTY_GROUPS = [self::PARTY_GROUPS_TRADE, self::PARTY_GROUPS_PERSONAL];
+
     /** Firma yeni düzene çevrildi mi (saklı liste var mı)? */
     public static function converted(array $settings): bool
     {

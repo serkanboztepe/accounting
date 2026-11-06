@@ -25,17 +25,32 @@ class ListParties extends ListRecords
      */
     public function getTabs(): array
     {
+        // 06.11 kullanıcı: adlar "Satış / Alım yaptıklarım", Hepsi EN SONDA (açılışta yine seçili — getDefaultActiveTab).
+        // Kişisel / Ticari ayrımı açık firmada (hub, Yıldız): Ticari (seçili) · Kişisel · Personel · Hepsi.
         $side = fn (string $kind) => fn (Builder $query) => $query->where('is_employee', false)
-            ->where(fn ($q) => $q->whereNull('kind')->orWhereIn('kind', [$kind, Party::KIND_BOTH]));
-        $tabs = [
-            'all' => ['Hepsi', fn (Builder $query) => $query],
-            'customers' => ['Ödeme aldıklarım', $side(Party::KIND_CUSTOMER)],
-            'suppliers' => ['Ödeme yaptıklarım', $side(Party::KIND_SUPPLIER)],
-            'employees' => ['Personel', fn (Builder $query) => $query->where('is_employee', true)],
+            ->where(fn ($q) => $q->whereNull('kind')->orWhereIn('kind', [$kind, Party::KIND_BOTH, Party::KIND_PERSONAL]));
+        $employees = ['Personel', fn (Builder $query) => $query->where('is_employee', true)];
+        $all = ['Hepsi', fn (Builder $query) => $query];
+        $tabs = \App\Support\Features::personalPartyGroups() ? [
+            'commercial' => ['Ticari', fn (Builder $query) => $query->where('is_employee', false)
+                ->where(fn ($q) => $q->whereNull('kind')->orWhere('kind', '!=', Party::KIND_PERSONAL))],
+            'personal' => ['Kişisel', fn (Builder $query) => $query->where('kind', Party::KIND_PERSONAL)],
+            'employees' => $employees,
+            'all' => $all,
+        ] : [
+            'customers' => ['Satış yaptıklarım', $side(Party::KIND_CUSTOMER)],
+            'suppliers' => ['Alım yaptıklarım', $side(Party::KIND_SUPPLIER)],
+            'employees' => $employees,
+            'all' => $all,
         ];
 
         return collect($tabs)->map(fn (array $t) => Tab::make($t[0])->modifyQueryUsing($t[1])
             ->badge(fn () => $t[1](Party::query())->count()))->all();
+    }
+
+    public function getDefaultActiveTab(): string|int|null
+    {
+        return \App\Support\Features::personalPartyGroups() ? 'commercial' : 'all';
     }
 
     /** Sekme çubuğu yerine yuvarlak düğmeler (kullanıcı 27.10: "tabları sevmedim, anlaşma detaydaki gibi"); süzme getTabs'tan. */
