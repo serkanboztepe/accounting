@@ -177,15 +177,16 @@ class DeclarationBuilder extends Page implements HasSchemas
                         ->color('info')
                         ->visible(fn () => LandShareStudy::query()->exists())
                         ->modalHeading('Hisse Dağılımı\'ndan Al')
-                        ->modalDescription('Seçilen çalışmanın hissedarları mükellef, blokları blok, bağımsız bölümleri daire, atamaları daire sahibi olarak gelir. Aynı adlı mükellef/blok ve aynı numaralı daire tekrar açılmaz; gelen dairelerin sahipleri çalışmadakiyle değiştirilir. Sonra adımlarda kontrol edip eksikleri (TC, m², bina bilgisi) tamamlarsınız.')
+                        ->modalDescription('Seçilen çalışmanın hissedarları mükellef, blokları blok, bağımsız bölümleri daire, atamaları daire sahibi olarak gelir. Daireler BB sırasıyla alttan yukarı katlara yerleşir, hepsi mesken olur — dükkan olanları sonra ④ adımda değiştirirsiniz. Aynı adlı mükellef/blok ve aynı numaralı daire tekrar açılmaz; dairesi olan bloğun kat/m² bilgisine dokunulmaz.')
                         ->modalSubmitActionLabel('Aktar')
                         ->schema([
                             Select::make('study_id')->label('Hisse Dağılımı çalışması')
                                 ->options(fn () => LandShareStudy::query()->with('project:id,name')->latest('id')->get()
                                     ->mapWithKeys(fn ($s) => [$s->id => $s->name . ($s->project ? ' — ' . $s->project->name : '')]))
                                 ->searchable()->required(),
+                            ...self::importLayoutSchema(),
                         ])
-                        ->action(fn (array $data) => $this->importLandShare((int) $data['study_id'])),
+                        ->action(fn (array $data) => $this->importLandShare((int) $data['study_id'], $data)),
                 ]),
 
                 Repeater::make('taxpayers')->hiddenLabel()
@@ -227,11 +228,19 @@ class DeclarationBuilder extends Page implements HasSchemas
         $this->loadState();
     }
 
-    public function importLandShare(int $studyId): void
+    /** Toplu Daire Oluştur alanları — kat sayısı ve başlangıç no Hisse'den gelir (BB sayısı / BB no). */
+    private static function importLayoutSchema(): array
+    {
+        return collect(self::bulkUnitSchema())
+            ->reject(fn ($c) => in_array($c->getName(), ['residential_floors', 'start_no'], true))
+            ->values()->all();
+    }
+
+    public function importLandShare(int $studyId, array $layout = []): void
     {
         $this->saveTaxpayers(); // ekranda yazılmış mükellefler kaybolmasın
         $study = LandShareStudy::findOrFail($studyId);
-        $c = LandShareImporter::import($this->record, $study);
+        $c = LandShareImporter::import($this->record, $study, array_diff_key($layout, ['study_id' => true]));
         $this->loadState();
 
         Notification::make()->title('Hisse Dağılımı aktarıldı')

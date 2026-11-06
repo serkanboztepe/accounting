@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\DB;
  * Hisse Dağılımı çalışması → Emlak Beyanı projesi: hissedarlar mükellef, bloklar blok, BB'ler daire,
  * atamalar daire sahibi (pay/payda) olur. Aynı adlı mükellef/blok ve aynı numaralı daire varsa yeniden
  * açılmaz (tekrar aktarım güvenli); aktarılan dairelerin sahipleri çalışmadakiyle değiştirilir.
+ *
+ * $layout (mimar 06.11: "her katta kaç daire, standart m², standart mesken; dükkanı sonra değiştirir"):
+ * Toplu Daire Oluştur alanları (per_floor, area, ground_shops, shop_count, shop_area, start_above).
+ * Verilirse HENÜZ DAİRESİ OLMAYAN blokta BB'ler sırayla katlara yerleşir (UnitGenerator::slots) —
+ * Hisse'deki kat/tür yok sayılır. Dairesi olan blokta elle düzeltilmiş kat/m²/tip korunur.
  */
 class LandShareImporter
 {
@@ -18,9 +23,9 @@ class LandShareImporter
     private const USAGE = ['dukkan' => 'DÜKKAN', 'ofis' => 'OFİS', 'depo' => 'DEPO'];
 
     /** @return array{taxpayers:int,blocks:int,units:int,owners:int} yeni açılanlar + atanan sahip satırı */
-    public static function import(PropertyTaxProject $project, LandShareStudy $study): array
+    public static function import(PropertyTaxProject $project, LandShareStudy $study, array $layout = []): array
     {
-        return DB::transaction(function () use ($project, $study) {
+        return DB::transaction(function () use ($project, $study, $layout) {
             $counts = ['taxpayers' => 0, 'blocks' => 0, 'units' => 0, 'owners' => 0];
 
             // Hissedar → mükellef (ad eşleşmesi büyük/küçük harf duyarsız).
@@ -52,13 +57,21 @@ class LandShareImporter
                 }
 
                 $sortOrder = (int) $block->units()->max('sort_order');
-                foreach ($landBlock->sections->sortBy(fn ($s) => [(int) $s->sort, $s->id]) as $section) {
+                $sections = $landBlock->sections->sortBy(fn ($s) => [(int) $s->sort, $s->id])->values();
+                $slots = null; // yerleşim yalnız boş blokta
+                if (filled($layout['per_floor'] ?? null) && ! $block->units()->exists()) {
+                    $shops = ! empty($layout['ground_shops']) ? min($sections->count(), max(0, (int) ($layout['shop_count'] ?? 0))) : 0;
+                    $slots = UnitGenerator::slots(['shop_count' => $shops] + $layout, $sections->count() - $shops);
+                }
+                foreach ($sections as $i => $section) {
                     $unit = $block->units()->where('unit_no', (string) $section->bb_no)->first();
                     if (! $unit) {
-                        $unit = $block->units()->create([
-                            'unit_no' => (string) $section->bb_no,
+                        $place = $slots !== null && isset($slots[$i]) ? $slots[$i] : [
                             'floor_no' => self::floor($section->floor),
                             'usage_type' => self::USAGE[$section->type] ?? null,
+                        ];
+                        $unit = $block->units()->create($place + [
+                            'unit_no' => (string) $section->bb_no,
                             'sort_order' => ++$sortOrder,
                         ]);
                         $counts['units']++;

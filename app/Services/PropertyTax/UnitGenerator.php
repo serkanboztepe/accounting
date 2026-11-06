@@ -6,7 +6,8 @@ use App\Models\PropertyTaxBlock;
 
 /**
  * Toplu daire oluşturma (Emlak Beyanı): mesken katları + (varsa) zemin dükkan.
- * v1 daire listesi ("Toplu Daire Oluştur") ve v2 sihirbaz (④ Daireler) aynı kuralı kullanır.
+ * v1 daire listesi ("Toplu Daire Oluştur"), v2 sihirbaz (④ Daireler) ve Hisse Dağılımı'ndan aktarım
+ * (LandShareImporter — numaralar Hisse'den, yerleşim buradan) aynı kuralı kullanır.
  *
  * $data: residential_floors, per_floor, area, ground_shops, shop_count, shop_area, start_above, start_no
  */
@@ -17,56 +18,53 @@ class UnitGenerator
     {
         $residentialFloors = max(0, (int) ($data['residential_floors'] ?? 0));
         $perFloor = max(1, (int) ($data['per_floor'] ?? 1));
-        $groundShops = (bool) ($data['ground_shops'] ?? false);
-        $shopCount = $groundShops ? max(0, (int) ($data['shop_count'] ?? 0)) : 0;
         $no = (int) ($data['start_no'] ?? 1);
-        $area = ($data['area'] ?? '') !== '' ? (float) $data['area'] : null;
-        $shopArea = ($data['shop_area'] ?? '') !== '' ? (float) $data['shop_area'] : null;
         $sort = (int) ($block->units()->max('sort_order') ?? 0);
 
         $created = 0;
-        // Ortak üretici — sıra: unit_no + sort_order artan.
-        $makeUnits = function (int $floor, int $count, ?string $usage, ?float $unitArea) use (&$no, &$sort, &$created, $block): void {
-            for ($pos = 1; $pos <= $count; $pos++) {
-                $block->units()->create([
-                    'unit_no'        => (string) $no,
-                    'floor_no'       => $floor,
-                    'floor_position' => $pos,
-                    'area'           => $unitArea,
-                    'usage_type'     => $usage,
-                    'sort_order'     => ++$sort,
-                ]);
-                $no++;
-                $created++;
-            }
-        };
-
-        if ($groundShops) {
-            // Meskenler 1.KAT'tan yukarı (floor 1..N), dükkanlar zemin (floor 0).
-            $meskenFloors = $residentialFloors > 0 ? range(1, $residentialFloors) : [];
-            $startAbove = (bool) ($data['start_above'] ?? true);
-
-            if ($startAbove) {
-                // Evet: meskenler önce (1.KAT'tan yukarı 1,2…), DÜKKANLAR EN SON.
-                foreach ($meskenFloors as $floor) {
-                    $makeUnits($floor, $perFloor, null, $area);
-                }
-                $makeUnits(0, $shopCount, 'DÜKKAN', $shopArea);
-            } else {
-                // Hayır: alttan başla → zemin (dükkan) önce, sonra meskenler yukarı.
-                $makeUnits(0, $shopCount, 'DÜKKAN', $shopArea);
-                foreach ($meskenFloors as $floor) {
-                    $makeUnits($floor, $perFloor, null, $area);
-                }
-            }
-        } else {
-            // Zemin dükkan değil → zemin de mesken (floor 0..N-1), standart ALTTAN başlar.
-            $meskenFloors = $residentialFloors > 0 ? range(0, $residentialFloors - 1) : [];
-            foreach ($meskenFloors as $floor) {
-                $makeUnits($floor, $perFloor, null, $area);
-            }
+        foreach (self::slots($data, $residentialFloors * $perFloor) as $slot) {
+            $block->units()->create($slot + ['unit_no' => (string) $no++, 'sort_order' => ++$sort]);
+            $created++;
         }
 
         return $created;
+    }
+
+    /**
+     * Numara sırasıyla yerleşim: [floor_no, floor_position, area, usage_type] listesi.
+     * $meskenCount mesken katta $per_floor'luk dizilir (son kat eksik kalabilir — kroki o katı yayar).
+     *
+     * @return list<array{floor_no:int,floor_position:int,area:?float,usage_type:?string}>
+     */
+    public static function slots(array $data, int $meskenCount): array
+    {
+        $perFloor = max(1, (int) ($data['per_floor'] ?? 1));
+        $groundShops = (bool) ($data['ground_shops'] ?? false);
+        $shopCount = $groundShops ? max(0, (int) ($data['shop_count'] ?? 0)) : 0;
+        $area = ($data['area'] ?? '') !== '' && ($data['area'] ?? null) !== null ? (float) $data['area'] : null;
+        $shopArea = ($data['shop_area'] ?? '') !== '' && ($data['shop_area'] ?? null) !== null ? (float) $data['shop_area'] : null;
+
+        // Zemin dükkan → meskenler 1.KAT'tan yukarı; değilse zemin de mesken (alttan).
+        $firstMeskenFloor = $groundShops ? 1 : 0;
+        $mesken = [];
+        for ($i = 0; $i < max(0, $meskenCount); $i++) {
+            $mesken[] = [
+                'floor_no'       => $firstMeskenFloor + intdiv($i, $perFloor),
+                'floor_position' => $i % $perFloor + 1,
+                'area'           => $area,
+                'usage_type'     => null, // bloktan (MESKEN)
+            ];
+        }
+        $shops = [];
+        for ($pos = 1; $pos <= $shopCount; $pos++) {
+            $shops[] = ['floor_no' => 0, 'floor_position' => $pos, 'area' => $shopArea, 'usage_type' => 'DÜKKAN'];
+        }
+
+        if (! $groundShops) {
+            return $mesken;
+        }
+
+        // Evet: meskenler önce (1.KAT'tan 1,2…), DÜKKANLAR EN SON. Hayır: alttan (dükkan önce).
+        return (bool) ($data['start_above'] ?? true) ? [...$mesken, ...$shops] : [...$shops, ...$mesken];
     }
 }

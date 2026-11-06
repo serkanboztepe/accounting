@@ -151,4 +151,66 @@ class DeclarationBuilderTest extends TestCase
         $this->get(route('property-tax.taxpayer.pdf', $t))->assertOk()->assertHeader('content-type', 'application/pdf');
         $this->get(route('property-tax.project.pdf', $p))->assertOk();
     }
+
+    /** Mimar 06.11: Hisse'den Al → BB'ler sırayla katlara, standart m², hepsi mesken (Hisse'deki dükkan/kat yok sayılır). */
+    public function test_import_lays_units_out_on_floors_from_layout(): void
+    {
+        $proj = Project::create(['name' => 'Kat P', 'status' => 'active']);
+        $study = LandShareStudy::create(['project_id' => $proj->id, 'name' => 'HD', 'status' => 'draft', 'block_count' => 1]);
+        $study->syncStructure(['A' => 10]);
+        LandSection::whereIn('block_id', $study->blocks()->pluck('id'))->where('bb_no', '1')->update(['type' => 'dukkan', 'floor' => '3']);
+
+        $p = $this->project();
+        LandShareImporter::import($p, $study, ['per_floor' => 4, 'area' => '120', 'ground_shops' => false]);
+
+        $units = $p->blocks()->sole()->units()->get()->sortBy(fn ($u) => (int) $u->unit_no)->values();
+        $this->assertSame(10, $units->count());
+        $this->assertSame([0, 0, 0, 0, 1, 1, 1, 1, 2, 2], $units->pluck('floor_no')->map(fn ($f) => (int) $f)->all());
+        $this->assertSame([1, 2, 3, 4, 1, 2, 3, 4, 1, 2], $units->pluck('floor_position')->map(fn ($f) => (int) $f)->all());
+        $this->assertTrue($units->every(fn ($u) => (float) $u->area === 120.0 && $u->usage_type === null));
+
+        // Mimar elle düzeltir → tekrar aktarımda bozulmaz.
+        $units[0]->update(['usage_type' => 'DÜKKAN', 'area' => 300, 'floor_no' => 0]);
+        LandShareImporter::import($p, $study, ['per_floor' => 2, 'area' => '90']);
+        $u1 = $units[0]->fresh();
+        $this->assertSame('DÜKKAN', $u1->usage_type);
+        $this->assertSame(300.0, (float) $u1->area);
+        $this->assertSame(2, (int) $units[9]->fresh()->floor_no);
+    }
+
+    public function test_import_layout_with_ground_shops_numbers_from_first_floor(): void
+    {
+        $proj = Project::create(['name' => 'Kat P', 'status' => 'active']);
+        $study = LandShareStudy::create(['project_id' => $proj->id, 'name' => 'HD', 'status' => 'draft', 'block_count' => 1]);
+        $study->syncStructure(['A' => 6]);
+
+        $p = $this->project();
+        LandShareImporter::import($p, $study, ['per_floor' => 2, 'area' => '100', 'ground_shops' => true, 'shop_count' => 2, 'shop_area' => '80', 'start_above' => true]);
+
+        $units = $p->blocks()->sole()->units()->get()->sortBy(fn ($u) => (int) $u->unit_no)->values();
+        $this->assertSame([1, 1, 2, 2, 0, 0], $units->pluck('floor_no')->map(fn ($f) => (int) $f)->all());
+        $this->assertSame([null, null, null, null, 'DÜKKAN', 'DÜKKAN'], $units->pluck('usage_type')->all());
+        $this->assertSame(80.0, (float) $units[5]->area);
+    }
+
+    /** Yıldız 30.10: katta 10 daire → şablonun sabit yazdırma alanı (A1:O67) krokinin sağ yarısını kesiyordu. */
+    public function test_wide_kroki_print_area_covers_whole_drawing(): void
+    {
+        $p = $this->project();
+        $t = $p->taxpayers()->create(['surname' => 'TEK SAHİP']);
+        $block = $p->blocks()->create(['name' => 'A Blok', 'construction_type' => 'B.ARME', 'usage_type' => 'MESKEN']);
+        \App\Services\PropertyTax\UnitGenerator::create($block, ['residential_floors' => 3, 'per_floor' => 10, 'area' => 75]);
+        $block->units()->first()->allocations()->create(['property_tax_taxpayer_id' => $t->id, 'pay' => 1, 'payda' => 1]);
+
+        $xlsx = (new \App\Services\PropertyTax\DeclarationExporter())->exportForProject($p);
+        $ss = \PhpOffice\PhpSpreadsheet\IOFactory::load($xlsx);
+        @unlink($xlsx);
+        $kroki = collect($ss->getAllSheets())->first(fn ($sh) => str_starts_with($sh->getTitle(), 'KROK'));
+        $this->assertNotNull($kroki);
+
+        [$from, $to] = explode(':', $kroki->getPageSetup()->getPrintArea());
+        [$col, $row] = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::coordinateFromString($to);
+        $this->assertSame(1 + 10 * 3, \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($col)); // B + 10 kutu × 3 sütun
+        $this->assertGreaterThanOrEqual($kroki->getHighestDataRow(), (int) $row); // özet satırı dahil
+    }
 }

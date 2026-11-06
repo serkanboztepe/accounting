@@ -391,6 +391,10 @@ class DeclarationExporter
         $firstCol = 2; // B
         $lastCol = $firstCol + $maxPos * $boxW - 1;
         $lastLetter = $this->colLetter($lastCol);
+        // Şablon Sayfa1'de Q/R sütunları geniş — 6. kutu şişiyor, çatı yamacı kırılıyordu. Tüm ızgara eşit.
+        for ($c = $firstCol; $c <= max($lastCol, 15); $c++) {
+            $sheet->getColumnDimension($this->colLetter($c))->setWidth(9.14);
+        }
 
         // Başlık ("-" veya boş blok adını gösterme)
         $name = trim((string) $block->name);
@@ -480,6 +484,10 @@ class DeclarationExporter
         $kps->setFitToWidth(1);
         $kps->setFitToHeight(1);
         $kps->setFitToPage(true);
+        // Şablon Sayfa1'in sabit yazdırma alanı (A1:O67) ≈ 5 daire genişliği — geniş/yüksek krokide
+        // taşan kısım basılmıyordu (Yıldız 30.10, katta 10 daire). Alan krokinin kendisi kadar olsun;
+        // özet satırı B:O (7 başlık × 2 sütun) olduğundan en az O.
+        $kps->setPrintArea('A1:'.$this->colLetter(max($lastCol, 15)).($summaryRow + 1));
 
         // Tek başına kroki kitabında BEYANNAME sayfaları olmayabilir.
         if ($ss->getSheetByName('BEYANNAME 1')) {
