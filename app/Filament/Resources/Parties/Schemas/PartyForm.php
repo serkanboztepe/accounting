@@ -38,6 +38,8 @@ class PartyForm
                     Party::KIND_PERSONAL => 'heroicon-o-home', Party::KIND_EMPLOYEE => 'heroicon-o-user'])
                 ->colors(array_fill_keys(array_keys(Party::kindChoices()), 'primary'))   // tek renk (28.10: dört ayrı renk dağınık duruyordu)
                 ->default(fn () => \App\Support\Features::personalPartyGroups() ? Party::KIND_BOTH : null)   // yeni kişi: Ticari seçili
+                // Kişisel düzende 3 seçenek yan yana bitişik (06.11: ikişerli dizilimde Kişisel alta düşüyordu; 3 kolonda araları açıktı).
+                ->inline(\App\Support\Features::personalPartyGroups())
                 ->columns(['default' => 1, 'sm' => 2])->live()->columnSpanFull()
                 ->required($requireKind),
             Textarea::make('notes')->label('Notlar')->columnSpanFull(),

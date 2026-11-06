@@ -33,6 +33,9 @@ return [
     // Anlaşma yönü: purchase | sale | both (boş = both). Firma ayarı (hub Özellikler) Tenancy ile buraya yazılır.
     'agreement_direction' => env('AGREEMENT_DIRECTION'),
 
+    // Kişi grupları: trade | personal (boş = trade). Firma ayarı (hub "Kişisel / Ticari ayrımı") Tenancy ile buraya yazılır.
+    'party_groups' => env('PARTY_GROUPS'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

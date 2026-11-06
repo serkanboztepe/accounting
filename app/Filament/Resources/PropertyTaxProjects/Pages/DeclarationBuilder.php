@@ -95,7 +95,8 @@ class DeclarationBuilder extends Page implements HasSchemas
         ] + $b->only(self::BLOCK_FIELDS))->all();
         $this->data['units'] = [];
         foreach ($this->blocks() as $b) {
-            $this->data['units']['b' . $b->id] = $b->units->map(fn ($u) => ['id' => $u->id] + $u->only(self::UNIT_FIELDS))->all();
+            // Boş Kullanış / Arsa Payı kutusu "bloktan" demek yerine bloğun değeriyle dolu gelir (kullanıcı 06.11); değiştiren değiştirir.
+            $this->data['units']['b' . $b->id] = $b->units->map(fn ($u) => ['id' => $u->id] + array_merge($u->only(self::UNIT_FIELDS), self::blockDefaults($b, $u)))->all();
         }
         $this->form->fill($this->data);
     }
@@ -353,11 +354,21 @@ class DeclarationBuilder extends Page implements HasSchemas
                         Select::make('floor_no')->options(PropertyTaxUnit::floorOptions())->default(0)->placeholder('—'),
                         TextInput::make('floor_position')->numeric(),
                         TextInput::make('area')->numeric(),
-                        TextInput::make('usage_type')->placeholder('bloktan'),
-                        TextInput::make('land_share_numerator')->numeric()->placeholder('bloktan'),
-                        TextInput::make('land_share_denominator')->numeric()->placeholder('bloktan'),
+                        TextInput::make('usage_type')->default($b->usage_type),
+                        TextInput::make('land_share_numerator')->numeric()->default($b->land_share_numerator),
+                        TextInput::make('land_share_denominator')->numeric()->default($b->land_share_denominator),
                     ]),
             ]))->all();
+    }
+
+    /** Dairede boş olan Kullanış / Arsa payı → bloğun değeri (ekranda dolu görünür; kaydedilince daireye yazılır). */
+    private static function blockDefaults(PropertyTaxBlock $b, $u): array
+    {
+        return array_filter([
+            'usage_type'             => blank($u->usage_type) ? $b->usage_type : null,
+            'land_share_numerator'   => blank($u->land_share_numerator) ? $b->land_share_numerator : null,
+            'land_share_denominator' => blank($u->land_share_denominator) ? $b->land_share_denominator : null,
+        ], fn ($v) => filled($v));
     }
 
     /** v1 "Toplu Daire Oluştur" penceresiyle aynı alanlar. */

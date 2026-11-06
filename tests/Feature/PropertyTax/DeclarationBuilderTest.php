@@ -213,4 +213,17 @@ class DeclarationBuilderTest extends TestCase
         $this->assertSame(1 + 10 * 3, \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($col)); // B + 10 kutu × 3 sütun
         $this->assertGreaterThanOrEqual($kroki->getHighestDataRow(), (int) $row); // özet satırı dahil
     }
+
+    /** 06.11: ④ Daireler'de boş Kullanış / Arsa payı "bloktan" yazmaz — bloğun değeriyle dolu gelir; elle yazılan korunur. */
+    public function test_units_step_shows_block_values_instead_of_placeholder(): void
+    {
+        $p = $this->project();
+        $b = $p->blocks()->create(['name' => 'A Blok', 'construction_type' => 'B.ARME', 'usage_type' => 'MESKEN', 'land_share_numerator' => 7, 'land_share_denominator' => 400]);
+        $u1 = $b->units()->create(['unit_no' => '1', 'floor_no' => 0]); // pay kolonu NOT NULL varsayılan 1; payda boş
+        $u2 = $b->units()->create(['unit_no' => '2', 'floor_no' => 0, 'usage_type' => 'DÜKKAN', 'land_share_numerator' => 66, 'land_share_denominator' => 400]);
+
+        $rows = collect(Livewire::test(DeclarationBuilder::class, ['record' => $p->id])->get('data.units.b' . $b->id))->keyBy('id');
+        $this->assertSame(['MESKEN', 1, 400], [$rows[$u1->id]['usage_type'], (int) $rows[$u1->id]['land_share_numerator'], (int) $rows[$u1->id]['land_share_denominator']]);
+        $this->assertSame(['DÜKKAN', 66], [$rows[$u2->id]['usage_type'], (int) $rows[$u2->id]['land_share_numerator']]);
+    }
 }
