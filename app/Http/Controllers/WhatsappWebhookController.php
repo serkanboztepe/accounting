@@ -676,6 +676,29 @@ class WhatsappWebhookController extends Controller
             ->first());
         // Toplu düzeltme yalnız net cevapla: "evet" (hepsi), numara ("1 3") ya da "iptal". Başka her mesaj normal işlenir, öneri
         // dokunulmadan bekler — "süt iptal olmasın, gerisi tamam" hepsini yaptırmasın (yanlış anladıysak hiçbir şey kendiliğinden olmaz).
+        // "Maaş ödemesi görünmüyor" sorusu (plan v4 madde 10): 1 ödedim · 2 henüz · 3 sorma. Başka mesaj gelirse soru düşer, mesaj normal işlenir.
+        if ($pending && ($pending->extracted['kind'] ?? null) === \App\Support\SalaryFollowUp::KIND) {
+            if ($numMedia === 0 && ctype_digit($body) && ($res = \App\Support\SalaryFollowUp::answer($pending, (int) $body)) !== null) {
+                $this->inboundKind = 'quick';
+
+                return $this->twiml(isset($res['draft']) ? $this->saveDraft($pending, $phone, $res['draft']) : $res['text']);
+            }
+            $pending->update(['status' => 'superseded']);
+            $pending = null;
+        }
+        // "Hepsini ödedim" kartı: evet → her kişi kendi kartı gibi yazılır; iptal → kapanır; başka mesaj normal işlenir.
+        if ($pending && ($pending->extracted['kind'] ?? null) === \App\Support\SalaryFollowUp::BATCH) {
+            if ($numMedia === 0 && $this->isConfirm($body)) {
+                $this->inboundKind = 'quick';
+
+                return $this->twiml(\App\Support\SalaryFollowUp::commitBatch($pending));
+            }
+            $pending->update(['status' => $this->isCancel($body) ? 'cancelled' : 'superseded']);
+            if ($this->isCancel($body)) {
+                return $this->twiml('Tamam, yazmadım.');
+            }
+            $pending = null;
+        }
         if ($pending && ($pending->extracted['kind'] ?? null) === BundleDraft::KIND) {
             if ($numMedia === 0 && ($answer = BundleDraft::answer($pending, $body, $this->isConfirm($body), $this->isCancel($body))) !== null) {
                 $this->inboundKind = 'quick';
@@ -1029,6 +1052,19 @@ class WhatsappWebhookController extends Controller
                 $data['settles_expense_id'] = null;
 
                 return $this->twiml($this->saveDraft($pending, $phone, $data));
+            }
+
+            // Yeni personel "bu ay için ne yapayım?" (plan v4) — tutarsız taslak 'tek sayı = tutar' kuralından ÖNCE: 1 yazma · 2 N günlük · 3 tam maaş.
+            if (EmployeeDraft::firstChoiceShown($pending->extracted) && ctype_digit($body)) {
+                $data = EmployeeDraft::chooseFirst($pending->extracted, (int) $body);
+                TurnTrace::note('choice', 'first_salary:' . $body);
+                if ($data !== null) {
+                    $this->inboundKind = 'quick';
+
+                    return $this->twiml($this->saveDraft($pending, $phone, $data));
+                }
+
+                return $this->twiml('Listede o numara yok. 1, 2 ya da 3 yaz.');
             }
 
             // Tutarı eksik taslak ("Kira" → "Kira tutarı ne kadar?") + sadece sayı ("20000", "20.000 tl")
@@ -1778,6 +1814,8 @@ class WhatsappWebhookController extends Controller
         }
         // Yalnız para / çek verildi → anlaşmadan "iş yapıldı" yazılmaz, o carinin ödemesi olur (30.10).
         $data = TurnTrace::step('moneyOnlyDelivery', ExpenseExtractor::moneyOnlyPurchase(ExpenseExtractor::moneyOnlyDelivery($data)));
+        // Yeni kuraldaki personele para → maaş ödemesi (plan v4: "maaş mı avans mı?" yok, en eski borçtan).
+        $data = EmployeeDraft::fromPayment($data);
         // "Hasan'a yarın 40 bin vereceğim" + borç zaten kayıtlı → yeni borç değil, ödeme günü hatırlatması (30.10).
         if (($future = ExpenseExtractor::futurePaymentReminder($data)) !== null) {
             [$data, $note] = $future;
@@ -2094,7 +2132,7 @@ class WhatsappWebhookController extends Controller
         }
         // Personel bilgisi / maaş (her firmada).
         if (EmployeeDraft::handles($data)) {
-            $data = EmployeeDraft::guardSalaryAmount($data, $this->inboundBody);
+            $data = EmployeeDraft::guardSalaryAmount($data, $this->inboundBody, $pending?->extracted);
 
             return $this->saveEmployeeDraft($pending, $phone, $data);
         }
@@ -2822,7 +2860,12 @@ class WhatsappWebhookController extends Controller
             if ($question = EmployeeDraft::blocker($d) ?? ProjectChoice::blocker($d)) {
                 return '❓ ' . $question;
             }
-            [$text, $partyId] = EmployeeDraft::commit($d, $pending->phone);
+            try {
+                [$text, $partyId] = EmployeeDraft::commit($d, $pending->phone);
+            } catch (\App\Services\Whatsapp\SalaryChanged $e) {
+                // Onay beklerken hesap değişti (başka kayıt girdi) — yazılmaz, güncel kart gösterilir.
+                return "⚠️ Bu arada hesap değişti, güncel hali:\n\n" . $this->saveEmployeeDraft($pending, $pending->phone, $e->draft);
+            }
             $this->touchedPartyId = $partyId ?: $this->touchedPartyId;
             $this->committedPartyId = $partyId;
             $pending->update(['status' => 'confirmed']);
@@ -3313,6 +3356,7 @@ class WhatsappWebhookController extends Controller
     /** Personel ayarı / maaş taslağı: özet + teyit (eksikse soru). */
     private function saveEmployeeDraft(?WhatsappPendingExpense $pending, string $phone, array $data): string
     {
+        $data = EmployeeDraft::withFingerprint($data); // kart = kayıt: onayda yeniden hesaplanır
         $question = EmployeeDraft::blocker($data);
         $summary = $question !== null && ! EmployeeDraft::party($data) && empty($data['party_name'])
             ? '❓ ' . $question

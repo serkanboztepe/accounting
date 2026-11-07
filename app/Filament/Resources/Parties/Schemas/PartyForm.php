@@ -45,16 +45,32 @@ class PartyForm
             Textarea::make('notes')->label('Notlar')->columnSpanFull(),
             // Personel: maaş ve ödeme günü (maaş günü hatırlatması, avans mahsubu). Ayrı modül yok, cari + tip.
             TextInput::make('salary_amount')->label('Aylık maaş (₺)')
-                ->numeric()->minValue(0)
+                ->numeric()->minValue(0)->live(onBlur: true)
                 ->visible(fn (Get $get) => $get('kind') === Party::KIND_EMPLOYEE),
             TextInput::make('salary_day')->label('Maaş günü (ayın kaçı)')
-                ->numeric()->minValue(1)->maxValue(31)
+                ->numeric()->minValue(1)->maxValue(31)->live(onBlur: true)
                 ->helperText('Girilince her ay o gün (ve bir gün önce) 08:00\'de WhatsApp\'tan maaş hatırlatması gelir; Takvim\'de görünür.')
                 ->visible(fn (Get $get) => $get('kind') === Party::KIND_EMPLOYEE),
             Toggle::make('salary_auto')->label('Maaşı her ay maaş gününde kendiliğinden işle')
                 ->default(true)->columnSpanFull()
                 ->helperText('Maaş günü sabah "Maaş — Ay" yazılır, avans ve kesintiler düşülür; sana yalnız ödemeyi yazmak kalır.')
-                ->visible(fn (Get $get) => $get('kind') === Party::KIND_EMPLOYEE),
+                ->visible(fn (Get $get) => $get('kind') === Party::KIND_EMPLOYEE)->live(),
+            // İlk kayıt (plan v4, WhatsApp ile aynı soru): maaş gününe gün varsa bu ay ne yapılacak. Kaydedilince karta işlenir
+            // (EmployeeDraft::applyFirstChoice); maaş geçmişi olan personelde görünmez.
+            ToggleButtons::make('first_salary')
+                ->label(fn (Get $get) => \App\Services\Whatsapp\EmployeeDraft::firstChoiceTitle((int) $get('salary_day'), (float) $get('salary_amount')))
+                ->options(fn (Get $get) => \App\Services\Whatsapp\EmployeeDraft::firstChoiceOptions((int) $get('salary_day'), (float) $get('salary_amount')))
+                ->colors(['skip' => 'primary', 'partial' => 'primary', 'full' => 'primary'])
+                ->columnSpanFull()
+                ->visible(fn (Get $get, ?Party $record) => self::asksFirstSalary($get, $record))
+                ->required(fn (Get $get, ?Party $record) => self::asksFirstSalary($get, $record)),
         ];
+    }
+
+    private static function asksFirstSalary(Get $get, ?Party $record): bool
+    {
+        return $get('kind') === Party::KIND_EMPLOYEE && $get('salary_auto')
+            && \App\Services\Whatsapp\EmployeeDraft::firstChoiceNeeded(['kind' => \App\Services\Whatsapp\ExpenseExtractor::KIND_EMPLOYEE_SETTING,
+                'salary_day' => (int) $get('salary_day'), 'salary_amount' => (float) $get('salary_amount'), 'party_id' => $record?->id]);
     }
 }

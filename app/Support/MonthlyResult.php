@@ -175,7 +175,16 @@ class MonthlyResult
         $ledgerIn = fn () => $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->whereNull('purchase_id')
             ->whereBetween('entry_date', [$from, $to]));
         $purchaseLedger = (float) $ledgerIn()->whereNotIn('party_id', $employees)->sum('amount');
-        $personnel = $employees->isEmpty() ? 0.0 : (float) $ledgerIn()->whereIn('party_id', $employees)->sum('amount');
+        // Maaş kendi ayında sayılır (kullanıcı 07.11): "Kasım maaşı" 30 Ekim'de girildiyse Kasım'ın maaş gününde (SalaryLedger::effectiveDate).
+        $personnelRows = $employees->isEmpty() ? collect() : $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)
+            ->whereNull('purchase_id')->whereIn('party_id', $employees)
+            ->whereBetween('entry_date', [$fromDate->copy()->subDays(45)->toDateString(), $toDate->copy()->addDays(45)->toDateString()]))
+            ->with('party')->get()->filter(function (PartyLedgerEntry $e) use ($from, $to) {
+                $d = \App\Support\SalaryLedger::effectiveDate($e, $e->party)?->toDateString();
+
+                return $d !== null && $d >= $from && $d <= $to;
+            });
+        $personnel = (float) $personnelRows->sum(fn ($e) => (float) $e->amount);
         $goodsIn = $p(StockMovement::where('reason', StockMovement::REASON_PURCHASE)->whereNull('purchase_id')
             ->whereBetween('movement_date', [$from, $to]));
         $goodsInAmount = (float) (clone $goodsIn)->sum('amount');
@@ -216,12 +225,20 @@ class MonthlyResult
             'personnel'       => $personnel,
             // Tek günde maaş düşülmez (Akkuş 17.10: 60.750 ciroluk gün maaş yüzünden "eksi 2.400" göründü) — bilgi satırı.
             'result'          => $revenue - $purchases - ($fromDate->isSameDay($toDate) ? 0.0 : $personnel) - $expenses,
-            // Elden verilen maaş (EmployeeDraft "Maaş ödemesi — …" satırı): hak edişten farkı avanstan düşülen kısım.
-            'personnel_paid'  => $personnel > 0 && $employees->isNotEmpty() ? (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PAYMENT)
+            // Elden verilen maaş ("Maaş ödemesi — …" / "Yevmiye ödemesi — …") — hak edişten bağımsız sayılır (ödeme ertesi gün de olabilir).
+            'personnel_paid'  => $employees->isNotEmpty() ? (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PAYMENT)
                 ->whereIn('party_id', $employees)->whereBetween('entry_date', [$from, $to])
                 ->where(fn ($q) => $q->where('description', 'like', 'Maaş ödemesi%')->orWhere('description', 'like', 'Yevmiye ödemesi%')))->sum('amount') : 0.0,
             'personnel_names' => $fromDate->isSameDay($toDate) && $personnel > 0
-                ? \App\Models\Party::whereIn('id', (clone $ledgerIn())->whereIn('party_id', $employees)->pluck('party_id'))->pluck('name')->all() : [],
+                ? $personnelRows->map(fn ($e) => $e->party?->name)->filter()->unique()->values()->all() : [],
+            // Bugün işlenen maaşlardan hâlâ ödenmeyen (o ayın kalanı) — "işlendi, ödenmedi" ile "ödendi" ayrılsın.
+            'personnel_remaining' => $fromDate->isSameDay($toDate) && $personnel > 0
+                ? round((float) $personnelRows->sum(function (PartyLedgerEntry $e) {
+                    $period = \App\Support\SalaryLedger::accrualPeriod($e);
+
+                    return $period && $e->party ? (\App\Support\SalaryLedger::state($e->party)['periods'][$period]['remaining'] ?? (float) $e->amount)
+                        : 0.0;
+                }), 2) : 0.0,
             // Satış girilen günler ("kaç günlük?" — Akkuş 18.10: 5 günlük ciroya "18 günlük" denmişti).
             'sale_days'       => collect()
                 ->merge($p(Sale::whereBetween('sale_date', [$from, $to]))->pluck('sale_date')->map(fn ($x) => Carbon::parse($x)->toDateString()))
@@ -279,14 +296,24 @@ class MonthlyResult
             $lines[] = 'Genel maliyet payı (%' . Money::format($r['share'] * 100, 0) . ', tahmini): ' . Money::format($r['allocated']) . ' ₺';
         }
         $lines[] = ($r['result'] >= 0 ? '✅ Kalan: ' : '🔻 Eksi: ') . Money::format(abs($r['result'])) . ' ₺';
+        $paid = (float) ($r['personnel_paid'] ?? 0);
         if ($oneDay && ($r['personnel'] ?? 0) > 0) {
-            // Avanstan düşülen kısım ayrı (Akkuş 19.10: "Bugün maaş ödendi: 55.000" — 5.500'ü avanstandı, elden 49.500).
-            $paid = (float) ($r['personnel_paid'] ?? 0);
-            $fromAdvance = round($r['personnel'] - $paid, 2);
-            $lines[] = '👷 Bugün maaş ödendi' . (($r['personnel_names'] ?? []) ? ' (' . implode(', ', $r['personnel_names']) . ')' : '') . ': '
-                . Money::format($r['personnel']) . ' ₺'
-                . ($paid > 0 && $fromAdvance > 0.009 ? ' — ' . Money::format($fromAdvance) . ' ₺ avanstan, elden ' . Money::format($paid) . ' ₺' : '')
-                . ' — aylık sonuçta düşülür';
+            $who = ($r['personnel_names'] ?? []) ? ' (' . implode(', ', $r['personnel_names']) . ')' : '';
+            $left = (float) ($r['personnel_remaining'] ?? 0);
+            // Ödenmediyse "işlendi" (31.10 Akkuş: ödeme yokken "Bugün maaş ödendi 133.000" dedi, Emre kaydedildi sandı).
+            if ($left >= 0.01) {
+                $lines[] = '👷 Bugün maaş işlendi' . $who . ': ' . Money::format($r['personnel']) . ' ₺ — '
+                    . ($paid > 0 ? 'ödenen ' . Money::format($paid) . ' ₺, kalan ' . Money::format($left) . ' ₺' : 'henüz ödenmedi')
+                    . ' — aylık sonuçta düşülür';
+            } else {
+                // Avanstan düşülen kısım ayrı (Akkuş 19.10: "Bugün maaş ödendi: 55.000" — 5.500'ü avanstandı, elden 49.500).
+                $fromAdvance = round($r['personnel'] - $paid, 2);
+                $lines[] = '👷 Bugün maaş ödendi' . $who . ': ' . Money::format($r['personnel']) . ' ₺'
+                    . ($paid > 0 && $fromAdvance > 0.009 ? ' — ' . Money::format($fromAdvance) . ' ₺ avanstan, elden ' . Money::format($paid) . ' ₺' : '')
+                    . ' — aylık sonuçta düşülür';
+            }
+        } elseif ($oneDay && $paid >= 0.01) {
+            $lines[] = '👷 Bugün maaş ödendi: ' . Money::format($paid) . ' ₺ (önceden işlenmiş maaş)';
         }
         $days = $r['sale_days'] ?? [];
         if (! $oneDay && $days !== []) {

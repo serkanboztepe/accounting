@@ -75,7 +75,10 @@ class EditParty extends EditRecord
                         && in_array($this->record->kind, [null, Party::KIND_CUSTOMER, Party::KIND_SUPPLIER], true)) {
                         unset($data['kind']);
                     }
+                    $choice = $data['first_salary'] ?? null; // kolon değil — ilk ay seçimi karta işlenir (plan v4)
+                    unset($data['first_salary']);
                     $this->record->update($data);
+                    EmployeeDraft::applyFirstChoice($this->record, $choice);
                     EmployeeDraft::syncFromCard($this->record);
                 }),
 
@@ -470,15 +473,18 @@ class EditParty extends EditRecord
             ->modalSubmitActionLabel('Kaydet')
             ->modalWidth('lg')
             ->fillForm(fn (): array => [
-                'what' => 'salary', 'month' => now()->format('Y-m'), 'pay' => true, 'payment_type' => 'cash', 'date' => now()->toDateString(),
-                'amount' => (float) $this->record->salary_amount > 0 ? Money::format((float) $this->record->salary_amount) : null,
+                // Yeni kuraldaki personel (plan v4): "Maaş ödedim" — tutar kalan maaş (maaş − avans − kesinti), ay boş = en eski borçtan.
+                'what' => 'salary', 'month' => $this->payroll() ? '' : now()->format('Y-m'), 'pay' => true, 'payment_type' => 'cash',
+                'date' => now()->toDateString(), 'amount' => $this->salaryDefault(),
             ])
             ->schema([
                 \Filament\Forms\Components\Radio::make('what')->hiddenLabel()->inline()->live()
-                    ->options(['salary' => 'Maaşı işle', 'advance' => 'Avans verdim', 'deduction' => 'Maaştan kes'])
+                    ->options(['salary' => $this->payroll() ? 'Maaş ödedim' : 'Maaşı işle', 'advance' => 'Avans verdim', 'deduction' => 'Maaştan kes'])
                     ->afterStateUpdated(fn (\Filament\Schemas\Components\Utilities\Set $set, $state) => $set('amount', $state === 'salary'
-                        && (float) $this->record->salary_amount > 0 ? Money::format((float) $this->record->salary_amount) : null)),
-                Select::make('month')->label('Hangi ayın maaşı')->options($months)->required()
+                        ? $this->salaryDefault() : null)),
+                Select::make('month')->label('Hangi ayın maaşı')
+                    ->options(fn () => $this->payroll() ? ['' => 'En eski borçtan (önerilen)'] + $months : $months)
+                    ->required(fn () => ! $this->payroll())->selectablePlaceholder(false)
                     ->visible(fn (Get $get) => $get('what') === 'salary')->live(),
                 MoneyInput::make('amount')->live(onBlur: true)
                     ->label(fn (Get $get) => match ($get('what')) { 'advance' => 'Avans tutarı', 'deduction' => 'Kesilecek tutar', default => 'Maaş' })
@@ -489,11 +495,11 @@ class EditParty extends EditRecord
                 \Filament\Schemas\Components\Text::make(fn (Get $get) => $this->salaryPreview($get)['text'])
                     ->weight('bold')->visible(fn (Get $get) => $get('what') === 'salary'),
                 Toggle::make('pay')->label('Ödemeyi de yaz')->live()
-                    ->visible(fn (Get $get) => $get('what') === 'salary' && $this->salaryPreview($get)['net'] >= 0.01),
+                    ->visible(fn (Get $get) => ! $this->payroll() && $get('what') === 'salary' && $this->salaryPreview($get)['net'] >= 0.01),
                 Select::make('payment_type')->label('Ödeme yöntemi')
                     ->options(['cash' => 'Nakit', 'bank_transfer' => 'Havale', 'eft' => 'EFT', 'other' => 'Diğer'])->required()
                     ->visible(fn (Get $get) => $get('what') === 'advance'
-                        || ($get('what') === 'salary' && $get('pay') && $this->salaryPreview($get)['net'] >= 0.01)),
+                        || ($get('what') === 'salary' && ($this->payroll() || ($get('pay') && $this->salaryPreview($get)['net'] >= 0.01)))),
                 DatePicker::make('date')->label('Tarih')->required(),
             ])
             ->action(function (array $data): void {
@@ -505,14 +511,22 @@ class EditParty extends EditRecord
                     return;
                 }
                 $note = 'Panelden girildi.';
+                $payroll = $this->payroll();
                 match ($data['what']) {
-                    'advance' => PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $data['date'], 'type' => PartyLedgerEntry::TYPE_PAYMENT,
-                        'payment_type' => $data['payment_type'] ?? 'cash', 'description' => 'Avans', 'amount' => Money::store($amount), 'notes' => $note]),
-                    'deduction' => EmployeeDraft::deduct($party, $amount, (string) ($data['reason'] ?? ''), $data['date'], $note),
+                    'advance' => \App\Support\SalaryLedger::locked($party, fn () => PartyLedgerEntry::create(['party_id' => $party->id,
+                        'entry_date' => $data['date'], 'type' => PartyLedgerEntry::TYPE_PAYMENT, 'payment_type' => $data['payment_type'] ?? 'cash',
+                        'description' => 'Avans', 'amount' => Money::store($amount), 'notes' => $note])),
+                    'deduction' => \App\Support\SalaryLedger::locked($party, fn () => EmployeeDraft::deduct($party, $amount,
+                        (string) ($data['reason'] ?? ''), $data['date'], $note)),
                     default => EmployeeDraft::commit(['kind' => \App\Services\Whatsapp\ExpenseExtractor::KIND_SALARY, 'party_id' => $party->id,
-                        'amount' => $amount, 'date' => $data['date'], 'month' => $data['month'], 'paid' => (bool) ($data['pay'] ?? false),
-                        'payment_type' => $data['payment_type'] ?? 'cash', 'source_note' => $note]),
+                        'amount' => $amount, 'date' => $data['date'], 'month' => ($data['month'] ?? '') ?: null,
+                        'paid' => $payroll || (bool) ($data['pay'] ?? false), 'payment_type' => $data['payment_type'] ?? 'cash', 'source_note' => $note]),
                 };
+                if ($payroll) {
+                    Notification::make()->success()->title('Kaydedildi')->body(EmployeeDraft::balanceText($party->fresh()))->send();
+
+                    return;
+                }
                 $balance = (float) PartyStatement::build($party->fresh())['balance'];
                 Notification::make()->success()->title('Kaydedildi')->body($party->name . ': ' . match (true) {
                     abs($balance) < 0.01 => 'hesap kapalı.',
@@ -528,10 +542,36 @@ class EditParty extends EditRecord
      *
      * @return array{text: string, net: float}
      */
+    /** Yeni maaş kuralı bu personelde mi (kartında maaş + gün + kendiliğinden işle). */
+    private function payroll(): bool
+    {
+        return \App\Support\SalaryLedger::eligible($this->record);
+    }
+
+    private function salaryDefault(): ?string
+    {
+        if ($this->payroll()) {
+            $amount = \App\Support\SalaryLedger::defaultAmount($this->record);
+
+            return $amount >= 0.01 ? Money::format($amount) : null;
+        }
+
+        return (float) $this->record->salary_amount > 0 ? Money::format((float) $this->record->salary_amount) : null;
+    }
+
     private function salaryPreview(Get $get): array
     {
         $party = $this->record;
         $salary = Money::parse($get('amount'));
+        if ($this->payroll()) {
+            // WhatsApp kartıyla aynı dağılım (kart = kayıt).
+            if ($salary < 0.01) {
+                return ['net' => 0.0, 'text' => 'Tutar yaz.'];
+            }
+            $pv = \App\Support\SalaryLedger::preview($party, $salary, ($get('month') ?: null), $get('date') ?: now()->toDateString());
+
+            return ['net' => $salary, 'text' => implode("\n", $pv['lines'])];
+        }
         $month = \Illuminate\Support\Carbon::parse(($get('month') ?: now()->format('Y-m')) . '-01');
         if (EmployeeDraft::accrued($party, $month)) {
             $owed = max(0.0, -(float) PartyStatement::build($party)['balance']);

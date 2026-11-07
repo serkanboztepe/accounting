@@ -40,8 +40,12 @@ final class ProjectCost
             return collect();
         }
 
+        // Yeni kuraldaki personelin maaş ödemesi (plan v4): maaş kendiliğinden Genel'e yazılır; projeli ödemesi burada ikinci kez sayılmasın.
+        $payroll = SalaryLedger::eligibleEmployees()->pluck('id');
+
         return PartyLedgerEntry::query()
             ->whereNotNull('project_id')->whereNotNull('party_id')
+            ->when($payroll->isNotEmpty(), fn ($q) => $q->whereNotIn('party_id', $payroll))
             ->when($projectId !== null, fn ($q) => $q->where('project_id', $projectId))
             ->whereIn('type', [PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PURCHASE_RETURN])
             ->selectRaw('project_id, party_id, SUM(CASE WHEN type = ? THEN amount WHEN type = ? THEN -amount WHEN type = ? THEN amount ELSE 0 END) AS excess',

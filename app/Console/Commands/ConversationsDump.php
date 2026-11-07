@@ -74,6 +74,10 @@ class ConversationsDump extends Command
         $lines = [sprintf('  KARNE: gelen %d · kayıt %d · geri alma %d · iptal %d · anlaşılmayan %d · hata %d · açık taslak %d · %d sn aşan cevap %d (en uzun %s sn)',
             $s['in'], $s['saved'], $s['undo'], $s['cancelled'], $s['help'], $s['errors'], $s['open'], AssistantScorecard::TWILIO_LIMIT_SECONDS,
             $s['slow'], $s['max'] ?? '—')];
+        // Maaş ödemesi 3 kez soruldu, cevap yok (plan v4 madde 10) — yöneticiye görünsün.
+        foreach (\App\Support\SalaryFollowUp::stoppedLines() as $line) {
+            $lines[] = '  ' . $line;
+        }
 
         $lines[] = '  KONUŞMA:';
         foreach ($messages as $m) {

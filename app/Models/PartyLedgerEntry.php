@@ -91,6 +91,7 @@ class PartyLedgerEntry extends Model
         'agreement_id',
         'entry_date',
         'due_date',
+        'salary_period',
         'description',
         'type',
         'payment_type',

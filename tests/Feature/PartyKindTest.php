@@ -40,12 +40,18 @@ class PartyKindTest extends TestCase
     {
         // Yeni cari pencerede (27.10: ayrı sayfa yok).
         Livewire::test(ListParties::class)->callAction('create', ['name' => 'PK Zorunlu'])->assertHasActionErrors(['kind' => 'required']);
+        $this->travelTo(Carbon::parse('2026-11-07 12:00', 'Europe/Istanbul'));
+        // Maaş günü geçmiş (5'i): "bu ay ne yapayım?" sorusu sıradaki maaş günü için (plan v4) — seçmeden kaydedilmez.
         Livewire::test(ListParties::class)->callAction('create', ['name' => 'PK Usta', 'kind' => Party::KIND_EMPLOYEE, 'salary_amount' => 40000,
-            'salary_day' => 5])->assertHasNoActionErrors();
+            'salary_day' => 5])->assertHasActionErrors(['first_salary' => 'required']);
+        Livewire::test(ListParties::class)->callAction('create', ['name' => 'PK Usta', 'kind' => Party::KIND_EMPLOYEE, 'salary_amount' => 40000,
+            'salary_day' => 5, 'first_salary' => 'skip'])->assertHasNoActionErrors();
         $this->get('/admin/parties/create')->assertNotFound();
         $usta = Party::where('name', 'PK Usta')->sole();
         $this->assertTrue($usta->is_employee, 'tip personel → personel işareti');
         $this->assertTrue($usta->salary_auto, 'yeni personelde kendiliğinden işleme açık');
+        $this->assertSame('2026-12', $usta->salary_first_month, 'Aralık maaşı yazılmaz (bu ay)');
+        $this->assertSame(0.0, (float) $usta->salary_first_amount);
 
         $usta->update(['is_employee' => false]);
         $this->assertNull($usta->fresh()->kind, 'personellikten çıkınca tip boşalır');
@@ -164,24 +170,26 @@ class PartyKindTest extends TestCase
 
     public function test_salary_day_accrues_once_and_payment_does_not_double(): void
     {
-        Carbon::setTestNow(Carbon::create(2026, 10, 15, 7, 50, 0, 'Europe/Istanbul'));
+        Carbon::setTestNow(Carbon::create(2026, 12, 15, 7, 50, 0, 'Europe/Istanbul')); // yeni kural Kasım 2026'dan
         try {
             $ahmet = $this->employee(['salary_auto' => true]);
             $manual = $this->employee(['name' => 'PK Elle', 'salary_auto' => false]);
-            PartyLedgerEntry::create(['party_id' => $ahmet->id, 'entry_date' => '2026-10-03', 'type' => PartyLedgerEntry::TYPE_PAYMENT,
+            PartyLedgerEntry::create(['party_id' => $ahmet->id, 'entry_date' => '2026-12-03', 'type' => PartyLedgerEntry::TYPE_PAYMENT,
                 'description' => 'Avans', 'amount' => 20000]);
 
             $this->artisan('salaries:accrue')->assertSuccessful();
             $this->artisan('salaries:accrue')->assertSuccessful();
-            $this->assertSame(1, PartyLedgerEntry::where('party_id', $ahmet->id)->where('description', 'Maaş — Ekim 2026')->count(), 'bir kez');
+            $this->assertSame(1, PartyLedgerEntry::where('party_id', $ahmet->id)->where('description', 'Maaş — Aralık 2026')->count(), 'bir kez');
             $this->assertSame(0, PartyLedgerEntry::where('party_id', $manual->id)->count(), 'kapalı olana dokunulmaz');
-            $this->assertStringContainsString('Ekim maaşı işlendi: maaş 55.000,00 ₺ − avans 20.000,00 = 35.000,00 ₺ ödemen gerekiyor',
+            $this->assertStringContainsString('Aralık maaşı işlendi: maaş 55.000,00 ₺ − avans 20.000,00 = 35.000,00 ₺ ödemen gerekiyor',
                 EmployeeDraft::reminderNote($ahmet->fresh()));
 
-            // Sonra "maaşı ödendi" (panel ya da WhatsApp): maaş ikinci kez yazılmaz, yalnız borç ödenir.
-            $this->salaryWindow($ahmet, ['what' => 'salary', 'month' => '2026-10', 'amount' => '55.000,00', 'pay' => true,
-                'payment_type' => 'cash', 'date' => '2026-10-15']);
-            $this->assertSame(1, PartyLedgerEntry::where('party_id', $ahmet->id)->where('description', 'Maaş — Ekim 2026')->count());
+            // Sonra panelden "Maaş ödedim" (plan v4): tutar kalanla dolu gelir, maaş ikinci kez yazılmaz, yalnız borç ödenir.
+            $this->assertEqualsWithDelta(35000, \App\Support\SalaryLedger::defaultAmount($ahmet->fresh()), 0.01, 'pencere bu tutarla dolu gelir');
+            $this->salaryWindow($ahmet, ['what' => 'salary', 'month' => '', 'amount' => '35.000,00', 'payment_type' => 'cash', 'date' => '2026-12-15']);
+            $this->assertSame(1, PartyLedgerEntry::where('party_id', $ahmet->id)->where('description', 'Maaş — Aralık 2026')->count());
+            $this->assertSame('Maaş ödemesi — Aralık 2026', PartyLedgerEntry::where('party_id', $ahmet->id)
+                ->where('type', PartyLedgerEntry::TYPE_PAYMENT)->where('description', '!=', 'Avans')->value('description'));
             $this->assertEqualsWithDelta(0, PartyStatement::build($ahmet)['balance'], 0.01);
         } finally {
             Carbon::setTestNow();

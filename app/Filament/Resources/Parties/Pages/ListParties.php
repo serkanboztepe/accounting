@@ -80,6 +80,14 @@ class ListParties extends ListRecords
                 ->modalHeading('Yeni kişi / firma')
                 ->modalWidth('2xl')
                 ->schema(PartyForm::components())
+                ->using(function (array $data): Party {
+                    $choice = $data['first_salary'] ?? null; // kolon değil — ilk ay seçimi karta işlenir
+                    unset($data['first_salary']);
+                    $party = Party::create($data);
+                    EmployeeDraft::applyFirstChoice($party, $choice);
+
+                    return $party;
+                })
                 ->after(fn (Party $record) => EmployeeDraft::syncFromCard($record))
                 ->successRedirectUrl(fn (Party $record): string => PartyResource::getUrl('edit', ['record' => $record])),
         ];

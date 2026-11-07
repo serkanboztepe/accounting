@@ -29,6 +29,8 @@ if (config('tenancy.enabled')) {
     // Maaş günü kendiliğinden işleme (27.10) — 08:00 maaş hatırlatmasından önce.
     Schedule::command('tenants:run "salaries:accrue"')->dailyAt('07:50')->timezone('Europe/Istanbul');
     Schedule::command('tenants:run "dues:remind"')->dailyAt('08:00')->timezone('Europe/Istanbul');
+    // Maaş yazıldı, 2 gün geçti, ödeme yok → "ödeme görünmüyor" (plan v4 madde 10; haftada bir, 3 cevapsızda durur).
+    Schedule::command('tenants:run "salaries:follow-up"')->dailyAt('08:10')->timezone('Europe/Istanbul');
     // Otomatik stoktan düş (günlük kullanım) + "bitmek üzere" (fırın: un 6 çuval kalınca).
     Schedule::command('tenants:run "stock:remind"')->dailyAt('08:00')->timezone('Europe/Istanbul');
     Schedule::command('tenants:run "alerts:morning"')->dailyAt('09:00')->timezone('Europe/Istanbul'); // Faz 4: modül açık firmada
@@ -47,6 +49,7 @@ if (config('tenancy.enabled')) {
     // Çek vadesi hatırlatması (WhatsApp). Ayarlı değilse komut sessizce çıkar.
     Schedule::command('checks:remind')->dailyAt('08:00')->timezone('Europe/Istanbul');
     Schedule::command('salaries:accrue')->dailyAt('07:50')->timezone('Europe/Istanbul');
+    Schedule::command('salaries:follow-up')->dailyAt('08:10')->timezone('Europe/Istanbul');
     Schedule::command('dues:remind')->dailyAt('08:00')->timezone('Europe/Istanbul');
     Schedule::command('stock:remind')->dailyAt('08:00')->timezone('Europe/Istanbul');
     Schedule::command('revenue:prompt')->dailyAt('21:00')->timezone('Europe/Istanbul');

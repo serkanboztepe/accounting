@@ -191,7 +191,7 @@ class Reminders
         }
 
         // Personelin maaş günü: bakiye yerine maaş − avans = ödenecek.
-        $salary = $r->party && mb_stripos($r->text, 'maaş') !== false ? \App\Services\Whatsapp\EmployeeDraft::reminderNote($r->party) : null;
+        $salary = $r->party && mb_stripos($r->text, 'maaş') !== false ? \App\Services\Whatsapp\EmployeeDraft::reminderNote($r->party, $event->copy()) : null;
         $note = $r->party ? ' — ' . ($salary ?? self::balanceNote($r->party)) : '';
 
         return $prefix . $text . $note;

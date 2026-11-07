@@ -89,6 +89,9 @@ class Party extends Model
         'salary_amount',
         'salary_day',
         'salary_auto',
+        'salary_first_month',
+        'salary_first_amount',
+        'salary_followup',
     ];
 
     protected $casts = [
@@ -96,6 +99,8 @@ class Party extends Model
         'salary_amount' => 'float',
         'salary_day'    => 'integer',
         'salary_auto'   => 'boolean',
+        'salary_first_amount' => 'float',
+        'salary_followup' => 'array',
     ];
 
     // Cari tipi (27.10, "Bu cariyle nasıl çalışıyorsun?"). Boş = bilinmiyor → bugünkü görünüm (tüm düğmeler).

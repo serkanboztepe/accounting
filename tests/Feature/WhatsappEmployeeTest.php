@@ -57,9 +57,12 @@ class WhatsappEmployeeTest extends TestCase
         $this->ai($this->draft(['kind' => ExpenseExtractor::KIND_EMPLOYEE_SETTING, 'party_name' => 'Personel Testi Ali',
             'salary_amount' => 50000, 'salary_day' => 15]));
 
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-07 12:00', 'Europe/Istanbul'));
         $reply = $this->send("Ali personelim maaşı 50 bin ayın 15'i");
         $this->assertStringContainsString('Aylık maaş: 50.000,00', $reply);
         $this->assertStringContainsString("her ayın 15'i", $reply);
+        $this->assertStringContainsString('bu ay için ne yapayım?', $reply, 'maaş gününe gün var → ilk ay sorusu (plan v4)');
+        $this->assertStringContainsString("İlk maaş: 15 Kasım'da tam maaş", $this->send('3'));
         $this->assertStringContainsString('Maaş günü hatırlatması', $this->send('evet'));
 
         $party = Party::where('name', 'Personel Testi Ali')->firstOrFail();
@@ -139,6 +142,9 @@ class WhatsappEmployeeTest extends TestCase
     {
         $day = \Illuminate\Support\Carbon::parse('2031-03-05');   // başka kayıt karışmasın
         $party = Party::create(['name' => 'Personel Testi Apo', 'is_employee' => true, 'salary_amount' => 55000]);
+        // Önceden verilen avans (19.10 Akkuş): maaş 55.000 − avans 5.500 = elden 49.500.
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $day->copy()->subDays(3), 'type' => PartyLedgerEntry::TYPE_PAYMENT,
+            'description' => 'Avans', 'amount' => 5500]);
         PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $day, 'type' => PartyLedgerEntry::TYPE_PURCHASE,
             'description' => 'Maaş — Mart 2031', 'amount' => 55000]);
         PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => $day, 'type' => PartyLedgerEntry::TYPE_PAYMENT,

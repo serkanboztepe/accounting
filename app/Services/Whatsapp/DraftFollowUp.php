@@ -132,7 +132,9 @@ final class DraftFollowUp
             ->where('status', 'awaiting_confirmation')
             ->where('follow_ups', '<', self::MAX)
             // "Cari kartına yazayım mı?" sorusu yarım kayıt değil (22.10: "Kayıt — Kamuran Narçin, tutar eksik" diye hatırlatıldı).
-            ->where('extracted', 'not like', '%"kind":"' . PartyInfoDraft::KIND . '"%');
+            ->where('extracted', 'not like', '%"kind":"' . PartyInfoDraft::KIND . '"%')
+            // "Maaş ödemesi görünmüyor" sorusu kendi takvimiyle sorulur (haftada bir) — yarım kayıt diye ayrıca hatırlatılmaz.
+            ->where('extracted', 'not like', '%"kind":"' . \App\Support\SalaryFollowUp::KIND . '"%');
     }
 
     /**

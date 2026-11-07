@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Party;
 use App\Models\Reminder;
 use App\Services\Whatsapp\EmployeeDraft;
+use App\Support\SalaryLedger;
 use Illuminate\Console\Command;
 
 /**
@@ -17,23 +18,39 @@ use Illuminate\Console\Command;
  */
 class AccrueSalaries extends Command
 {
-    protected $signature = 'salaries:accrue {--dry-run : Yazmadan göster}';
+    protected $signature = 'salaries:accrue {--dry-run : Yazmadan göster} {--date= : Bu güne göre (YYYY-MM-DD; kontrol için, --dry-run ile)}';
 
     protected $description = 'Maaş günü gelen personelin maaşını işler';
 
     public function handle(): int
     {
-        $today = now(Reminder::TIMEZONE)->startOfDay();
-        $due = Party::where('is_employee', true)->where('salary_auto', true)->where('salary_amount', '>', 0)->whereNotNull('salary_day')
-            ->get()->filter(fn (Party $p) => min((int) $p->salary_day, $today->daysInMonth) === $today->day);
+        if ($this->option('date') && ! $this->option('dry-run')) {
+            $this->error('--date yalnız --dry-run ile (başka güne maaş yazılmaz).');
+
+            return self::FAILURE;
+        }
+        $today = $this->option('date')
+            ? \Illuminate\Support\Carbon::parse($this->option('date'), Reminder::TIMEZONE)->startOfDay()
+            : now(Reminder::TIMEZONE)->startOfDay();
+        // Maaş günü bugün olan + bu ay içinde günü geçip yazılmamış olan (sunucu bir sabah çalışmadıysa — plan v4: telafi yalnız bu ay).
+        // İlk maaş ayından (salary_first_month) ve Kasım 2026'dan önceki ay yazılmaz.
+        $due = SalaryLedger::eligibleEmployees()->filter(function (Party $p) use ($today) {
+            $period = $today->format('Y-m');
+
+            return min((int) $p->salary_day, $today->daysInMonth) <= $today->day && $period >= SalaryLedger::BOUNDARY
+                && (! $p->salary_first_month || $period >= $p->salary_first_month);
+        });
 
         foreach ($due as $party) {
+            $day = $today->copy()->day(min((int) $party->salary_day, $today->daysInMonth));
             if ($this->option('dry-run')) {
-                $this->line($party->name . ': ' . (EmployeeDraft::accrued($party, $today) ? 'bu ay işlenmiş' : 'işlenecek'));
+                $this->line($party->name . ': ' . (EmployeeDraft::accrued($party, $day) ? 'bu ay işlenmiş'
+                    : (SalaryLedger::salaryFor($party, $day->format('Y-m')) < 0.01 ? 'bu ay yazılmayacak (ilk ay)' : 'işlenecek')));
 
                 continue;
             }
-            $this->line($party->name . ': ' . (EmployeeDraft::accrue($party, $today) ? 'işlendi' : 'bu ay zaten işlenmiş'));
+            $row = EmployeeDraft::accrued($party, $day) ? null : EmployeeDraft::accrue($party, $day);
+            $this->line($party->name . ': ' . ($row ? 'işlendi' : 'yazılmadı (bu ay işlenmiş ya da ilk ay)'));
         }
 
         return self::SUCCESS;

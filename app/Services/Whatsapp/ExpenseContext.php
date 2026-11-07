@@ -258,6 +258,18 @@ class ExpenseContext
         }
 
         // Açık avans ve maaştan kalan KOD hesaplar ("maaşından ne kadar kaldı" sorusu bu satırdan cevaplanır).
+        if (\App\Support\SalaryLedger::eligible($party)) {
+            // Yeni kural (plan v4): kart / hatırlatma ile aynı hesap — açık maaş borcu, avans, Kasım öncesi açık.
+            $st = \App\Support\SalaryLedger::state($party);
+            $f = \App\Support\SalaryLedger::forecast($party, $st);
+            $money = fn ($v) => \App\Support\Money::format($v);
+
+            return ' (personel, maaş ' . $money((float) $party->salary_amount) . ', ayın ' . $party->salary_day . "'i"
+                . ($st['owed'] >= 0.01 ? ', ödenmemiş maaş ' . $money($st['owed']) : '')
+                . ($st['advance'] >= 0.01 ? ', açık avans ' . $money($st['advance']) : '')
+                . ', sıradaki maaştan kalan ' . $money($f['net'])
+                . ($st['legacy_open'] >= 0.01 ? ', Kasım öncesinden açık ' . $money($st['legacy_open']) : '') . ')';
+        }
         $advance = AdvanceOffset::open($party, ExpenseExtractor::KIND_PURCHASE);
         $salary = (float) $party->salary_amount;
 

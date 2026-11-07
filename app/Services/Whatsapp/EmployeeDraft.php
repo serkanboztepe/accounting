@@ -7,6 +7,7 @@ use App\Models\PartyLedgerEntry;
 use App\Models\Project;
 use App\Models\Reminder;
 use App\Support\Phone;
+use App\Support\SalaryLedger;
 use App\Support\Reminders;
 use App\Support\Money;
 use Illuminate\Support\Carbon;
@@ -56,8 +57,11 @@ final class EmployeeDraft
      *  - AI'ın tutarı "maaş − açık avans"a eşitse (net) tam maaşa çevrilir.
      * Yazılan farklı tutar ("Afgan'a 30 bin verdim") olduğu gibi kalır (kısmi ödeme); yevmiyeye dokunulmaz.
      */
-    public static function guardSalaryAmount(array $d, string $text): array
+    public static function guardSalaryAmount(array $d, string $text, ?array $prev = null): array
     {
+        if (self::isPayroll($d)) {
+            return self::guardPayrollAmount($d, $text, $prev);
+        }
         if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_SALARY || ! empty($d['salary_deduction']) || self::isDaily($d) || ! ($party = self::party($d))
             || (float) $party->salary_amount <= 0) {
             return $d;
@@ -105,8 +109,8 @@ final class EmployeeDraft
     /** O ayın maaş satırı ("Maaş — Ekim 2026") — kendiliğinden işlendiyse ya da elle yazıldıysa (çift yazma koruması). */
     public static function accrued(Party $party, Carbon $month): ?PartyLedgerEntry
     {
-        return PartyLedgerEntry::where('party_id', $party->id)->where('type', PartyLedgerEntry::TYPE_PURCHASE)
-            ->where('description', 'Maaş — ' . $month->copy()->locale('tr')->translatedFormat('F Y'))->first();
+        // Harf duyarsız (07.11: panelde "Maaş — KASIM 2026" yazılınca eşleşmiyor, 15.11'de ikinci maaş yazılacaktı).
+        return SalaryLedger::accrualRow($party, $month->format('Y-m'));
     }
 
     /**
@@ -115,15 +119,26 @@ final class EmployeeDraft
      */
     public static function accrue(Party $party, Carbon $day): ?PartyLedgerEntry
     {
-        if (! $party->is_employee || (float) $party->salary_amount <= 0 || self::accrued($party, $day)) {
+        if (! $party->is_employee || (float) $party->salary_amount <= 0) {
             return null;
         }
+        $period = $day->format('Y-m');
 
-        return PartyLedgerEntry::create([
-            'party_id' => $party->id, 'entry_date' => $day->toDateString(), 'type' => PartyLedgerEntry::TYPE_PURCHASE,
-            'description' => 'Maaş — ' . $day->copy()->locale('tr')->translatedFormat('F Y'),
-            'amount' => Money::store((float) $party->salary_amount), 'notes' => 'Maaş günü kendiliğinden işlendi.',
-        ]);
+        // Kilit + kilitten sonra yeniden bak: aynı anda iki iş (sabah işi + WhatsApp) maaşı iki kez yazmasın.
+        return SalaryLedger::locked($party, function () use ($party, $day, $period) {
+            $amount = SalaryLedger::salaryFor($party, $period); // ilk ay seçimi: 0 = o ay yazılmaz, N günlük tutar
+            if ($amount < 0.01 || ($party->salary_first_month && $period < $party->salary_first_month) || self::accrued($party, $day)) {
+                return null;
+            }
+
+            return PartyLedgerEntry::create([
+                'party_id' => $party->id, 'entry_date' => $day->toDateString(), 'type' => PartyLedgerEntry::TYPE_PURCHASE,
+                'salary_period' => $period,
+                'description' => 'Maaş — ' . SalaryLedger::label($period)
+                    . ($party->salary_first_month === $period && $amount < (float) $party->salary_amount - 0.009 ? ' (ilk ay)' : ''),
+                'amount' => Money::store($amount), 'notes' => 'Maaş günü kendiliğinden işlendi.',
+            ]);
+        });
     }
 
     /** Maaştan kes (27.10): ücretsiz izin, kırılan eşya… — borcumuz azalır, para çıkmaz; maaşta avans gibi düşülür. */
@@ -142,8 +157,14 @@ final class EmployeeDraft
             return 'Kimin? Adını yazar mısın?';
         }
         if ($d['kind'] === ExpenseExtractor::KIND_EMPLOYEE_SETTING) {
-            return empty($d['salary_amount']) && empty($d['salary_day'])
-                ? 'Aylık maaşı ne kadar, ayın kaçında ödüyorsun?' : null;
+            if (empty($d['salary_amount']) && empty($d['salary_day'])) {
+                return 'Aylık maaşı ne kadar, ayın kaçında ödüyorsun?';
+            }
+
+            return self::firstChoiceNeeded($d) ? self::firstChoiceQuestion($d) : null;
+        }
+        if (self::isPayroll($d)) {
+            return ! empty($d['paid']) && self::payrollAmount($d) < 0.01 ? 'Ne kadar verdin?' : null;
         }
         if (! empty($d['salary_deduction'])) {
             return (float) ($d['amount'] ?? 0) > 0 ? null : 'Maaşından ne kadar keseyim?';
@@ -162,10 +183,16 @@ final class EmployeeDraft
                 $lines[] = '• Aylık maaş: ' . Money::format((float) $d['salary_amount']) . ' ₺';
             }
             if (! empty($d['salary_day'])) {
-                $lines[] = '• Maaş günü: her ayın ' . (int) $d['salary_day'] . "'i — o sabah 08:00'de hatırlatırım";
+                $lines[] = '• Maaş günü: her ayın ' . (int) $d['salary_day'] . "'i — bir gün önce ve o sabah 08:00'de hatırlatırım";
+            }
+            if (($first = self::firstChoiceLine($d)) !== null) {
+                $lines[] = $first;
             }
 
             return implode("\n", $lines);
+        }
+        if (self::isPayroll($d)) {
+            return self::payrollSummary($d);
         }
 
         if (! empty($d['salary_deduction'])) {
@@ -193,11 +220,12 @@ final class EmployeeDraft
         $party = self::party($d) ?? Party::firstOrCreate(['name' => $d['party_name']]);
 
         if ($d['kind'] === ExpenseExtractor::KIND_EMPLOYEE_SETTING) {
+            $first = self::firstChoiceValues($d, $party);
             $party->update(array_filter([
                 'is_employee' => true,
                 'salary_amount' => ! empty($d['salary_amount']) ? Money::store((float) $d['salary_amount']) : null,
                 'salary_day' => ! empty($d['salary_day']) ? (int) $d['salary_day'] : null,
-            ], fn ($v) => $v !== null));
+            ], fn ($v) => $v !== null) + $first);
 
             $reminder = $party->salary_day && $phone ? self::syncReminder($party, $phone) : null;
 
@@ -207,9 +235,13 @@ final class EmployeeDraft
         }
 
         $d['party_id'] = $party->id;
+        if (self::isPayroll($d)) {
+            return self::commitPayroll($d, $party);
+        }
         if (! empty($d['salary_deduction'])) {
             $party->is_employee || $party->update(['is_employee' => true]);
-            self::deduct($party, (float) $d['amount'], (string) ($d['description'] ?? ''), $d['date'] ?? now()->toDateString());
+            SalaryLedger::locked($party, fn () => self::deduct($party, (float) $d['amount'], (string) ($d['description'] ?? ''),
+                $d['date'] ?? now()->toDateString()));
             $balance = TurnTrace::statement('EmployeeDraft::commit.deduction', $party)['balance'];
 
             return ['✅ Kesinti yazıldı. ' . $party->name . ': ' . match (true) {
@@ -321,10 +353,13 @@ final class EmployeeDraft
     }
 
     /** Hatırlatma notu: "maaş 50.000 − avans 20.000 = 30.000 ₺ ödeyeceksin" (Reminders::fireText). */
-    public static function reminderNote(Party $party): ?string
+    public static function reminderNote(Party $party, ?Carbon $event = null): ?string
     {
         if (! $party->is_employee || ! $party->salary_amount) {
             return null;
+        }
+        if (SalaryLedger::eligible($party)) {
+            return self::payrollReminderNote($party, $event ?? now(Reminder::TIMEZONE));
         }
         $salary = (float) $party->salary_amount;
         // Bugün kendiliğinden işlendiyse (27.10) maaş bakiyede: düşülen = maaş − şimdiki borcumuz.
@@ -349,6 +384,351 @@ final class EmployeeDraft
 
         return $head . 'maaş ' . Money::format($salary) . ' ₺' . ($parts !== '' ? $parts . ' = ' . Money::format($salary - $off) . ' ₺' : '')
             . ($auto ? ' ödemen gerekiyor' : ' ödeyeceksin') . ". Ödeyince *{$party->name} maaşı ödendi* yaz";
+    }
+
+    // ── Yeni maaş kuralı (plan v4, 07.11): kartında maaş + gün + "kendiliğinden işle" açık personel ───────────────────────────
+
+    /** Maaş ödemesi yeni kuralla mı? (en eski borçtan kapatır, maaş satırı yazmaz — maaşı sabah işi yazar) */
+    public static function isPayroll(array $d): bool
+    {
+        return ($d['kind'] ?? null) === ExpenseExtractor::KIND_SALARY && empty($d['salary_deduction']) && ! self::isDaily($d)
+            && SalaryLedger::eligible(self::party($d));
+    }
+
+    /**
+     * Yeni kuraldaki personele para (WhatsApp "ödeme"): maaş ödemesi olarak işlenir — "maaş mı, avans mı?" sorulmaz, en eski borçtan
+     * kapatılır, borç yoksa avans (kullanıcı 07.11). Borç verme, adına ödeme ve anlaşma ödemesi eskisi gibi kalır.
+     */
+    public static function fromPayment(array $d): array
+    {
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_PAYMENT || ($d['payment_purpose'] ?? null) === 'loan'
+            || OnBehalfChoice::isOnBehalf($d) || ! empty($d['agreement_id']) || ! SalaryLedger::eligible(self::party($d))) {
+            return $d;
+        }
+
+        return array_merge($d, ['kind' => ExpenseExtractor::KIND_SALARY, 'paid' => true, 'salary_deduction' => false,
+            'from_payment' => true, 'question' => null, 'work_status_known' => null]);
+    }
+
+    /**
+     * Ödeme tutarının kaynağı korunur (Yıldız 30.10: 19.000 dekont "Maaş" cevabıyla 40.000 oldu): mesajda rakam varsa o; rakamsız
+     * cevapta önceki mesajın / dekontun tutarı kalır; hiç yoksa 0 = kalan (maaş − avans − kesinti) hesaplanır. AI'ın bağlamdan aldığı
+     * sayı (hatırlatmadaki net) kullanılmaz.
+     */
+    private static function guardPayrollAmount(array $d, string $text, ?array $prev): array
+    {
+        if (! empty($d['from_document'])) {
+            return ['amount_source' => 'receipt'] + $d;
+        }
+        if (preg_match('/\d/u', $text)) {
+            return ['amount_source' => 'message'] + $d;
+        }
+        $kept = in_array($prev['amount_source'] ?? null, ['message', 'receipt'], true) && (float) ($prev['amount'] ?? 0) > 0
+            && ($prev['party_id'] ?? null) == ($d['party_id'] ?? null);
+
+        return array_merge($d, $kept
+            ? ['amount' => (float) $prev['amount'], 'amount_source' => $prev['amount_source']]
+            : ['amount' => 0.0, 'amount_source' => 'default']);
+    }
+
+    /** Ödenecek tutar: yazılan / dekonttaki; yoksa en eski açık maaşın kalanı (ya da sıradaki maaşın neti). */
+    public static function payrollAmount(array $d): float
+    {
+        $amount = round((float) ($d['amount'] ?? 0), 2);
+
+        return $amount > 0 ? $amount : SalaryLedger::defaultAmount(self::party($d));
+    }
+
+    private static function payrollTarget(array $d): ?string
+    {
+        return ! empty($d['month']) && preg_match('/^\d{4}-\d{2}$/', (string) $d['month']) ? (string) $d['month'] : null;
+    }
+
+    private static function payrollDate(array $d): string
+    {
+        return $d['date'] ?? now(Reminder::TIMEZONE)->toDateString();
+    }
+
+    /** Kartın parmak izi — onayda yeniden hesaplanır; arada hesap değiştiyse yazılmaz (kart = kayıt). */
+    public static function withFingerprint(array $d): array
+    {
+        if (! self::isPayroll($d)) {
+            return $d;
+        }
+        if (empty($d['paid'])) {
+            return ['salary_fp' => md5('accrue|' . self::accrualPlan($d)['text'])] + $d;
+        }
+        $amount = self::payrollAmount($d);
+
+        return array_merge($d, ['salary_fp' => $amount >= 0.01
+            ? SalaryLedger::preview(self::party($d), $amount, self::payrollTarget($d), self::payrollDate($d))['fingerprint'] : null]);
+    }
+
+    private static function payrollSummary(array $d): string
+    {
+        $party = self::party($d);
+        if (empty($d['paid'])) {
+            return '👷 *' . $party->name . '* — ' . self::accrualPlan($d)['text'];
+        }
+        $amount = self::payrollAmount($d);
+        if ($amount < 0.01) {
+            return '👷 *' . $party->name . '* — avans ve kesintiler maaşı karşılıyor, ödenecek bir şey görünmüyor.';
+        }
+        $pv = SalaryLedger::preview($party, $amount, self::payrollTarget($d), self::payrollDate($d));
+
+        return implode("\n", ['👷 *' . $party->name . '* — ' . Money::format($amount) . ' ₺ ödeme', ...$pv['lines']]);
+    }
+
+    /** "Maaşını yaz, henüz vermedim": o ayın maaşı (yoksa) yazılır; varsa yazılmaz. */
+    private static function accrualPlan(array $d): array
+    {
+        $party = self::party($d);
+        $period = self::payrollTarget($d) ?? Carbon::parse(self::payrollDate($d))->format('Y-m');
+        $row = SalaryLedger::accrualRow($party, $period);
+        $amount = (float) ($d['amount'] ?? 0) > 0 ? (float) $d['amount'] : SalaryLedger::salaryFor($party, $period);
+
+        return ['period' => $period, 'amount' => $amount, 'exists' => $row !== null, 'text' => $row
+            ? SalaryLedger::label($period) . ' maaşı zaten yazılı (' . Money::format((float) $row->amount) . ' ₺)'
+            : SalaryLedger::label($period) . ' maaşı: ' . Money::format($amount) . ' ₺ • Ödenmedi — borç olarak yazılır'];
+    }
+
+    /** @return array{0:string,1:?int} */
+    private static function commitPayroll(array $d, Party $party): array
+    {
+        return SalaryLedger::locked($party, function () use ($d, $party) {
+            $fresh = self::withFingerprint($d);
+            if (! empty($d['salary_fp']) && ($fresh['salary_fp'] ?? null) !== $d['salary_fp']) {
+                throw new SalaryChanged($fresh);
+            }
+            $note = $d['source_note'] ?? 'WhatsApp üzerinden girildi.';
+            if (empty($d['paid'])) {
+                $plan = self::accrualPlan($d);
+                if (! $plan['exists'] && $plan['amount'] >= 0.01) {
+                    PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => self::payrollDate($d),
+                        'type' => PartyLedgerEntry::TYPE_PURCHASE, 'salary_period' => $plan['period'],
+                        'description' => 'Maaş — ' . SalaryLedger::label($plan['period']), 'amount' => Money::store($plan['amount']), 'notes' => $note]);
+                }
+
+                return ['✅ ' . ($plan['exists'] ? $plan['text'] . ', yeniden yazmadım.' : 'Kaydedildi.') . ' ' . self::balanceText($party), $party->id];
+            }
+            $amount = self::payrollAmount($d);
+            $pv = SalaryLedger::preview($party, $amount, self::payrollTarget($d), self::payrollDate($d));
+            PartyLedgerEntry::create([
+                'party_id' => $party->id, 'entry_date' => self::payrollDate($d), 'type' => PartyLedgerEntry::TYPE_PAYMENT,
+                'payment_type' => $d['payment_type'] ?? null, 'salary_period' => self::payrollTarget($d),
+                'description' => $pv['description'], 'amount' => Money::store($amount), 'notes' => $note,
+            ]);
+            IssuedChecks::store($d, $party); // çekle ödenen maaş: çek bu satıra bağlanır
+
+            return ['✅ Kaydedildi. ' . self::balanceText($party), $party->id];
+        });
+    }
+
+    /** "Ali: Kasım'dan 20.000 ₺ kaldı" / "10.000 ₺ avans (Aralık maaşından düşer)" / "hesap kapalı" + Kasım öncesi açık satırı. */
+    public static function balanceText(Party $party): string
+    {
+        $st = SalaryLedger::state($party);
+        $open = array_filter($st['periods'], fn ($v) => $v['remaining'] >= 0.01);
+        $text = $party->name . ': ' . match (true) {
+            $open !== [] => implode(', ', array_map(fn ($p, $v) => SalaryLedger::label($p, false) . " maaşından " . Money::format($v['remaining']) . ' ₺',
+                array_keys($open), $open)) . ' kaldı.',
+            $st['advance'] >= 0.01 => Money::format($st['advance']) . ' ₺ avans (' . SalaryLedger::label(SalaryLedger::nextDue($party)->format('Y-m'), false)
+                . ' maaşından düşer).',
+            default => 'maaş hesabı kapalı.',
+        };
+
+        return $text . ($st['legacy_open'] >= 0.01 ? "\nℹ️ " . SalaryLedger::legacyFrom($st) . ' ' . Money::format($st['legacy_open'])
+            . ' ₺ açık görünüyor.' : '');
+    }
+
+    // ── İlk kayıt sorusu (kullanıcı 07.11): maaş gününe gün varsa "bu ay ne yapayım?" ─────────────────────────────────────
+
+    /** Kayıt günü maaş günü değilse ve kişinin maaş geçmişi yoksa sorulur; mesajda söylendiyse (first_salary) sorulmaz. */
+    public static function firstChoiceNeeded(array $d): bool
+    {
+        if (($d['kind'] ?? null) !== ExpenseExtractor::KIND_EMPLOYEE_SETTING || ! empty($d['first_salary'])) {
+            return false;
+        }
+        $party = self::party($d);
+        $day = (int) ($d['salary_day'] ?? $party?->salary_day);
+        $salary = (float) ($d['salary_amount'] ?? $party?->salary_amount);
+        // Yalnız ilk kez personel olan (zaten personel olanın günü/maaşı değişince sorulmaz — Hikmet "her ayın 20'si").
+        if ($day < 1 || $salary <= 0 || ($party && ($party->is_employee || $party->salary_first_month || SalaryLedger::state($party)['periods'] !== []))) {
+            return false;
+        }
+        $today = now(Reminder::TIMEZONE)->startOfDay();
+
+        return $today->day !== min($day, $today->daysInMonth);
+    }
+
+    /** @return array{due: Carbon, days: int, partial: float, salary: float} */
+    private static function firstChoicePlan(array $d): array
+    {
+        $party = self::party($d);
+        $day = (int) ($d['salary_day'] ?? $party?->salary_day);
+        $salary = (float) ($d['salary_amount'] ?? $party?->salary_amount);
+        $today = now(Reminder::TIMEZONE)->startOfDay();
+        $due = $today->copy()->day(min($day, $today->daysInMonth));
+        if ($due->lte($today)) {
+            $next = $today->copy()->startOfMonth()->addMonthNoOverflow();
+            $due = $next->day(min($day, $next->daysInMonth));
+        }
+        $days = (int) $today->diffInDays($due);
+
+        return ['due' => $due, 'days' => $days, 'salary' => $salary,
+            'partial' => round($salary / $due->daysInMonth * $days, 2)];
+    }
+
+    private static function firstChoiceQuestion(array $d): string
+    {
+        $plan = self::firstChoicePlan($d);
+        $date = $plan['due']->locale('tr')->translatedFormat('j F');
+
+        return 'Maaş gününe ' . $plan['days'] . " gün var, bu ay için ne yapayım?\n"
+            . "*1* Bu ay maaş yazma (ödedim ya da yeni başladı)\n"
+            . '*2* ' . $plan['days'] . ' günlük maaş yaz (' . Money::format($plan['partial']) . " ₺), ödemedim\n"
+            . '*3* ' . SalaryLedger::suffix($date) . ' tam maaş yaz (' . Money::format($plan['salary']) . ' ₺)';
+    }
+
+    public static function firstChoiceShown(?array $d): bool
+    {
+        return is_array($d) && self::firstChoiceNeeded($d);
+    }
+
+    /** Numaralı cevap: 1 yazma · 2 N günlük · 3 tam. */
+    public static function chooseFirst(array $d, int $n): ?array
+    {
+        return match ($n) {
+            1 => ['first_salary' => 'skip'] + $d,
+            2 => ['first_salary' => 'partial'] + $d,
+            3 => ['first_salary' => 'full'] + $d,
+            default => null,
+        };
+    }
+
+    private static function firstChoiceLine(array $d): ?string
+    {
+        if (empty($d['first_salary']) || $d['first_salary'] === 'full' && empty($d['first_salary_amount'])) {
+            return empty($d['first_salary']) ? null : '• İlk maaş: '
+                . SalaryLedger::suffix(self::firstChoicePlan($d)['due']->locale('tr')->translatedFormat('j F')) . ' tam maaş';
+        }
+        $plan = self::firstChoicePlan($d);
+        $date = $plan['due']->locale('tr')->translatedFormat('j F');
+
+        return $d['first_salary'] === 'skip'
+            ? '• Bu ay maaş yazılmaz — ilk maaş ' . SalaryLedger::suffix(self::firstChoiceAfter($plan['due']))
+            : '• İlk maaş: ' . SalaryLedger::suffix($date) . ' ' . Money::format(self::firstAmount($d, $plan)) . ' ₺ (' . $plan['days'] . ' gün), sonra tam maaş';
+    }
+
+    private static function firstChoiceAfter(Carbon $due): string
+    {
+        $next = $due->copy()->startOfMonth()->addMonthNoOverflow();
+
+        return $next->day(min($due->day, $next->daysInMonth))->locale('tr')->translatedFormat('j F');
+    }
+
+    private static function firstAmount(array $d, array $plan): float
+    {
+        return (float) ($d['first_salary_amount'] ?? 0) > 0 ? round((float) $d['first_salary_amount'], 2) : $plan['partial'];
+    }
+
+    /** Panel: "bu ay ne yapayım?" seçenekleri (WhatsApp sorusuyla aynı metin). @return array<string, string> */
+    public static function firstChoiceOptions(?int $day, ?float $salary): array
+    {
+        if ((int) $day < 1 || (float) $salary <= 0) {
+            return [];
+        }
+        $plan = self::firstChoicePlan(['salary_day' => (int) $day, 'salary_amount' => (float) $salary]);
+
+        return ['skip' => 'Bu ay maaş yazma (ödedim ya da yeni başladı)',
+            'partial' => $plan['days'] . ' günlük maaş yaz (' . Money::format($plan['partial']) . ' ₺), ödemedim',
+            'full' => SalaryLedger::suffix($plan['due']->locale('tr')->translatedFormat('j F')) . ' tam maaş yaz (' . Money::format($plan['salary']) . ' ₺)'];
+    }
+
+    public static function firstChoiceTitle(?int $day, ?float $salary): string
+    {
+        $plan = (int) $day >= 1 && (float) $salary > 0 ? self::firstChoicePlan(['salary_day' => (int) $day, 'salary_amount' => (float) $salary]) : null;
+
+        return $plan ? 'Maaş gününe ' . $plan['days'] . ' gün var, bu ay için ne yapayım?' : 'Bu ay için ne yapayım?';
+    }
+
+    /**
+     * Panelde personel kaydedilince (yeni ya da "kendiliğinden işle" yeni açıldı): ilk maaş ayı + seçim karta yazılır — WhatsApp ile aynı
+     * kural (maaş günü kayıt → o ay yazılmaz; günü geçtiyse sıradaki ay). Maaş geçmişi olan / ilk ayı yazılı personele dokunulmaz.
+     */
+    public static function applyFirstChoice(Party $party, ?string $choice): void
+    {
+        $party->refresh();
+        if (! SalaryLedger::eligible($party) || $party->salary_first_month || SalaryLedger::state($party)['periods'] !== []) {
+            return;
+        }
+        $d = ['salary_day' => $party->salary_day, 'salary_amount' => $party->salary_amount, 'first_salary' => $choice];
+        $plan = self::firstChoicePlan($d);
+        $party->update(['salary_first_month' => $plan['due']->format('Y-m'), 'salary_first_amount' => match ($choice) {
+            'skip' => 0, 'partial' => Money::store($plan['partial']), default => null,
+        }]);
+    }
+
+    /** Karta yazılacak: "kendiliğinden işle" açılır (Tok 05.11: WhatsApp'tan açılan personelde kapalı kalıyordu) + ilk ay seçimi. */
+    private static function firstChoiceValues(array $d, Party $party): array
+    {
+        if ($party->is_employee && $party->salary_auto) {
+            return [];
+        }
+        $values = ['salary_auto' => true];
+        $day = (int) ($d['salary_day'] ?? $party->salary_day);
+        if ($day >= 1 && (float) ($d['salary_amount'] ?? $party->salary_amount) > 0) {
+            // İlk maaşın ayı her zaman yazılır: sabah işi bundan önceki ayı yazmaz (maaş günü geçtikten sonra kayıt → o ay yazılmaz;
+            // maaş günü kayıt → o ay yazılmaz, kullanıcı 07.11 "yazılan kayıt tamam").
+            $plan = self::firstChoicePlan($d);
+            $values['salary_first_month'] = $plan['due']->format('Y-m');
+            $values['salary_first_amount'] = match ($d['first_salary'] ?? null) {
+                'skip' => 0,
+                'partial' => Money::store(self::firstAmount($d, $plan)),
+                default => null,
+            };
+        }
+
+        return $values;
+    }
+
+    /**
+     * Yeni kuraldaki personelin hatırlatması (plan v4): hatırlatmanın günündeki ayın maaşı yazıldıysa kalan (önceden kısmen ödendiyse
+     * yalnız kalan — Yıldız 14.11 "40.000" yerine 20.000); yazılmadıysa tahmini net. Kasım öncesi açık ayrı satır.
+     */
+    private static function payrollReminderNote(Party $party, Carbon $event): string
+    {
+        $st = SalaryLedger::state($party);
+        $period = $event->format('Y-m');
+        $row = SalaryLedger::accrualRow($party, $period);
+        $pay = ". Ödeyince *{$party->name} maaşı ödendi* yaz";
+        $legacy = $st['legacy_open'] >= 0.01 ? ' ℹ️ ' . SalaryLedger::legacyFrom($st) . ' ' . Money::format($st['legacy_open'])
+            . ' ₺ açık görünüyor.' : '';
+        $offWord = $st['deductions_left'] ? 'avans/kesinti' : 'avans';
+        if ($row) {
+            $v = $st['periods'][$period] ?? ['accrued' => (float) $row->amount, 'paid' => 0.0, 'remaining' => (float) $row->amount];
+            $head = $row->entry_date?->isToday() ? SalaryLedger::label($period, false) . ' maaşı işlendi: ' : SalaryLedger::label($period, false) . ' maaşı: ';
+            $older = array_sum(array_map(fn ($x) => $x['remaining'], array_filter($st['periods'], fn ($x, $p) => $p < $period, ARRAY_FILTER_USE_BOTH)));
+            $olderText = $older >= 0.01 ? ' Önceki aylardan da ' . Money::format($older) . ' ₺ açık.' : '';
+            if ($v['remaining'] < 0.01) {
+                return $head . 'maaş ' . Money::format($v['accrued']) . ' ₺ — verilenler maaşı karşılıyor, bu ay ödeme yok' . '.' . $olderText . $legacy;
+            }
+
+            return $head . 'maaş ' . Money::format($v['accrued']) . ' ₺'
+                . ($v['paid'] >= 0.01 ? ' − ' . $offWord . ' ' . Money::format($v['paid']) . ' = ' . Money::format($v['remaining']) . ' ₺' : '')
+                . ' ödemen gerekiyor' . $pay . '.' . $olderText . $legacy;
+        }
+        $f = SalaryLedger::forecast($party, $st, $event->copy()->startOfDay());
+        if ($f['salary'] < 0.01) {
+            return 'bu ay maaş yazılmayacak (ilk ay)' . $legacy;
+        }
+        if ($f['net'] < 0.01) {
+            return 'maaş ' . Money::format($f['salary']) . ' ₺ — verilen ' . $offWord . ' ' . Money::format($f['off']) . ' ₺ maaşı karşılıyor, bu ay ödeme yok'
+                . ($f['extra'] >= 0.01 ? ' (' . Money::format($f['extra']) . ' ₺ sonraki aya kalır)' : '') . '.' . $legacy;
+        }
+
+        return 'maaş ' . Money::format($f['salary']) . ' ₺' . ($f['off'] >= 0.01 ? ' − ' . $offWord . ' ' . Money::format($f['off'])
+            . ' = ' . Money::format($f['net']) . ' ₺' : '') . ' ödeyeceksin (tahmini)' . $pay . '.' . $legacy;
     }
 
     /** Maaşın ayı (ayın 1'i): mesajda ay söylendiyse o, yoksa kaydın tarihi. */
