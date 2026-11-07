@@ -435,8 +435,16 @@ final class EmployeeDraft
     public static function payrollAmount(array $d): float
     {
         $amount = round((float) ($d['amount'] ?? 0), 2);
+        if ($amount > 0) {
+            return $amount;
+        }
+        // "Erkan'ın Ekim maaşını ödedim" (Kasım öncesi ay, tutarsız): o eski borcun kalanı — sıradaki maaş değil.
+        $target = self::payrollTarget($d);
+        if ($target !== null && $target < SalaryLedger::BOUNDARY && ($open = SalaryLedger::state(self::party($d))['legacy_open']) >= 0.01) {
+            return $open;
+        }
 
-        return $amount > 0 ? $amount : SalaryLedger::defaultAmount(self::party($d));
+        return SalaryLedger::defaultAmount(self::party($d));
     }
 
     private static function payrollTarget(array $d): ?string

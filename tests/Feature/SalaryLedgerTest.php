@@ -158,6 +158,23 @@ class SalaryLedgerTest extends TestCase
         $this->assertEqualsWithDelta(65000, $this->remaining($p, '2026-11'), 0.01, 'Kasım hâlâ açık');
     }
 
+    /** "Erkan'ın Ekim maaşını ödedim" (tutarsız): Ekim'den kalan 60.000 önerilir, kapanır; Kasım'a dokunulmaz. */
+    public function test_whatsapp_naming_legacy_month_pays_legacy_open(): void
+    {
+        $p = $this->employee(['salary_amount' => 65000, 'salary_day' => 30]);
+        $this->row($p, PartyLedgerEntry::TYPE_PAYMENT, '2026-10-16', 'Maaş avansı', 5000);
+        $this->row($p, PartyLedgerEntry::TYPE_PURCHASE, '2026-10-30', 'Maaş — Ekim 2026', 65000);
+        $this->ai($this->draft(['kind' => ExpenseExtractor::KIND_SALARY, 'party_id' => $p->id, 'paid' => true, 'month' => '2026-10']));
+
+        $card = $this->send($p->name . ' Ekim maaşını ödedim');
+        $this->assertStringContainsString('60.000,00 ₺ ödeme', $card);
+        $this->assertStringContainsString('• Ekim maaşı: kapandı ✅', $card);
+        $this->send('evet');
+        $this->assertSame(0.0, SalaryLedger::state($p)['legacy_open']);
+        $this->assertSame('2026-10', PartyLedgerEntry::where('party_id', $p->id)->where('type', PartyLedgerEntry::TYPE_PAYMENT)
+            ->where('amount', 60000)->sole()->salary_period);
+    }
+
     /** Akkuş Özkan / Abdullah: Kasım öncesi avans Kasım maaşından düşer. */
     public function test_legacy_advance_carries_into_november(): void
     {
