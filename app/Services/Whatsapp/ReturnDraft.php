@@ -177,7 +177,7 @@ final class ReturnDraft
         ]));
         $ledger = $scope(PartyLedgerEntry::with('party')->whereIn('type', $types)
             ->whereNull('sale_id')->whereNull('purchase_id')->whereNotIn('party_id', $employees)
-            ->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', 'Borç kaydı%'))
+            ->withoutCarriedBalances()
             ->when($text !== null, fn ($q) => $q->where('description', $like, '%' . $text . '%')), 'entry_date')->get();
         foreach ($ledger as $l) {
             $isSale = $l->type === PartyLedgerEntry::TYPE_SALE;

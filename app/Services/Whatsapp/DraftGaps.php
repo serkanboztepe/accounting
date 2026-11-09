@@ -204,7 +204,7 @@ final class DraftGaps
             return null;
         }
         $last = \App\Models\PartyLedgerEntry::where('party_id', $party->id)->where('type', \App\Models\PartyLedgerEntry::TYPE_PURCHASE)
-            ->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', 'Borç kaydı%'))
+            ->withoutCarriedBalances()
             ->orderByDesc('entry_date')->orderByDesc('id')->first();
         if (! $last) {
             return null;

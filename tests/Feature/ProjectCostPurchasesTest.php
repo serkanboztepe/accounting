@@ -60,6 +60,20 @@ class ProjectCostPurchasesTest extends TestCase
             ->assertDontSee('Sözleşme Teslimatları')->assertDontSee('Faturasız');
     }
 
+    /** 09.11: devreden borç kaydı maliyet değil; eski borcun ödemesi de "alışı yazılmamış ödeme" olarak maliyete girmez. */
+    public function test_carried_debt_note_is_not_cost_and_its_payment_is_not_unbooked(): void
+    {
+        $site = Project::create(['name' => 'Maliyet Testi Devir', 'status' => 'active']);
+        $asansor = Party::create(['name' => 'Maliyet Testi Asansörcü']);
+        $this->ledger($asansor, $site, PartyLedgerEntry::TYPE_PURCHASE, 742000, 'Borç kaydı — Eski borç');
+        $this->ledger($asansor, $site, PartyLedgerEntry::TYPE_PAYMENT, 120000, 'Asansör ödemesi');
+        $this->ledger($asansor, $site, PartyLedgerEntry::TYPE_PURCHASE, 5000, 'Kabin tamiri'); // pozitif kontrol
+
+        $this->assertEqualsWithDelta(5000, \App\Support\ProjectCost::purchases($site->id), 0.01);
+        $this->assertEqualsWithDelta(0, \App\Support\ProjectCost::unbookedPayments($site->id), 0.01);
+        $this->assertEqualsWithDelta(5000, \App\Support\ProjectCost::total($site->id), 0.01);
+    }
+
     /**
      * 29.10 (Muhasebe/Barbaros, Ayhan Ergül): projeye verilmiş ama alışı yazılmamış para maliyete girer, ⚠ ile söylenir;
      * alış yazılınca fark kapanır (çift sayılmaz). Projesiz ödeme girmez. (31.10: Kalan borç / Çekler / dipnot karttan kaldırıldı.)

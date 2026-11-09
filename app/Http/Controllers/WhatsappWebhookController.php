@@ -259,16 +259,31 @@ class WhatsappWebhookController extends Controller
         }
     }
 
-    /** "13.10'da Düzgün Yıldırım'a 300.000 ₺ ödeme zaten yazılı. *yeni* / *aynı*" — kısa, iki net cevap. */
-    private static function duplicateQuestion(array $d, string $day): string
+    /**
+     * "08.11'de Gürbüz Toprak için 120.000 ₺ ödeme zaten yazılı — *1* aynı · *2* yeni". Numaralı (09.11 Kaya: Ümit "evet", "kaydet",
+     * "742 -120 olacak" yazdı, yeni/aynı kelimesini bulamadı, soru 5 kez aynen tekrarlandı). Tekrarda kısalır; 3. kezde hesabın
+     * şu anki hâli gösterilir (kullanıcı neyin yazılı olduğunu görüp karar versin). "evet" yine kaydetmez (29.10 çift ödeme koruması).
+     */
+    private static function duplicateQuestion(array $d, string $day, int $tries = 1): string
     {
         $what = ($d['kind'] ?? null) === ExpenseExtractor::KIND_COLLECTION ? 'tahsilat' : 'ödeme';
-        $party = ! empty($d['party_id']) ? Party::find($d['party_id'])?->name : null;
+        $party = ! empty($d['party_id']) ? Party::find($d['party_id']) : null;
+        $hit = DraftWarnings::moneyDuplicate($d);
+        $options = '*1* Aynı ' . $what . ", tekrar yazma\n*2* Ayrı, yeni bir " . $what . ', yaz';
+        if ($tries === 2) {
+            return 'Bunu iki türlü anlayabilirim, rakamla cevap verir misin?' . "\n" . $options;
+        }
+        $text = '⚠️ ' . $day . ' günü ' . ($party ? $party->name . ' için ' : '') . Money::format((float) $d['amount']) . ' ₺ '
+            . $what . ' zaten yazılı'
+            . ($hit && trim((string) $hit->description) !== '' ? ' (' . mb_substr(trim((string) $hit->description), 0, 60) . ')' : '') . '.';
+        if ($tries >= 3 && $party) {
+            $balance = (float) \App\Support\PartyStatement::build($party)['balance'];
+            $text .= "\n📒 Şu an " . $party->name . ': ' . (abs($balance) < 0.01 ? 'hesap kapalı'
+                : ($balance < 0 ? 'borcun ' . Money::format(abs($balance)) . ' ₺' : 'sana borcu ' . Money::format($balance) . ' ₺'))
+                . ' (bu ' . $what . ' yazılmadan). Başka bir düzeltme gerekiyorsa vazgeçip *iptal* yaz, sonra doğrusunu yaz.';
+        }
 
-        return '⚠️ ' . $day . ' günü ' . ($party ? $party . ' için ' : '') . 'aynı tutarda (' . Money::format((float) $d['amount']) . ' ₺) '
-            . $what . " zaten yazılı.\n"
-            . '*yeni* → ayrı bir ' . $what . ", kaydederim\n"
-            . '*aynı* → o kayıt, tekrar yazmam';
+        return $text . "\n" . $options;
     }
 
     private static function isStaff(array $d, ?Party $party): bool
@@ -981,16 +996,16 @@ class WhatsappWebhookController extends Controller
             return $this->twiml($this->saveDraft($pending, $phone, ['question' => null] + $answered));
         }
 
-        // Çift ödeme sorusunun cevabı (*yeni* / *aynı*) — AI'a gitmez; "evet" yine soruyu tekrarlatır (commitThenNext).
+        // Çift ödeme sorusunun cevabı (*1* aynı / *2* yeni, ya da kelimeyle) — AI'a gitmez; "evet" yine soruyu (kısaltarak) sorar (commitThenNext).
         if ($pending && $image === null && ! empty($pending->extracted['dup_asked'])) {
             $w = $this->word($body);
-            if (in_array($w, ['yeni', 'yeni ödeme', 'yeni tahsilat', 'ayrı', 'ayri', 'farklı', 'farkli', 'başka', 'baska', 'ayrı ödeme'], true)) {
+            if (in_array($w, ['2', 'yeni', 'yeni ödeme', 'yeni tahsilat', 'ayrı', 'ayri', 'farklı', 'farkli', 'başka', 'baska', 'ayrı ödeme'], true)) {
                 $this->inboundKind = 'quick';
                 $pending->update(['extracted' => ['dup_new' => true] + $pending->extracted]);
 
                 return $this->twiml($this->commitThenNext($pending->fresh(), $phone));
             }
-            if (in_array($w, ['aynı', 'ayni', 'aynısı', 'aynisi', 'aynı ödeme', 'aynı tahsilat', 'aynı kayıt', 'o', 'zaten yazılı', 'zaten var'], true)) {
+            if (in_array($w, ['1', 'aynı', 'ayni', 'aynısı', 'aynisi', 'aynı ödeme', 'aynı tahsilat', 'aynı kayıt', 'o', 'zaten yazılı', 'zaten var'], true)) {
                 $this->inboundKind = 'quick';
                 $pending->update(['status' => 'cancelled']);
 
@@ -1377,9 +1392,10 @@ class WhatsappWebhookController extends Controller
         // Aynı kişiye aynı tutarda ödeme/tahsilat yakın günde zaten var: düz "evet" yetmez — *yeni* / *aynı* (29.10, firma 7
         // Düzgün Yıldırım 300.000 iki kez: uyarı vardı, "evet" geçti). Cevap kontrolcüde (dup_asked).
         if (empty($pending->extracted['dup_new']) && ($day = DraftWarnings::moneyDuplicateDay($pending->extracted)) !== null) {
-            $pending->update(['extracted' => ['dup_asked' => true] + $pending->extracted]);
+            $tries = (int) ($pending->extracted['dup_tries'] ?? 0) + 1;
+            $pending->update(['extracted' => ['dup_asked' => true, 'dup_tries' => $tries] + $pending->extracted]);
 
-            return self::duplicateQuestion($pending->extracted, $day);
+            return self::duplicateQuestion($pending->extracted, $day, $tries);
         }
         $done = $this->commit($pending);
         $next = $pending->extracted['next_items'] ?? null;

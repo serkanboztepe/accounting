@@ -15,9 +15,11 @@ final class ProjectCost
 {
     public static function purchases(?int $projectId = null): float
     {
+        // Devreden borç kaydı maliyet değil (eski dönemin işi). Ödemeyle mahsubu (unbookedPaymentRows) olduğu gibi kalır:
+        // eski borcun ödemesi yeni maliyet sayılmasın.
         $sum = fn (string $type) => (float) PartyLedgerEntry::query()
             ->when($projectId !== null, fn ($q) => $q->where('project_id', $projectId))
-            ->where('type', $type)->sum('amount');
+            ->where('type', $type)->withoutCarriedBalances()->sum('amount');
 
         return $sum(PartyLedgerEntry::TYPE_PURCHASE) - $sum(PartyLedgerEntry::TYPE_PURCHASE_RETURN);
     }

@@ -53,7 +53,7 @@ class ExpenseSummary
         // (açıklaması "Borç kaydı" ile başlar — WhatsappWebhookController::commitLedger).
         $purchases = (float) PartyLedgerEntry::query()
             ->where('type', PartyLedgerEntry::TYPE_PURCHASE)
-            ->where(fn ($q) => $q->whereNull('description')->orWhere('description', 'not like', 'Borç kaydı%'))
+            ->withoutCarriedBalances()
             ->whereBetween('entry_date', [$from, $to])
             ->when($projectId, fn ($q) => $q->where('project_id', $projectId))
             ->sum('amount')

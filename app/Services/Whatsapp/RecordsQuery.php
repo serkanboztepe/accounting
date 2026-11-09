@@ -22,7 +22,10 @@ final class RecordsQuery
 {
     public const TYPES = ['satis', 'alis', 'maas', 'gider', 'odeme', 'tahsilat', 'iade'];
 
-    private const LABELS = ['satis' => 'Satış', 'alis' => 'Alış', 'maas' => 'Maaş', 'gider' => 'Gider', 'odeme' => 'Ödeme',
+    // Personel (09.11 Akkuş "bu ayki maaş ödemeleri: tek Özkan 50.000" — işlenen maaş ödeme sanıldı): işlenen maaş (borç),
+    // maaş ödemesi ve avans AYRI tür; kalan maaş / açık avans SalaryLedger'dan (ekran ve hatırlatmayla aynı hesap).
+    private const LABELS = ['satis' => 'Satış', 'alis' => 'Alış', 'maas' => 'Maaş işlendi (ödenecek borç, ödeme DEĞİL)',
+        'maas_odeme' => 'Maaş ödemesi', 'avans' => 'Personel avansı', 'gider' => 'Gider', 'odeme' => 'Ödeme',
         'tahsilat' => 'Tahsilat', 'iade' => 'İade', 'urun' => 'Ürün hareketi'];
 
     private const MAX_PER_SOURCE = 2000;
@@ -41,7 +44,10 @@ final class RecordsQuery
                 'type' => 'object',
                 'properties' => [
                     'types' => ['type' => 'array', 'items' => ['type' => 'string', 'enum' => self::TYPES],
-                        'description' => 'Hangi işlemler; boş = hepsi. Ciro/kasa = satis; harcama = gider + alis (+ maas)'],
+                        'description' => 'Hangi işlemler; boş = hepsi. Ciro/kasa = satis; harcama = gider + alis (+ maas). '
+                            . 'maas = PERSONEL: işlenen maaş (borç), maaş ödemesi ve avans ayrı türlerle döner + "personel_durumu" '
+                            . '(kişi başı kalan maaş borcu, açık avans). "Maaş ödemeleri" = yalnız "Maaş ödemesi" türü; '
+                            . '"kalan maaş"/"avansı ne kadar" = personel_durumu. İşlenen maaşı ödeme diye SÖYLEME.'],
                     'date_from' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD; söylenmediyse null (tüm zamanlar)'],
                     'date_to' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD'],
                     'party_id' => ['type' => ['integer', 'null'], 'description' => 'CARİLER listesinden'],
@@ -98,6 +104,9 @@ final class RecordsQuery
         }
         if ($rows->isEmpty()) {
             $out['not'] = 'Bu süzgeçle kayıt yok.';
+        }
+        if (in_array('maas', $f['types'], true) && count($f['types']) < count(self::TYPES) && empty($f['product_id']) && ($staff = self::staffStatus($f['party_id'])) !== []) {
+            $out['personel_durumu'] = $staff;
         }
 
         return $out;
@@ -194,15 +203,21 @@ final class RecordsQuery
                 ->whereNull('sale_id')->whereNull('purchase_id')->whereNull('sale_return_id')->whereNull('purchase_return_id')
                 ->whereIn('type', [PartyLedgerEntry::TYPE_SALE, PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PAYMENT, PartyLedgerEntry::TYPE_COLLECTION]);
             foreach (self::rows($q) as $e) {
+                $staff = in_array($e->party_id, $employees, true);
                 $type = match ($e->type) {
                     PartyLedgerEntry::TYPE_SALE => 'satis',
-                    PartyLedgerEntry::TYPE_PURCHASE => in_array($e->party_id, $employees, true) ? 'maas' : 'alis',
-                    PartyLedgerEntry::TYPE_PAYMENT => 'odeme',
+                    PartyLedgerEntry::TYPE_PURCHASE => $staff ? 'maas' : 'alis',
+                    PartyLedgerEntry::TYPE_PAYMENT => $staff ? self::staffPaymentType($e) : 'odeme',
                     default => 'tahsilat',
                 };
-                if (in_array($type, $ledger, true)) {
+                // Personele ödeme hem "maaş" hem "ödeme" sorusunda gelir.
+                $wanted = in_array($type, $ledger, true)
+                    || (in_array($type, ['maas_odeme', 'avans'], true) && (in_array('maas', $ledger, true) || in_array('odeme', $ledger, true)));
+                if ($wanted) {
+                    $period = $type === 'maas' ? \App\Support\SalaryLedger::accrualPeriod($e) : $e->salary_period;
                     $rows->push(self::row($type, $e->id, 'ledger', $e->entry_date, (float) $e->amount, $e->party?->name, $e->project?->name,
-                        $e->description ?: self::LABELS[$type], null));
+                        $e->description ?: self::LABELS[$type], null,
+                        $period ? ['maaş_ayı' => \App\Support\SalaryLedger::label($period)] : null));
                 }
             }
         }
@@ -237,6 +252,44 @@ final class RecordsQuery
         }
 
         return $rows;
+    }
+
+    /** Personele yapılan ödeme: maaş ödemesi mi avans mı (ikisi de değilse düz ödeme — borç verme, adına ödeme, yevmiye). */
+    private static function staffPaymentType(PartyLedgerEntry $e): string
+    {
+        if (! \App\Support\SalaryLedger::isPayrollPayment($e)) {
+            return 'odeme';
+        }
+
+        return ! $e->salary_period && str_contains(\App\Support\SalaryLedger::normalize($e->description), 'avans') ? 'avans' : 'maas_odeme';
+    }
+
+    /**
+     * Otomatik maaşlı personelin güncel durumu (SalaryLedger — kart, hatırlatma, ekran ile aynı hesap).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function staffStatus(?int $partyId): array
+    {
+        $out = [];
+        foreach (\App\Support\SalaryLedger::eligibleEmployees() as $p) {
+            if ($partyId && $p->id !== $partyId) {
+                continue;
+            }
+            $st = \App\Support\SalaryLedger::state($p);
+            $open = array_filter($st['periods'], fn ($v) => $v['remaining'] >= 0.01);
+            $out[] = array_filter([
+                'ad' => $p->name,
+                'aylık_maaş' => (float) $p->salary_amount,
+                'maaş_günü' => (int) $p->salary_day,
+                'ödenecek_maaş_borcu' => $st['owed'],
+                'açık_aylar' => array_map(fn ($p, $v) => \App\Support\SalaryLedger::label($p) . ': ' . $v['remaining'], array_keys($open), $open),
+                'açık_avans (sonraki maaştan düşer)' => $st['advance'],
+                'kasım_2026_öncesi_açık' => $st['legacy_open'] ?: null,
+            ], fn ($v) => $v !== null && $v !== []);
+        }
+
+        return $out;
     }
 
     /** Ürün verildi: o ürünün alış / satış / iade / sayım hareketleri (miktar, birim fiyat, kimden/kime). */

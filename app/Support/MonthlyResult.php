@@ -162,7 +162,7 @@ class MonthlyResult
         $cash = (float) $p(Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to]))->sum('cash_amount');
         $bank = (float) $p(Sale::whereNull('party_id')->whereBetween('sale_date', [$from, $to]))->sum('bank_amount');
         $salesLedger = (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE)->whereNull('sale_id')
-            ->whereBetween('entry_date', [$from, $to]))->sum('amount');
+            ->withoutCarriedBalances()->whereBetween('entry_date', [$from, $to]))->sum('amount');
         // Belgesiz basit satışın iadesi (WhatsApp) başlıksız cari satırıdır; belgelinin cari aynası SaleReturn'de sayılı.
         $returns = (float) $p(SaleReturn::whereBetween('return_date', [$from, $to]))->sum('total_amount')
             + (float) $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_SALE_RETURN)->whereNull('sale_return_id')
@@ -173,7 +173,7 @@ class MonthlyResult
         // Personel carisinin hak edişleri (maaş) alış değil, ayrı "Personel" satırı — bir kez sayılır.
         $employees = \App\Models\Party::where('is_employee', true)->pluck('id');
         $ledgerIn = fn () => $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)->whereNull('purchase_id')
-            ->whereBetween('entry_date', [$from, $to]));
+            ->withoutCarriedBalances()->whereBetween('entry_date', [$from, $to]));
         $purchaseLedger = (float) $ledgerIn()->whereNotIn('party_id', $employees)->sum('amount');
         // Maaş kendi ayında sayılır (kullanıcı 07.11): "Kasım maaşı" 30 Ekim'de girildiyse Kasım'ın maaş gününde (SalaryLedger::effectiveDate).
         $personnelRows = $employees->isEmpty() ? collect() : $p(PartyLedgerEntry::where('type', PartyLedgerEntry::TYPE_PURCHASE)

@@ -58,12 +58,47 @@ class RecordsQueryTest extends TestCase
 
         $r = $this->q(['types' => ['alis', 'maas']]);
         $this->assertEqualsWithDelta(5000, $r['türe_göre']['Alış']['toplam'], 0.01);
-        $this->assertEqualsWithDelta(30000, $r['türe_göre']['Maaş']['toplam'], 0.01);
+        $this->assertEqualsWithDelta(30000, $r['türe_göre']['Maaş işlendi (ödenecek borç, ödeme DEĞİL)']['toplam'], 0.01);
 
         $r = $this->q(['types' => ['odeme'], 'group_by' => 'party']);
         $this->assertSame('Defter Testi Personel', $r['gruplar'][0]['grup']);
         $this->assertEqualsWithDelta(30000, $r['gruplar'][0]['toplam'], 0.01);
         $this->assertEqualsWithDelta(3000, $r['gruplar'][1]['toplam'], 0.01);
+    }
+
+    /**
+     * 09.11 Akkuş "Bu ay ki maaş ödemeleri" → "tek Özkan 50.000" dendi (işlenen maaş ödeme sanıldı; Erkan/Kadir ödemeleri yoktu).
+     * İşlenen maaş, maaş ödemesi ve avans ayrı tür; kalan maaş / açık avans SalaryLedger'dan.
+     */
+    public function test_salary_accrual_payment_and_advance_are_separate_with_ledger_status(): void
+    {
+        $ozkan = Party::create(['name' => 'Defter Testi Özkan', 'is_employee' => true, 'salary_amount' => 50000, 'salary_day' => 8, 'salary_auto' => true]);
+        $erkan = Party::create(['name' => 'Defter Testi Erkan', 'is_employee' => true, 'salary_amount' => 65000, 'salary_day' => 30, 'salary_auto' => true]);
+        $d = $this->from;
+        PartyLedgerEntry::create(['party_id' => $ozkan->id, 'type' => 'odeme', 'amount' => 25250, 'entry_date' => $d, 'description' => 'Avans']);
+        PartyLedgerEntry::create(['party_id' => $ozkan->id, 'type' => 'alis', 'amount' => 50000, 'entry_date' => $d,
+            'description' => 'Maaş — Kasım 2031', 'salary_period' => '2031-11']);
+        PartyLedgerEntry::create(['party_id' => $ozkan->id, 'type' => 'odeme', 'amount' => 24750, 'entry_date' => $d,
+            'description' => 'Maaş ödemesi — Kasım 2031', 'salary_period' => '2031-11']);
+        PartyLedgerEntry::create(['party_id' => $erkan->id, 'type' => 'alis', 'amount' => 60000, 'entry_date' => $d,
+            'description' => 'Maaş — Ekim 2031', 'salary_period' => '2031-10']);
+        PartyLedgerEntry::create(['party_id' => $erkan->id, 'type' => 'odeme', 'amount' => 60000, 'entry_date' => $d,
+            'description' => 'Maaş ödemesi — Ekim 2031', 'salary_period' => '2031-10']);
+        PartyLedgerEntry::create(['party_id' => $erkan->id, 'type' => 'odeme', 'amount' => 5000, 'entry_date' => $d, 'description' => 'Avans — yol']);
+
+        $r = $this->q(['types' => ['maas']]);
+
+        $this->assertEqualsWithDelta(84750, $r['türe_göre']['Maaş ödemesi']['toplam'], 0.01);   // 24.750 + 60.000
+        $this->assertEqualsWithDelta(30250, $r['türe_göre']['Personel avansı']['toplam'], 0.01);  // 25.250 + 5.000
+        $this->assertEqualsWithDelta(110000, $r['türe_göre']['Maaş işlendi (ödenecek borç, ödeme DEĞİL)']['toplam'], 0.01);
+        $status = collect($r['personel_durumu'])->keyBy('ad');
+        $this->assertEqualsWithDelta(0, $status['Defter Testi Özkan']['ödenecek_maaş_borcu'], 0.01);   // 50.000 − 25.250 − 24.750
+        $this->assertEqualsWithDelta(5000, $status['Defter Testi Erkan']['açık_avans (sonraki maaştan düşer)'], 0.01);
+
+        // "Ödemeler" sorusunda da personel ödemesi doğru adla gelir; genel (türsüz) okumada personel durumu eklenmez.
+        $r = $this->q(['types' => ['odeme']]);
+        $this->assertArrayHasKey('Maaş ödemesi', $r['türe_göre']);
+        $this->assertArrayNotHasKey('personel_durumu', $this->q([]));
     }
 
     public function test_text_search_spans_expense_and_purchase_and_limit_keeps_totals(): void

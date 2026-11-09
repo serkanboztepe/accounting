@@ -113,17 +113,35 @@ class DraftWarningsTest extends TestCase
         $this->assertStringContainsString('iki kez olmasın', $card);
 
         $ask = $send('evet');
-        $this->assertStringContainsString('*yeni*', $ask);
-        $this->assertStringContainsString('*aynı*', $ask);
+        $this->assertStringContainsString('*1* Aynı ödeme, tekrar yazma', $ask);
+        $this->assertStringContainsString('*2* Ayrı, yeni bir ödeme, yaz', $ask);
         $this->assertSame(1, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count(), 'düz evet kaydetmedi');
 
-        $this->assertStringContainsString('*yeni*', $send('evet'), 'ikinci evet de yetmez');
-        $this->assertStringContainsString('tekrar yazmadım', $send('aynı'));
+        // 09.11 Kaya (Ümit): soru aynen tekrarlanmaz — 2. kez kısa, 3. kez hesabın şu anki hâli.
+        $second = $send('evet');
+        $this->assertStringContainsString('rakamla cevap', $second, 'ikinci evet de yetmez');
+        $this->assertStringNotContainsString('zaten yazılı', $second);
+        $third = $send('kaydet');
+        $this->assertStringContainsString('📒 Şu an', $third);
+        $this->assertStringContainsString('*1* Aynı ödeme', $third);
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count(), 'üç onay da kaydetmedi');
+        $this->assertStringContainsString('tekrar yazmadım', $send('1'));
         $this->assertSame(1, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count());
         $this->assertSame('cancelled', WhatsappPendingExpense::where('phone', 'whatsapp:+905558880012')->latest('id')->value('status'));
     }
 
     public function test_new_answer_saves_second_payment(): void
+    {
+        [$p, $send] = $this->duplicatePaymentFlow(8000);
+
+        $send('Recepe 8000 ödedim');
+        $send('evet');
+        $this->assertStringContainsString('Kaydedildi', $send('2'));
+        $this->assertSame(2, PartyLedgerEntry::where('party_id', $p->id)->where('type', 'odeme')->count());
+    }
+
+    /** Eski kelime cevapları da çalışır (*yeni* / *aynı*). */
+    public function test_word_answers_still_work(): void
     {
         [$p, $send] = $this->duplicatePaymentFlow(8000);
 

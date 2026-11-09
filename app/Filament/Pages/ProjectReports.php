@@ -286,6 +286,7 @@ class ProjectReports extends Page implements HasSchemas
             ->with('party')
             ->where('project_id', $project->id)
             ->whereIn('type', [PartyLedgerEntry::TYPE_PURCHASE, PartyLedgerEntry::TYPE_PURCHASE_RETURN])
+            ->withoutCarriedBalances() // ProjectCost::purchases ile aynı: kalemler toplamla tutsun
             ->orderBy('entry_date')
             ->get();
 

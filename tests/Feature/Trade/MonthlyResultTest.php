@@ -72,6 +72,30 @@ class MonthlyResultTest extends TestCase
         $this->assertStringContainsString('Kalan: 8.600,00', MonthlyResult::whatsappText($r));
     }
 
+    /** 09.11 Çiftlik haftalık özeti: devreden borç kaydı (Tarım Kredi 131.052) alış, alacak kaydı ciro sayılmaz. */
+    public function test_carried_debt_and_receivable_notes_are_not_purchases_or_revenue(): void
+    {
+        $bank = Party::create(['name' => 'Tarım Kredi Devir']);
+        $ali = Party::create(['name' => 'Ali Devir']);
+        $bank->ledgerEntries()->create(['type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 131052, 'entry_date' => now(),
+            'description' => 'Borç kaydı — Tohum fide kredisi']);
+        $bank->ledgerEntries()->create(['type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 93500, 'entry_date' => now(),
+            'description' => 'Borç kaydı — ödemeden önce kayıtlı değildi']);
+        $ali->ledgerEntries()->create(['type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 40000, 'entry_date' => now(),
+            'description' => 'Alacak kaydı']);
+        // Pozitif kontrol: gerçek alış ve satış sayılır (açıklamasız olan da).
+        $bank->ledgerEntries()->create(['type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 1200, 'entry_date' => now(), 'description' => 'Gübre']);
+        $bank->ledgerEntries()->create(['type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 300, 'entry_date' => now()]);
+        $ali->ledgerEntries()->create(['type' => PartyLedgerEntry::TYPE_SALE, 'amount' => 2460, 'entry_date' => now(), 'description' => 'Süt']);
+
+        $r = MonthlyResult::forMonth(now());
+
+        $this->assertEqualsWithDelta(1500.0, $r['purchases'], 0.01);
+        $this->assertEqualsWithDelta(2460.0, $r['revenue'], 0.01);
+        // Bakiye değişmez: ekstre satırları yerinde.
+        $this->assertEqualsWithDelta(131052 + 93500 + 1500, (float) $bank->ledgerEntries()->sum('amount'), 0.01);
+    }
+
     public function test_other_months_not_included(): void
     {
         TradeDesk::saveSale(['mode' => 'cash', 'manual_amount' => '1000', 'sale_date' => '2031-02-28']);

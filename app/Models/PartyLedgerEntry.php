@@ -138,6 +138,17 @@ class PartyLedgerEntry extends Model
         return $query->whereRaw('LOWER(description) LIKE ?', ['%avans%']);
     }
 
+    /**
+     * Devreden borç/alacak kaydı ("Mehmet'e 15 bin borcum var", "Ali'den 40 bin alacağım var", kayıtsız eski borç) ekstrede alış/satış
+     * satırıyla tutulur ama o dönemin alışı/cirosu DEĞİL — açıklaması "Borç kaydı"/"Alacak kaydı" ile başlar (commitLedger).
+     * Rapor ve özetler bu kapsamla süzer; tek kural tek yer (09.11 Çiftlik haftalık özet: Tarım Kredi borcu 131.052 alış sayıldı).
+     */
+    public function scopeWithoutCarriedBalances($query)
+    {
+        return $query->where(fn ($q) => $q->whereNull('description')
+            ->orWhere(fn ($q) => $q->where('description', 'not like', 'Borç kaydı%')->where('description', 'not like', 'Alacak kaydı%')));
+    }
+
     public function typeLabel(): string
     {
         return self::TYPES[$this->type]['label']

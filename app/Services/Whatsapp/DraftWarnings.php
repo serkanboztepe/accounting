@@ -102,12 +102,18 @@ final class DraftWarnings
      */
     public static function moneyDuplicateDay(array $d): ?string
     {
+        return self::moneyDuplicate($d)?->entry_date?->format('d.m');
+    }
+
+    /** Aynı kişi + aynı tutardaki yakın ödeme/tahsilat satırı (soruda gösterilir: tarihi + açıklaması). */
+    public static function moneyDuplicate(array $d): ?PartyLedgerEntry
+    {
         $amount = (float) ($d['amount'] ?? 0);
         if ($amount <= 0 || ! in_array($d['kind'] ?? null, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_COLLECTION], true)) {
             return null;
         }
         try {
-            return self::ledgerHit($d, $amount)?->entry_date?->format('d.m');
+            return self::ledgerHit($d, $amount);
         } catch (\Throwable) {
             return null;
         }
