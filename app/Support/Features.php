@@ -230,4 +230,16 @@ final class Features
     {
         return self::on('assistant_pilot');
     }
+
+    /** Ajan asistan gölgesi (plan v5): eski yol cevaplar, ajan arkada aynı mesajı işler — yazmaz, göndermez. Bkz. AgentGate. */
+    public static function agentShadow(): bool
+    {
+        return self::on('agent_shadow');
+    }
+
+    /** Ajan asistan canlı (plan v5): WhatsApp turunu ajan yürütür. Kod doğrudan buna değil AgentGate::live()'a bakar (acil kapatma). */
+    public static function agentLive(): bool
+    {
+        return self::on('agent_live');
+    }
 }

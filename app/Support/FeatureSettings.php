@@ -31,7 +31,7 @@ final class FeatureSettings
         'property_tax'  => 'Emlak Beyanı',
     ];
 
-    public const ASSISTANT = ['smart_assistant', 'daily_nudge', 'revenue_prompt', 'natural_voice', 'proactive_alerts', 'fast_save', 'assistant_pilot'];
+    public const ASSISTANT = ['smart_assistant', 'daily_nudge', 'revenue_prompt', 'natural_voice', 'proactive_alerts', 'fast_save', 'assistant_pilot', 'agent_shadow', 'agent_live'];
 
     public const LEGACY = ['contracts', 'purchase_contracts', 'sales_contracts', 'quotes'];
 

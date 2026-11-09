@@ -65,6 +65,8 @@ return [
     // WhatsApp'tan bizim başlattığımız mesajlar (Meta onaylı şablonla).
     'whatsapp' => [
         'from' => env('WHATSAPP_FROM'),                                     // +14786665916
+        // Ajan asistan acil kapatma: 'off' → hub kutusu ne olursa olsun hiçbir firmada ajan (canlı + gölge) çalışmaz.
+        'agent' => env('WHATSAPP_AGENT', 'on'),
         // Tur teşhis kaydı (TurnTrace): modele giden/gelen, işlem hattı adımları, karar okumaları. Davranışı değiştirmez.
         'trace' => (bool) env('WHATSAPP_TRACE', false),
         'trace_path' => env('WHATSAPP_TRACE_PATH'), // boşsa storage/app/wa-trace

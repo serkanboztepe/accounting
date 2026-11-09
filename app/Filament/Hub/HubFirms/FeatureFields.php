@@ -101,6 +101,17 @@ final class FeatureFields
                     Toggle::make('asst_assistant_pilot')->label('Asistan pilotu (deneme)'),
                 ]),
 
+            Section::make('Ajan asistan')
+                ->description('Yeni asistan (deneme). İkisi de kapalıyken firma bugünkü gibi çalışır.')
+                ->collapsed()
+                ->columns(2)
+                ->schema([
+                    Toggle::make('asst_agent_shadow')->label('Ajan gölge')
+                        ->helperText('Bugünkü asistan cevaplar; ajan arkada aynı mesaja ne yapardı, kaydeder. Müşteriye hiçbir şey gitmez, kayıt yazılmaz.'),
+                    Toggle::make('asst_agent_live')->label('Ajan canlı')
+                        ->helperText('Mesajları ajan cevaplar. Kapatınca sonraki mesaj bugünkü asistana döner.'),
+                ]),
+
             Section::make('Gelişmiş')
                 ->collapsed()
                 ->schema([

@@ -18,6 +18,9 @@ use App\Models\SaleReturn;
 use App\Models\StockMovement;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
+use App\Services\Agent\AgentGate;
+use App\Services\Agent\AgentShadow;
+use App\Services\Agent\AgentTurn;
 use App\Services\Whatsapp\AdvanceOffset;
 use App\Services\Whatsapp\AgreementDeliveryDraft;
 use App\Services\Whatsapp\AgreementDraft;
@@ -224,6 +227,17 @@ class WhatsappWebhookController extends Controller
             foreach ($this->replies as $reply) {
                 // [metin, PDF linki] → ek olduğu kayda geçsin (analiz "hareketler gösterilmedi" sanmasın).
                 $this->logMessage($phone, 'out', is_array($reply) ? $reply[0] : $reply, is_array($reply));
+            }
+
+            // Ajan gölgesi (plan v5 §8): eski yol cevabını verdi; ajan aynı mesajı arkada işler — yazmaz, göndermez.
+            // Gölge hatası müşterinin cevabını asla etkilemez.
+            if (AgentGate::shadow() && ! $request->attributes->get('reread')) {
+                try {
+                    app(AgentShadow::class)->observe($phone, $body, $numMedia,
+                        array_map(fn ($r) => is_array($r) ? (string) $r[0] : (string) $r, $this->replies));
+                } catch (\Throwable $e) {
+                    Log::warning('Ajan gölgesi çalışamadı', ['msg' => $e->getMessage()]);
+                }
             }
 
             if ($this->deferredTurn !== null) {
@@ -612,6 +626,13 @@ class WhatsappWebhookController extends Controller
     private function respond(Request $request, ExpenseExtractor $extractor, string $phone, string $body, int $numMedia)
     {
         $this->inboundBody = $body;
+        // Ajan asistan (plan v5): firma "ajan canlı" ise tur ajana gider. null = ajan bu turu almadı → eski yol aynen işler.
+        // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
+        if (AgentGate::live() && ($agentOut = app(AgentTurn::class)->handle($request, $phone, $body, $numMedia)) !== null) {
+            $this->inboundKind = 'agent';
+
+            return $this->twiml($agentOut);
+        }
         // Akşam mesajının düğmeleri ("Kayıt gireceğim / Hatırlatma kur / Bugün yok") ve aç/kapa — AI'sız.
         if ($numMedia === 0) {
             $word = $this->word($body);
