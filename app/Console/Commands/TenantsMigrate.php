@@ -22,6 +22,7 @@ class TenantsMigrate extends Command
             try {
                 $this->line(trim(FirmProvisioner::migrate($firm)) ?: '  (değişiklik yok)');
                 FirmProvisioner::syncUsers($firm);
+                FirmProvisioner::grantReadOnly($firm); // salt-okur kullanıcı varsa: yeni gelen izinli tablolar da okunabilsin
             } catch (Throwable $e) {
                 $failed++;
                 $this->error("  {$e->getMessage()}");

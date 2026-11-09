@@ -47,6 +47,7 @@ class Tenancy
             'default' => DB::getDefaultConnection(),
             'config'  => [
                 'database.connections.tenant' => config('database.connections.tenant'),
+                'database.connections.tenant_ro' => config('database.connections.tenant_ro'),
                 'modules'                     => config('modules'),
                 'app.profile'                 => config('app.profile'),
                 'app.cari_lock'               => config('app.cari_lock'),
@@ -70,11 +71,19 @@ class Tenancy
             $connection['password'] = $firm->db_password;
         }
 
+        // Ajan asistanın serbest okuması: firmanın SALT-OKUR kullanıcısı (yalnız izinli tablolarda SELECT). Yoksa bağlantı da yok
+        // (ReadOnlyDb::available() false) — asıl kullanıcıyla okumaya düşülmez.
+        $readOnly = null;
+        if ($firm->db_ro_username && $firm->db_ro_password) {
+            $readOnly = array_merge($connection, ['username' => $firm->db_ro_username, 'password' => $firm->db_ro_password]);
+        }
+
         $settings = $firm->settingsWithDefaults();
         $public = self::$baseline['config']['filesystems.disks.public'];
 
         config([
             'database.connections.tenant' => $connection,
+            'database.connections.tenant_ro' => $readOnly,
             // Yeni düzen (26.10): saklı kutulardan; henüz çevrilmemiş firma eskisi gibi paket + ezmeler.
             'modules'                     => $firm->resolvedModules(),
             'app.profile'                 => $settings['profile'],
@@ -101,6 +110,7 @@ class Tenancy
         ]);
 
         DB::purge('tenant');
+        DB::purge('tenant_ro');
         DB::setDefaultConnection('tenant');
         Storage::forgetDisk('public');
 
@@ -116,6 +126,7 @@ class Tenancy
 
         config(self::$baseline['config']);
         DB::purge('tenant');
+        DB::purge('tenant_ro');
         DB::setDefaultConnection(self::$baseline['default']);
         Storage::forgetDisk('public');
 

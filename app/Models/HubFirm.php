@@ -22,15 +22,16 @@ class HubFirm extends Model
 {
     use UsesCentralConnection;
 
-    protected $fillable = ['name', 'database', 'db_username', 'db_password', 'settings', 'url', 'secret', 'is_active',
+    protected $fillable = ['name', 'database', 'db_username', 'db_password', 'db_ro_username', 'db_ro_password', 'settings', 'url', 'secret', 'is_active',
         'plan', 'plan_amount', 'plan_started_on', 'plan_day', 'trial_ends_on', 'suspended_at'];
 
-    protected $hidden = ['secret', 'db_password'];
+    protected $hidden = ['secret', 'db_password', 'db_ro_password'];
 
     protected $casts = [
         'is_active'   => 'boolean',
         'settings'    => 'array',
         'db_password' => 'encrypted',
+        'db_ro_password' => 'encrypted', // ajan asistanın salt-okur kullanıcısı (ReadOnlyDb)
         'plan_amount' => 'float',
         'plan_started_on' => 'date',
         'trial_ends_on' => 'date',

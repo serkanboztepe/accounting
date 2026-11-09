@@ -102,6 +102,76 @@ class FirmProvisioner
         $firm->forceFill(['db_username' => $user, 'db_password' => $password])->save();
     }
 
+    /**
+     * Ajan asistanın SALT-OKUR kullanıcısı (plan v5 §3): `<db>_ro`, yalnız SqlGuard::TABLES'ta SELECT, 3 sn sorgu sınırı.
+     * Tekrar çağrılırsa kullanıcı yeni şifreyle yeniden açılır. Firma verisine dokunmaz.
+     *   php artisan tenants:create-ro-user --firm=7
+     */
+    public static function giveReadOnlyUser(HubFirm $firm): void
+    {
+        $database = (string) $firm->database;
+        self::assertSafeName($database);
+        $admin = DB::connection(self::adminConnection());
+        $user = $database . '_ro';
+        $password = Str::random(40);
+
+        if ($admin->getDriverName() === 'pgsql') {
+            // Yerel geliştirme/test. Rolün yetkileri varsa DROP edilemez → önce yetkileri bırak.
+            $inDb = self::adminIn($database);
+            if ($admin->selectOne('select 1 from pg_roles where rolname = ?', [$user])) {
+                $inDb->statement("DROP OWNED BY \"{$user}\"");
+                $admin->statement("DROP ROLE \"{$user}\"");
+            }
+            $admin->statement("CREATE ROLE \"{$user}\" LOGIN PASSWORD " . $admin->getPdo()->quote($password));
+            $admin->statement("ALTER ROLE \"{$user}\" SET default_transaction_read_only = on");
+            $admin->statement("ALTER ROLE \"{$user}\" SET statement_timeout = '" . (\App\Services\Agent\ReadOnlyDb::TIMEOUT_SECONDS * 1000) . "'");
+            $admin->statement("GRANT CONNECT ON DATABASE \"{$database}\" TO \"{$user}\"");
+            DB::purge('tenancy_admin_db');
+        } else {
+            $admin->statement('CALL provisioning.create_firm_ro_user(?, ?)', [$database, $password]);
+        }
+
+        $firm->forceFill(['db_ro_username' => $user, 'db_ro_password' => $password])->save();
+        self::grantReadOnly($firm);
+    }
+
+    /** İzinli tablolarda SELECT yetkisini (yeniden) ver — migration yeni tablo getirdiyse de. Yetki yalnız eklenir. */
+    public static function grantReadOnly(HubFirm $firm): void
+    {
+        if (! $firm->db_ro_username) {
+            return;
+        }
+        $database = (string) $firm->database;
+        self::assertSafeName($database);
+        $admin = DB::connection(self::adminConnection());
+
+        if ($admin->getDriverName() !== 'pgsql') {
+            $admin->statement('CALL provisioning.grant_firm_ro(?)', [$database]);
+
+            return;
+        }
+        $user = $firm->db_ro_username;
+        $inDb = self::adminIn($database);
+        $inDb->statement("GRANT USAGE ON SCHEMA public TO \"{$user}\"");
+        foreach (\App\Services\Agent\SqlGuard::TABLES as $table) {
+            if (! $inDb->selectOne('select 1 from information_schema.tables where table_schema = ? and table_name = ?', ['public', $table])) {
+                continue;
+            }
+            $columns = \App\Services\Agent\SqlGuard::COLUMNS[$table] ?? null;
+            $inDb->statement('GRANT SELECT' . ($columns ? ' (' . implode(', ', $columns) . ')' : '') . " ON \"{$table}\" TO \"{$user}\"");
+        }
+        DB::purge('tenancy_admin_db');
+    }
+
+    /** Yetkili bağlantı, firmanın veritabanı içinde (PostgreSQL'de yetki veritabanına bağlıyken verilir). */
+    private static function adminIn(string $database): \Illuminate\Database\Connection
+    {
+        config(['database.connections.tenancy_admin_db' => array_merge(config('database.connections.' . self::adminConnection()), ['database' => $database])]);
+        DB::purge('tenancy_admin_db');
+
+        return DB::connection('tenancy_admin_db');
+    }
+
     private static function isPgsql(): bool
     {
         return DB::connection(self::adminConnection())->getDriverName() === 'pgsql';
