@@ -29,9 +29,14 @@ final class AgentToolbox
         $entry = [
             'type' => 'object',
             'properties' => [
-                'kind' => ['type' => 'string', 'enum' => OperationAdapter::KINDS,
+                'kind' => ['type' => 'string', 'enum' => [...OperationAdapter::KINDS, ...OperationAdapter::EXTENDED_KINDS],
                     'description' => 'expense = kişisiz harcama (mazot, kira, fatura) · payment = kişiye verilen para · collection = kişiden alınan para · '
-                        . 'sale = kişiye satılan iş/mal · purchase = kişiden alınan iş/mal · debt_note = eski/devreden borç ya da alacak (kayıtlarda yoktu)'],
+                        . 'sale = kişiye satılan iş/mal · purchase = kişiden alınan iş/mal · debt_note = eski/devreden borç ya da alacak (kayıtlarda yoktu) · '
+                        . 'trade_sale = ÜRÜNLER\'deki malın satışı ya da günün kasası/cirosu (items; kasa: cash_amount + card_amount, kişi yok) · '
+                        . 'trade_purchase = ÜRÜNLER\'deki malın alışı, stoğa girer (items) · stock_count = sayım ("un 9 kaldı") · stock_setting = günlük kullanım / uyarı eşiği / alış fiyatı · '
+                        . 'product_add = yeni ürün kartı · production = kendi ürettiğin mal stoğa girer · salary = personele maaş ödemesi ya da maaştan kesinti · '
+                        . 'employee_setting = personel kaydı / maaşı / maaş günü · reminder = hatırlatma kur ya da değiştir · recurring_expense = düzenli gider (her gün/hafta/ay) · '
+                        . 'recurring_stop = düzenli gideri durdur. Ürünlü ve personelli türler yalnız o özelliği açık işletmede çalışır; kapalıysa sistem söyler.'],
                 'amount' => ['type' => 'number', 'description' => 'TL, tam tutar (120 bin → 120000)'],
                 'party_id' => ['type' => ['integer', 'null'], 'description' => 'Kayıtlı kişi (KİŞİLER listesi / find_party)'],
                 'party_name' => ['type' => ['string', 'null'], 'description' => 'Kişi kayıtlı değilse adı, müşterinin yazdığı gibi'],
@@ -52,8 +57,15 @@ final class AgentToolbox
                 'agreement_id' => ['type' => ['integer', 'null'], 'description' => 'payment/collection belli bir anlaşma içinse (party_overview → anlaşmalar)'],
                 'allow_duplicate' => ['type' => ['boolean', 'null'], 'description' => 'true: aynı kişi/tutar yakın günde var ama müşteri AYRI ödeme olduğunu söyledi'],
             ],
-            'required' => ['kind', 'amount'],
+            'required' => ['kind'],
         ];
+        // Ürün, kasa, stok, maaş, personel, hatırlatma, düzenli gider alanları: eski asistanın şemasındaki tanımlarıyla (aynı anlam, aynı kayıt).
+        $legacy = app(\App\Services\Whatsapp\ExpenseExtractor::class)->entrySchema()['properties'] ?? [];
+        foreach (OperationAdapter::EXTENDED_FIELDS as $field) {
+            if (isset($legacy[$field]) && ! isset($entry['properties'][$field])) {
+                $entry['properties'][$field] = $legacy[$field];
+            }
+        }
 
         return [
             ...ReadTools::definitions(),
@@ -113,11 +125,10 @@ final class AgentToolbox
             ],
             [
                 'name' => 'hand_over',
-                'description' => 'Bu mesajı ESKİ ASİSTANA devret ve turu bitir. Senin `propose` ile yazamadığın işler onda çalışır: personel ve maaş (işe başladı, maaşını verdim, '
-                    . 'maaştan kesinti, maaş günü), hatırlatma kurma/değiştirme ("yarın hatırlat", "her ay 5\'inde"), düzenli gider, ürünlü/stoklu satış-alış ve kasa/ciro girişi '
-                    . '("bugün 12 bin nakit 8 bin kart", "41 litre süt", "20 çuval un aldım"), stok sayımı/sorusu, anlaşma/sözleşme ve anlaşmadan teslim, çek (çek verdim/aldım, '
-                    . 'çek fotoğrafı, çek ödendi), iade, ekstre/hesap dökümü PDF\'i isteme. Müşteriye bir şey yazma; cevabı eski asistan verir. Emin değilsen: para, borç-alacak, '
-                    . 'gider, sil/düzelt ve sorular SENİN işin — onları devretme.',
+                'description' => 'Bu mesajı ESKİ ASİSTANA devret ve turu bitir. Yalnız senin `propose` ile yazamadığın işler için: anlaşma/sözleşme ve anlaşmadan teslim, '
+                    . 'çek (çek verdim/aldım, çek ödendi/tahsil edildi), iade, ekstre/hesap dökümü PDF\'i isteme ("ekstre getir"), stokta ne kadar kaldığı sorusu. '
+                    . 'Müşteriye bir şey yazma; cevabı eski asistan verir. Bunların dışındaki her şey SENİN işin (para, borç-alacak, gider, ürünlü satış-alış, kasa, '
+                    . 'stok sayımı, maaş, personel, hatırlatma, düzenli gider, sil/düzelt, sorular) — onları devretme.',
                 'input_schema' => ['type' => 'object', 'properties' => ['reason' => ['type' => 'string', 'description' => 'Kısaca hangi iş (ör. "maaş ödemesi", "hatırlatma")']], 'required' => ['reason']],
             ],
             [

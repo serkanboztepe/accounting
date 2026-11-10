@@ -47,6 +47,9 @@ class AgentEvalTest extends TestCase
 
     private string $logDir = '';
 
+    /** @var array{sales:int, reminders:int} vaka başındaki son kayıt id'leri */
+    private array $baseline = ['sales' => 0, 'reminders' => 0];
+
     private static function file(): string
     {
         $file = getenv('EVAL_AGENT') ?: '';
@@ -168,6 +171,16 @@ class AgentEvalTest extends TestCase
         foreach ($state['projects'] ?? [] as $name) {
             Project::firstOrCreate(['name' => $name], ['status' => 'active']);
         }
+        foreach ($state['products'] ?? [] as $name => $price) {
+            \App\Models\Product::create(['name' => $name, 'type' => \App\Models\Product::TYPE_PRODUCT, 'default_price' => $price, 'is_active' => true]);
+        }
+        foreach ($state['employees'] ?? [] as $name => $e) {
+            $ids[$name] = Party::create(['name' => $name, 'is_employee' => true, 'salary_amount' => $e['salary'], 'salary_day' => $e['day'], 'salary_auto' => true])->id;
+            foreach ($e['rows'] ?? [] as $row) {
+                PartyLedgerEntry::create(['party_id' => $ids[$name], 'notes' => 'eval'] + $row);
+            }
+        }
+        $this->baseline = ['sales' => (int) \App\Models\Sale::max('id'), 'reminders' => (int) \App\Models\Reminder::max('id')];
         foreach ($state['parties'] ?? [] as $name => $rows) {
             $party = Party::create(['name' => $name]);
             $ids[$name] = $party->id;
@@ -223,6 +236,11 @@ class AgentEvalTest extends TestCase
         }
 
         return ['parties' => $parties,
+            'sales' => \App\Models\Sale::where('id', '>', $this->baseline['sales'])->get()->map(fn ($x) => [(float) $x->total_amount, $x->party_id !== null])->all(),
+            'reminders' => \App\Models\Reminder::where('id', '>', $this->baseline['reminders'])->get()
+                ->map(fn ($x) => [(string) $x->text, $x->next_fire_at?->timezone('Europe/Istanbul')->format('Y-m-d H:i'), $x->amount !== null ? (float) $x->amount : null])->all(),
+            'employees' => Party::where('is_employee', true)->where('updated_at', '>=', now()->subDay())->get()
+                ->mapWithKeys(fn ($p) => [$p->name => [(float) $p->salary_amount, (int) $p->salary_day]])->all(),
             'expenses' => Expense::where('notes', 'like', 'WhatsApp%')->where('created_at', '>=', now()->subDay())->get()
                 ->map(fn ($e) => [(float) $e->amount, (string) $e->description])->all(),
             'open_proposals' => WhatsappPendingExpense::agentOpen(self::PHONE)->count()];
@@ -234,6 +252,7 @@ class AgentEvalTest extends TestCase
      *   rows: [ad parçası => [[tür, tutar], …]]     (o kişinin TÜM satırları, sırasız)
      *   no_party_like: [ad parçası, …]              (böyle bir kişi açılmamalı)
      *   expenses: [tutar, …]                        (WhatsApp'tan yazılan giderler, sırasız)
+     *   sales_total: n (yeni satış belgeleri toplamı) · reminder_at: 'Y-m-d H:i' · employees: [ad parçası => [maaş, gün]]
      *   handover: true                              (ajan bu işi eski asistana devretmeli; yoksa devretmemeli)
      *   max_turns: n · reply_must_contain: [metin…] (herhangi bir asistan cevabında) · reply_must_not_contain: […]
      *
@@ -268,6 +287,17 @@ class AgentEvalTest extends TestCase
             $have = collect($state['expenses'])->map(fn ($e) => round($e[0], 2))->sort()->values()->all();
             $want = collect($expect['expenses'])->map(fn ($e) => round((float) $e, 2))->sort()->values()->all();
             $checks['giderler'] = $have === $want ? true : 'beklenen ' . json_encode($want) . ', olan ' . json_encode($have);
+        }
+        if (isset($expect['sales_total'])) {
+            $sum = round(array_sum(array_column($state['sales'], 0)), 2);
+            $checks['satış_belgesi'] = abs($sum - $expect['sales_total']) < 0.01 ? true : 'beklenen ' . $expect['sales_total'] . ', olan ' . $sum;
+        }
+        if (isset($expect['reminder_at'])) {
+            $checks['hatırlatma'] = in_array($expect['reminder_at'], array_column($state['reminders'], 1), true) ? true : 'olan ' . json_encode($state['reminders'], JSON_UNESCAPED_UNICODE);
+        }
+        foreach ($expect['employees'] ?? [] as $like => $want) {
+            $hit = collect($state['employees'])->first(fn ($v, $name) => str_contains(ReplayScore::fold($name), ReplayScore::fold($like)));
+            $checks["personel:$like"] = $hit === $want ? true : 'olan ' . json_encode($hit);
         }
         if (isset($expect['max_turns'])) {
             $checks['tur_sayısı'] = count($transcript) <= $expect['max_turns'] ? true : count($transcript) . ' tur (en çok ' . $expect['max_turns'] . ')';

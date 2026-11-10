@@ -78,10 +78,19 @@ final class AgentCard
      * @param  list<string>  $lines  işlem satırları
      * @param  list<array{party_id:int, name:string, before:float, after:float}>  $balances
      */
-    public static function build(array $lines, array $balances, int $deletes, ?float $largeAmount, array $warnings = []): string
+    public static function build(array $lines, array $balances, int $deletes, ?float $largeAmount, array $warnings = [], array $rawLines = []): string
     {
-        $out = count($lines) === 1 ? ['📝 ' . $lines[0]] : array_map(fn ($l, $i) => ($i + 1) . '. ' . $l, $lines, array_keys($lines));
+        // Ham satır: eski taslak ailesinin kendi kartı (çok satırlı, kendi simgesiyle) — önüne numara/simge konmaz.
+        $out = count($lines) === 1
+            ? [in_array(0, $rawLines, true) ? $lines[0] : '📝 ' . $lines[0]]
+            : array_map(fn ($l, $i) => in_array($i, $rawLines, true) ? $l : ($i + 1) . '. ' . $l, $lines, array_keys($lines));
+        $shown = implode("\n", $out);
         foreach ($balances as $b) {
+            // Eski kart bakiyeyi zaten gösteriyorsa ("Bakiye: …") ikinci kez yazılmaz.
+            if ($rawLines !== [] && (mb_stripos($shown, 'bakiye') !== false || mb_stripos($shown, 'borçlu') !== false
+                || abs($b['before'] - $b['after']) < 0.01)) {
+                continue;
+            }
             $out[] = self::balanceLine($b['name'], $b['before'], $b['after']);
         }
         foreach (array_slice($warnings, 0, 2) as $w) {

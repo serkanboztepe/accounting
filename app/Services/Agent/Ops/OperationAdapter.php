@@ -28,6 +28,25 @@ final class OperationAdapter
         ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_DEBT_NOTE,
     ];
 
+    /**
+     * Eski asistanın kendi taslak sınıflarıyla yazılan türler (TradeDraft, EmployeeDraft, RecurringDraft, hatırlatma): ajan alanları
+     * eski şemadaki adlarıyla verir; temizlik, ürün eşleştirme, maaş hesabı, hatırlatma saati, kart ve kayıt O sınıflardan gelir.
+     */
+    public const EXTENDED_KINDS = [
+        ExpenseExtractor::KIND_TRADE_SALE, ExpenseExtractor::KIND_TRADE_PURCHASE, ExpenseExtractor::KIND_STOCK_COUNT,
+        ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_PRODUCT_ADD, ExpenseExtractor::KIND_PRODUCTION,
+        ExpenseExtractor::KIND_SALARY, ExpenseExtractor::KIND_EMPLOYEE_SETTING,
+        ExpenseExtractor::KIND_REMINDER, ExpenseExtractor::KIND_RECURRING_EXPENSE, ExpenseExtractor::KIND_RECURRING_STOP,
+    ];
+
+    /** Bu türlerde ajanın doldurabildiği eski şema alanları (tanımları ExpenseExtractor şemasından aynen alınır). */
+    public const EXTENDED_FIELDS = [
+        'items', 'cash_amount', 'card_amount', 'sale_paid_said', 'product_id', 'product_name', 'unit', 'counted_quantity', 'stock_items',
+        'daily_usage', 'reorder_level', 'purchase_price', 'salary_amount', 'salary_day', 'salary_deduction', 'first_salary', 'first_salary_amount',
+        'is_staff', 'month', 'event_date', 'event_time', 'lead_minutes', 'is_alarm', 'notify_time', 'updates_reminder_id', 'repeat',
+        'recurring_frequency', 'recurring_day', 'recurring_time', 'recurring_start',
+    ];
+
     public const PAYMENT_TYPES = ['cash', 'eft', 'bank_transfer', 'check', 'promissory_note', 'other'];
 
     public const PURPOSES = ['debt', 'advance', 'loan', 'on_behalf'];
@@ -171,8 +190,20 @@ final class OperationAdapter
             }
         }
 
+        // Yeni kuraldaki personele verilen para maaş ödemesidir (en eski borçtan düşer) — eski yolla aynı adım.
+        if ($kind === ExpenseExtractor::KIND_PAYMENT && $issues === []) {
+            $payroll = \App\Services\Whatsapp\EmployeeDraft::fromPayment($d);
+            if (\App\Services\Whatsapp\EmployeeDraft::handles($payroll)) {
+                return self::finish($payroll, $phone);
+            }
+        }
+
         // ── Eski yolun kuralları: modüle uydur, kapılardan geçir ───────────
         $d = ExpenseExtractor::fitToModules($d);
+        if (! in_array($d['kind'] ?? null, self::KINDS, true) && ($d['kind'] ?? null) !== ExpenseExtractor::KIND_HELP) {
+            // Stoklu işletme: ürün kartı tutan satış/alış belgeye döndü — o ailenin kapıları ve kartı.
+            return self::finish(ProjectChoice::prepare($d + ['source' => 'agent'], $phone), $phone, $issues);
+        }
         if (($d['kind'] ?? null) === ExpenseExtractor::KIND_HELP) {
             return self::fail(trim((string) ($d['reply'] ?? 'Bu tür kayıt bu işletmede açık değil.')));
         }
@@ -203,6 +234,133 @@ final class OperationAdapter
         }
 
         return ['draft' => $issues === [] ? $d : null, 'issues' => $issues, 'warnings' => $warnings];
+    }
+
+    /**
+     * Eski taslak sınıflarıyla yazılan tür (ürünlü satış/alış, kasa, stok, maaş, personel, hatırlatma, düzenli gider).
+     *
+     * @return array{draft: ?array, issues: list<string>, warnings: list<string>, card?: string}
+     */
+    public static function extended(array $e, string $phone): array
+    {
+        $kind = (string) ($e['kind'] ?? '');
+        if (! in_array($kind, self::EXTENDED_KINDS, true)) {
+            return self::fail('Bu tür burada yazılamaz: ' . $kind);
+        }
+        if (! in_array($kind, ExpenseExtractor::allowedKinds(), true)) {
+            return self::fail('Bu işletmede "' . $kind . '" açık değil (özelliği kapalı). Ürünsüz satış/alış için sale / purchase, masraf için expense kullan.');
+        }
+        $issues = [];
+        $raw = array_intersect_key($e, array_flip(self::EXTENDED_FIELDS)) + [
+            'kind' => $kind,
+            'amount' => round((float) ($e['amount'] ?? 0), 2),
+            'description' => mb_strimwidth(trim((string) ($e['description'] ?? '')), 0, 200, '…'),
+            'paid' => isset($e['paid']) ? (bool) $e['paid'] : null,
+            'payment_type' => in_array($e['payment_type'] ?? null, self::PAYMENT_TYPES, true) ? $e['payment_type'] : null,
+            'confidence' => 'high', 'work_status_known' => null, 'question' => null, 'is_new_entry' => true,
+            'category_id' => ! empty($e['category_id']) ? (int) $e['category_id'] : null,
+            'category_name' => self::text($e['category_name'] ?? null),
+        ];
+        if ($kind !== ExpenseExtractor::KIND_REMINDER) {
+            if (($date = self::date($e['date'] ?? null)) === null) {
+                return self::fail('date YYYY-MM-DD olmalı (söylenmediyse boş bırak, bugün yazılır).');
+            }
+            $raw['date'] = $date;
+        }
+        // Kişi: kayıtlı id ya da ad (adı birebir tutan tek kişi varsa ona bağlanır; benzer ad varsa sorulur).
+        if (! empty($e['party_id'])) {
+            if (! Party::whereKey((int) $e['party_id'])->exists()) {
+                return self::fail('party_id ' . (int) $e['party_id'] . ' kayıtlı değil — find_party ile bul.');
+            }
+            $raw['party_id'] = (int) $e['party_id'];
+        } elseif (($name = self::text($e['party_name'] ?? null)) !== null) {
+            if ($same = DraftGaps::exactParty($name)) {
+                $raw['party_id'] = $same->id;
+            } else {
+                if (empty($e['new_party'])) {
+                    $near = collect(FindParty::run(['name' => $name])['adaylar'] ?? [])->whereIn('güç', ['güçlü', 'orta'])->take(3);
+                    if ($near->isNotEmpty()) {
+                        $issues[] = '"' . $name . '" adına benzer kayıtlı kişi var: ' . $near->map(fn ($r) => $r['ad'] . ' (id ' . $r['id'] . ')')->implode(', ')
+                            . '. Aynı kişiyse party_id ver; farklı ve YENİ biriyse new_party=true ile öner (emin değilsen sor).';
+                    }
+                }
+                $raw['party_name'] = $name;
+            }
+        }
+        if (! empty($e['project_id'])) {
+            if (! Project::whereKey((int) $e['project_id'])->exists()) {
+                return self::fail('project_id ' . (int) $e['project_id'] . ' kayıtlı değil.');
+            }
+            $raw['project_id'] = (int) $e['project_id'];
+        } elseif (($project = self::text($e['project_name'] ?? null)) !== null) {
+            $raw['project_name'] = $project;
+        }
+
+        // Eski asistanın temizliği ve yönlendirmesi: kalemler, ürün eşleştirme, kapalı türün uygun yola çevrilmesi.
+        $d = app(ExpenseExtractor::class)->normalizeEntry($raw);
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_HELP) {
+            return self::fail(trim((string) ($d['reply'] ?? 'Bu kayıt bu işletmede yazılamıyor.')));
+        }
+        if (in_array($d['kind'] ?? null, self::KINDS, true)) {
+            // Ürün kartı tutmadı / stok kapalı: düz gider/alış/satış oldu — onun kurallarıyla (ödendi mi, yer, amaç) yeniden değerlendirilir.
+            return self::record(['kind' => $d['kind']] + $e, $phone);
+        }
+        $d += ['party_confirmed' => true, 'party_certain' => true, 'source' => 'agent'];
+        if (! empty($e['no_project'])) {
+            $d['project_choice_done'] = true;
+        }
+
+        return self::finish($d, $phone, $issues);
+    }
+
+    /** Eski taslak ailesi: son hazırlık + kapılar (bulgu) + kart (o ailenin kendi özeti). */
+    private static function finish(array $d, string $phone, array $issues = []): array
+    {
+        if (\App\Services\Whatsapp\EmployeeDraft::handles($d)) {
+            $d = \App\Services\Whatsapp\EmployeeDraft::withFingerprint($d); // kart = kayıt: onayda yeniden hesaplanır
+        }
+        $d = ProjectChoice::prepare($d, $phone);
+        $reminder = null;
+        if (($d['kind'] ?? null) === ExpenseExtractor::KIND_REMINDER) {
+            $target = \App\Support\Reminders::target($d, $phone);
+            if (! $target) {
+                $d['updates_reminder_id'] = null;
+            }
+            if (empty($d['event_date']) && ! $target) {
+                $issues[] = 'Ne zaman hatırlatılacağı yok (event_date) — müşteriye sor.';
+            } else {
+                $reminder = $target ? \App\Support\Reminders::updated($target, $d) : \App\Support\Reminders::fromDraft($d, $phone);
+                if (! $reminder->next_fire_at) {
+                    $issues[] = 'Bu zaman geçmiş görünüyor — ne zaman hatırlatılacağını sor.';
+                }
+            }
+        }
+        if ($issues === []) {
+            $gap = DraftGaps::reason($d);
+            if ($gap['code'] !== DraftGaps::CONFIRM) {
+                $issues[] = self::plain($gap['ask']) . ' (Konuşmada/kayıtta cevabı varsa alanı doldurup yeniden öner; yoksa müşteriye sor.)';
+            } elseif ($question = ProjectChoice::blocker($d)) {
+                $issues[] = self::plain($question) . ' → project_id / project_name ver ya da müşteri "genel" dediyse no_project=true. Yerler: '
+                    . (Project::whereNotIn('status', ['cancelled'])->orderBy('id')->take(30)->get(['id', 'name'])->map(fn ($p) => $p->name . ' (id ' . $p->id . ')')->implode(', ') ?: 'henüz yok');
+            }
+        }
+        if ($issues !== []) {
+            return ['draft' => null, 'issues' => $issues, 'warnings' => []];
+        }
+
+        $card = match (true) {
+            \App\Services\Whatsapp\TradeDraft::handles($d) => \App\Services\Whatsapp\TradeDraft::summary($d),
+            \App\Services\Whatsapp\EmployeeDraft::handles($d) => \App\Services\Whatsapp\EmployeeDraft::summary($d),
+            \App\Services\Whatsapp\RecurringDraft::handles($d) => \App\Services\Whatsapp\RecurringDraft::summary($d),
+            $reminder !== null => isset($target) && $target ? \App\Support\Reminders::changeSummary($target, $reminder) : \App\Support\Reminders::summary($reminder),
+            default => DraftGaps::label($d),
+        };
+        if ($lines = ProjectChoice::lines($d)) {
+            $lines = array_filter($lines, fn ($l) => ! str_contains($l, 'Hangi')); // menü satırı değil, yalnız seçilen yer
+            $card .= $lines ? "\n" . implode("\n", $lines) : '';
+        }
+
+        return ['draft' => $d, 'issues' => [], 'warnings' => array_map([self::class, 'plain'], DraftWarnings::for($d)), 'card' => trim($card)];
     }
 
     private static function fail(string $issue): array

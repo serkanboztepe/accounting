@@ -53,7 +53,7 @@ final class AgentProposal
         }
 
         $large = collect($run['amounts'])->filter(fn ($a) => $a >= (float) config('agent.large_amount'))->max();
-        $card = AgentCard::build($run['lines'], $run['balances'], $run['deletes'], $large !== null ? (float) $large : null, $run['warnings']);
+        $card = AgentCard::build($run['lines'], $run['balances'], $run['deletes'], $large !== null ? (float) $large : null, $run['warnings'], $run['raw_lines']);
 
         $effects = [
             'yazılacak_satırlar' => $run['created_lines'],
@@ -181,9 +181,13 @@ final class AgentProposal
         }
 
         $lines = array_map(fn ($b) => '📒 ' . $b['name'] . ': ' . AgentCard::phrase($b['after']), $run['balances']);
+        // Eski taslak ailesiyle yazılan işlemlerin onay metni o aileden gelir (personel kaydı, hatırlatma saati, günün cirosu…).
+        $text = $run['texts'] !== [] && count($run['texts']) === count($run['lines'])
+            ? implode("\n\n", $run['texts'])
+            : trim(($run['deletes'] > 0 && $run['created'] === [] ? '🗑️ Silindi.' : '✅ Kaydedildi.') . "\n" . implode("\n", $lines)
+                . ($run['texts'] !== [] ? "\n\n" . implode("\n\n", $run['texts']) : ''));
 
-        return ['ok' => true, 'created' => $run['created'], 'party_ids' => $run['party_ids'],
-            'text' => trim(($run['deletes'] > 0 && $run['created'] === [] ? '🗑️ Silindi.' : '✅ Kaydedildi.') . "\n" . implode("\n", $lines))];
+        return ['ok' => true, 'created' => $run['created'], 'party_ids' => $run['party_ids'], 'text' => $text];
     }
 
     /** @return array{ok: bool, reason?: string} */
@@ -211,7 +215,7 @@ final class AgentProposal
     private static function apply(string $phone, array $ops, string $sourceText): array
     {
         $s = ['issues' => [], 'warnings' => [], 'notes' => [], 'lines' => [], 'created' => [], 'created_lines' => [], 'before' => [],
-            'party_ids' => [], 'refs' => [], 'amounts' => [], 'old_amounts' => [], 'deletes' => 0];
+            'party_ids' => [], 'refs' => [], 'amounts' => [], 'old_amounts' => [], 'deletes' => 0, 'raw_lines' => [], 'texts' => []];
 
         foreach ($ops as $i => $op) {
             $type = (string) ($op['type'] ?? '');
@@ -249,7 +253,7 @@ final class AgentProposal
             'created' => $s['created'], 'created_lines' => $s['created_lines'], 'balances' => $balances,
             'party_ids' => array_values(array_unique(array_map('intval', $s['party_ids']))), 'refs' => array_values(array_unique($s['refs'])),
             'numbers' => array_values(array_unique(array_map(fn ($n) => round((float) $n, 2), $numbers))),
-            'amounts' => $s['amounts'], 'deletes' => $s['deletes'],
+            'amounts' => $s['amounts'], 'deletes' => $s['deletes'], 'raw_lines' => array_keys($s['raw_lines']), 'texts' => $s['texts'],
         ];
     }
 
@@ -267,7 +271,8 @@ final class AgentProposal
     /** @return list<string> bulgular (boşsa yazıldı) */
     private static function applyRecord(array &$s, string $phone, array $entry, string $sourceText, ?string $linePrefix = null): array
     {
-        $r = OperationAdapter::record($entry, $phone);
+        $r = in_array($entry['kind'] ?? null, OperationAdapter::EXTENDED_KINDS, true)
+            ? OperationAdapter::extended($entry, $phone) : OperationAdapter::record($entry, $phone);
         if ($r['issues'] !== []) {
             return $r['issues'];
         }
@@ -293,8 +298,16 @@ final class AgentProposal
                 $s['created_lines'][] = RecordRefs::line($model);
             }
         }
-        $s['lines'][] = ($linePrefix ?? '') . AgentCard::recordLine($d);
-        $s['amounts'][] = (float) $d['amount'];
+        // Eski taslak ailesinin kendi kartı (ürün kalemleri, maaş hesabı, hatırlatma saatleri) aynen; onay metni de onun.
+        if (isset($r['card'])) {
+            $s['raw_lines'][count($s['lines'])] = true;
+            $s['texts'][] = trim($done['text']);
+        }
+        $s['lines'][] = ($linePrefix ?? '') . ($r['card'] ?? AgentCard::recordLine($d));
+        $s['amounts'][] = (float) ($d['amount'] ?? 0);
+        foreach (\App\Services\Agent\Ops\Numbers::in((string) ($r['card'] ?? '')) as $n) {
+            $s['old_amounts'][] = $n; // karttaki her rakam müşterinin tekrar edebileceği rakamdır (yeni rakam sayılmasın)
+        }
         $s['warnings'] = [...$s['warnings'], ...$r['warnings']];
 
         return [];
