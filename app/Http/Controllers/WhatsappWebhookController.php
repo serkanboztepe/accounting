@@ -2501,6 +2501,23 @@ class WhatsappWebhookController extends Controller
         return $out;
     }
 
+    /**
+     * Ajan asistan köprüsü (plan v5 §2): ajan önerisindeki bir işlemi, eski biçimde hazırlanmış taslak olarak MEVCUT kayıt yoluyla
+     * yazar — kayıt kuralları tek yerde kalır. Yalnız App\Services\Agent\Ops çağırır (işlem içinde); eski yol bunu kullanmaz.
+     *
+     * @return array{status: ?string, text: string, created: list<array{0:string,1:int}>, party_id: ?int}
+     */
+    public function agentCommit(WhatsappPendingExpense $draft, string $sourceText = ''): array
+    {
+        $this->inboundBody = $sourceText;
+        $this->committedPartyId = null;
+        $text = $this->commit($draft);
+        $fresh = $draft->fresh();
+
+        return ['status' => $fresh?->status, 'text' => $text, 'created' => array_values((array) ($fresh?->extracted['created_records'] ?? [])),
+            'party_id' => $this->committedPartyId];
+    }
+
     /** @var list<array{0:string,1:int}>|null commit sırasında oluşan [tür, id] */
     private static ?array $recording = null;
 
