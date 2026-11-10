@@ -234,6 +234,7 @@ class AgentEvalTest extends TestCase
      *   rows: [ad parçası => [[tür, tutar], …]]     (o kişinin TÜM satırları, sırasız)
      *   no_party_like: [ad parçası, …]              (böyle bir kişi açılmamalı)
      *   expenses: [tutar, …]                        (WhatsApp'tan yazılan giderler, sırasız)
+     *   handover: true                              (ajan bu işi eski asistana devretmeli; yoksa devretmemeli)
      *   max_turns: n · reply_must_contain: [metin…] (herhangi bir asistan cevabında) · reply_must_not_contain: […]
      *
      * @return array<string, true|string>
@@ -284,6 +285,11 @@ class AgentEvalTest extends TestCase
         $checks['özür_yok'] = ! str_contains($all, 'toparlayamadım') ? true : 'ajan hata verdi';
         $checks['tekrar_yok'] = count($replies) === count(array_unique($replies)) ? true : 'aynı mesaj iki kez gitti';
         $checks['hata_yok'] = array_filter(array_column($log, 'error')) === [] ? true : json_encode(array_filter(array_column($log, 'error')), JSON_UNESCAPED_UNICODE);
+        // Devir: ajan kendi işini eski asistana atmamalı; onun işi olanı (maaş, hatırlatma, stok…) devretmeli.
+        $handed = array_values(array_filter(array_map(fn ($l) => $l['outcome']['handover'] ?? null, $log)));
+        $checks['devir'] = ! empty($expect['handover'])
+            ? ($handed !== [] ? true : 'devretmedi (eski asistanın işiydi)')
+            : ($handed === [] ? true : 'gereksiz devretti: ' . implode(', ', $handed));
         if (($expect['open_proposals'] ?? 0) !== 'any') {
             $checks['açık_kart_kalmadı'] = $state['open_proposals'] === (int) ($expect['open_proposals'] ?? 0) ? true : $state['open_proposals'] . ' açık kart';
         }

@@ -314,6 +314,50 @@ class AgentTurnTest extends TestCase
         $this->assertStringContainsString('Ödeme (avans)', $log[0]['replies'][0]);
     }
 
+    /** Ajanın yazamadığı iş (maaş, hatırlatma, stok, anlaşma, çek…) eski asistana devredilir: aynı mesaj eski yolda işlenir, cevap müşteriye gider. */
+    public function test_hand_over_runs_the_same_message_through_the_old_assistant(): void
+    {
+        $party = Party::create(['name' => 'Devir Testi Cari']);
+        // Eski (akıllı) asistanın modeli mock: aynı mesajdan tahsilat kaydı çıkarır.
+        $chat = \Mockery::mock(\App\Services\Whatsapp\ChatAssistant::class);
+        $chat->shouldReceive('respond')->once()->andReturn(['type' => 'entry', 'text' => '', 'data' => ['kind' => 'collection', 'items' => [], 'amount' => 4100,
+            'date' => now()->format('Y-m-d'), 'description' => 'Tahsilat', 'party_id' => $party->id, 'party_name' => null, 'project_id' => null,
+            'project_name' => null, 'confidence' => 'high', 'question' => null, 'is_new_entry' => true]]);
+        $this->app->instance(\App\Services\Whatsapp\ChatAssistant::class, $chat);
+        config(['services.anthropic.chat_assistant' => true]);
+        $in = WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'in')->count();
+
+        $this->model($this->toolUse(['hand_over', ['reason' => 'test: eski asistanın işi']]));
+        $twiml = $this->send('Devir testi cariden 4100 aldım');
+
+        $this->assertStringNotContainsString('<Message>', $twiml);
+        // (Eski yolun kendi model çağrıları da olabilir — ajanınkiler araç listesinden tanınır.)
+        $agentCalls = fn () => array_values(array_filter($this->sent, fn ($s) => in_array('propose', array_column($s['body']['tools'] ?? [], 'name'), true)));
+        $this->assertCount(1, $agentCalls(), 'ajan tek çağrıda devretti');
+        // Eski yol aynı mesajdan kendi taslağını açtı ve kartını gönderdi.
+        $draft = WhatsappPendingExpense::legacyOpen(self::PHONE)->latest('id')->first();
+        $this->assertNotNull($draft);
+        $this->assertEquals(4100, $draft->extracted['amount']);
+        $this->assertStringContainsString('4.100,00', (string) $this->lastOut());
+        $this->assertCount(1, $this->twilioBodies());
+        $this->assertSame($in + 1, WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'in')->count(), 'gelen mesaj bir kez kayıtlı');
+        $this->assertSame('agent_handover', WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'in')->latest('id')->value('kind'));
+        $this->assertNull(AgentProposal::open(self::PHONE));
+
+        // Eski asistanın kartı açıkken cevap ona gider: ajan çağrılmaz, "evet" eski yolda kaydeder.
+        $this->model();
+        $twiml = $this->send('evet');
+        $this->assertSame([], $agentCalls(), 'ajan araya girmedi');
+        $this->assertStringContainsString('Kaydedildi', html_entity_decode($twiml));
+        $this->assertEquals([4100.0], PartyLedgerEntry::where('party_id', $party->id)->pluck('amount')->map(fn ($a) => (float) $a)->all());
+
+        // Kart kapandı: sıradaki mesaj yine ajana gelir.
+        $this->model($this->say('Buyur.'));
+        $this->send('selam');
+        $this->assertCount(1, $agentCalls());
+        $this->assertSame('Buyur.', $this->lastOut());
+    }
+
     public function test_photo_is_passed_to_the_model_as_an_image_block(): void
     {
         $messages = AgentContext::messages(self::PHONE, 'bunu yaz', ['media_type' => 'image/jpeg', 'data' => 'QUJD']);
@@ -329,7 +373,7 @@ class AgentTurnTest extends TestCase
     public function test_tool_definitions_are_stable_and_valid(): void
     {
         $tools = AgentToolbox::definitions();
-        $this->assertSame(['find_party', 'party_overview', 'records', 'report', 'search_conversations', 'sql_select', 'propose', 'confirm', 'cancel', 'ask', 'remember'],
+        $this->assertSame(['find_party', 'party_overview', 'records', 'report', 'search_conversations', 'sql_select', 'propose', 'confirm', 'cancel', 'ask', 'hand_over', 'remember'],
             array_column($tools, 'name'));
         $this->assertSame(json_encode($tools), json_encode(AgentToolbox::definitions()), 'önbellek için bayt bayt aynı');
         foreach ($tools as $tool) {

@@ -22,18 +22,30 @@ class AgentTurn
 
     /**
      * @param  callable(): ?array{media_type:string,data:string}  $media  ek (fotoğraf/PDF) — yalnız tur alınırsa indirilir
-     * @return (callable(): list<string>)|null
+     * @return (callable(): array{replies: list<string>, handover: ?string})|null
      */
     public function prepare(string $phone, string $body, int $numMedia, callable $media, ?int $messageId = null): ?callable
     {
         if ((string) config('services.anthropic.api_key') === '' || self::overDailyLimit() || self::breakerOpen($phone)) {
             return null;
         }
+        // Eski asistanın açık kartı / sorusu varken (ajanın devrettiği maaş, hatırlatma, stok… işi sürüyor) cevap ona aittir:
+        // tur eski yolda biter. Süre eski yolun "açık taslak" penceresiyle aynı.
+        if (self::legacyDraftOpen($phone)) {
+            return null;
+        }
 
         return fn (): array => $this->run($phone, $body, $numMedia > 0 ? $media() : null, $messageId);
     }
 
-    /** @return list<string> müşteriye gidecek mesaj(lar) */
+    public static function legacyDraftOpen(string $phone): bool
+    {
+        return \App\Models\WhatsappPendingExpense::legacyOpen($phone)
+            ->where(fn ($q) => $q->where('updated_at', '>=', now()->subMinutes(30))->orWhere('followed_up_at', '>=', now()->subHours(24)))
+            ->exists();
+    }
+
+    /** @return array{replies: list<string>, handover: ?string} müşteriye gidecek mesaj(lar) ya da eski asistana devir */
     public function run(string $phone, string $body, ?array $media, ?int $messageId = null): array
     {
         $toolbox = new AgentToolbox($phone, $body);
@@ -47,7 +59,8 @@ class AgentTurn
                 self::effort($phone, $body, $media !== null),
             );
             self::addCost($result['cost']);
-            $replies = self::replies($result['text'], $toolbox->outcome);
+            $handover = $toolbox->outcome['handover'];
+            $replies = $handover !== null ? [] : self::replies($result['text'], $toolbox->outcome);
             if ($toolbox->outcome['card'] !== null && $toolbox->outcome['proposal_id'] !== null
                 && $toolbox->outcome['question'] === null && $toolbox->outcome['confirmed'] === null) {
                 AgentProposal::markSent((int) $toolbox->outcome['proposal_id']); // kart bu cevapla gidiyor
@@ -56,7 +69,7 @@ class AgentTurn
             AgentLog::write($log + ['model' => $result['model'], 'steps' => $result['steps'], 'stop' => $result['stop'], 'replies' => $replies,
                 'outcome' => $toolbox->outcome, 'usage' => $result['usage'], 'cost_usd' => $result['cost'], 'seconds' => $result['seconds']]);
 
-            return $replies;
+            return ['replies' => $replies, 'handover' => $handover];
         } catch (Throwable $e) {
             report($e);
             Log::error('Ajan turu hatası', ['msg' => $e->getMessage()]);
@@ -64,7 +77,7 @@ class AgentTurn
             AgentLog::write($log + ['error' => mb_substr($e->getMessage(), 0, 500), 'outcome' => $toolbox->outcome]);
 
             // Bu turda bir şey kaydedildiyse (onay geçti, sonra hata oldu) müşteri bunu bilmeli.
-            return [$toolbox->outcome['confirmed'] ?? self::SORRY];
+            return ['replies' => [$toolbox->outcome['confirmed'] ?? self::SORRY], 'handover' => null];
         }
     }
 

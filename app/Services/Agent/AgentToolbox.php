@@ -18,8 +18,8 @@ use App\Tenancy\Tenancy;
  */
 final class AgentToolbox
 {
-    /** @var array{card: ?string, proposal_id: ?int, confirmed: ?string, question: ?string, cancelled: bool, notes: list<string>} */
-    public array $outcome = ['card' => null, 'proposal_id' => null, 'confirmed' => null, 'question' => null, 'cancelled' => false, 'notes' => []];
+    /** @var array{card: ?string, proposal_id: ?int, confirmed: ?string, question: ?string, cancelled: bool, notes: list<string>, handover: ?string} */
+    public array $outcome = ['card' => null, 'proposal_id' => null, 'confirmed' => null, 'question' => null, 'cancelled' => false, 'notes' => [], 'handover' => null];
 
     public function __construct(private string $phone, private string $rawMessage, private bool $shadow = false) {}
 
@@ -112,6 +112,15 @@ final class AgentToolbox
                 ],
             ],
             [
+                'name' => 'hand_over',
+                'description' => 'Bu mesajı ESKİ ASİSTANA devret ve turu bitir. Senin `propose` ile yazamadığın işler onda çalışır: personel ve maaş (işe başladı, maaşını verdim, '
+                    . 'maaştan kesinti, maaş günü), hatırlatma kurma/değiştirme ("yarın hatırlat", "her ay 5\'inde"), düzenli gider, ürünlü/stoklu satış-alış ve kasa/ciro girişi '
+                    . '("bugün 12 bin nakit 8 bin kart", "41 litre süt", "20 çuval un aldım"), stok sayımı/sorusu, anlaşma/sözleşme ve anlaşmadan teslim, çek (çek verdim/aldım, '
+                    . 'çek fotoğrafı, çek ödendi), iade, ekstre/hesap dökümü PDF\'i isteme. Müşteriye bir şey yazma; cevabı eski asistan verir. Emin değilsen: para, borç-alacak, '
+                    . 'gider, sil/düzelt ve sorular SENİN işin — onları devretme.',
+                'input_schema' => ['type' => 'object', 'properties' => ['reason' => ['type' => 'string', 'description' => 'Kısaca hangi iş (ör. "maaş ödemesi", "hatırlatma")']], 'required' => ['reason']],
+            ],
+            [
                 'name' => 'remember',
                 'description' => 'İşletme hakkında kalıcı, KESİN bir bilgiyi hafızaya yaz (müşteriye sormadan; sabah dökümünde görünür): takma ad ("Asansörcü = Yıldız '
                     . 'Asansör"), kim kimdir, hangi usta hangi şantiyede. Para/bakiye kararı, tek seferlik bilgi ve tahmin YAZILMAZ. Alışkanlık notu soruyu '
@@ -142,6 +151,7 @@ final class AgentToolbox
             'cancel' => $this->cancel($input),
             'ask' => $this->ask($input),
             'remember' => $this->remember($input),
+            'hand_over' => $this->handOver($input),
             default => ['hata' => 'Böyle bir araç yok: ' . $name],
         };
     }
@@ -149,7 +159,7 @@ final class AgentToolbox
     /** Tur bitti mi (müşteriye gidecek kesin bir şey oluştu): soru soruldu ya da onay verildi. */
     public function finished(): bool
     {
-        return $this->outcome['question'] !== null || $this->outcome['confirmed'] !== null;
+        return $this->outcome['question'] !== null || $this->outcome['confirmed'] !== null || $this->outcome['handover'] !== null;
     }
 
     private function propose(array $in): array
@@ -224,6 +234,13 @@ final class AgentToolbox
         $this->outcome['question'] = $text;
 
         return ['soruldu' => true, 'not' => 'Soru müşteriye gidiyor; tur bitti.'];
+    }
+
+    private function handOver(array $in): array
+    {
+        $this->outcome['handover'] = mb_substr(trim((string) ($in['reason'] ?? '')), 0, 120) ?: 'belirtilmedi';
+
+        return ['devredildi' => true];
     }
 
     private function remember(array $in): array

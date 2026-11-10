@@ -348,6 +348,9 @@ class WhatsappWebhookController extends Controller
     /** @var (\Closure(): list<string>)|null ajan asistanın bu mesaj için işi (plan v5) — istek kapandıktan sonra çalışır */
     private ?\Closure $agentWork = null;
 
+    /** Gelen isteğin alanları — ajan mesajı eski asistana devrederse aynı mesaj bunlarla eski yolda işlenir. */
+    private array $agentInput = [];
+
     /** Gelen mesajın konuşma kaydındaki id'si (ajan geçmişi bu mesajdan öncesini okur). */
     private ?int $inboundMessageId = null;
 
@@ -360,27 +363,30 @@ class WhatsappWebhookController extends Controller
         $firm = Tenancy::current();
         $work = $this->agentWork;
         $this->agentWork = null;
+        $input = $this->agentInput;
         $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
 
         $done = false; // bir kez: uzun yaşayan süreçte (test, kuyruk işçisi) sonraki isteklerin bitişinde yeniden çalışmasın
-        app()->terminating(function () use ($firm, $work, $phone, $incoming, $lockName, $lockOwner, &$done) {
+        app()->terminating(function () use ($firm, $work, $phone, $incoming, $lockName, $lockOwner, $input, &$done) {
             if ($done) {
                 return;
             }
             $done = true;
-            $run = function () use ($work, $phone, $incoming) {
+            $handover = null;
+            $run = function () use ($work, $phone, $incoming, &$handover) {
                 ChatAssistant::$deadline = null;
                 \App\Models\ActivityLog::via('whatsapp', self::activityActor($phone));
                 try {
-                    $replies = $work();
+                    $result = $work();
                 } catch (\Throwable $e) {
                     Log::error('Ajan turu çalıştırılamadı', ['msg' => $e->getMessage()]);
-                    $replies = [AgentTurn::SORRY];
+                    $result = ['replies' => [AgentTurn::SORRY], 'handover' => null];
                 }
-                foreach ($replies as $reply) {
+                foreach ($result['replies'] as $reply) {
                     $this->deliver($phone, $reply);
                 }
-                $incoming?->update(['kind' => 'agent']);
+                $handover = $result['handover'];
+                $incoming?->update(['kind' => $handover !== null ? 'agent_handover' : 'agent']);
             };
             try {
                 $firm ? Tenancy::run($firm, $run) : $run();
@@ -388,6 +394,27 @@ class WhatsappWebhookController extends Controller
                 Log::error('Ajan turu çalıştırılamadı', ['msg' => $e->getMessage()]);
             } finally {
                 Cache::restoreLock($lockName, $lockOwner)->release();
+            }
+            // Ajan bu işi eski asistana devretti (maaş, hatırlatma, stok, anlaşma, çek…): kilit bırakıldı, aynı mesaj eski yolda
+            // işlenir (sıradaki fotoğraf düzeniyle — süre sınırı yok, cevap API ile gider). Müşteri cevapsız kalmaz.
+            if ($handover !== null) {
+                $legacy = function () use ($input, $phone) {
+                    unset($input['MessageSid']); // aynı mesaj: tekrar denetimine takılmasın
+                    $request = Request::create('/whatsapp/webhook', 'POST', $input);
+                    $request->attributes->set('via_hub', true);  // telefon/imza ilk gelişte denetlendi
+                    $request->attributes->set('queued', true);   // ajana geri dönmez, süre sınırı yok
+                    $request->attributes->set('reread', true);   // gelen mesaj konuşma kaydına ikinci kez yazılmaz
+                    $controller = app()->make(self::class);
+                    app()->call([$controller, '__invoke'], ['request' => $request]);
+                    foreach ($controller->replies ?: [AgentTurn::SORRY] as $reply) {
+                        $this->deliver($phone, $reply, log: $controller->replies === []); // konuşma kaydını iç işlem yazdı
+                    }
+                };
+                try {
+                    $firm ? Tenancy::run($firm, $legacy) : $legacy();
+                } catch (\Throwable $e) {
+                    Log::error('Ajan devri: eski yol çalıştırılamadı', ['msg' => $e->getMessage()]);
+                }
             }
         });
     }
@@ -696,10 +723,11 @@ class WhatsappWebhookController extends Controller
         $this->inboundBody = $body;
         // Ajan asistan (plan v5): firma "ajan canlı" ise tur ajana gider. null = ajan bu turu almadı → eski yol aynen işler.
         // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
-        if (AgentGate::live() && ! $request->attributes->get('queued')
+        if (AgentGate::live() && ! $request->attributes->get('queued') && (string) $request->input('ButtonPayload', '') === ''
             && ($work = app(AgentTurn::class)->prepare($phone, $body, $numMedia, fn () => $this->downloadMedia($request), $this->inboundMessageId)) !== null) {
             $this->inboundKind = 'agent';
             $this->agentWork = $work; // Twilio'ya boş cevap; ajan istek kapandıktan sonra çalışır, cevabı API ile gider (runAgentAfterResponse)
+            $this->agentInput = $request->all();
             $this->sendTypingIndicator((string) $request->input('MessageSid', ''));
             $this->replies = [];
 
