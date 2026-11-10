@@ -41,7 +41,7 @@ final class AgentToolbox
                 'paid' => ['type' => ['boolean', 'null'], 'description' => 'sale/purchase/expense: parası ödendi mi. sale/purchase için zorunlu — bilmiyorsan sor'],
                 'payment_type' => ['type' => ['string', 'null'], 'enum' => [...OperationAdapter::PAYMENT_TYPES, null], 'description' => 'Söylendiyse: cash, eft, bank_transfer, check…'],
                 'purpose' => ['type' => ['string', 'null'], 'enum' => [...OperationAdapter::PURPOSES, null],
-                    'description' => 'payment/collection: debt = var olan borca karşılık · advance = önden, iş/mal sonra · loan = borç verdim'],
+                    'description' => 'payment/collection: debt = var olan borca karşılık · advance = önden, iş/mal sonra · loan = borç verdim · on_behalf = o kişi ADINA başkasına ödendi (harç, fatura, kurs ücreti), hesabına yazılır'],
                 'debt_side' => ['type' => ['string', 'null'], 'enum' => ['payable', 'receivable', null], 'description' => 'debt_note: payable = biz ona borçluyuz · receivable = o bize borçlu'],
                 'project_id' => ['type' => ['integer', 'null'], 'description' => 'Yer / şantiye / şube (listeden)'],
                 'project_name' => ['type' => ['string', 'null'], 'description' => 'Listede olmayan YENİ yer adı (müşteri söylediyse)'],
@@ -106,7 +106,7 @@ final class AgentToolbox
                     'type' => 'object',
                     'properties' => [
                         'question' => ['type' => 'string'],
-                        'options' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Kısa seçenekler (isteğe bağlı, en çok 4)'],
+                        'options' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Kısa seçenekler (isteğe bağlı; çoğu soruda 2–3, yer/şantiye listesi gibi durumlarda hepsi — en çok 12)'],
                     ],
                     'required' => ['question'],
                 ],
@@ -205,7 +205,7 @@ final class AgentToolbox
         if ($question === '') {
             return ['hata' => 'Soru boş.'];
         }
-        $options = array_slice(array_values(array_filter(array_map(fn ($o) => is_string($o) ? trim($o) : '', (array) ($in['options'] ?? [])), 'strlen')), 0, 4);
+        $options = array_slice(array_values(array_filter(array_map(fn ($o) => is_string($o) ? trim($o) : '', (array) ($in['options'] ?? [])), 'strlen')), 0, 12);
         // Tekrar-soru kilidi (Kaya 08.11: aynı soru 5 kez): aynı soru bu numaraya son 6 saatte sorulduysa reddedilir.
         $key = Tenancy::key('agent-asked:' . sha1($this->phone));
         $asked = (array) Cache::get($key, []);

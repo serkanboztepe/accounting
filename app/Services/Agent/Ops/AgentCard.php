@@ -24,6 +24,7 @@ final class AgentCard
         $word = match (true) {
             $kind === ExpenseExtractor::KIND_DEBT_NOTE => ($d['debt_side'] ?? null) === 'payable' ? 'Eski borç (sen borçlusun)' : 'Eski alacak (o sana borçlu)',
             $kind === ExpenseExtractor::KIND_PAYMENT && ($d['payment_purpose'] ?? null) === 'loan' => 'Borç verdin',
+            $kind === ExpenseExtractor::KIND_PAYMENT && ($d['payment_purpose'] ?? null) === 'on_behalf' => 'Onun adına ödedin',
             $kind === ExpenseExtractor::KIND_PAYMENT && ! empty($d['advance']) => 'Ödeme (avans)',
             $kind === ExpenseExtractor::KIND_PAYMENT => 'Ödeme',
             $kind === ExpenseExtractor::KIND_COLLECTION => ($d['payment_purpose'] ?? null) === 'advance' ? 'Peşin para aldın (avans)' : 'Tahsilat',

@@ -30,7 +30,7 @@ final class OperationAdapter
 
     public const PAYMENT_TYPES = ['cash', 'eft', 'bank_transfer', 'check', 'promissory_note', 'other'];
 
-    public const PURPOSES = ['debt', 'advance', 'loan'];
+    public const PURPOSES = ['debt', 'advance', 'loan', 'on_behalf'];
 
     /**
      * @return array{draft: ?array, issues: list<string>, warnings: list<string>}
@@ -125,7 +125,7 @@ final class OperationAdapter
                     $purpose = 'debt'; // kayıtlı borcu var ve ödeme ona sığıyor
                 } else {
                     $issues[] = ($party ? $party->name . ' için kayıtlı borç ' . Money::format($owed) . ' ₺' : 'Bu kişi yeni, kayıtlı borç yok')
-                        . '; ' . Money::format($amount) . ' ₺ ödeme bunu aşıyor. purpose ver: "advance" (önden/avans — iş/mal sonra), "loan" (borç verdim), '
+                        . '; ' . Money::format($amount) . ' ₺ ödeme bunu aşıyor. purpose ver: "advance" (önden/avans — iş/mal sonra), "loan" (borç verdim), "on_behalf" (onun adına başkasına ödedim — harç, fatura; hesabına yazılır), '
                         . '"debt" (eski/kayıtsız borcun ödemesi — o zaman ÖNCE eski borcu debt_note ile aynı öneride yaz). İş/mal şimdi alındıysa '
                         . 'payment değil kind "purchase" + paid=true. Kullanıcı söylemediyse sor.';
                 }
@@ -133,6 +133,9 @@ final class OperationAdapter
             if ($purpose === 'debt' && empty($d['agreement_id'])) {
                 // Kayıtlı borcu aşan "borç ödemesi" eski yolda sessizce eksik borcu yazıyordu — ajan yolunda açıkça önerilir.
                 $d['debt_repayment'] = true;
+            } elseif ($purpose === 'on_behalf') {
+                // Müşteri adına üçüncü kişiye ödeme (harç, fatura): o kişinin hesabına ödeme; maliyet değil, avans değil (OnBehalfChoice).
+                $d = array_merge($d, \App\Services\Whatsapp\OnBehalfChoice::onBehalf(), ['on_behalf_done' => true]);
             } elseif ($purpose !== null) {
                 $d['payment_purpose'] = $purpose;
                 $d['advance'] = true;

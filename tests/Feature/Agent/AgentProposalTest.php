@@ -177,6 +177,21 @@ class AgentProposalTest extends TestCase
         $this->assertNull(Party::where('name', 'Gürbüz')->first(), 'yeni kişi öneride açılmaz');
     }
 
+    /** Yıldız 02.11: "Emrah Acar'a 400.000 verdim" → eski yol "ne için?" sorusunu 4 kez sordu; doğrusu müşteri adına ödeme. */
+    public function test_payment_on_behalf_of_a_customer_goes_to_their_account(): void
+    {
+        $customer = Party::create(['name' => 'Adına Ödeme Müşterisi']);
+        PartyLedgerEntry::create(['party_id' => $customer->id, 'type' => 'satis', 'amount' => 100000, 'entry_date' => '2026-11-01']);
+
+        $r = $this->save('evet', $this->rec(['kind' => 'payment', 'party_id' => $customer->id, 'amount' => 8500, 'purpose' => 'on_behalf', 'description' => 'Tapu harcı']));
+        $this->assertTrue($r['ok'], $r['reason'] ?? '');
+        $this->assertStringContainsString('Onun adına ödedin — Adına Ödeme Müşterisi *8.500,00 ₺*', $r['card']);
+        $this->assertStringContainsString('sana borcu 100.000,00 → *108.500,00 ₺*', $r['card']);
+        $row = PartyLedgerEntry::where('party_id', $customer->id)->where('type', 'odeme')->sole();
+        $this->assertSame('Adına ödendi — Tapu harcı', $row->description);
+        $this->assertSame(0, Expense::where('description', 'like', '%Tapu harcı%')->count(), 'gider yazılmaz');
+    }
+
     public function test_cost_record_needs_a_place_and_never_guesses_it(): void
     {
         $party = $this->gurbuz();
