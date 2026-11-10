@@ -121,14 +121,28 @@ class AgentGateTest extends TestCase
 
     public function test_when_the_agent_declines_the_turn_the_old_path_answers_exactly_as_before(): void
     {
-        $off = $this->text($this->send('cariler'));
+        $off = $this->text($this->send('nasıl'));
 
         config(['modules.agent_live' => true]);
         $turn = Mockery::mock(AgentTurn::class);
         $turn->shouldReceive('prepare')->once()->andReturn(null);
         $this->app->instance(AgentTurn::class, $turn);
 
-        $this->assertSame($off, $this->text($this->send('cariler')));
+        $this->assertSame($off, $this->text($this->send('nasıl')));
+    }
+
+    public function test_photos_and_ready_commands_stay_on_the_old_path_even_when_the_agent_is_live(): void
+    {
+        config(['modules.agent_live' => true, 'services.anthropic.api_key' => 'x']);
+        $turn = Mockery::mock(AgentTurn::class);
+        $turn->shouldNotReceive('prepare');
+        $this->app->instance(AgentTurn::class, $turn);
+
+        foreach (['cariler', 'hatırlatmalarım', 'iptal 2', 'Çekler'] as $command) {
+            $this->assertStringContainsString('<Message>', $this->send($command)->assertOk()->getContent(), $command);
+        }
+        $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '', 'NumMedia' => 1, 'MediaUrl0' => 'https://example.test/x.jpg',
+            'MediaContentType0' => 'image/jpeg'])->assertOk();
     }
 
     public function test_shadow_sees_the_old_reply_and_a_shadow_failure_never_reaches_the_customer(): void

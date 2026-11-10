@@ -348,6 +348,24 @@ class WhatsappWebhookController extends Controller
     /** @var (\Closure(): list<string>)|null ajan asistanın bu mesaj için işi (plan v5) — istek kapandıktan sonra çalışır */
     private ?\Closure $agentWork = null;
 
+    /**
+     * Ajan canlı firmada da ESKİ YOLDA kalan mesajlar (10.11, herkese açılırken): fotoğraf/belge (çek, fiş, dekont, sözleşme sayfaları —
+     * ajanla henüz ölçülmedi; çok sayfa birleştirme ve çek okuma eski yolda) ve AI'sız hazır komutlar (anında, ücretsiz cevap).
+     */
+    private function staysOnOldPath(string $body, int $numMedia): bool
+    {
+        if ($numMedia > 0) {
+            return true;
+        }
+        $word = $this->word($body);
+
+        return in_array($word, ['hatırlatmalarım', 'hatırlatmalar', 'hatirlatmalarim', 'hatirlatmalar', 'hatırlatmalarımı göster',
+            'cari', 'cariler', 'carilerim', 'cari listesi', 'carim', 'kişiler', 'kişilerim', 'kişi listesi',
+            'çekler', 'cekler', 'çeklerim', 'ceklerim', 'yenilikler'], true)
+            || preg_match('/^iptal\s+\d{1,2}$/u', $word) === 1
+            || DailyNudge::toggleWord($word) !== null;
+    }
+
     /** Gelen isteğin alanları — ajan mesajı eski asistana devrederse aynı mesaj bunlarla eski yolda işlenir. */
     private array $agentInput = [];
 
@@ -724,6 +742,7 @@ class WhatsappWebhookController extends Controller
         // Ajan asistan (plan v5): firma "ajan canlı" ise tur ajana gider. null = ajan bu turu almadı → eski yol aynen işler.
         // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
         if (AgentGate::live() && ! $request->attributes->get('queued') && (string) $request->input('ButtonPayload', '') === ''
+            && ! $this->staysOnOldPath($body, $numMedia)
             && ($work = app(AgentTurn::class)->prepare($phone, $body, $numMedia, fn () => $this->downloadMedia($request), $this->inboundMessageId)) !== null) {
             $this->inboundKind = 'agent';
             $this->agentWork = $work; // Twilio'ya boş cevap; ajan istek kapandıktan sonra çalışır, cevabı API ile gider (runAgentAfterResponse)
