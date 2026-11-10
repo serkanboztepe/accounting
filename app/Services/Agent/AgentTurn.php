@@ -49,11 +49,19 @@ class AgentTurn
     public function run(string $phone, string $body, ?array $media, ?int $messageId = null): array
     {
         $toolbox = new AgentToolbox($phone, $body);
+        // Son gönderilen belge 30 dk akılda: sonraki turda ("Yusuf'a verdim") ajan görseli yeniden görür.
+        $mediaKey = Tenancy::key('agent-media:' . sha1($phone));
+        $earlier = null;
+        if ($media !== null) {
+            Cache::put($mediaKey, $media, now()->addMinutes(30));
+        } else {
+            $earlier = Cache::get($mediaKey);
+        }
         $log = ['mode' => AgentGate::LIVE, 'phone' => $phone, 'message' => $body, 'has_media' => $media !== null];
         try {
             $result = app(AgentRunner::class)->run(
                 AgentContext::system($phone),
-                AgentContext::messages($phone, $body, $media, $messageId),
+                AgentContext::messages($phone, $body, $media, $messageId, is_array($earlier) ? $earlier : null),
                 $toolbox,
                 AgentContext::state($phone),
                 self::effort($phone, $body, $media !== null),
@@ -66,6 +74,9 @@ class AgentTurn
                 AgentProposal::markSent((int) $toolbox->outcome['proposal_id']); // kart bu cevapla gidiyor
             }
             Cache::forget(self::breakerKey($phone));
+            if ($toolbox->outcome['confirmed'] !== null) {
+                Cache::forget($mediaKey); // belgenin işi bitti
+            }
             AgentLog::write($log + ['model' => $result['model'], 'steps' => $result['steps'], 'stop' => $result['stop'], 'replies' => $replies,
                 'outcome' => $toolbox->outcome, 'usage' => $result['usage'], 'cost_usd' => $result['cost'], 'seconds' => $result['seconds']]);
 
@@ -85,10 +96,13 @@ class AgentTurn
      * Müşteriye giden mesaj: rakamlı her şeyi KOD yazar (kart, onay metni, soru). Ajanın kendi cümlesi yalnız rakam taşımıyorsa
      * ve kısaysa yanına eklenir — kartla çelişen ikinci bir rakam müşteriye gitmesin.
      *
-     * @return list<string>
+     * @return list<string|array{0:string,1:string}>
      */
     public static function replies(string $agentText, array $outcome): array
     {
+        if (! empty($outcome['media'])) {
+            return [$outcome['media']]; // [metin, PDF bağlantısı] — kontrolcü ek olarak gönderir
+        }
         $agentText = trim($agentText);
         $fixed = $outcome['confirmed'] ?? $outcome['question'] ?? $outcome['card'] ?? null;
         if ($fixed === null) {

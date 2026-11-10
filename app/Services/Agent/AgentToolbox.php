@@ -18,8 +18,8 @@ use App\Tenancy\Tenancy;
  */
 final class AgentToolbox
 {
-    /** @var array{card: ?string, proposal_id: ?int, confirmed: ?string, question: ?string, cancelled: bool, notes: list<string>, handover: ?string} */
-    public array $outcome = ['card' => null, 'proposal_id' => null, 'confirmed' => null, 'question' => null, 'cancelled' => false, 'notes' => [], 'handover' => null];
+    /** @var array{card: ?string, proposal_id: ?int, confirmed: ?string, question: ?string, cancelled: bool, notes: list<string>, handover: ?string, media: ?array{0:string,1:string}} */
+    public array $outcome = ['card' => null, 'proposal_id' => null, 'confirmed' => null, 'question' => null, 'cancelled' => false, 'notes' => [], 'handover' => null, 'media' => null];
 
     public function __construct(private string $phone, private string $rawMessage, private bool $shadow = false) {}
 
@@ -36,7 +36,10 @@ final class AgentToolbox
                         . 'trade_purchase = ÜRÜNLER\'deki malın alışı, stoğa girer (items) · stock_count = sayım ("un 9 kaldı") · stock_setting = günlük kullanım / uyarı eşiği / alış fiyatı · '
                         . 'product_add = yeni ürün kartı · production = kendi ürettiğin mal stoğa girer · salary = personele maaş ödemesi ya da maaştan kesinti · '
                         . 'employee_setting = personel kaydı / maaşı / maaş günü · reminder = hatırlatma kur ya da değiştir · recurring_expense = düzenli gider (her gün/hafta/ay) · '
-                        . 'recurring_stop = düzenli gideri durdur. Ürünlü ve personelli türler yalnız o özelliği açık işletmede çalışır; kapalıysa sistem söyler.'],
+                        . 'recurring_stop = düzenli gideri durdur · agreement = kişiyle ileride gelecek mal/iş için anlaşma (agreement_items, agreement_payments, yön) · '
+                        . 'agreement_delivery = açık anlaşmadan mal geldi / iş yapıldı (delivery_lines; AÇIK ANLAŞMALAR\'daki kalem id\'leri). '
+                        . 'Ürünlü, personelli ve anlaşmalı türler yalnız o özelliği açık işletmede çalışır; kapalıysa sistem söyler. '
+                        . 'ÇEK: payment / collection (ya da ödenmiş purchase / sale) kaydına `checks` (tek tek: no, vade, tutar) ya da `check_plan` (kural: "3 çek aylık") ekle.'],
                 'amount' => ['type' => 'number', 'description' => 'TL, tam tutar (120 bin → 120000)'],
                 'party_id' => ['type' => ['integer', 'null'], 'description' => 'Kayıtlı kişi (KİŞİLER listesi / find_party)'],
                 'party_name' => ['type' => ['string', 'null'], 'description' => 'Kişi kayıtlı değilse adı, müşterinin yazdığı gibi'],
@@ -56,6 +59,10 @@ final class AgentToolbox
                 'due_date' => ['type' => ['string', 'null'], 'description' => 'Veresiye satış/alış/borçta ödeme günü söylendiyse YYYY-MM-DD'],
                 'agreement_id' => ['type' => ['integer', 'null'], 'description' => 'payment/collection belli bir anlaşma içinse (party_overview → anlaşmalar)'],
                 'allow_duplicate' => ['type' => ['boolean', 'null'], 'description' => 'true: aynı kişi/tutar yakın günde var ama müşteri AYRI ödeme olduğunu söyledi'],
+                'total_ok' => ['type' => ['boolean', 'null'], 'description' => 'agreement: sistem "kalemlerin toplamı belgedeki toplamla tutmuyor" dedi ve müşteri kalemlerin doğru olduğunu söyledi'],
+                'payments_skipped' => ['type' => ['boolean', 'null'], 'description' => 'agreement: sistem ödeme tutarlarını sordu ve müşteri ödeme olmadığını / geçilmesini söyledi'],
+                'replace' => ['type' => ['string', 'null'], 'enum' => ['replace', 'separate', null], 'description' => 'agreement: aynı kişiyle açık anlaşma varken — replace = eskisinin yerine (eskiler kapanır) · separate = ayrı anlaşma (müşteri söylediyse)'],
+                'past_checks' => ['type' => ['string', 'null'], 'enum' => ['paid', 'pending', null], 'description' => 'agreement: vadesi geçmiş çekler için müşteri cevabı — paid = ödendi · pending = bekliyor'],
             ],
             'required' => ['kind'],
         ];
@@ -83,13 +90,22 @@ final class AgentToolbox
                             'properties' => [
                                 'type' => ['type' => 'string', 'enum' => AgentProposal::OP_TYPES,
                                     'description' => 'record = yeni kayıt (entry) · delete = kayıt sil (refs) · edit = kaydı düzelt (ref + entry: doğru hâlinin TAMAMI) · '
-                                        . 'target_balance = "X kaldı / X borcum var": kayıtla karşılaştır (party_id, side, amount, reason)'],
+                                        . 'target_balance = "X kaldı / X borcum var": kayıtla karşılaştır (party_id, side, amount, reason) · '
+                                        . 'check_cleared = bekleyen çek ödendi / tahsil edildi (check_ids; yeni para kaydı yazılmaz) · '
+                                        . 'return = iade: sattığımız mal geri geldi / aldığımız mal geri verildi (party, text, side, quantity, amount, money_back)'],
                                 'entry' => $entry,
                                 'refs' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'delete: silinecek kayıtların ref\'leri (ör. "ledger:12")'],
                                 'ref' => ['type' => ['string', 'null'], 'description' => 'edit: düzeltilecek kaydın ref\'i'],
                                 'party_id' => ['type' => ['integer', 'null'], 'description' => 'target_balance: kişi'],
-                                'side' => ['type' => ['string', 'null'], 'enum' => ['we_owe', 'they_owe', 'closed', null], 'description' => 'target_balance: müşterinin söylediği durum'],
-                                'amount' => ['type' => ['number', 'null'], 'description' => 'target_balance: söylenen kalan tutar'],
+                                'side' => ['type' => ['string', 'null'], 'enum' => ['we_owe', 'they_owe', 'closed', 'sale', 'purchase', null],
+                                    'description' => 'target_balance: we_owe / they_owe / closed (müşterinin söylediği durum) · return: sale = bizim sattığımız geri geldi, purchase = bizim aldığımız geri gitti'],
+                                'amount' => ['type' => ['number', 'null'], 'description' => 'target_balance: söylenen kalan tutar · return: iade tutarı (yalnız söylendiyse)'],
+                                'check_ids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'check_cleared: çek id\'leri (party_overview → açık_çekler ya da report open_checks)'],
+                                'party' => ['type' => ['string', 'null'], 'description' => 'return: kime satılmıştı / kimden alınmıştı (kayıtlı ad)'],
+                                'text' => ['type' => ['string', 'null'], 'description' => 'return: mal adı ya da açıklamadaki kelime ("yem", "süt")'],
+                                'date' => ['type' => ['string', 'null'], 'description' => 'return: asıl satış/alış tarihi söylendiyse YYYY-MM-DD'],
+                                'quantity' => ['type' => ['number', 'null'], 'description' => 'return: geri gelen/giden miktar; söylenmediyse null (tamamı)'],
+                                'money_back' => ['type' => ['boolean', 'null'], 'description' => 'return: true = parası da geri verildi/alındı'],
                                 'reason' => ['type' => ['string', 'null'], 'enum' => ['payment', 'old_debt', null],
                                     'description' => 'target_balance, fark varsa ve müşteri sebebini söylediyse: payment = yazılmamış ödeme/tahsilat · old_debt = eski borç farklıydı'],
                             ],
@@ -124,11 +140,19 @@ final class AgentToolbox
                 ],
             ],
             [
+                'name' => 'send_statement',
+                'description' => 'Bir kişinin hesap dökümünü (ekstre) PDF olarak müşteriye gönder ve turu bitir: "Ahmet ekstre", "Yakup taş extra getir", "hesap dökümü". '
+                    . 'Yalnız bakiye sorulduysa (PDF istenmediyse) party_overview ile cevap ver.',
+                'input_schema' => ['type' => 'object', 'properties' => [
+                    'party_id' => ['type' => 'integer'],
+                    'date_from' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD (dönem söylendiyse)'],
+                    'date_to' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD'],
+                ], 'required' => ['party_id']],
+            ],
+            [
                 'name' => 'hand_over',
-                'description' => 'Bu mesajı ESKİ ASİSTANA devret ve turu bitir. Yalnız senin `propose` ile yazamadığın işler için: anlaşma/sözleşme ve anlaşmadan teslim, '
-                    . 'çek (çek verdim/aldım, çek ödendi/tahsil edildi), iade, ekstre/hesap dökümü PDF\'i isteme ("ekstre getir"), stokta ne kadar kaldığı sorusu. '
-                    . 'Müşteriye bir şey yazma; cevabı eski asistan verir. Bunların dışındaki her şey SENİN işin (para, borç-alacak, gider, ürünlü satış-alış, kasa, '
-                    . 'stok sayımı, maaş, personel, hatırlatma, düzenli gider, sil/düzelt, sorular) — onları devretme.',
+                'description' => 'SON ÇARE: bu mesajı eski asistana devret ve turu bitir. Artık her işi kendin yapabiliyorsun; bunu yalnız `propose` bir işi iki denemede de '
+                    . 'kabul etmediyse ve bulgudan nasıl düzelteceğin çıkmıyorsa kullan. Normal işlerde (para, ürün, kasa, stok, maaş, hatırlatma, anlaşma, çek, iade, ekstre) devretme.',
                 'input_schema' => ['type' => 'object', 'properties' => ['reason' => ['type' => 'string', 'description' => 'Kısaca hangi iş (ör. "maaş ödemesi", "hatırlatma")']], 'required' => ['reason']],
             ],
             [
@@ -163,6 +187,7 @@ final class AgentToolbox
             'ask' => $this->ask($input),
             'remember' => $this->remember($input),
             'hand_over' => $this->handOver($input),
+            'send_statement' => $this->sendStatement($input),
             default => ['hata' => 'Böyle bir araç yok: ' . $name],
         };
     }
@@ -170,7 +195,7 @@ final class AgentToolbox
     /** Tur bitti mi (müşteriye gidecek kesin bir şey oluştu): soru soruldu ya da onay verildi. */
     public function finished(): bool
     {
-        return $this->outcome['question'] !== null || $this->outcome['confirmed'] !== null || $this->outcome['handover'] !== null;
+        return $this->outcome['question'] !== null || $this->outcome['confirmed'] !== null || $this->outcome['handover'] !== null || $this->outcome['media'] !== null;
     }
 
     private function propose(array $in): array
@@ -245,6 +270,34 @@ final class AgentToolbox
         $this->outcome['question'] = $text;
 
         return ['soruldu' => true, 'not' => 'Soru müşteriye gidiyor; tur bitti.'];
+    }
+
+    /** Ekstre PDF'i: eski yolla aynı imzalı, 10 dakikalık bağlantı; metni ve bakiyeyi kod yazar. */
+    private function sendStatement(array $in): array
+    {
+        $party = Party::find((int) ($in['party_id'] ?? 0));
+        if (! $party) {
+            return ['hata' => 'Bu id ile kişi yok — find_party ile bul.'];
+        }
+        $date = fn ($v) => is_string($v) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
+        $filters = array_filter(['date_from' => $date($in['date_from'] ?? null), 'date_to' => $date($in['date_to'] ?? null)]);
+        $balance = (float) \App\Support\PartyStatement::build($party, $filters)['balance'];
+        $lines = ['📄 ' . $party->name . ' — Hesap Dökümü'];
+        if ($filters !== []) {
+            $lines[] = 'Dönem: ' . ($filters['date_from'] ?? '…') . ' – ' . ($filters['date_to'] ?? '…');
+        }
+        $lines[] = \App\Support\PartyBalances::line((string) $party->name, $balance);
+        if ($this->shadow) {
+            return ['gölge' => 'Ekstre gölge modunda gönderilmez.'];
+        }
+        $url = \Illuminate\Support\Facades\URL::temporarySignedRoute('whatsapp.statement.pdf', now()->addMinutes(10), [
+            'party' => $party->id,
+            'file' => 'Ekstre-' . (\Illuminate\Support\Str::slug($party->name) ?: $party->id) . '.pdf',
+            'detailed' => 1,
+        ] + $filters + array_filter(['firm' => Tenancy::current()?->id]));
+        $this->outcome['media'] = [implode("\n", $lines), $url];
+
+        return ['gönderildi' => true, 'not' => 'PDF müşteriye gidiyor; tur bitti.'];
     }
 
     private function handOver(array $in): array

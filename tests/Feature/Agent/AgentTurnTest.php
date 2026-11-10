@@ -373,7 +373,7 @@ class AgentTurnTest extends TestCase
     public function test_tool_definitions_are_stable_and_valid(): void
     {
         $tools = AgentToolbox::definitions();
-        $this->assertSame(['find_party', 'party_overview', 'records', 'report', 'search_conversations', 'sql_select', 'propose', 'confirm', 'cancel', 'ask', 'hand_over', 'remember'],
+        $this->assertSame(['find_party', 'party_overview', 'records', 'report', 'search_conversations', 'sql_select', 'propose', 'confirm', 'cancel', 'ask', 'send_statement', 'hand_over', 'remember'],
             array_column($tools, 'name'));
         $this->assertSame(json_encode($tools), json_encode(AgentToolbox::definitions()), 'önbellek için bayt bayt aynı');
         foreach ($tools as $tool) {

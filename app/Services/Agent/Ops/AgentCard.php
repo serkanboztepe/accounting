@@ -87,7 +87,7 @@ final class AgentCard
         $shown = implode("\n", $out);
         foreach ($balances as $b) {
             // Eski kart bakiyeyi zaten gösteriyorsa ("Bakiye: …") ikinci kez yazılmaz.
-            if ($rawLines !== [] && (mb_stripos($shown, 'bakiye') !== false || mb_stripos($shown, 'borçlu') !== false
+            if ($rawLines !== [] && (mb_stripos($shown, 'bakiye') !== false || mb_stripos($shown, 'borçlu') !== false || mb_stripos($shown, 'Sonra') !== false
                 || abs($b['before'] - $b['after']) < 0.01)) {
                 continue;
             }

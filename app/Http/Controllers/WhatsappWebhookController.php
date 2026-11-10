@@ -354,8 +354,11 @@ class WhatsappWebhookController extends Controller
      */
     private function staysOnOldPath(string $body, int $numMedia): bool
     {
+        // Fotoğraf / PDF ajana gider (görseli kendisi okur). Ses, video ve başka dosyalar eski yolda ("okuyamıyorum" cevabı).
         if ($numMedia > 0) {
-            return true;
+            $type = (string) request()->input('MediaContentType0', '');
+
+            return ! (str_starts_with($type, 'image/') || $type === 'application/pdf');
         }
         $word = $this->word($body);
 

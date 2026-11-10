@@ -400,7 +400,7 @@ class AgentProposalTest extends TestCase
     {
         $this->assertFalse($this->propose()['ok']);
         $this->assertStringContainsString('type', $this->propose(['type' => 'sql', 'x' => 1])['issues'][0]);
-        $this->assertStringContainsString('kind', $this->propose($this->rec(['kind' => 'agreement', 'amount' => 5]))['issues'][0]);
+        $this->assertStringContainsString('kind', $this->propose($this->rec(['kind' => 'balance_query', 'amount' => 5]))['issues'][0]);
         $this->assertStringContainsString('açık değil', $this->propose($this->rec(['kind' => 'trade_sale', 'amount' => 5]))['issues'][0], 'stoksuz işletmede ürünlü satış');
         $this->assertStringContainsString('date', $this->propose($this->rec(['kind' => 'expense', 'amount' => 5, 'date' => '9 Kasım']))['issues'][0]);
         $this->assertStringContainsString('kayıtlı değil', $this->propose($this->rec(['kind' => 'payment', 'amount' => 5, 'party_id' => 999999999]))['issues'][0]);

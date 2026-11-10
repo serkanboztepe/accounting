@@ -28,7 +28,7 @@ use RuntimeException;
  */
 final class AgentProposal
 {
-    public const OP_TYPES = ['record', 'delete', 'edit', 'target_balance'];
+    public const OP_TYPES = ['record', 'delete', 'edit', 'target_balance', 'check_cleared', 'return'];
 
     /**
      * @param  list<array<string, mixed>>  $ops
@@ -225,6 +225,8 @@ final class AgentProposal
                 'delete' => self::applyDelete($s, (array) ($op['refs'] ?? [])),
                 'edit' => self::applyEdit($s, $phone, $op, $sourceText),
                 'target_balance' => self::applyTarget($s, $phone, $op, $sourceText),
+                'check_cleared' => self::applyCheckCleared($s, $phone, (array) ($op['check_ids'] ?? []), $sourceText),
+                'return' => self::applyReturn($s, $phone, $op, $sourceText),
                 default => ['type şunlardan biri olmalı: ' . implode(', ', self::OP_TYPES) . '.'],
             };
             if ($issues !== []) {
@@ -421,6 +423,88 @@ final class AgentProposal
 
         return self::applyRecord($s, $phone, ['kind' => ExpenseExtractor::KIND_DEBT_NOTE, 'party_id' => $party->id, 'amount' => abs($diff),
             'debt_side' => $payable ? 'payable' : 'receivable', 'description' => 'eski borç düzeltmesi', 'date' => $op['date'] ?? null], $sourceText);
+    }
+
+    /**
+     * Vadesi gelen çek ödendi / tahsil edildi: yeni para kaydı YAZILMAZ (para çek verildiği / alındığı gün işlendi), çek işaretlenir.
+     *
+     * @return list<string>
+     */
+    private static function applyCheckCleared(array &$s, string $phone, array $ids, string $sourceText): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if ($ids === []) {
+            return ['check_ids boş — bekleyen çekleri party_overview (açık_çekler) ya da report kind=open_checks ile bul.'];
+        }
+        $checks = \App\Models\Check::with('party')->whereKey($ids)->get();
+        $closed = $checks->reject(fn ($c) => in_array($c->status, ['issued', 'portfolio'], true));
+        if ($checks->count() !== count($ids) || $closed->isNotEmpty()) {
+            return ['Bu çeklerden bazıları yok ya da zaten işaretlenmiş (' . implode(', ', array_diff($ids, $checks->pluck('id')->all()) + $closed->pluck('id')->all()) . '). Bekleyen çekleri yeniden oku.'];
+        }
+        foreach ($checks as $check) {
+            self::touch($s, $check->party_id ? (int) $check->party_id : null);
+            $given = $check->status === 'issued';
+            $s['lines'][] = '🧾 ' . \App\Support\CheckSettleMatch::line($check) . ' → *' . \App\Support\CheckSettleMatch::doneWord($given
+                ? \App\Support\CheckSettleMatch::GIVEN : \App\Support\CheckSettleMatch::RECEIVED) . '* olarak işaretlenecek';
+            $s['old_amounts'][] = (float) $check->amount;
+        }
+        $s['notes'][] = 'Çek işaretlenince bakiye değişmez — para çek verildiğinde / alındığında işlenmişti.';
+        $d = ['kind' => 'check_cleared', 'check_ids' => $ids, 'chosen' => true, 'amount' => (float) $checks->sum('amount'),
+            'description' => 'Çek işaretleme', 'confidence' => 'high', 'question' => null, 'source' => 'agent'];
+        $child = WhatsappPendingExpense::create(['phone' => $phone, 'extracted' => $d, 'summary' => 'Çek işaretleme', 'status' => 'awaiting_confirmation']);
+        $done = app(WhatsappWebhookController::class)->agentCommit($child, $sourceText);
+        if ($done['status'] !== 'confirmed') {
+            $child->delete();
+
+            return [trim(str_replace(['*', '❓'], '', $done['text']))];
+        }
+        $s['texts'][] = trim($done['text']);
+        $s['raw_lines'][count($s['lines']) - 1] = true;
+
+        return [];
+    }
+
+    /**
+     * İade: satılan mal geri geldi / alınan mal geri verildi. Asıl kayıt durur, yanına iade yazılır — kaydı bulma, miktar/tutar hesabı
+     * ve stok/bakiye etkisi eski yolun ReturnDraft'ından.
+     *
+     * @return list<string>
+     */
+    private static function applyReturn(array &$s, string $phone, array $op, string $sourceText): array
+    {
+        $r = array_filter([
+            'party' => is_string($op['party'] ?? null) ? trim($op['party']) : null,
+            'text' => is_string($op['text'] ?? null) ? trim($op['text']) : null,
+            'date' => is_string($op['date'] ?? null) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $op['date']) ? $op['date'] : null,
+            'side' => in_array($op['side'] ?? null, ['sale', 'purchase'], true) ? $op['side'] : null,
+            'quantity' => isset($op['quantity']) && (float) $op['quantity'] > 0 ? (float) $op['quantity'] : null,
+            'amount' => isset($op['amount']) && (float) $op['amount'] > 0 ? (float) $op['amount'] : null,
+            'money_back' => ! empty($op['money_back']) ? true : null,
+        ], fn ($v) => $v !== null && $v !== '');
+        $before = (int) WhatsappPendingExpense::max('id');
+        $text = \App\Services\Whatsapp\ReturnDraft::propose(null, $phone, $r);
+        $child = WhatsappPendingExpense::where('id', '>', $before)->where('phone', $phone)->where('status', 'awaiting_confirmation')->latest('id')->first();
+        if (! $child || ($child->extracted['kind'] ?? null) !== \App\Services\Whatsapp\ReturnDraft::KIND) {
+            return [trim(str_replace(['*', '❓'], '', $text))]; // kayıt bulunamadı / hangisi diye soruyor
+        }
+        $partyId = ! empty($child->extracted['party_id']) ? (int) $child->extracted['party_id'] : null;
+        self::touch($s, $partyId);
+        $summary = (string) $child->summary;
+        $done = app(WhatsappWebhookController::class)->agentCommit($child, $sourceText);
+        if ($done['status'] !== 'confirmed') {
+            $child->delete();
+
+            return [trim(str_replace(['*', '❓'], '', $done['text']))];
+        }
+        $s['created'] = [...$s['created'], ...$done['created']];
+        $s['raw_lines'][count($s['lines'])] = true;
+        $s['lines'][] = $summary;
+        $s['texts'][] = trim($done['text']);
+        foreach (Numbers::in($summary) as $n) {
+            $s['old_amounts'][] = $n;
+        }
+
+        return [];
     }
 
     // ── Yardımcılar ───────────────────────────────────────────────────────────────────────────

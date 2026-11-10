@@ -16,7 +16,7 @@ use Illuminate\Support\Carbon;
  */
 final class Report
 {
-    public const KINDS = ['period', 'place', 'project_cost', 'receivables', 'payables'];
+    public const KINDS = ['period', 'place', 'project_cost', 'receivables', 'payables', 'open_checks', 'stock'];
 
     public static function tool(): array
     {
@@ -27,6 +27,8 @@ final class Report
                 . 'place = bir yerin sezon/baştan bugüne sonucu (çiftlik, tarla, ahır). '
                 . 'project_cost = bir projenin/şantiyenin maliyeti (gider + alış + alışı yazılmamış ödeme); project_id yoksa firma geneli ve proje proje döküm. '
                 . 'receivables = bize borçlu olanlar + toplam alacak. payables = bizim borçlu olduklarımız + toplam borç (alacakla netleştirilmez). '
+                . 'open_checks = bekleyen çekler (verdiğimiz ve aldığımız; id, kişi, vade, tutar) — "çek ödendi" işaretlemeden önce buradan bul. '
+                . 'stock = stokta ne kadar var (product_id verilirse o ürün, yoksa hepsi). '
                 . 'Tek kişinin hesabı için party_overview, liste/ayrıntı için records kullan.',
             'input_schema' => [
                 'type' => 'object',
@@ -35,6 +37,7 @@ final class Report
                     'date_from' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD (period için; tek gün ise ikisi aynı)'],
                     'date_to' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD'],
                     'project_id' => ['type' => ['integer', 'null'], 'description' => 'PROJELER/ŞUBELER/YERLER listesinden'],
+                    'product_id' => ['type' => ['integer', 'null'], 'description' => 'stock için: ÜRÜNLER listesinden; yoksa tüm ürünler'],
                 ],
                 'required' => ['kind'],
             ],
@@ -55,6 +58,9 @@ final class Report
             'project_cost' => self::projectCost($project),
             'receivables' => self::balances(true),
             'payables' => self::balances(false),
+            'open_checks' => self::openChecks(),
+            'stock' => ['stok' => \App\Support\Features::stock()
+                ? \App\Services\Whatsapp\TradeDraft::stockAnswer(! empty($in['product_id']) ? (int) $in['product_id'] : null) : 'Bu işletmede stok takibi açık değil.'],
             default => ['hata' => 'kind şunlardan biri olmalı: ' . implode(', ', self::KINDS)],
         };
     }
@@ -137,6 +143,16 @@ final class Report
                 'toplam_maliyet' => round(ProjectCost::total($p->id), 2)])->all(),
             'not' => 'Firma geneli projesiz kayıtları da içerir; projelerin toplamından büyük olabilir.',
         ];
+    }
+
+    private static function openChecks(): array
+    {
+        $checks = \App\Models\Check::with('party')->whereIn('status', ['issued', 'portfolio'])->orderBy('due_date')->limit(60)->get();
+
+        return ['bekleyen_çek' => $checks->count(), 'liste' => $checks->map(fn ($c) => array_filter([
+            'id' => $c->id, 'kişi' => $c->party?->name, 'yön' => $c->status === 'issued' ? 'biz verdik (ödenecek)' : 'biz aldık (tahsil edilecek)',
+            'vade' => $c->due_date?->toDateString(), 'tutar' => round((float) $c->amount, 2), 'no' => $c->check_number,
+        ], fn ($v) => $v !== null))->all(), 'not' => 'İşaretlemek için propose → type check_cleared, check_ids. Bakiye değişmez.'];
     }
 
     private static function balances(bool $receivable): array

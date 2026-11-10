@@ -118,7 +118,10 @@ class AgentEvalTest extends TestCase
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 999 00 77'],
             'services.twilio.sid' => 'ACeval', 'services.twilio.token' => 'tok', 'services.whatsapp.from' => '+10000000000',
             'services.whatsapp.agent' => 'on', 'agent.log_path' => $this->logDir, 'agent.daily_cost_usd' => 1000]);
-        Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SMeval'], 201), 'messaging.twilio.com/*' => Http::response([], 200)]);
+        $media = ! empty($case['first_media']) ? __DIR__ . '/fixtures/' . $case['first_media'] : null;
+        $mime = $media && str_ends_with($media, '.pdf') ? 'application/pdf' : 'image/jpeg';
+        Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SMeval'], 201), 'messaging.twilio.com/*' => Http::response([], 200),
+            'media.eval/*' => fn () => Http::response((string) file_get_contents((string) $media), 200, ['Content-Type' => $mime])]);
         Cache::flush();
         $this->travelTo(\Illuminate\Support\Carbon::parse($case['now'], 'Europe/Istanbul')->setTimezone(config('app.timezone')));
         WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
@@ -136,7 +139,8 @@ class AgentEvalTest extends TestCase
         $message = $case['first'];
         for ($turn = 1; $turn <= $maxTurns && $message !== null; $turn++) {
             $lastId = (int) WhatsappMessage::max('id');
-            $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => $message, 'NumMedia' => 0, 'MessageSid' => 'SM' . uniqid()])->assertOk();
+            $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => $message, 'MessageSid' => 'SM' . uniqid()] + ($turn === 1 && $media
+                ? ['NumMedia' => 1, 'MediaUrl0' => 'https://media.eval/belge', 'MediaContentType0' => $mime] : ['NumMedia' => 0]))->assertOk();
             (fn () => $this->terminatingCallbacks = [])->call($this->app);
             $reply = WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'out')->where('id', '>', $lastId)
                 ->orderBy('id')->pluck('body')->implode("\n---\n");
@@ -180,7 +184,6 @@ class AgentEvalTest extends TestCase
                 PartyLedgerEntry::create(['party_id' => $ids[$name], 'notes' => 'eval'] + $row);
             }
         }
-        $this->baseline = ['sales' => (int) \App\Models\Sale::max('id'), 'reminders' => (int) \App\Models\Reminder::max('id')];
         foreach ($state['parties'] ?? [] as $name => $rows) {
             $party = Party::create(['name' => $name]);
             $ids[$name] = $party->id;
@@ -189,6 +192,20 @@ class AgentEvalTest extends TestCase
             }
         }
 
+        foreach ($state['agreements'] ?? [] as $a) {
+            $ag = \App\Models\Agreement::create(['party_id' => $ids[$a['party']] ?? Party::firstOrCreate(['name' => $a['party']])->id, 'direction' => $a['direction'] ?? 'purchase',
+                'title' => $a['title'], 'agreement_date' => $a['date'], 'status' => 'open']);
+            foreach ($a['items'] as $i => $item) {
+                $product = \App\Models\Product::firstOrCreate(['name' => $item['name']], ['type' => \App\Models\Product::TYPE_SERVICE, 'is_active' => true]);
+                $ag->items()->create(['product_id' => $product->id, 'quantity' => $item['quantity'], 'unit_price' => $item['unit_price'],
+                    'amount' => $item['quantity'] * $item['unit_price'], 'is_lump' => false, 'sort' => $i]);
+            }
+        }
+        foreach ($state['checks'] ?? [] as $c) {
+            \App\Models\Check::create(['party_id' => Party::where('name', $c['party'])->value('id'), 'amount' => $c['amount'], 'due_date' => $c['due'],
+                'issue_date' => $c['issued'] ?? $c['due'], 'status' => $c['status'] ?? 'issued', 'notes' => 'eval']);
+        }
+        $this->baseline = ['sales' => (int) \App\Models\Sale::max('id'), 'reminders' => (int) \App\Models\Reminder::max('id')];
         return $ids;
     }
 
@@ -239,6 +256,12 @@ class AgentEvalTest extends TestCase
             'sales' => \App\Models\Sale::where('id', '>', $this->baseline['sales'])->get()->map(fn ($x) => [(float) $x->total_amount, $x->party_id !== null])->all(),
             'reminders' => \App\Models\Reminder::where('id', '>', $this->baseline['reminders'])->get()
                 ->map(fn ($x) => [(string) $x->text, $x->next_fire_at?->timezone('Europe/Istanbul')->format('Y-m-d H:i'), $x->amount !== null ? (float) $x->amount : null])->all(),
+            'checks' => \App\Models\Check::where('updated_at', '>=', now()->subDay())->get()
+                ->map(fn ($c) => [$c->status, (float) $c->amount, $c->due_date?->toDateString()])->all(),
+            'check_numbers' => \App\Models\Check::where('created_at', '>=', now()->subDay())->pluck('check_number')->filter()->values()->all(),
+            'agreements' => \App\Models\Agreement::where('created_at', '>=', now()->subDay())->with('items')->get()
+                ->map(fn ($a) => [$a->direction, round((float) $a->agreedTotal(), 2)])->all(),
+            'pdf_sent' => collect(Http::recorded(fn ($r) => str_contains($r->url(), 'api.twilio.com') && ! empty($r['MediaUrl'])))->count(),
             'employees' => Party::where('is_employee', true)->where('updated_at', '>=', now()->subDay())->get()
                 ->mapWithKeys(fn ($p) => [$p->name => [(float) $p->salary_amount, (int) $p->salary_day]])->all(),
             'expenses' => Expense::where('notes', 'like', 'WhatsApp%')->where('created_at', '>=', now()->subDay())->get()
@@ -253,6 +276,7 @@ class AgentEvalTest extends TestCase
      *   no_party_like: [ad parçası, …]              (böyle bir kişi açılmamalı)
      *   expenses: [tutar, …]                        (WhatsApp'tan yazılan giderler, sırasız)
      *   sales_total: n (yeni satış belgeleri toplamı) · reminder_at: 'Y-m-d H:i' · employees: [ad parçası => [maaş, gün]]
+     *   checks: [[durum, tutar, vade]…] (bugün değişen çekler) · agreement_total: n · pdf: true (ekstre PDF'i gitti)
      *   handover: true                              (ajan bu işi eski asistana devretmeli; yoksa devretmemeli)
      *   max_turns: n · reply_must_contain: [metin…] (herhangi bir asistan cevabında) · reply_must_not_contain: […]
      *
@@ -298,6 +322,22 @@ class AgentEvalTest extends TestCase
         foreach ($expect['employees'] ?? [] as $like => $want) {
             $hit = collect($state['employees'])->first(fn ($v, $name) => str_contains(ReplayScore::fold($name), ReplayScore::fold($like)));
             $checks["personel:$like"] = $hit === $want ? true : 'olan ' . json_encode($hit);
+        }
+        if (isset($expect['checks'])) {
+            $have = collect($state['checks'])->map(fn ($c) => implode('|', $c))->sort()->values()->all();
+            $want = collect($expect['checks'])->map(fn ($c) => implode('|', [$c[0], (float) $c[1], $c[2]]))->sort()->values()->all();
+            $checks['çekler'] = $have === $want ? true : 'beklenen ' . json_encode($want) . ', olan ' . json_encode($have);
+        }
+        if (isset($expect['check_numbers'])) {
+            $missing = array_values(array_diff($expect['check_numbers'], $state['check_numbers']));
+            $checks['çek_numaraları'] = $missing === [] && count($state['check_numbers']) === count($expect['check_numbers']) ? true
+                : 'eksik ' . json_encode($missing) . ', olan ' . json_encode($state['check_numbers']);
+        }
+        if (isset($expect['agreement_total'])) {
+            $checks['anlaşma'] = in_array((float) $expect['agreement_total'], array_column($state['agreements'], 1), false) ? true : 'olan ' . json_encode($state['agreements']);
+        }
+        if (! empty($expect['pdf'])) {
+            $checks['ekstre_pdf'] = $state['pdf_sent'] > 0 ? true : 'PDF gönderilmedi';
         }
         if (isset($expect['max_turns'])) {
             $checks['tur_sayısı'] = count($transcript) <= $expect['max_turns'] ? true : count($transcript) . ' tur (en çok ' . $expect['max_turns'] . ')';

@@ -131,16 +131,19 @@ class AgentGateTest extends TestCase
         $this->assertSame($off, $this->text($this->send('nasıl')));
     }
 
-    public function test_photos_and_ready_commands_stay_on_the_old_path_even_when_the_agent_is_live(): void
+    public function test_ready_commands_and_voice_stay_on_the_old_path_and_photos_go_to_the_agent(): void
     {
         config(['modules.agent_live' => true, 'services.anthropic.api_key' => 'x']);
         $turn = Mockery::mock(AgentTurn::class);
-        $turn->shouldNotReceive('prepare');
+        // Yalnız fotoğraf ajana sorulur (burada turu almaz → eski yol işler); komutlar ve ses ajana hiç uğramaz.
+        $turn->shouldReceive('prepare')->once()->withArgs(fn ($phone, $body, $numMedia) => $numMedia === 1)->andReturn(null);
         $this->app->instance(AgentTurn::class, $turn);
 
         foreach (['cariler', 'hatırlatmalarım', 'iptal 2', 'Çekler'] as $command) {
             $this->assertStringContainsString('<Message>', $this->send($command)->assertOk()->getContent(), $command);
         }
+        $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '', 'NumMedia' => 1, 'MediaUrl0' => 'https://example.test/x.ogg',
+            'MediaContentType0' => 'audio/ogg'])->assertOk();
         $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => '', 'NumMedia' => 1, 'MediaUrl0' => 'https://example.test/x.jpg',
             'MediaContentType0' => 'image/jpeg'])->assertOk();
     }

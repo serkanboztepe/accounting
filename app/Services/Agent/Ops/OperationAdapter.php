@@ -37,6 +37,7 @@ final class OperationAdapter
         ExpenseExtractor::KIND_STOCK_SETTING, ExpenseExtractor::KIND_PRODUCT_ADD, ExpenseExtractor::KIND_PRODUCTION,
         ExpenseExtractor::KIND_SALARY, ExpenseExtractor::KIND_EMPLOYEE_SETTING,
         ExpenseExtractor::KIND_REMINDER, ExpenseExtractor::KIND_RECURRING_EXPENSE, ExpenseExtractor::KIND_RECURRING_STOP,
+        ExpenseExtractor::KIND_AGREEMENT, ExpenseExtractor::KIND_AGREEMENT_DELIVERY,
     ];
 
     /** Bu türlerde ajanın doldurabildiği eski şema alanları (tanımları ExpenseExtractor şemasından aynen alınır). */
@@ -45,7 +46,12 @@ final class OperationAdapter
         'daily_usage', 'reorder_level', 'purchase_price', 'salary_amount', 'salary_day', 'salary_deduction', 'first_salary', 'first_salary_amount',
         'is_staff', 'month', 'event_date', 'event_time', 'lead_minutes', 'is_alarm', 'notify_time', 'updates_reminder_id', 'repeat',
         'recurring_frequency', 'recurring_day', 'recurring_time', 'recurring_start',
+        'agreement_direction', 'agreement_items', 'agreement_payments', 'agreement_notes', 'remaining_only', 'document_total', 'has_payments',
+        'delivery_lines', 'delivery_candidates', 'checks', 'check_plan',
     ];
+
+    /** Anlaşma kartının kararları — müşteri cevapladıysa ajan bunlarla bildirir (eski yolda numaralı cevaplardı). */
+    public const AGREEMENT_DECISIONS = ['total_ok', 'payments_skipped', 'replace', 'past_checks'];
 
     public const PAYMENT_TYPES = ['cash', 'eft', 'bank_transfer', 'check', 'promissory_note', 'other'];
 
@@ -168,6 +174,18 @@ final class OperationAdapter
             if ($purpose === 'advance') {
                 $d['payment_purpose'] = 'advance';
             }
+        }
+        // ── Çek: tek tek yazılan çekler (checks) ya da kural ("3 çek, aylık" → check_plan; bölmeyi KOD yapar) ──
+        if ((! empty($e['checks']) || ! empty($e['check_plan']))
+            && in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_SALE], true)) {
+            $u = \App\Services\Whatsapp\Understanding::normalize(['checks' => $e['checks'] ?? null, 'check_plan' => $e['check_plan'] ?? null]);
+            $d = \App\Services\Whatsapp\CheckSplit::prepare(['checks' => $u['checks'], 'check_plan' => $u['check_plan'], 'check_direction_known' => true] + $d);
+            if (($question = \App\Services\Whatsapp\CheckSplit::question($d)) !== null) {
+                $issues[] = self::plain($question) . ' (Çek tutarlarını/vadelerini düzeltip yeniden öner ya da müşteriye sor.)';
+            } elseif (($note = \App\Services\Whatsapp\Understanding::checksNote($d)) && ! str_contains($d['description'], $note)) {
+                $d['description'] = mb_strimwidth(trim($d['description'] . ' — ' . $note, ' —'), 0, 200, '…');
+            }
+            $d['payment_type'] = 'check';
         }
         if (in_array($kind, [ExpenseExtractor::KIND_SALE, ExpenseExtractor::KIND_PURCHASE], true) && $d['paid'] === null) {
             $issues[] = 'paid verilmedi: parası ödendi mi (true) yoksa veresiye mi (false)? Bakiyeyi değiştirir — kullanıcı söylemediyse sor.';
@@ -305,9 +323,31 @@ final class OperationAdapter
             // Ürün kartı tutmadı / stok kapalı: düz gider/alış/satış oldu — onun kurallarıyla (ödendi mi, yer, amaç) yeniden değerlendirilir.
             return self::record(['kind' => $d['kind']] + $e, $phone);
         }
-        $d += ['party_confirmed' => true, 'party_certain' => true, 'source' => 'agent'];
+        $d = ['party_confirmed' => true, 'party_certain' => true, 'source' => 'agent'] + $d;
         if (! empty($e['no_project'])) {
             $d['project_choice_done'] = true;
+        }
+        if (\App\Services\Whatsapp\AgreementDraft::handles($d)) {
+            $d = \App\Services\Whatsapp\AgreementDraft::applyCheckPlan(\App\Services\Whatsapp\AgreementDraft::applyRemaining($d));
+            // Müşterinin verdiği kararlar (eski yolda numaralı cevaplar): toplam teyidi, ödemesiz geç, eskisinin yerine / ayrı, geçmiş vadeli çekler.
+            if (! empty($e['total_ok'])) {
+                $d['total_ok'] = true;
+            }
+            if (! empty($e['payments_skipped'])) {
+                $d['payments_skipped'] = true;
+            }
+            if (in_array($e['replace'] ?? null, ['replace', 'separate'], true)) {
+                $d = \App\Services\Whatsapp\AgreementDraft::chooseReplace($d, $e['replace'] === 'replace' ? 1 : 2) ?? $d;
+            }
+            if (in_array($e['past_checks'] ?? null, ['paid', 'pending'], true)) {
+                $d['past_checks'] = $e['past_checks'];
+            }
+            if (in_array($e['agreement_direction'] ?? null, ['purchase', 'sale'], true)) {
+                $d = \App\Services\Whatsapp\AgreementDraft::chooseDirection($d, $e['agreement_direction']);
+            }
+        }
+        if (\App\Services\Whatsapp\AgreementDeliveryDraft::handles($d)) {
+            $d = \App\Services\Whatsapp\AgreementDeliveryDraft::prepare($d);
         }
 
         return self::finish($d, $phone, $issues);
@@ -349,6 +389,8 @@ final class OperationAdapter
         }
 
         $card = match (true) {
+            \App\Services\Whatsapp\AgreementDraft::handles($d) => \App\Services\Whatsapp\AgreementDraft::summary($d),
+            \App\Services\Whatsapp\AgreementDeliveryDraft::handles($d) => \App\Services\Whatsapp\AgreementDeliveryDraft::summary($d),
             \App\Services\Whatsapp\TradeDraft::handles($d) => \App\Services\Whatsapp\TradeDraft::summary($d),
             \App\Services\Whatsapp\EmployeeDraft::handles($d) => \App\Services\Whatsapp\EmployeeDraft::summary($d),
             \App\Services\Whatsapp\RecurringDraft::handles($d) => \App\Services\Whatsapp\RecurringDraft::summary($d),
