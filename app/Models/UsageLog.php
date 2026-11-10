@@ -24,16 +24,11 @@ class UsageLog extends Model
     public static function recordAi(string $model, array $usage): void
     {
         try {
-            [$in, $out] = config("costs.ai_per_mtok.{$model}", [0, 0]);
             $input = (int) ($usage['input_tokens'] ?? 0);
             $output = (int) ($usage['output_tokens'] ?? 0);
             $write = (int) ($usage['cache_creation_input_tokens'] ?? 0);
             $read = (int) ($usage['cache_read_input_tokens'] ?? 0);
-
-            $cost = ($input * $in
-                + $output * $out
-                + $write * $in * config('costs.cache_write_multiplier')
-                + $read * $in * config('costs.cache_read_multiplier')) / 1_000_000;
+            $cost = self::costOf($model, $usage);
 
             $row = [
                 'model' => $model,
@@ -46,6 +41,18 @@ class UsageLog extends Model
         } catch (Throwable $e) {
             Log::warning('AI kullanım kaydı yazılamadı', ['error' => $e->getMessage()]);
         }
+    }
+
+    /** Bir yanıtın maliyeti (USD) — kayıt ve ajan asistanın günlük sınırı aynı hesabı kullanır. */
+    public static function costOf(string $model, array $usage): float
+    {
+        [$in, $out] = config("costs.ai_per_mtok.{$model}", [0, 0]);
+
+        return ((int) ($usage['input_tokens'] ?? 0) * $in
+            + (int) ($usage['output_tokens'] ?? 0) * $out
+            + (int) ($usage['cache_creation_input_tokens'] ?? 0) * $in * config('costs.cache_write_multiplier')
+            + (int) ($usage['cache_read_input_tokens'] ?? 0)
+                * (config("costs.cache_read_per_mtok.{$model}") ?? $in * config('costs.cache_read_multiplier'))) / 1_000_000;
     }
 
     /** Yerel denemeler: aynı anahtardan harcanan para hub'daki toplu maliyete gitsin (testler AI'ı mock'lar, gönderilmez). */

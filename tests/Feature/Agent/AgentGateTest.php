@@ -110,7 +110,7 @@ class AgentGateTest extends TestCase
     public function test_agent_is_never_called_when_the_firm_has_it_off(): void
     {
         $turn = Mockery::mock(AgentTurn::class);
-        $turn->shouldNotReceive('handle');
+        $turn->shouldNotReceive('prepare');
         $this->app->instance(AgentTurn::class, $turn);
         $shadow = Mockery::mock(AgentShadow::class);
         $shadow->shouldNotReceive('observe');
@@ -119,27 +119,13 @@ class AgentGateTest extends TestCase
         $this->assertNotSame('', trim(strip_tags($this->text($this->send('cariler')))));
     }
 
-    public function test_live_agent_answer_goes_to_the_customer_and_is_logged_as_agent(): void
-    {
-        config(['modules.agent_live' => true]);
-        $turn = Mockery::mock(AgentTurn::class);
-        $turn->shouldReceive('handle')->once()->andReturn('Ajan cevabı 👋');
-        $this->app->instance(AgentTurn::class, $turn);
-
-        $this->assertStringContainsString('Ajan cevabı 👋', $this->text($this->send('cariler')));
-        $this->assertSame('agent', WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'in')
-            ->latest('id')->value('kind'));
-        $this->assertSame('Ajan cevabı 👋', WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'out')
-            ->latest('id')->value('body'));
-    }
-
     public function test_when_the_agent_declines_the_turn_the_old_path_answers_exactly_as_before(): void
     {
         $off = $this->text($this->send('cariler'));
 
         config(['modules.agent_live' => true]);
         $turn = Mockery::mock(AgentTurn::class);
-        $turn->shouldReceive('handle')->once()->andReturn(null);
+        $turn->shouldReceive('prepare')->once()->andReturn(null);
         $this->app->instance(AgentTurn::class, $turn);
 
         $this->assertSame($off, $this->text($this->send('cariler')));
@@ -151,12 +137,12 @@ class AgentGateTest extends TestCase
 
         config(['modules.agent_shadow' => true]);
         $turn = Mockery::mock(AgentTurn::class);
-        $turn->shouldNotReceive('handle');
+        $turn->shouldNotReceive('prepare');
         $this->app->instance(AgentTurn::class, $turn);
         $seen = null;
         $shadow = Mockery::mock(AgentShadow::class);
-        $shadow->shouldReceive('observe')->once()->andReturnUsing(function ($phone, $body, $numMedia, $replies) use (&$seen) {
-            $seen = [$phone, $body, $numMedia, $replies];
+        $shadow->shouldReceive('observe')->once()->andReturnUsing(function ($phone, $body, $media, $replies) use (&$seen) {
+            $seen = [$phone, $body, $media, $replies];
             throw new \RuntimeException('test: gölge patladı');
         });
         $this->app->instance(AgentShadow::class, $shadow);
@@ -164,6 +150,7 @@ class AgentGateTest extends TestCase
         $this->assertSame($off, $this->text($this->send('cariler')));
         $this->assertSame(self::PHONE, $seen[0]);
         $this->assertSame('cariler', $seen[1]);
+        $this->assertNull($seen[2]);
         $this->assertCount(1, $seen[3]);
         $this->assertStringContainsString($seen[3][0], $off);
     }

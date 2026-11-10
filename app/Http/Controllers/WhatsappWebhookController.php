@@ -180,6 +180,7 @@ class WhatsappWebhookController extends Controller
             $firstContact = $this->firstContact = $this->isFirstContact($phone);
             // İkinci okuma aynı gelen mesajdır — konuşma kaydına tekrar yazılmaz.
             $incoming = $request->attributes->get('reread') ? null : $this->logMessage($phone, 'in', $body, $numMedia > 0);
+            $this->inboundMessageId = $incoming?->id;
             // Teşhis kaydı (WHATSAPP_TRACE): tur kimliği = gelen mesaj; davranışı değiştirmez.
             TurnTrace::begin((string) ($incoming?->id ?? ($sid !== '' ? $sid : uniqid('tur', true))), $phone, ['body' => $body,
                 'num_media' => $numMedia, 'media_type' => $request->input('MediaContentType0'), 'message_sid' => $sid,
@@ -231,16 +232,15 @@ class WhatsappWebhookController extends Controller
 
             // Ajan gölgesi (plan v5 §8): eski yol cevabını verdi; ajan aynı mesajı arkada işler — yazmaz, göndermez.
             // Gölge hatası müşterinin cevabını asla etkilemez.
-            if (AgentGate::shadow() && ! $request->attributes->get('reread')) {
-                try {
-                    app(AgentShadow::class)->observe($phone, $body, $numMedia,
-                        array_map(fn ($r) => is_array($r) ? (string) $r[0] : (string) $r, $this->replies));
-                } catch (\Throwable $e) {
-                    Log::warning('Ajan gölgesi çalışamadı', ['msg' => $e->getMessage()]);
-                }
+            if (AgentGate::shadow() && ! $request->attributes->get('reread') && ! $request->attributes->get('queued')) {
+                $this->runShadowAfterResponse($request, $phone, $body, $numMedia, $incoming?->id);
             }
 
-            if ($this->deferredTurn !== null) {
+            if ($this->agentWork !== null) {
+                // Ajan turu istek kapandıktan sonra çalışır; kilit o bitene kadar tutulur — sıradaki mesaj araya girmesin.
+                $this->runAgentAfterResponse($phone, $incoming, $lock->owner());
+                $deferred = true;
+            } elseif ($this->deferredTurn !== null) {
                 // Kilit arka plandaki tur bitene kadar tutulur — sıradaki mesaj araya girmesin.
                 $this->runAfterResponse($phone, $incoming, $lock->owner());
                 $deferred = true;
@@ -344,6 +344,74 @@ class WhatsappWebhookController extends Controller
 
     /** @var array{pending_id:?int,body:string}|null bu mesajın turu arka plana bırakıldı (DeferTurn) */
     private ?array $deferredTurn = null;
+
+    /** @var (\Closure(): list<string>)|null ajan asistanın bu mesaj için işi (plan v5) — istek kapandıktan sonra çalışır */
+    private ?\Closure $agentWork = null;
+
+    /** Gelen mesajın konuşma kaydındaki id'si (ajan geçmişi bu mesajdan öncesini okur). */
+    private ?int $inboundMessageId = null;
+
+    /**
+     * Ajan turu: Twilio cevabını aldıktan sonra aynı firmanın veritabanında çalışır, cevap(lar) WhatsApp API ile gider, konuşma kaydına
+     * yazılır; mesaj kilidi en sonda bırakılır. Ajan bir şey üretemezse müşteriye "toparlayamadım" gider — cevapsız kalmaz.
+     */
+    private function runAgentAfterResponse(string $phone, ?WhatsappMessage $incoming, string $lockOwner): void
+    {
+        $firm = Tenancy::current();
+        $work = $this->agentWork;
+        $this->agentWork = null;
+        $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
+
+        $done = false; // bir kez: uzun yaşayan süreçte (test, kuyruk işçisi) sonraki isteklerin bitişinde yeniden çalışmasın
+        app()->terminating(function () use ($firm, $work, $phone, $incoming, $lockName, $lockOwner, &$done) {
+            if ($done) {
+                return;
+            }
+            $done = true;
+            $run = function () use ($work, $phone, $incoming) {
+                ChatAssistant::$deadline = null;
+                \App\Models\ActivityLog::via('whatsapp', self::activityActor($phone));
+                try {
+                    $replies = $work();
+                } catch (\Throwable $e) {
+                    Log::error('Ajan turu çalıştırılamadı', ['msg' => $e->getMessage()]);
+                    $replies = [AgentTurn::SORRY];
+                }
+                foreach ($replies as $reply) {
+                    $this->deliver($phone, $reply);
+                }
+                $incoming?->update(['kind' => 'agent']);
+            };
+            try {
+                $firm ? Tenancy::run($firm, $run) : $run();
+            } catch (\Throwable $e) {
+                Log::error('Ajan turu çalıştırılamadı', ['msg' => $e->getMessage()]);
+            } finally {
+                Cache::restoreLock($lockName, $lockOwner)->release();
+            }
+        });
+    }
+
+    /** Ajan gölgesi: eski yol cevabını verdi; istek kapandıktan sonra ajan aynı mesajı işler — yazmaz, göndermez; hatası yutulur. */
+    private function runShadowAfterResponse(Request $request, string $phone, string $body, int $numMedia, ?int $messageId): void
+    {
+        $firm = Tenancy::current();
+        $legacy = array_map(fn ($r) => is_array($r) ? (string) $r[0] : (string) $r, $this->replies);
+
+        $done = false;
+        app()->terminating(function () use ($firm, $request, $phone, $body, $numMedia, $messageId, $legacy, &$done) {
+            if ($done) {
+                return;
+            }
+            $done = true;
+            $run = fn () => app(AgentShadow::class)->observe($phone, $body, $numMedia > 0 ? $this->downloadMedia($request) : null, $legacy, $messageId);
+            try {
+                $firm ? Tenancy::run($firm, $run) : $run();
+            } catch (\Throwable $e) {
+                Log::warning('Ajan gölgesi çalışamadı', ['msg' => $e->getMessage()]);
+            }
+        });
+    }
 
     /**
      * Ertelenen tur: istek kapandıktan sonra (Twilio cevabı aldı) aynı firmanın veritabanında süresiz yeniden çalışır,
@@ -628,10 +696,14 @@ class WhatsappWebhookController extends Controller
         $this->inboundBody = $body;
         // Ajan asistan (plan v5): firma "ajan canlı" ise tur ajana gider. null = ajan bu turu almadı → eski yol aynen işler.
         // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
-        if (AgentGate::live() && ($agentOut = app(AgentTurn::class)->handle($request, $phone, $body, $numMedia)) !== null) {
+        if (AgentGate::live() && ! $request->attributes->get('queued')
+            && ($work = app(AgentTurn::class)->prepare($phone, $body, $numMedia, fn () => $this->downloadMedia($request), $this->inboundMessageId)) !== null) {
             $this->inboundKind = 'agent';
+            $this->agentWork = $work; // Twilio'ya boş cevap; ajan istek kapandıktan sonra çalışır, cevabı API ile gider (runAgentAfterResponse)
+            $this->sendTypingIndicator((string) $request->input('MessageSid', ''));
+            $this->replies = [];
 
-            return $this->twiml($agentOut);
+            return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
         }
         // Akşam mesajının düğmeleri ("Kayıt gireceğim / Hatırlatma kur / Bugün yok") ve aç/kapa — AI'sız.
         if ($numMedia === 0) {

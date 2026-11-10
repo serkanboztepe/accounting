@@ -34,7 +34,7 @@ final class AgentProposal
      * @param  list<array<string, mixed>>  $ops
      * @return array{ok: bool, issues?: list<string>, noop?: string, proposal_id?: int, card?: string, effects?: array, warnings?: list<string>}
      */
-    public static function propose(string $phone, array $ops, string $sourceText = ''): array
+    public static function propose(string $phone, array $ops, string $sourceText = '', bool $store = true): array
     {
         $ops = array_values(array_filter($ops, 'is_array'));
         if ($ops === []) {
@@ -54,6 +54,16 @@ final class AgentProposal
 
         $large = collect($run['amounts'])->filter(fn ($a) => $a >= (float) config('agent.large_amount'))->max();
         $card = AgentCard::build($run['lines'], $run['balances'], $run['deletes'], $large !== null ? (float) $large : null, $run['warnings']);
+
+        $effects = [
+            'yazılacak_satırlar' => $run['created_lines'],
+            'bakiyeler' => array_map(fn ($b) => ['kişi' => $b['name'], 'önce' => AgentCard::phrase($b['before']), 'sonra' => AgentCard::phrase($b['after'])], $run['balances']),
+            'notlar' => $run['notes'],
+        ];
+        if (! $store) {
+            // Gölge: öneri denenir ve kartı çıkar ama saklanmaz — onaylanacak bir şey oluşmaz.
+            return ['ok' => true, 'proposal_id' => null, 'card' => $card, 'effects' => $effects, 'warnings' => $run['warnings']];
+        }
 
         WhatsappPendingExpense::agentOpen($phone)->update(['status' => WhatsappPendingExpense::AGENT_SUPERSEDED]);
         $proposal = WhatsappPendingExpense::create([
@@ -78,11 +88,7 @@ final class AgentProposal
             'ok' => true,
             'proposal_id' => $proposal->id,
             'card' => $card,
-            'effects' => [
-                'yazılacak_satırlar' => $run['created_lines'],
-                'bakiyeler' => array_map(fn ($b) => ['kişi' => $b['name'], 'önce' => AgentCard::phrase($b['before']), 'sonra' => AgentCard::phrase($b['after'])], $run['balances']),
-                'notlar' => $run['notes'],
-            ],
+            'effects' => $effects,
             'warnings' => $run['warnings'],
         ];
     }

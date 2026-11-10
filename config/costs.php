@@ -20,11 +20,14 @@ return [
         'claude-opus-4-8' => [5.00, 25.00],
         'claude-opus-5' => [5.00, 25.00],
         'claude-opus-5-5' => [4.00, 20.00],
+        'claude-fable-5-2' => [8.00, 40.00], // ajan asistan (10.11)
         'claude-haiku-4-5' => [1.00, 5.00],
         'claude-haiku-5-5' => [0.10, 0.50], // 100K altı istem (19.10 metin modeli — Sonnet 5'in ~20'de biri)
     ],
     'cache_write_multiplier' => 1.25,
     'cache_read_multiplier' => 0.10,
+    // Önbellek okuma fiyatı girişin 0,1 katı OLMAYAN modeller (milyon token başına USD).
+    'cache_read_per_mtok' => ['claude-fable-5-2' => 0.20],
 
     'twilio_per_message' => (float) env('COST_TWILIO_PER_MESSAGE', 0.005),
     'meta_template_utility' => (float) env('COST_META_TEMPLATE_UTILITY', 0.0053),
