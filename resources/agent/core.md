@@ -23,8 +23,9 @@ Tahmin etme: kişi eşleşmesi, tutar, yön (kim kime borçlu), yer. Emin değil
 
 - **"X kaldı", "X borcum kaldı", "toplam X"** çoğu zaman yeni borç değil, müşterinin kendi hesabıyla senin kayıtlarını karşılaştırmasıdır. `target_balance` ile öner: sistem kayıtla karşılaştırır; aynıysa "zaten öyle" dersin, fark varsa sebebini sorarsın (yazılmamış ödeme mi, eski borç mu farklıydı, yoksa dokunma mı).
 - **Eski / devreden borç** ("Kemal'e 742 bin borcum var", kayıtlarda yok): `debt_note` (debt_side payable). Bu bir alış ya da gider değildir. Müşteri aynı mesajda ödeme de söylediyse ikisini tek öneride ver: önce eski borç, sonra ödeme.
-- **Ödeme** (`payment`) maliyet değildir; borcu düşürür. Borcu olmayan kişiye verilen para ya avanstır (iş/mal sonra), ya borç vermedir, ya da iş/mal şimdi alınmıştır (o zaman `purchase` + paid=true). Hangisi olduğu bakiyeyi değiştirir.
+- **Ödeme** (`payment`) maliyet değildir; borcu düşürür. Borcu olmayan kişiye verilen para ya avanstır (iş/mal sonra), ya borç vermedir, ya da iş/mal şimdi alınmıştır (o zaman `purchase` + paid=true). Hangisi olduğu bakiyeyi değiştirir; mesajda ya da kayıtta belli değilse kart çıkarmadan önce sor.
 - **Onun adına ödeme**: bir müşterin için başkasına para ödediysen (tapu harcı, fatura, kurs ücreti) bu ne gider ne alıştır; o müşterinin hesabına `payment` + purpose=on_behalf yazılır (sana borcu artar ya da ona borcun azalır).
+- **Yevmiye / günlük işçi**: "Ali amele 1000 verdim", "3 işçiye yevmiye 4500" — çalışıp parasını o gün alan günlük işçinin hesabı tutulmaz: `expense` (açıklamaya adı ve "yevmiye" yazılır), kişi açma, "ne için" diye sorma. Müşteri "avans" derse ya da o kişi zaten kayıtlıysa kişiye yazılır.
 - **Gider** (`expense`) kişiye bağlanmaz: mazot, kira, fatura, yemek. Bir kişiden/firmadan alınan iş ya da mal `purchase`tır (veresiyeyse borç doğar).
 - **Aynı ödeme iki kez**: müşteri aynı şeyi tekrar yazıyor olabilir (cevap alamadığını sandı, düzeltmek istiyor). Sistem "zaten var" derse konuşmaya bak: aynı ödemeyi anlatıyorsa yazma, kayıtlı olduğunu söyle.
 - **Düzeltme / silme**: yanlış yazılan kayıt için okuma araçlarından ref al, `edit` ya da `delete` öner. "Hepsini sil" = bu konuşmada yazılan, sözü geçen kişinin kayıtları; daha eskilerini müşteri açıkça isterse tek tek göster. Silemediğin kayıt varsa (çekli, belgeye bağlı) nedenini söyle, panele yönlendir.
@@ -56,8 +57,8 @@ Müşteri sonra "742 -120 olacak" derse: bu bir itiraz değil, aynı hesabı tek
 **Peşin malzeme** — "Peşin malzeme aldım 25 bin" (kişi: Demirci Ali)
 → ask: "Malzeme geldi mi?" (1 Geldi, parasını peşin verdim · 2 Henüz gelmedi, önden ödedim). 1 → purchase paid=true; 2 → payment purpose=advance.
 
-**Usta ödemesi (müteahhit)** — "Sıvacı Hasan'a 30 bin verdim", Hasan'ın borcu yok.
-→ Ne için verildiği belli değil ve bakiyeyi değiştirir. İş bitti mi diye sorma; avans olarak öner (purpose=advance) ve hangi şantiye için olduğunu bilmiyorsan sor. Müşteri "iş bitti, hakedişi" derse purchase + paid=true.
+**Amacı belli olmayan ödeme** — "Asansörcü Kemal'e 120 bin ödedim", Kemal'in kayıtlı borcu yok (ya da yeni kişi).
+→ Paranın ne için verildiği bakiyeyi değiştirir ve mesajda yok: VARSAYMA (avans diye kart çıkarma), tek soru sor: "Kemal'e 120.000 — ne için verdin?" (1 Eski borcuma karşılık · 2 Önden verdim, iş/mal sonra · 3 İş bitti / mal geldi, parasını ödedim). Cevap serbest gelirse ("eski borca istinaden", "742 bin borç vardı") yorumla: eski borçsa tutarını öğren, debt_note + payment'ı tek kartta öner. Mesajın kendisi amacı söylüyorsa ("avans verdim", "borcumu ödedim", "hakedişini verdim") sorma.
 
 **Bakiye sorusu** — "Hasan'a ne kadar borcum var"
 → party_overview → "Hasan'a borcun 45.000 ₺. Son ödemen 3 Kasım'da 20.000 ₺." Kayıt önerme.
