@@ -6,10 +6,12 @@ use App\Models\Expense;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Agent\Ops\AgentProposal;
 use App\Support\ModuleProfiles;
 use App\Support\PartyStatement;
+use App\Support\Phone;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
@@ -68,6 +70,8 @@ class AgentProposalTest extends TestCase
     {
         $before = [Party::count(), PartyLedgerEntry::count(), Expense::count()];
 
+        // Tutar fotoğraftan okundu: müşteri rakamı hiç yazmadı.
+        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'in', 'body' => null, 'has_media' => true]);
         $p = $this->propose(
             $this->rec(['kind' => 'debt_note', 'party_name' => 'Gürbüz Toprak', 'new_party' => true, 'amount' => 742000, 'debt_side' => 'payable', 'description' => 'eski borç']),
             $this->rec(['kind' => 'payment', 'party_name' => 'Gürbüz Toprak', 'amount' => 120000, 'purpose' => 'debt', 'payment_type' => 'cash']),
@@ -93,8 +97,8 @@ class AgentProposalTest extends TestCase
         $this->assertStringContainsString('gösterilmedi', $r['reason']);
         AgentProposal::markSent($p['proposal_id']);
 
-        // 500.000 ve üstü: "evet" yetmez, tutar yazılır.
-        $this->assertStringContainsString('Tutar büyük', $p['card']);
+        // Belgeden okunan 500.000 ve üstü: "evet" yetmez, tutar yazılır.
+        $this->assertStringContainsString('Tutarı belgeden okudum', $p['card']);
         $r = AgentProposal::confirm(self::PHONE, $p['proposal_id'], 'evet');
         $this->assertFalse($r['ok']);
         $this->assertSame($before[1], PartyLedgerEntry::count());
@@ -118,6 +122,24 @@ class AgentProposalTest extends TestCase
         // İkinci "onay" yeni kayıt açmaz.
         $this->assertFalse(AgentProposal::confirm(self::PHONE, $p['proposal_id'], '742000')['ok']);
         $this->assertSame(2, PartyLedgerEntry::where('party_id', $party->id)->count());
+    }
+
+    /** Müşteri tutarı kendi yazdıysa (fotoğraf olsa bile) onu tekrar yazdırmak yok; "evet" yeter. */
+    public function test_large_amount_the_customer_typed_is_confirmed_with_yes(): void
+    {
+        $op = $this->rec(['kind' => 'debt_note', 'party_name' => 'Serdar Deneme', 'new_party' => true, 'amount' => 890000, 'debt_side' => 'payable', 'description' => 'eski borç']);
+
+        $p = AgentProposal::propose(self::PHONE, [$op], '890.000');
+        $this->assertStringNotContainsString('tutarı yaz', $p['card']);
+        $this->assertStringContainsString('*evet*', $p['card']);
+
+        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'in', 'body' => '890 bin borcum var bu da fişi', 'has_media' => true]);
+        $p = AgentProposal::propose(self::PHONE, [$op], 'evet bu');
+        $this->assertStringNotContainsString('tutarı yaz', $p['card']);
+        AgentProposal::markSent($p['proposal_id']);
+
+        $r = AgentProposal::confirm(self::PHONE, $p['proposal_id'], 'evet');
+        $this->assertTrue($r['ok'], $r['reason'] ?? '');
     }
 
     public function test_payment_fields_match_what_the_old_path_writes(): void
@@ -399,7 +421,7 @@ class AgentProposalTest extends TestCase
         $this->assertStringContainsString('borcun 622.000,00 → *600.000,00 ₺*', $p['card']);
 
         // Sebep: eski borç farklıydı → tek "Borç kaydı" satırı düzeltilir (yeni "düzeltme" satırı açılmaz).
-        $r = $this->save('760.000', $target(['side' => 'we_owe', 'amount' => 640000, 'reason' => 'old_debt']));
+        $r = $this->save('evet', $target(['side' => 'we_owe', 'amount' => 640000, 'reason' => 'old_debt']));
         $this->assertTrue($r['ok'], ($r['reason'] ?? '') . $r['card']);
         $this->assertStringContainsString('✏️ Düzelt: 01.11 Borç kaydı 742.000,00 ₺ — Gürbüz Toprak →', $r['card']);
         $this->assertStringContainsString('*760.000,00 ₺*', $r['card']);

@@ -128,7 +128,7 @@ class AgentChecksAgreementsTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('fiyat', $this->propose($this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 0,
             'agreement_items' => [['description' => 'Beton', 'quantity' => 500, 'unit' => 'm³']]]))['issues'][0]);
 
-        $r = $this->save('1900000', $this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 1900000, 'no_project' => true,
+        $r = $this->save('evet', $this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 1900000, 'no_project' => true,
             'agreement_items' => [['description' => 'Beton', 'quantity' => 500, 'unit' => 'm³', 'unit_price' => 3800, 'amount' => 1900000]]]));
         $this->assertTrue($r['ok'], ($r['reason'] ?? '') . $r['card']);
         $this->assertStringContainsString('1.900.000,00', $r['card']);

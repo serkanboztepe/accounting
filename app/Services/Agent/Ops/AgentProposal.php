@@ -5,12 +5,14 @@ namespace App\Services\Agent\Ops;
 use App\Http\Controllers\WhatsappWebhookController;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
+use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Support\Money;
 use App\Support\PartyStatement;
+use App\Support\Phone;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -52,7 +54,8 @@ final class AgentProposal
             return ['ok' => false, 'noop' => implode(' ', $run['notes']) ?: 'Yazılacak bir şey yok.'];
         }
 
-        $large = collect($run['amounts'])->filter(fn ($a) => $a >= (float) config('agent.large_amount'))->max();
+        $large = collect($run['amounts'])->filter(fn ($a) => $a >= (float) config('agent.large_amount'))
+            ->filter(fn ($a) => self::readFromDocument($phone, (float) $a, $sourceText))->max();
         $card = AgentCard::build($run['lines'], $run['balances'], $run['deletes'], $large !== null ? (float) $large : null, $run['warnings'], $run['raw_lines']);
 
         $effects = [
@@ -91,6 +94,21 @@ final class AgentProposal
             'effects' => $effects,
             'warnings' => $run['warnings'],
         ];
+    }
+
+    /**
+     * Tutar yazarak onay yalnız fotoğraf/belgeden okunan büyük tutarda: müşterinin kendi yazdığı rakamı ona tekrar yazdırmak anlamsız
+     * (kullanıcı 11.11), okuma hatası ise yalnız belgede olur. Son 30 dk'da belge yoksa ya da müşteri bu rakamı yazmışsa "evet" yeter.
+     */
+    private static function readFromDocument(string $phone, float $amount, string $sourceText): bool
+    {
+        $inbound = WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'in')
+            ->where('created_at', '>=', now()->subMinutes(30))->get(['body', 'has_media']);
+        if (! $inbound->contains('has_media', true)) {
+            return false;
+        }
+
+        return ! $inbound->pluck('body')->push($sourceText)->contains(fn ($text) => Numbers::contains((string) $text, $amount));
     }
 
     /** Açık öneri (son `proposal_minutes` içinde). */

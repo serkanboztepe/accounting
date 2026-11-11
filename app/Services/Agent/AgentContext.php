@@ -128,7 +128,7 @@ final class AgentContext
             $lines[] = 'Açık öneri yok.';
         }
         $lines[] = '';
-        $lines[] = 'Sınırlar: ' . number_format((float) config('agent.large_amount'), 0, '', '.') . ' ₺ ve üstü işlem tutar yazılarak onaylanır; '
+        $lines[] = 'Sınırlar: ' . number_format((float) config('agent.large_amount'), 0, '', '.') . ' ₺ ve üstü tutar fotoğraf/belgeden okunduysa (kartta yazar) tutar yazılarak onaylanır, müşterinin kendi yazdığı tutarda evet yeter; '
             . config('agent.delete_word_from') . '+ silme "sil" yazılarak; kart başına en çok ' . config('agent.delete_per_card') . ' silme.';
 
         return implode("\n", $lines);

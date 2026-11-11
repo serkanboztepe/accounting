@@ -101,7 +101,7 @@ final class AgentCard
         }
         $out[] = match (true) {
             $deletes >= (int) config('agent.delete_word_from') => $deletes . ' kayıt silinecek. Onay için *sil* yaz · vazgeçmek için *iptal*',
-            $largeAmount !== null => 'Tutar büyük — onay için tutarı yaz (*' . number_format($largeAmount, 0, '', '') . '*) · vazgeçmek için *iptal*',
+            $largeAmount !== null => 'Tutarı belgeden okudum — doğruysa onay için tutarı yaz (*' . number_format($largeAmount, 0, '', '') . '*) · vazgeçmek için *iptal*',
             default => 'Kaydedeyim mi? *evet* / *iptal*',
         };
 

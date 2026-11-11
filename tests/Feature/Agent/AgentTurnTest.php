@@ -165,18 +165,11 @@ class AgentTurnTest extends TestCase
         $this->assertStringContainsString('Yeni kişi', $result['content'][0]['content']);
         $this->assertSame(array_slice($this->sent[0]['body']['messages'], 0), array_slice($second, 0, count($this->sent[0]['body']['messages'])), 'geçmişe yalnız eklenir');
 
-        // 2) "evet": tutar büyük → sistem reddeder, ajan müşteriye hatırlatır; kayıt yok.
-        $this->model($this->toolUse(['confirm', ['proposal_id' => $proposal->id]]), $this->say('Tutar büyük olduğu için onay olarak tutarı yazman gerekiyor.'));
+        // 2) "evet": tutarı müşteri kendi yazdı, onay yeter; "kaydedildi" metnini kod gönderir, tur tek model çağrısıyla biter.
+        $this->model($this->toolUse(['confirm', ['proposal_id' => $proposal->id]]));
         $this->send('evet');
         $this->assertSame('low', $this->sent[0]['body']['output_config']['effort'], 'kısa onay turu');
         $this->assertStringContainsString('AÇIK ÖNERİ (id ' . $proposal->id, end($this->sent[0]['body']['messages'])['content']);
-        $this->assertStringContainsString('müşteri tutarı yazmadan kaydedilmez', end($this->sent[1]['body']['messages'])['content'][0]['content']);
-        $this->assertSame('Tutar büyük olduğu için onay olarak tutarı yazman gerekiyor.', $this->lastOut());
-        $this->assertNull(Party::where('name', 'Gürbüz Toprak')->first());
-
-        // 3) Tutarı yazdı: kaydedilir; "kaydedildi" metnini kod gönderir, tur tek model çağrısıyla biter.
-        $this->model($this->toolUse(['confirm', ['proposal_id' => $proposal->id]]));
-        $this->send('742000');
         $this->assertCount(1, $this->sent);
         $this->assertSame("✅ Kaydedildi.\n📒 Gürbüz Toprak: borcun 622.000,00 ₺", $this->lastOut());
         $party = Party::where('name', 'Gürbüz Toprak')->sole();
@@ -184,7 +177,7 @@ class AgentTurnTest extends TestCase
 
         // Günlük: her tur bir satır, maliyetle.
         $log = AgentLog::read('2026-11-09');
-        $this->assertCount(3, $log);
+        $this->assertCount(2, $log);
         $this->assertSame('live', $log[0]['mode']);
         $this->assertSame(['find_party', 'propose'], array_values(array_filter(array_column($log[0]['steps'], 'tool'))));
         $this->assertGreaterThan(0, $log[0]['cost_usd']);
