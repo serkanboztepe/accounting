@@ -198,6 +198,8 @@ class AgentTurnTest extends TestCase
         $this->assertSame(['KART'], AgentTurn::replies('Şantiyeyi de yazdım.', $outcome), '"yazdım" yalnız kodun sözü');
         $this->assertSame(['KART'], AgentTurn::replies('Kaydettim, borcun 622.000 kaldı.', $outcome), 'rakamlı / "kaydettim" cümlesi atılır');
         $this->assertSame(["Bir bak istersen.\n\nKART"], AgentTurn::replies('Bir bak istersen.', $outcome));
+        $this->assertSame(['KART'], AgentTurn::replies('Saatleri 10:00 yaptım.', $outcome), 'onay beklerken "yaptım" denmez');
+        $this->assertSame(["Hazırladım, kontrol et.\n\nKART"], AgentTurn::replies('Hazırladım, kontrol et.', $outcome));
         $this->assertSame(['SORU'], AgentTurn::replies('', ['question' => 'SORU'] + $outcome), 'soru varsa kart gitmez');
         $this->assertSame([AgentTurn::SORRY], AgentTurn::replies('', ['card' => null] + $outcome));
     }

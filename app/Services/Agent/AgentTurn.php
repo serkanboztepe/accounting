@@ -126,7 +126,8 @@ class AgentTurn
         }
         $safe = $agentText !== '' && mb_strlen($agentText) <= 200
             && array_filter(Numbers::in($agentText), fn ($n) => $n >= 100) === []
-            && ! preg_match('/kayded|kaydett|yazdım|sildim|✅/ui', $agentText); // "kaydettim" yalnız kodun sözüdür
+            // "kaydettim / yaptım" yalnız kodun sözüdür: kart onay bekliyorken iş bitmiş gibi konuşulmaz.
+            && ! preg_match('/kayded|kaydett|yazdım|sildim|yaptım|kurdum|ayarladım|değiştirdim|güncelledim|düzelttim|ekledim|işledim|✅/ui', $agentText);
 
         $parts = array_values(array_filter([$safe ? $agentText : null, $fixed]));
 

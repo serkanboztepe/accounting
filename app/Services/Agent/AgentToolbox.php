@@ -182,7 +182,7 @@ final class AgentToolbox
     public function run(string $name, array $input): array
     {
         if (ReadTools::has($name)) {
-            return ReadTools::run($name, $name === 'report' ? ['_phone' => $this->phone] + $input : $input);
+            return ReadTools::run($name, in_array($name, ['report', 'find_party'], true) ? ['_phone' => $this->phone] + $input : $input);
         }
 
         return match ($name) {

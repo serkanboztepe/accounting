@@ -60,6 +60,17 @@ class ReadToolsTest extends TestCase
         $this->assertArrayNotHasKey('not', $r, 'tek güçlü aday → uyarı yok');
     }
 
+    /** İşletmenin kendi adı kişi gibi eşleşmez: "bu sensin" denir. */
+    public function test_find_party_recognises_the_business_itself(): void
+    {
+        \App\Models\CompanySettings::query()->delete();
+        \App\Models\CompanySettings::create(['title' => 'Deneme Yapı Market']);
+        $r = FindParty::run(['name' => 'Deneme Yapı Market', '_phone' => '']);
+        $this->assertSame('Deneme Yapı Market', $r['senin_firman']);
+        $this->assertArrayNotHasKey('adaylar', $r);
+        $this->assertArrayNotHasKey('senin_firman', FindParty::run(['name' => 'Gürbüz Toprak', '_phone' => '']));
+    }
+
     public function test_find_party_never_matches_silently_when_unsure(): void
     {
         Party::create(['name' => 'Gürbüz Kaya']);

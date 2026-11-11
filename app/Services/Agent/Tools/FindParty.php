@@ -41,6 +41,13 @@ final class FindParty
         if (mb_strlen($said) < 2) {
             return ['hata' => 'Ad ver.'];
         }
+        // İşletmenin kendisi (firma adı, ünvanı, yazan kişi): kişi olarak açılmaz — ajan baştan "bu sensin" desin (Yeni Yapı 31.10).
+        foreach (\App\Services\Whatsapp\ExpenseContext::selfNames((string) ($in['_phone'] ?? '')) as $self) {
+            if (PartyNameCheck::containedIn(new Party(['name' => $self]), $said)) {
+                return ['senin_firman' => $self, 'not' => '"' . $said . '" işletmenin kendisi (' . $self . '). Kişi olarak açma ve eşleştirme; '
+                    . 'müşteriye bunun kendisi olduğunu söyle, işin karşı tarafını (kime sattı / kimden aldı / kime ödedi) sor.'];
+            }
+        }
         $words = PartyNameCheck::words($said);
         $full = self::fold($said);
 
