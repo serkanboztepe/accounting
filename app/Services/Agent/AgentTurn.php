@@ -51,17 +51,16 @@ class AgentTurn
         $toolbox = new AgentToolbox($phone, $body);
         // Son gönderilen belge 30 dk akılda: sonraki turda ("Yusuf'a verdim") ajan görseli yeniden görür.
         $mediaKey = Tenancy::key('agent-media:' . sha1($phone));
-        $earlier = null;
+        $earlier = (array) Cache::get($mediaKey, []);
         if ($media !== null) {
-            Cache::put($mediaKey, $media, now()->addMinutes(30));
-        } else {
-            $earlier = Cache::get($mediaKey);
+            $now = isset($media['data']) ? [$media] : array_values($media);
+            Cache::put($mediaKey, array_slice([...$earlier, ...$now], -5), now()->addMinutes(30));
         }
         $log = ['mode' => AgentGate::LIVE, 'phone' => $phone, 'message' => $body, 'has_media' => $media !== null];
         try {
             $result = app(AgentRunner::class)->run(
                 AgentContext::system($phone),
-                AgentContext::messages($phone, $body, $media, $messageId, is_array($earlier) ? $earlier : null),
+                AgentContext::messages($phone, $body, $media, $messageId, $earlier !== [] ? $earlier : null),
                 $toolbox,
                 AgentContext::state($phone),
                 self::effort($phone, $body, $media !== null),

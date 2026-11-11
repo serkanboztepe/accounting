@@ -38,6 +38,7 @@ final class OperationAdapter
         ExpenseExtractor::KIND_SALARY, ExpenseExtractor::KIND_EMPLOYEE_SETTING,
         ExpenseExtractor::KIND_REMINDER, ExpenseExtractor::KIND_RECURRING_EXPENSE, ExpenseExtractor::KIND_RECURRING_STOP,
         ExpenseExtractor::KIND_AGREEMENT, ExpenseExtractor::KIND_AGREEMENT_DELIVERY,
+        ExpenseExtractor::KIND_PRODUCT_RENAME, ExpenseExtractor::KIND_FORGET,
     ];
 
     /** Bu türlerde ajanın doldurabildiği eski şema alanları (tanımları ExpenseExtractor şemasından aynen alınır). */
@@ -47,7 +48,8 @@ final class OperationAdapter
         'is_staff', 'month', 'event_date', 'event_time', 'lead_minutes', 'is_alarm', 'notify_time', 'updates_reminder_id', 'repeat',
         'recurring_frequency', 'recurring_day', 'recurring_time', 'recurring_start',
         'agreement_direction', 'agreement_items', 'agreement_payments', 'agreement_notes', 'remaining_only', 'document_total', 'has_payments',
-        'delivery_lines', 'delivery_candidates', 'checks', 'check_plan',
+        'delivery_lines', 'delivery_candidates', 'checks', 'check_plan', 'memory_subject',
+        'goods_name', 'unnamed_payee', 'payee_label', 'payee_party_id', 'future_payment',
     ];
 
     /** Anlaşma kartının kararları — müşteri cevapladıysa ajan bunlarla bildirir (eski yolda numaralı cevaplardı). */
@@ -60,7 +62,7 @@ final class OperationAdapter
     /**
      * @return array{draft: ?array, issues: list<string>, warnings: list<string>}
      */
-    public static function record(array $e, string $phone): array
+    public static function record(array $e, string $phone, string $text = ''): array
     {
         $issues = [];
         $warnings = [];
@@ -122,6 +124,11 @@ final class OperationAdapter
             return self::fail('Gider kişiye bağlanmaz. Kişiden alınan iş/mal → kind "purchase" (paid ile); kişiye verilen para → kind "payment".');
         }
 
+        // ── Eski yolun emniyetleri: kaydı sessizce çevirmek yerine ajana bulgu olarak döner ──
+        if (($stop = self::guards($d, $e, $phone, $text)) !== null) {
+            return self::fail($stop);
+        }
+
         // ── Yer / proje ──────────────────────────────────────────────────
         if (! empty($e['project_id'])) {
             if (! Project::whereKey((int) $e['project_id'])->exists()) {
@@ -138,6 +145,32 @@ final class OperationAdapter
         $party = $d['party_id'] ? Party::find($d['party_id']) : null;
         $balance = $party ? (float) PartyStatement::build($party)['balance'] : 0.0; // − biz borçluyuz
         $purpose = in_array($e['purpose'] ?? null, self::PURPOSES, true) ? $e['purpose'] : null;
+
+        // Anlaşması olan kişiye para: hangi anlaşmaya sayılacağı her seferinde sorulur (kullanıcı 26.10); proje anlaşmadan gelir.
+        if (in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_COLLECTION], true) && $party) {
+            if (! empty($e['agreement_id'])) {
+                $agreement = \App\Models\Agreement::where('party_id', $party->id)->whereKey((int) $e['agreement_id'])->first();
+                if (! $agreement) {
+                    return self::fail('agreement_id ' . (int) $e['agreement_id'] . ' bu kişinin anlaşması değil — party_overview → anlaşmalar.');
+                }
+                if (empty($d['project_id']) && empty($d['project_name']) && $agreement->project_id) {
+                    $d['project_id'] = (int) $agreement->project_id;
+                }
+                // Kartta "sana borcu" görünür ama iş daha gelmedi: neden öyle göründüğü kartta söylensin (müşteri itiraz etmesin).
+                if (\App\Support\AgreementBalances::balance($agreement) < $amount - 0.01) {
+                    $warnings[] = 'Bu para "' . mb_strimwidth((string) $agreement->title, 0, 40, '…') . '" anlaşmasına önden yazılır; iş/mal geldikçe ondan düşer, ayrı borç doğmaz.';
+                }
+            } elseif (! empty($e['no_agreement'])) {
+                $d['agreement_choice_done'] = true;
+            } elseif ($purpose !== 'on_behalf' && \App\Services\Whatsapp\PaymentAgreementChoice::applies($d)) {
+                $type = $kind === ExpenseExtractor::KIND_PAYMENT ? \App\Models\PartyLedgerEntry::TYPE_PAYMENT : \App\Models\PartyLedgerEntry::TYPE_COLLECTION;
+                $options = collect(\App\Support\AgreementBalances::choices($party, $type))
+                    ->map(fn ($c) => $c['label'] . ($c['id'] ? ' (agreement_id ' . $c['id'] . ')' : ' (anlaşma dışı → no_agreement=true)'))->implode(' · ');
+
+                return self::fail($party->name . ' ile açık anlaşma var; bu para hangisine sayılacak? ' . $options
+                    . '. Müşteri söylemediyse sor, seçimine göre yeniden öner.');
+            }
+        }
 
         if ($kind === ExpenseExtractor::KIND_PAYMENT) {
             if (! empty($e['agreement_id'])) {
@@ -158,6 +191,8 @@ final class OperationAdapter
             if ($purpose === 'debt' && empty($d['agreement_id'])) {
                 // Kayıtlı borcu aşan "borç ödemesi" eski yolda sessizce eksik borcu yazıyordu — ajan yolunda açıkça önerilir.
                 $d['debt_repayment'] = true;
+            } elseif (! empty($d['agreement_id'])) {
+                $d = array_merge($d, ['payment_purpose' => null, 'advance' => false]); // anlaşmanın parası: avans değil, anlaşmaya yazılır
             } elseif ($purpose === 'on_behalf') {
                 // Müşteri adına üçüncü kişiye ödeme (harç, fatura): o kişinin hesabına ödeme; maliyet değil, avans değil (OnBehalfChoice).
                 $d = array_merge($d, \App\Services\Whatsapp\OnBehalfChoice::onBehalf(), ['on_behalf_done' => true]);
@@ -179,9 +214,14 @@ final class OperationAdapter
         if ((! empty($e['checks']) || ! empty($e['check_plan']))
             && in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_COLLECTION, ExpenseExtractor::KIND_PURCHASE, ExpenseExtractor::KIND_SALE], true)) {
             $u = \App\Services\Whatsapp\Understanding::normalize(['checks' => $e['checks'] ?? null, 'check_plan' => $e['check_plan'] ?? null]);
-            $d = \App\Services\Whatsapp\CheckSplit::prepare(['checks' => $u['checks'], 'check_plan' => $u['check_plan'], 'check_direction_known' => true] + $d);
+            $d = \App\Services\Whatsapp\CheckSplit::prepare(['checks' => $u['checks'], 'check_plan' => $u['check_plan'], 'check_direction_known' => true,
+                'past_ok' => ! empty($e['past_ok'])] + $d, null, $text);
+            foreach (\App\Services\Whatsapp\Understanding::checkWarnings($d) as $w) {
+                $warnings[] = self::plain($w);
+            }
             if (($question = \App\Services\Whatsapp\CheckSplit::question($d)) !== null) {
-                $issues[] = self::plain($question) . ' (Çek tutarlarını/vadelerini düzeltip yeniden öner ya da müşteriye sor.)';
+                $issues[] = self::plain($question) . ' (Çek tutarlarını/vadelerini düzeltip yeniden öner ya da müşteriye sor.'
+                    . (($d['check_choice'] ?? null) === 'past' ? ' Müşteri eski çek olduğunu söylediyse past_ok=true.' : '') . ')';
             } elseif (($note = \App\Services\Whatsapp\Understanding::checksNote($d)) && ! str_contains($d['description'], $note)) {
                 $d['description'] = mb_strimwidth(trim($d['description'] . ' — ' . $note, ' —'), 0, 200, '…');
             }
@@ -199,6 +239,31 @@ final class OperationAdapter
         }
         if ($kind === ExpenseExtractor::KIND_EXPENSE && $d['paid'] === null) {
             $d['paid'] = true;
+        }
+        // Adsız usta (kullanıcı 30.10): işi yapan kayıtlı kişi varsa sorulur; yoksa 100 bin ve üstü meslek adıyla kişi, altı gider.
+        if ($kind === ExpenseExtractor::KIND_EXPENSE && ! empty($e['unnamed_payee']) && self::text($e['payee_label'] ?? null) !== null) {
+            $u = ExpenseExtractor::unnamedPayeeToParty(['unnamed_payee' => true, 'payee_label' => $e['payee_label'],
+                'payee_party_id' => $e['payee_party_id'] ?? null] + $d, ! empty($e['payee_answered']));
+            if (($u['kind'] ?? null) === ExpenseExtractor::KIND_PAYMENT) {
+                return self::record(['kind' => ExpenseExtractor::KIND_PAYMENT, 'party_id' => $u['party_id'] ?? null, 'party_name' => $u['party_name'] ?? null,
+                    'new_party' => true, 'unnamed_payee' => null] + $e, $phone, $text);
+            }
+            if (! empty($u['ask_party_id'])) {
+                return self::fail(self::plain((string) $u['question']) . ' Bu kişiye gittiyse kind=payment, party_id=' . (int) $u['ask_party_id']
+                    . '; ayrı bir giderse payee_answered=true. Müşteriye sor.');
+            }
+            $d = array_merge($d, ['unnamed_payee' => false, 'question' => null]);
+        }
+        // Stoklu işletmede kartı olmayan tek bir mal için para: mal elde mi, satıcıda mı, stok tutuluyor mu (kullanıcı 21.10).
+        if (! empty($e['goods_name'])) {
+            $d['goods_name'] = mb_substr(trim((string) $e['goods_name']), 0, 80);
+            if (\App\Services\Whatsapp\StockChoice::applies($d)) {
+                if (empty($e['stock_done'])) {
+                    return self::fail('"' . $d['goods_name'] . '" stokta tutulan bir mal olabilir ve ürün kartı yok. Mal geldiyse kind=trade_purchase (items: description, quantity, unit; '
+                        . 'product_id null — sistem kartı açar). Satıcıda duruyorsa payment + purpose=advance. Eski borçsa payment + purpose=debt. Stok tutulmuyorsa stock_done=true. Müşteriye sor.');
+                }
+                $d = \App\Services\Whatsapp\StockChoice::answer(['stock_choice' => true] + $d, '0')['data'] ?? $d;
+            }
         }
         if ($kind === ExpenseExtractor::KIND_SALE && is_array($e['items'] ?? null)) {
             $d['items'] = array_values(array_filter(array_map(fn ($i) => is_array($i) && (float) ($i['amount'] ?? 0) > 0
@@ -226,6 +291,11 @@ final class OperationAdapter
             return self::fail(trim((string) ($d['reply'] ?? 'Bu tür kayıt bu işletmede açık değil.')));
         }
         $d = ProjectChoice::prepare($d, $phone);
+        // Önceden verilen/alınan para varsa iş gelince ondan düşülür; para ikinci kez yazılmaz (Erkan 12-13.10).
+        $d = \App\Services\Whatsapp\AdvanceOffset::apply($d, $text);
+        if (($used = \App\Services\Whatsapp\AdvanceOffset::used($d)) > 0 && ! empty($d['paid'])) {
+            $warnings[] = Money::format($used) . ' ₺ önceden verilen paradan düşülüyor; yalnız kalanı yeni para sayılır.';
+        }
         if (! empty($d['debt_repayment']) && ($missing = DraftGaps::unrecordedDebt($d)) > 0) {
             $issues[] = 'Bu ödeme kayıtlı borçtan ' . Money::format($missing) . ' ₺ fazla. Eski/kayıtsız borç varsa onu debt_note (payable) olarak '
                 . 'AYNI öneride, ödemeden ÖNCE ver; yoksa purpose "advance" yap.';
@@ -259,7 +329,7 @@ final class OperationAdapter
      *
      * @return array{draft: ?array, issues: list<string>, warnings: list<string>, card?: string}
      */
-    public static function extended(array $e, string $phone): array
+    public static function extended(array $e, string $phone, string $text = ''): array
     {
         $kind = (string) ($e['kind'] ?? '');
         if (! in_array($kind, self::EXTENDED_KINDS, true)) {
@@ -321,8 +391,9 @@ final class OperationAdapter
         }
         if (in_array($d['kind'] ?? null, self::KINDS, true)) {
             // Ürün kartı tutmadı / stok kapalı: düz gider/alış/satış oldu — onun kurallarıyla (ödendi mi, yer, amaç) yeniden değerlendirilir.
-            return self::record(['kind' => $d['kind']] + $e, $phone);
+            return self::record(['kind' => $d['kind']] + $e, $phone, $text);
         }
+        $d = ExpenseExtractor::guardNightTill($d, $text); // gece 00–05 girilen kasa biten iş gününe yazılır (kullanıcı 19.10)
         $d = ['party_confirmed' => true, 'party_certain' => true, 'source' => 'agent'] + $d;
         if (! empty($e['no_project'])) {
             $d['project_choice_done'] = true;
@@ -375,6 +446,9 @@ final class OperationAdapter
                 }
             }
         }
+        if (\App\Services\Whatsapp\MemoryDraft::handles($d) && ($blocker = \App\Services\Whatsapp\MemoryDraft::blocker($d, $phone)) !== null) {
+            $issues[] = self::plain($blocker);
+        }
         if ($issues === []) {
             $gap = DraftGaps::reason($d);
             if ($gap['code'] !== DraftGaps::CONFIRM) {
@@ -394,6 +468,7 @@ final class OperationAdapter
             \App\Services\Whatsapp\TradeDraft::handles($d) => \App\Services\Whatsapp\TradeDraft::summary($d),
             \App\Services\Whatsapp\EmployeeDraft::handles($d) => \App\Services\Whatsapp\EmployeeDraft::summary($d),
             \App\Services\Whatsapp\RecurringDraft::handles($d) => \App\Services\Whatsapp\RecurringDraft::summary($d),
+            \App\Services\Whatsapp\MemoryDraft::handles($d) => \App\Services\Whatsapp\MemoryDraft::summary($d, $phone),
             $reminder !== null => isset($target) && $target ? \App\Support\Reminders::changeSummary($target, $reminder) : \App\Support\Reminders::summary($reminder),
             default => DraftGaps::label($d),
         };
@@ -403,6 +478,38 @@ final class OperationAdapter
         }
 
         return ['draft' => $d, 'issues' => [], 'warnings' => array_map([self::class, 'plain'], DraftWarnings::for($d)), 'card' => trim($card)];
+    }
+
+    /** Eski yolun kayıt öncesi emniyetleri. Kaydı sessizce değiştirmez: tetiklenirse ajanın düzelteceği/soracağı cümle döner. */
+    private static function guards(array $d, array $e, string $phone, string $text): ?string
+    {
+        $kind = $d['kind'];
+        $self = ExpenseExtractor::guardSelfParty($d, \App\Services\Whatsapp\ExpenseContext::selfNames($phone), $text);
+        if (($self['kind'] ?? null) !== $kind || ($self['party_id'] ?? null) !== $d['party_id'] || ($self['party_name'] ?? null) !== $d['party_name']) {
+            return $self['party_id'] === null && $self['party_name'] === null && ($d['party_id'] || $d['party_name'])
+                ? 'Bu ad müşterinin KENDİ adı/firması; kendisi kişi olamaz. ' . self::plain((string) ($self['question'] ?? 'Karşı tarafı sor.'))
+                : 'Mesaj paranın müşterinin hesabına GELDİĞİNİ söylüyor: bu kind=collection olmalı.';
+        }
+        if (($changed = ExpenseExtractor::guardUndeliveredSale($d, $text)) !== $d && ($changed['kind'] ?? null) !== $kind) {
+            return 'Mesaj malın henüz teslim edilmediğini söylüyor: satış değil, kind=collection + purpose=advance (önden alınan para). Teslim edilince satış yazılır.';
+        }
+        if ($kind === ExpenseExtractor::KIND_DEBT_NOTE) {
+            // "742 bin borcum VARDI, 120 bin ödedim": eski borç + ödeme birlikte anlatılıyor — borç kaydı doğrudur.
+            $stated = preg_match('/bor[cç]\p{L}* var/u', mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8')) === 1;
+            if (! $stated && ExpenseExtractor::guardDebtRepayment(['debt_side' => $e['debt_side'] ?? null] + $d, $text)['kind'] !== $kind) {
+                return 'Mesaj borcun ÖDENDİĞİNİ söylüyor: borç kaydı değil, kind=payment + purpose=debt.';
+            }
+            $future = ! empty($e['future_payment']) || preg_match('/(verece[gğk]|[oö]deyece[gğk]|verice[mk]|[oö]deyice[mk])/u', mb_strtolower(strtr($text, ['İ' => 'i', 'I' => 'ı']), 'UTF-8')) === 1;
+            if ($future && ($reminder = ExpenseExtractor::futurePaymentReminder(['future_payment' => true, 'debt_side' => $e['debt_side'] ?? null] + $d)) !== null) {
+                return self::plain($reminder[1]) . ' Yeni borç YAZMA. Ödeme günü söylendiyse kind=reminder öner; söylenmediyse borcun zaten kayıtlı olduğunu söyle.';
+            }
+        }
+        if ($kind === ExpenseExtractor::KIND_PURCHASE && empty($e['purchase_confirmed']) && \App\Services\Whatsapp\OnBehalfChoice::applies($d)) {
+            return (DraftGaps::party($d)?->name ?? 'Bu kişi') . ' şimdiye kadar yalnız müşterin olmuş, ondan hiç alış yok. Onun ADINA başkasına mı ödedin (kind=payment, purpose=on_behalf), '
+                . 'yoksa gerçekten ondan mal/hizmet mi aldın (purchase_confirmed=true)? Konuşmadan belli değilse sor.';
+        }
+
+        return null;
     }
 
     private static function fail(string $issue): array

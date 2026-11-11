@@ -118,10 +118,11 @@ class AgentEvalTest extends TestCase
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 999 00 77'],
             'services.twilio.sid' => 'ACeval', 'services.twilio.token' => 'tok', 'services.whatsapp.from' => '+10000000000',
             'services.whatsapp.agent' => 'on', 'agent.log_path' => $this->logDir, 'agent.daily_cost_usd' => 1000]);
-        $media = ! empty($case['first_media']) ? __DIR__ . '/fixtures/' . $case['first_media'] : null;
+        $files = array_map(fn ($f) => __DIR__ . '/fixtures/' . $f, (array) ($case['first_media'] ?? []));
+        $media = $files[0] ?? null;
         $mime = $media && str_ends_with($media, '.pdf') ? 'application/pdf' : 'image/jpeg';
         Http::fake(['api.twilio.com/*' => Http::response(['sid' => 'SMeval'], 201), 'messaging.twilio.com/*' => Http::response([], 200),
-            'media.eval/*' => fn () => Http::response((string) file_get_contents((string) $media), 200, ['Content-Type' => $mime])]);
+            'media.eval/*' => fn ($req) => Http::response((string) file_get_contents($files[(int) basename($req->url())]), 200, ['Content-Type' => $mime])]);
         Cache::flush();
         $this->travelTo(\Illuminate\Support\Carbon::parse($case['now'], 'Europe/Istanbul')->setTimezone(config('app.timezone')));
         WhatsappPendingExpense::where('phone', self::PHONE)->update(['status' => 'superseded']);
@@ -139,8 +140,13 @@ class AgentEvalTest extends TestCase
         $message = $case['first'];
         for ($turn = 1; $turn <= $maxTurns && $message !== null; $turn++) {
             $lastId = (int) WhatsappMessage::max('id');
+            // Birlikte gönderilen sayfalar: gerçekte ilk fotoğraf okunurken sıraya girerler.
+            if ($turn === 1 && count($files) > 1) {
+                Cache::put('wa-photo-queue:' . Phone::normalize(self::PHONE), array_map(fn ($i) => ['_queued_at' => microtime(true), 'From' => self::PHONE, 'Body' => '', 'NumMedia' => 1,
+                    'MessageSid' => 'SMpage' . $i . uniqid(), 'MediaUrl0' => 'https://media.eval/' . $i, 'MediaContentType0' => $mime], range(1, count($files) - 1)), now()->addHour());
+            }
             $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => $message, 'MessageSid' => 'SM' . uniqid()] + ($turn === 1 && $media
-                ? ['NumMedia' => 1, 'MediaUrl0' => 'https://media.eval/belge', 'MediaContentType0' => $mime] : ['NumMedia' => 0]))->assertOk();
+                ? ['NumMedia' => 1, 'MediaUrl0' => 'https://media.eval/0', 'MediaContentType0' => $mime] : ['NumMedia' => 0]))->assertOk();
             (fn () => $this->terminatingCallbacks = [])->call($this->app);
             $reply = WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'out')->where('id', '>', $lastId)
                 ->orderBy('id')->pluck('body')->implode("\n---\n");

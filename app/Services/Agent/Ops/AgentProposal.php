@@ -182,10 +182,12 @@ final class AgentProposal
 
         $lines = array_map(fn ($b) => '📒 ' . $b['name'] . ': ' . AgentCard::phrase($b['after']), $run['balances']);
         // Eski taslak ailesiyle yazılan işlemlerin onay metni o aileden gelir (personel kaydı, hatırlatma saati, günün cirosu…).
-        $text = $run['texts'] !== [] && count($run['texts']) === count($run['lines'])
-            ? implode("\n\n", $run['texts'])
-            : trim(($run['deletes'] > 0 && $run['created'] === [] ? '🗑️ Silindi.' : '✅ Kaydedildi.') . "\n" . implode("\n", $lines)
-                . ($run['texts'] !== [] ? "\n\n" . implode("\n\n", $run['texts']) : ''));
+        $head = $run['deletes'] > 0 && $run['created'] === [] ? '🗑️ Silindi.' : '✅ Kaydedildi.';
+        $text = match (true) {
+            $run['texts'] === [] => trim($head . "\n" . implode("\n", $lines)),
+            count($run['texts']) === count($run['lines']) => implode("\n\n", $run['texts']),
+            default => implode("\n\n", $run['texts']) . "\n✅ Karttaki diğer kayıtlar da yazıldı." . ($lines ? "\n" . implode("\n", $lines) : ''),
+        };
 
         return ['ok' => true, 'created' => $run['created'], 'party_ids' => $run['party_ids'], 'text' => $text];
     }
@@ -274,7 +276,7 @@ final class AgentProposal
     private static function applyRecord(array &$s, string $phone, array $entry, string $sourceText, ?string $linePrefix = null): array
     {
         $r = in_array($entry['kind'] ?? null, OperationAdapter::EXTENDED_KINDS, true)
-            ? OperationAdapter::extended($entry, $phone) : OperationAdapter::record($entry, $phone);
+            ? OperationAdapter::extended($entry, $phone, $sourceText) : OperationAdapter::record($entry, $phone, $sourceText);
         if ($r['issues'] !== []) {
             return $r['issues'];
         }

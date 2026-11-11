@@ -144,6 +144,28 @@ class AgentChecksAgreementsTest extends TestCase
         $this->assertEqualsWithDelta(-152000, (float) PartyStatement::build($party)['balance'], 0.01, '40 × 3.800');
     }
 
+    /** Açık anlaşması olan kişiye para: hangi anlaşmaya sayılacağı sorulur; seçilince ona bağlanır, proje anlaşmadan gelir. */
+    public function test_payment_to_a_party_with_an_agreement_asks_which_one(): void
+    {
+        $party = Party::create(['name' => 'Anlaşmalı Ödeme Testi']);
+        $project = \App\Models\Project::create(['name' => 'Anlaşmalı Şantiye', 'status' => 'active']);
+        $agreement = Agreement::create(['party_id' => $party->id, 'direction' => 'purchase', 'project_id' => $project->id, 'title' => 'Tesisat', 'agreement_date' => '2026-11-01', 'status' => 'open']);
+        $product = \App\Models\Product::firstOrCreate(['name' => 'Anlaşmalı Tesisat'], ['type' => \App\Models\Product::TYPE_SERVICE, 'is_active' => true]);
+        $agreement->items()->create(['product_id' => $product->id, 'quantity' => 1, 'unit_price' => 100000, 'amount' => 100000, 'is_lump' => true, 'sort' => 0]);
+
+        $p = $this->propose($this->rec(['kind' => 'payment', 'party_id' => $party->id, 'amount' => 20000]));
+        $this->assertFalse($p['ok']);
+        $this->assertStringContainsString('agreement_id ' . $agreement->id, $p['issues'][0]);
+        $this->assertStringContainsString('no_agreement', $p['issues'][0]);
+
+        $r = $this->save('evet', $this->rec(['kind' => 'payment', 'party_id' => $party->id, 'amount' => 20000, 'agreement_id' => $agreement->id, 'purpose' => 'advance']));
+        $this->assertTrue($r['ok'], ($r['reason'] ?? '') . $r['card']);
+        $this->assertStringContainsString('anlaşma: Tesisat', $r['card']);
+        $this->assertStringNotContainsString('avans', $r['card']);
+        $row = PartyLedgerEntry::where('party_id', $party->id)->where('type', 'odeme')->sole();
+        $this->assertSame([$agreement->id, $project->id], [$row->agreement_id, $row->project_id]);
+    }
+
     /** Satılan iş/mal geri geldi: asıl satış durur, yanına iade yazılır. */
     public function test_return_adds_a_return_row_next_to_the_original_sale(): void
     {

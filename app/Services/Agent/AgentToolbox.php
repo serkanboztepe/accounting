@@ -36,7 +36,7 @@ final class AgentToolbox
                         . 'trade_purchase = ÜRÜNLER\'deki malın alışı, stoğa girer (items) · stock_count = sayım ("un 9 kaldı") · stock_setting = günlük kullanım / uyarı eşiği / alış fiyatı · '
                         . 'product_add = yeni ürün kartı · production = kendi ürettiğin mal stoğa girer · salary = personele maaş ödemesi ya da maaştan kesinti · '
                         . 'employee_setting = personel kaydı / maaşı / maaş günü · reminder = hatırlatma kur ya da değiştir · recurring_expense = düzenli gider (her gün/hafta/ay) · '
-                        . 'recurring_stop = düzenli gideri durdur · agreement = kişiyle ileride gelecek mal/iş için anlaşma (agreement_items, agreement_payments, yön) · '
+                        . 'recurring_stop = düzenli gideri durdur · product_rename = ürün kartının adı değişiyor · forget = öğretilen bilgiyi unut (memory_subject) · agreement = kişiyle ileride gelecek mal/iş için anlaşma (agreement_items, agreement_payments, yön) · '
                         . 'agreement_delivery = açık anlaşmadan mal geldi / iş yapıldı (delivery_lines; AÇIK ANLAŞMALAR\'daki kalem id\'leri). '
                         . 'Ürünlü, personelli ve anlaşmalı türler yalnız o özelliği açık işletmede çalışır; kapalıysa sistem söyler. '
                         . 'ÇEK: payment / collection (ya da ödenmiş purchase / sale) kaydına `checks` (tek tek: no, vade, tutar) ya da `check_plan` (kural: "3 çek aylık") ekle.'],
@@ -62,6 +62,11 @@ final class AgentToolbox
                 'total_ok' => ['type' => ['boolean', 'null'], 'description' => 'agreement: sistem "kalemlerin toplamı belgedeki toplamla tutmuyor" dedi ve müşteri kalemlerin doğru olduğunu söyledi'],
                 'payments_skipped' => ['type' => ['boolean', 'null'], 'description' => 'agreement: sistem ödeme tutarlarını sordu ve müşteri ödeme olmadığını / geçilmesini söyledi'],
                 'replace' => ['type' => ['string', 'null'], 'enum' => ['replace', 'separate', null], 'description' => 'agreement: aynı kişiyle açık anlaşma varken — replace = eskisinin yerine (eskiler kapanır) · separate = ayrı anlaşma (müşteri söylediyse)'],
+                'no_agreement' => ['type' => ['boolean', 'null'], 'description' => 'payment/collection: kişinin açık anlaşması var ama müşteri bu paranın anlaşma dışı olduğunu söyledi'],
+                'purchase_confirmed' => ['type' => ['boolean', 'null'], 'description' => 'purchase: sistem "bu kişi müşterin" dedi, müşteri gerçekten ondan aldığını söyledi'],
+                'payee_answered' => ['type' => ['boolean', 'null'], 'description' => 'expense + unnamed_payee: sistem "bu para X\'e mi gitti" dedi, müşteri ayrı gider dedi'],
+                'stock_done' => ['type' => ['boolean', 'null'], 'description' => 'goods_name: müşteri bu malın stoğunu tutmadığını söyledi'],
+                'past_ok' => ['type' => ['boolean', 'null'], 'description' => 'checks: vadesi geçmiş çek için müşteri "eski çek, öyle kalsın" dedi'],
                 'past_checks' => ['type' => ['string', 'null'], 'enum' => ['paid', 'pending', null], 'description' => 'agreement: vadesi geçmiş çekler için müşteri cevabı — paid = ödendi · pending = bekliyor'],
             ],
             'required' => ['kind'],
@@ -177,7 +182,7 @@ final class AgentToolbox
     public function run(string $name, array $input): array
     {
         if (ReadTools::has($name)) {
-            return ReadTools::run($name, $input);
+            return ReadTools::run($name, $name === 'report' ? ['_phone' => $this->phone] + $input : $input);
         }
 
         return match ($name) {

@@ -42,6 +42,9 @@ final class AgentCard
         if (isset(self::PAYMENT_LABELS[$d['payment_type'] ?? '']) && in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_COLLECTION], true)) {
             $parts[] = self::PAYMENT_LABELS[$d['payment_type']];
         }
+        if (! empty($d['agreement_id']) && ($title = \App\Models\Agreement::whereKey($d['agreement_id'])->value('title'))) {
+            $parts[] = 'anlaşma: ' . mb_strimwidth((string) $title, 0, 40, '…');
+        }
         $place = ! empty($d['project_id']) ? Project::whereKey($d['project_id'])->value('name')
             : (! empty($d['project_name']) ? $d['project_name'] . ' (yeni)' : null);
         if ($place) {

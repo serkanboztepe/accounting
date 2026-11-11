@@ -16,7 +16,7 @@ use Illuminate\Support\Carbon;
  */
 final class Report
 {
-    public const KINDS = ['period', 'place', 'project_cost', 'receivables', 'payables', 'open_checks', 'stock'];
+    public const KINDS = ['period', 'place', 'project_cost', 'receivables', 'payables', 'open_checks', 'stock', 'agenda', 'reminders', 'recurring', 'memory'];
 
     public static function tool(): array
     {
@@ -29,6 +29,7 @@ final class Report
                 . 'receivables = bize borçlu olanlar + toplam alacak. payables = bizim borçlu olduklarımız + toplam borç (alacakla netleştirilmez). '
                 . 'open_checks = bekleyen çekler (verdiğimiz ve aldığımız; id, kişi, vade, tutar) — "çek ödendi" işaretlemeden önce buradan bul. '
                 . 'stock = stokta ne kadar var (product_id verilirse o ürün, yoksa hepsi). '
+                . 'agenda = takvim ("yarın ne var", "bu hafta neler var"; date_from/date_to, boşsa 7 gün). reminders = aktif hatırlatmalar. recurring = düzenli giderler. memory = işletme hafızası ("neleri hatırlıyorsun"). '
                 . 'Tek kişinin hesabı için party_overview, liste/ayrıntı için records kullan.',
             'input_schema' => [
                 'type' => 'object',
@@ -59,6 +60,10 @@ final class Report
             'receivables' => self::balances(true),
             'payables' => self::balances(false),
             'open_checks' => self::openChecks(),
+            'agenda' => ['takvim' => \App\Support\Agenda::text($in['date_from'] ?? null, $in['date_to'] ?? null, $in['_phone'] ?? null)],
+            'reminders' => ['hatırlatmalar' => \App\Support\Reminders::listText((string) ($in['_phone'] ?? ''))],
+            'recurring' => ['düzenli_giderler' => \App\Services\Whatsapp\RecurringDraft::listText()],
+            'memory' => ['hafıza' => \App\Services\Whatsapp\MemoryDraft::listText((string) ($in['_phone'] ?? ''))],
             'stock' => ['stok' => \App\Support\Features::stock()
                 ? \App\Services\Whatsapp\TradeDraft::stockAnswer(! empty($in['product_id']) ? (int) $in['product_id'] : null) : 'Bu işletmede stok takibi açık değil.'],
             default => ['hata' => 'kind şunlardan biri olmalı: ' . implode(', ', self::KINDS)],

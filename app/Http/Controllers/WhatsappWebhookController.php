@@ -266,7 +266,9 @@ class WhatsappWebhookController extends Controller
             TurnTrace::finish(['replies' => $this->replies, 'inbound_kind' => $this->inboundKind, 'deferred' => $deferred],
                 background: (bool) $request->attributes->get('queued'));
             ChatAssistant::$deadline = null;
-            Cache::forget($this->photoBusyKey($phone));
+            if (! $this->agentPhotoTurn) {
+                Cache::forget($this->photoBusyKey($phone));
+            }
             if (! $deferred) {
                 $lock->release();
             }
@@ -369,6 +371,36 @@ class WhatsappWebhookController extends Controller
             || DailyNudge::toggleWord($word) !== null;
     }
 
+    /** Bu tur ajanın okuduğu bir fotoğraf/belge: "okunuyor" işareti tur bitene kadar kalır. */
+    private bool $agentPhotoTurn = false;
+
+    /** Ajan için birlikte gönderilen sayfaları bekleme süresi (sn); testte kısaltılır. Sözleşme akışındaki $pageWait'ten kısa: her fotoğraf bunu bekler. */
+    public static float $agentPageWait = 3;
+
+    /**
+     * Ajana verilecek görseller: bu fotoğraf + birlikte gönderilip sıraya giren sayfalar (en çok 5). Sayfalar tek turda okunur —
+     * sözleşme de çek sayfaları da tek kart olur. Sayfalar konuşma kaydına yazılır, ikinci kez işlenmez.
+     *
+     * @return list<array{media_type:string,data:string,caption?:string}>|null
+     */
+    private function agentMedia(Request $request, string $phone): ?array
+    {
+        $first = $this->downloadMedia($request);
+        if ($first === null) {
+            return null;
+        }
+        $images = [$first];
+        foreach ($this->awaitSiblingPhotos($request, $phone, self::$agentPageWait) as $item) {
+            if ($img = $this->downloadMedia(Request::create('/', 'POST', $item))) {
+                $images[] = $img + (trim((string) ($item['Body'] ?? '')) !== '' ? ['caption' => trim((string) $item['Body'])] : []);
+            }
+            $this->logMessage($phone, 'in', (string) ($item['Body'] ?? ''), true);
+            Cache::add(Tenancy::key('wa-sid:' . ($item['MessageSid'] ?? '')), true, now()->addDay());
+        }
+
+        return $images;
+    }
+
     /** Gelen isteğin alanları — ajan mesajı eski asistana devrederse aynı mesaj bunlarla eski yolda işlenir. */
     private array $agentInput = [];
 
@@ -386,9 +418,10 @@ class WhatsappWebhookController extends Controller
         $this->agentWork = null;
         $input = $this->agentInput;
         $lockName = Tenancy::key('wa-msg:' . Phone::normalize($phone));
+        $photoBusy = $this->photoBusyKey($phone);
 
         $done = false; // bir kez: uzun yaşayan süreçte (test, kuyruk işçisi) sonraki isteklerin bitişinde yeniden çalışmasın
-        app()->terminating(function () use ($firm, $work, $phone, $incoming, $lockName, $lockOwner, $input, &$done) {
+        app()->terminating(function () use ($firm, $work, $phone, $incoming, $lockName, $lockOwner, $input, $photoBusy, &$done) {
             if ($done) {
                 return;
             }
@@ -414,6 +447,7 @@ class WhatsappWebhookController extends Controller
             } catch (\Throwable $e) {
                 Log::error('Ajan turu çalıştırılamadı', ['msg' => $e->getMessage()]);
             } finally {
+                Cache::forget($photoBusy);
                 Cache::restoreLock($lockName, $lockOwner)->release();
             }
             // Ajan bu işi eski asistana devretti (maaş, hatırlatma, stok, anlaşma, çek…): kilit bırakıldı, aynı mesaj eski yolda
@@ -423,7 +457,8 @@ class WhatsappWebhookController extends Controller
                     unset($input['MessageSid']); // aynı mesaj: tekrar denetimine takılmasın
                     $request = Request::create('/whatsapp/webhook', 'POST', $input);
                     $request->attributes->set('via_hub', true);  // telefon/imza ilk gelişte denetlendi
-                    $request->attributes->set('queued', true);   // ajana geri dönmez, süre sınırı yok
+                    $request->attributes->set('queued', true);   // süre sınırı yok
+                    $request->attributes->set('no_agent', true); // ajana geri dönmez
                     $request->attributes->set('reread', true);   // gelen mesaj konuşma kaydına ikinci kez yazılmaz
                     $controller = app()->make(self::class);
                     app()->call([$controller, '__invoke'], ['request' => $request]);
@@ -557,9 +592,9 @@ class WhatsappWebhookController extends Controller
      *
      * @return list<array<string, mixed>>
      */
-    private function awaitSiblingPhotos(Request $request, string $phone): array
+    private function awaitSiblingPhotos(Request $request, string $phone, ?float $wait = null): array
     {
-        $deadline = microtime(true) + self::$pageWait;
+        $deadline = microtime(true) + ($wait ?? self::$pageWait);
         $found = $this->siblingPhotos($request, $phone);
         while (microtime(true) < $deadline) {
             if ($found !== []) {
@@ -654,6 +689,16 @@ class WhatsappWebhookController extends Controller
 
     private bool $drainScheduled = false;
 
+    /** Açık kart belgeden gelen anlaşma mı — sıradaki sayfa onun devamı olabilir, beklemez (ajan önerisinde anlaşma işlemi). */
+    private function isDocumentAgreementCard(WhatsappPendingExpense $open): bool
+    {
+        if ($open->isAgentProposal()) {
+            return collect((array) ($open->extracted['ops'] ?? []))->contains(fn ($op) => ($op['entry']['kind'] ?? null) === ExpenseExtractor::KIND_AGREEMENT);
+        }
+
+        return AgreementDraft::handles($open->extracted) && ! empty($open->extracted['from_document']);
+    }
+
     private function scheduleDrain(string $phone): void
     {
         if ($this->drainScheduled) {
@@ -668,9 +713,8 @@ class WhatsappWebhookController extends Controller
                     try {
                         // Açık kart varken sıradaki foto bekler — belgeden gelen ANLAŞMA kartı hariç (sıradaki sayfa onun devamı olabilir, 22.10).
                         $item = Cache::lock($lockName, 360)->block(300, fn () => ($open = WhatsappPendingExpense::where('phone', $phone)
-                            ->where('status', 'awaiting_confirmation')->where('updated_at', '>=', now()->subMinutes(30))->latest('updated_at')->first())
-                            && ! (AgreementDraft::handles($open->extracted) && ! empty($open->extracted['from_document'])
-                                && empty(($this->photoQueue($phone)[0] ?? [])['_separate']))
+                            ->whereIn('status', ['awaiting_confirmation', WhatsappPendingExpense::AGENT_OPEN])->where('updated_at', '>=', now()->subMinutes(30))->latest('updated_at')->first())
+                            && ! ($this->isDocumentAgreementCard($open) && empty(($this->photoQueue($phone)[0] ?? [])['_separate']))
                             ? null : $this->popPhoto($phone));
                     } catch (LockTimeoutException) {
                         return;
@@ -744,10 +788,25 @@ class WhatsappWebhookController extends Controller
         $this->inboundBody = $body;
         // Ajan asistan (plan v5): firma "ajan canlı" ise tur ajana gider. null = ajan bu turu almadı → eski yol aynen işler.
         // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
-        if (AgentGate::live() && ! $request->attributes->get('queued') && (string) $request->input('ButtonPayload', '') === ''
+        if (AgentGate::live() && ! $request->attributes->get('no_agent') && (string) $request->input('ButtonPayload', '') === ''
             && ! $this->staysOnOldPath($body, $numMedia)
-            && ($work = app(AgentTurn::class)->prepare($phone, $body, $numMedia, fn () => $this->downloadMedia($request), $this->inboundMessageId)) !== null) {
+            && ($work = app(AgentTurn::class)->prepare($phone, $body, $numMedia, fn () => $this->agentMedia($request, $phone), $this->inboundMessageId)) !== null) {
+            // Sıradaki fotoğraf zaten arka planda: ajan burada çalışır, cevabı sırayı işleyen gönderir. Devrederse aşağıda eski yol sürer.
+            if ($request->attributes->get('queued')) {
+                $result = $work();
+                if ($result['handover'] === null) {
+                    $this->inboundKind = 'agent';
+
+                    return $this->twimlMany($result['replies']);
+                }
+                goto legacy;
+            }
             $this->inboundKind = 'agent';
+            if ($numMedia > 0) {
+                // Ajan belgeyi okurken gelen sayfalar kilidi beklemesin, sıraya girsin: birlikte gönderilenler tek turda okunur.
+                $this->agentPhotoTurn = true;
+                Cache::put($this->photoBusyKey($phone), true, now()->addMinutes(3));
+            }
             $this->agentWork = $work; // Twilio'ya boş cevap; ajan istek kapandıktan sonra çalışır, cevabı API ile gider (runAgentAfterResponse)
             $this->agentInput = $request->all();
             $this->sendTypingIndicator((string) $request->input('MessageSid', ''));
@@ -755,6 +814,7 @@ class WhatsappWebhookController extends Controller
 
             return response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', 200, ['Content-Type' => 'text/xml']);
         }
+        legacy:
         // Akşam mesajının düğmeleri ("Kayıt gireceğim / Hatırlatma kur / Bugün yok") ve aç/kapa — AI'sız.
         if ($numMedia === 0) {
             $word = $this->word($body);

@@ -192,6 +192,44 @@ class AgentProposalTest extends TestCase
         $this->assertSame(0, Expense::where('description', 'like', '%Tapu harcı%')->count(), 'gider yazılmaz');
     }
 
+    /** Eski yolun emniyetleri ajan yolunda kaydı sessizce çevirmez; bulgu olarak döner. */
+    public function test_old_safeguards_come_back_as_issues(): void
+    {
+        $party = $this->gurbuz();
+        $text = fn (string $t, array ...$ops) => AgentProposal::propose(self::PHONE, $ops, $t);
+
+        // Teslim edilmemiş malın parası satış değildir.
+        $customer = Party::create(['name' => 'Emniyet Testi Müşteri']);
+        $p = $text('parasını aldım peyniri sonra vereceğim', $this->rec(['kind' => 'sale', 'party_id' => $customer->id, 'amount' => 5000, 'paid' => true]));
+        $this->assertStringContainsString('purpose=advance', $p['issues'][0]);
+
+        // "Borcumu ödedim" borç kaydı değildir; "borcum vardı, ödedim" ise eski borç + ödemedir.
+        $p = $text('Gürbüze borcumu ödedim', $this->rec(['kind' => 'debt_note', 'party_id' => $party->id, 'amount' => 5000, 'debt_side' => 'payable']));
+        $this->assertStringContainsString('kind=payment', $p['issues'][0]);
+        $p = $text('Yeniye 9 bin borcum vardı 2 bin ödedim', $this->rec(['kind' => 'debt_note', 'party_name' => 'Emniyet Yeni', 'new_party' => true, 'amount' => 9000, 'debt_side' => 'payable']));
+        $this->assertTrue($p['ok'], json_encode($p, JSON_UNESCAPED_UNICODE));
+
+        // Gelecek zaman + kayıtlı borç: yeni borç yazılmaz.
+        $p = $text('Gürbüze yarın 40 bin vereceğim', $this->rec(['kind' => 'debt_note', 'party_id' => $party->id, 'amount' => 40000, 'debt_side' => 'payable']));
+        $this->assertStringContainsString('Yeni borç YAZMA', $p['issues'][0]);
+
+        // Yalnız müşterisi olan kişiden "alış": adına ödeme mi?
+        PartyLedgerEntry::create(['party_id' => $customer->id, 'type' => 'satis', 'amount' => 1000, 'entry_date' => '2026-11-01']);
+        $p = $text('Emniyet müşteriye 500 ruhsat', $this->rec(['kind' => 'purchase', 'party_id' => $customer->id, 'amount' => 500, 'paid' => true, 'no_project' => true]));
+        $this->assertStringContainsString('on_behalf', $p['issues'][0]);
+        $this->assertTrue($text('x', $this->rec(['kind' => 'purchase', 'party_id' => $customer->id, 'amount' => 500, 'paid' => true, 'no_project' => true, 'purchase_confirmed' => true]))['ok']);
+
+        // Adsız usta: 100 bin altı gider, üstü meslek adıyla kişi (amaç sorulur).
+        $this->assertTrue($text('karocuya 50 bin', $this->rec(['kind' => 'expense', 'amount' => 50000, 'description' => 'Karo işçiliği', 'unnamed_payee' => true, 'payee_label' => 'Karocu', 'no_project' => true]))['ok']);
+        $p = $text('sıvacıya 150 bin', $this->rec(['kind' => 'expense', 'amount' => 150000, 'description' => 'Sıva', 'unnamed_payee' => true, 'payee_label' => 'Sıvacı', 'no_project' => true]));
+        $this->assertStringContainsString('purpose', $p['issues'][0]);
+
+        // Takvimde olmayan vade kartta söylenir.
+        $p = $text('x', $this->rec(['kind' => 'payment', 'party_id' => $party->id, 'amount' => 10000, 'checks' => [['due_date_text' => '31-02-2027', 'amount' => 10000]]]));
+        $this->assertTrue($p['ok'], json_encode($p, JSON_UNESCAPED_UNICODE));
+        $this->assertStringContainsString('takvimde böyle bir gün yok', $p['card']);
+    }
+
     public function test_cost_record_needs_a_place_and_never_guesses_it(): void
     {
         $party = $this->gurbuz();

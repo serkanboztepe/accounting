@@ -358,6 +358,40 @@ class AgentTurnTest extends TestCase
         $this->assertSame('Buyur.', $this->lastOut());
     }
 
+    /** Birlikte gönderilen sayfalar tek turda ajana gider; sırada kalmaz, eski yoldan işlenmez, konuşma kaydına yazılır. */
+    public function test_pages_sent_together_reach_the_agent_in_one_turn(): void
+    {
+        \App\Http\Controllers\WhatsappWebhookController::$agentPageWait = 0;
+        $key = 'wa-photo-queue:' . Phone::normalize(self::PHONE);
+        Cache::put($key, [['_queued_at' => microtime(true), 'From' => self::PHONE, 'Body' => 'ikinci sayfa', 'NumMedia' => 1, 'MessageSid' => 'SMp2',
+            'MediaUrl0' => 'https://media.test/2', 'MediaContentType0' => 'image/jpeg']], now()->addHour());
+        $this->model($this->say('İki sayfayı da gördüm.'));
+        Http::swap(new \Illuminate\Http\Client\Factory);
+        $sent = &$this->sent;
+        Http::fake(function (Request $r) use (&$sent) {
+            if (str_contains($r->url(), 'api.anthropic.com')) {
+                $sent[] = ['headers' => $r->headers(), 'body' => $r->data()];
+
+                return Http::response($this->say('İki sayfayı da gördüm.'), 200);
+            }
+
+            return str_contains($r->url(), 'media.test') ? Http::response('jpeg', 200, ['Content-Type' => 'image/jpeg']) : Http::response(['sid' => 'SMx'], 201);
+        });
+        $in = WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'in')->count();
+
+        $this->post('/whatsapp/webhook', ['From' => self::PHONE, 'Body' => 'birinci sayfa', 'NumMedia' => 1, 'MessageSid' => 'SMp1',
+            'MediaUrl0' => 'https://media.test/1', 'MediaContentType0' => 'image/jpeg'])->assertOk();
+
+        $this->assertCount(1, $this->sent, 'tek tur');
+        $user = $this->sent[0]['body']['messages'][count($this->sent[0]['body']['messages']) - 2];
+        $this->assertSame(['image', 'image', 'text'], array_column($user['content'], 'type'));
+        $this->assertStringContainsString('2 sayfa birlikte', $user['content'][2]['text']);
+        $this->assertStringContainsString('ikinci sayfa', $user['content'][2]['text']);
+        $this->assertSame([], (array) Cache::get($key, []), 'sırada kalmadı');
+        $this->assertSame($in + 2, WhatsappMessage::where('phone', Phone::normalize(self::PHONE))->where('direction', 'in')->count());
+        $this->assertFalse(Cache::has('wa-photo-busy:' . Phone::normalize(self::PHONE)), 'okunuyor işareti kalktı');
+    }
+
     public function test_photo_is_passed_to_the_model_as_an_image_block(): void
     {
         $messages = AgentContext::messages(self::PHONE, 'bunu yaz', ['media_type' => 'image/jpeg', 'data' => 'QUJD']);
