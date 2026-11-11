@@ -136,9 +136,10 @@ final class MorningAlerts
                 continue; // karşılığı gelmiş (alış/satış avanstan düşmüş)
             }
             $date = Carbon::parse($last->entry_date)->locale('tr')->translatedFormat('j F');
+            // Ek yok: isme/aya körlemesine "'e"/"'de" eklemek "kardeşi'e", "Kasım'de" yazıyordu (Erkan 11.11).
             $lines[] = $ours
-                ? '⏳ ' . $party->name . ': ' . $date . "'de önceden verdiğiniz " . Money::format($open) . ' ₺\'nin işi/malı geldi mi? Geldiyse yazmanız yeterli (ör. "' . $party->name . ' işi bitirdi").'
-                : '⏳ ' . $party->name . ': ' . $date . "'de aldığınız " . Money::format($open) . ' ₺ peşin paranın malı/işi teslim edildi mi? Edildiyse yazmanız yeterli (ör. "' . $party->name . "'e teslim ettim\").";
+                ? '⏳ ' . $party->name . ': ' . $date . ' tarihinde önceden verdiğiniz ' . Money::format($open) . ' ₺\'nin işi/malı geldi mi? Geldiyse yazmanız yeterli (ör. "' . $party->name . ' işi bitirdi").'
+                : '⏳ ' . $party->name . ': ' . $date . ' tarihinde aldığınız ' . Money::format($open) . ' ₺ peşin paranın malı/işi teslim edildi mi? Edildiyse "teslim ettim" yazmanız yeterli.';
             if (count($lines) >= 3) {
                 break;
             }

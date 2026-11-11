@@ -67,6 +67,16 @@ class MorningAlertsTest extends TestCase
         $this->assertStringContainsString('Sabah Avans Osman', $day14);
         $this->assertStringContainsString("1.005.000,00 ₺'nin işi/malı geldi mi", $day14);
         $this->assertStringNotContainsString('Personel', $day14, 'personel avansı maaştan düşer, sorulmaz');
+        $this->assertStringContainsString(' tarihinde önceden verdiğiniz', $day14, 'ay adına "\'de" eklenmez ("Kasım\'de" çıkıyordu)');
+
+        // Bize peşin para verilmiş: örnek cümlede isme ek eklenmez ("Şeker'in kardeşi'e" çıkıyordu).
+        $kardes = \App\Models\Party::create(['name' => "Sabah Şeker'in kardeşi"]);
+        \App\Models\PartyLedgerEntry::create(['party_id' => $kardes->id, 'type' => \App\Models\PartyLedgerEntry::TYPE_COLLECTION, 'amount' => 15000,
+            'entry_date' => $this->today->copy()->subDays(14)->toDateString(), 'description' => 'Avans — 25 kg peynir']);
+        $line = collect(MorningAlerts::openAdvances($this->today))->first(fn ($l) => str_contains($l, 'kardeşi'));
+        $this->assertNotNull($line);
+        $this->assertStringContainsString('Edildiyse "teslim ettim" yazmanız yeterli.', $line);
+        $this->assertStringNotContainsString("kardeşi'e", $line);
         $this->assertStringNotContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->subDay())), '13. gün sessiz');
         $this->assertStringContainsString('Sabah Avans Osman', implode("\n", MorningAlerts::openAdvances($this->today->copy()->addDays(16))), '30. gün');
 
