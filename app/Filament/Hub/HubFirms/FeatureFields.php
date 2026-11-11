@@ -102,13 +102,13 @@ final class FeatureFields
                 ]),
 
             Section::make('Ajan asistan')
-                ->description('Yeni asistan (deneme). İkisi de kapalıyken firma bugünkü gibi çalışır.')
+                ->description('Yeni asistan. Yeni firmalarda açık gelir; kapatınca sonraki mesaj eski asistana döner.')
                 ->collapsed()
                 ->columns(2)
                 ->schema([
                     Toggle::make('asst_agent_shadow')->label('Ajan gölge')
                         ->helperText('Bugünkü asistan cevaplar; ajan arkada aynı mesaja ne yapardı, kaydeder. Müşteriye hiçbir şey gitmez, kayıt yazılmaz.'),
-                    Toggle::make('asst_agent_live')->label('Ajan canlı')
+                    Toggle::make('asst_agent_live')->default(true)->label('Ajan canlı')
                         ->helperText('Mesajları ajan cevaplar. Kapatınca sonraki mesaj bugünkü asistana döner.'),
                 ]),
 

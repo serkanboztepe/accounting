@@ -96,6 +96,16 @@ class AgentGateTest extends TestCase
         $this->assertSame(AgentGate::OFF, AgentGate::mode(), 'akıllı asistan kapalıyken ajan yok');
     }
 
+    /** Yeni firma formunda "Ajan canlı" açık gelir; mevcut firmanın formu saklı değeri gösterir (kapalıysa kapalı). */
+    public function test_new_firm_form_defaults_agent_live_on(): void
+    {
+        $source = file_get_contents(app_path('Filament/Hub/HubFirms/FeatureFields.php'));
+        $this->assertStringContainsString("Toggle::make('asst_agent_live')->default(true)", $source);
+
+        $stored = new HubFirm(['settings' => HubFirm::settingsFromFeaturesForm(['feat_expenses' => true, 'asst_smart_assistant' => true, 'asst_agent_live' => false])]);
+        $this->assertFalse($stored->featuresFormData()['asst_agent_live']);
+    }
+
     public function test_hub_boxes_are_stored_and_read_back(): void
     {
         $firm = new HubFirm(['settings' => HubFirm::settingsFromFeaturesForm([
