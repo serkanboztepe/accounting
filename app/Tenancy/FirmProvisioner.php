@@ -52,6 +52,13 @@ class FirmProvisioner
             (new ExpenseCategorySeeder())->run();
             User::create(['name' => $name, 'email' => $email, 'password' => $password]);
         });
+
+        // Ajan asistanın serbest okuması. Kurulamazsa firma yine açılır: ajan bu araç olmadan çalışır, sonra tenants:create-ro-user ile kurulur.
+        try {
+            self::giveReadOnlyUser($firm);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**

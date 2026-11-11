@@ -279,6 +279,10 @@ class TenancyTest extends TestCase
 
             $this->assertSame('hesap_test_new', $firm->fresh()->db_username, 'firma kendi kullanıcısıyla bağlanmalı');
             $this->assertCannotReadOtherFirm($firm->fresh());
+
+            // Ajan asistanın salt-okur kullanıcısı da açılır: izinli tabloyu okur, kapalı tabloyu ve yazmayı reddeder.
+            $this->assertSame('hesap_test_new_ro', $firm->fresh()->db_ro_username);
+            $this->assertSame([], Tenancy::run($firm->fresh(), fn () => \App\Console\Commands\TenantsCreateRoUser::verify()));
         } finally {
             Tenancy::end();
             $this->dropTestDatabase('hesap_test_new');
