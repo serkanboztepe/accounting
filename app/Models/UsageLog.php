@@ -106,6 +106,8 @@ class UsageLog extends Model
             'ai_cache_read_tokens' => (int) $ai->sum('cache_read_tokens'),
             'ai_cache_write_tokens' => (int) $ai->sum('cache_write_tokens'),
             'ai_cost_usd' => round((float) $ai->sum('cost_usd'), 4),
+            // Ajan asistanın payı (ai_cost_usd'nin içinde; ana modeli yalnız ajan kullanıyor).
+            'agent_cost_usd' => round((float) $ai->where('model', config('agent.model'))->sum('cost_usd'), 4),
             'templates' => $tpl->count(),
             'template_cost_usd' => round((float) $tpl->sum('cost_usd'), 4),
         ];

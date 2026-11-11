@@ -59,6 +59,7 @@ class SqlGuardTest extends TestCase
             'merkez telefon' => ['SELECT phone FROM hub_phones', 'hub_phones'],
             'başka firma' => ['SELECT name FROM hesap_baska.parties', 'veritabanı adı'],
             'başka firma ters tırnak' => ['SELECT name FROM `hesap_baska`.`parties`', 'veritabanı adı'],
+            'eski adlı firma' => ['SELECT name FROM yildiz_mgmt.parties', 'veritabanı adı'],
             'üç parçalı ad' => ['SELECT x.parties.name FROM parties', 'veritabanı adı'],
             'yorumla gizleme' => ['SELECT 1 /* x */ FROM parties', 'Yorum'],
             'satır yorumu' => ["SELECT 1 FROM parties -- where", 'Yorum'],

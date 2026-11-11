@@ -72,7 +72,7 @@ BEGIN
             'contracts', 'contract_items', 'contract_deliveries', 'contract_payments', 'activity_logs');
     DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_done = 1;
 
-    IF p_db IS NULL OR p_db NOT REGEXP '^hesap_[a-z0-9_]{1,40}$' THEN
+    IF p_db IS NULL OR p_db NOT REGEXP '^(hesap_[a-z0-9_]{1,40}|yildiz_mgmt|muhasebe_mgmt|yenyapi_mgmt)$' THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Gecersiz veritabani adi (hesap_ ile baslamali, a-z0-9_)';
     END IF;
     SET v_user = CONCAT(p_db, '_ro');
@@ -107,7 +107,7 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE provisioning.create_firm_ro_user(IN 
     SQL SECURITY DEFINER
 BEGIN
     DECLARE v_user VARCHAR(80);
-    IF p_db IS NULL OR p_db NOT REGEXP '^hesap_[a-z0-9_]{1,40}$' THEN
+    IF p_db IS NULL OR p_db NOT REGEXP '^(hesap_[a-z0-9_]{1,40}|yildiz_mgmt|muhasebe_mgmt|yenyapi_mgmt)$' THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Gecersiz veritabani adi (hesap_ ile baslamali, a-z0-9_)';
     END IF;
     IF p_pass IS NULL OR p_pass NOT REGEXP '^[A-Za-z0-9]{32,128}$' THEN

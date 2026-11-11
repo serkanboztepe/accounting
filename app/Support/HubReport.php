@@ -71,12 +71,13 @@ final class HubReport
             $msgs = (clone $logs)->count();
             $usage = $f->fetchUsage($month) ?? [];
             $aiTry = $tl((float) ($usage['ai_cost_usd'] ?? 0), 'USD');
+            $agentTry = $tl((float) ($usage['agent_cost_usd'] ?? 0), 'USD');
             $waTry = $tl($msgs * $perMessage + (float) ($usage['template_cost_usd'] ?? 0), 'USD');
             [$paid, $pending] = FirmPlan::monthRevenue($f, $m);
             $cost = ($aiTry ?? 0) + ($waTry ?? 0) + $share;
 
             return ['id' => $f->id, 'name' => $f->name, 'plan' => FirmPlan::label($f), 'paid' => $paid, 'pending' => $pending,
-                'ai' => $aiTry, 'wa' => $waTry, 'msgs' => $msgs, 'fixed' => $share, 'cost' => $cost, 'profit' => $paid - $cost];
+                'ai' => $aiTry, 'agent' => $agentTry ?? 0.0, 'wa' => $waTry, 'msgs' => $msgs, 'fixed' => $share, 'cost' => $cost, 'profit' => $paid - $cost];
         })->all();
 
         $devUsd = (float) DevUsage::where('source', '!=', HubCosts::ANALYSIS_SOURCE)->whereBetween('created_at', [$from, $to])->sum('cost_usd');
@@ -100,7 +101,7 @@ final class HubReport
             'dev' => $dev,
             'fixed' => $fixed,
             'topups' => $topups,
-            'total' => ['paid' => $income, 'pending' => $sum('pending'), 'ai' => $sum('ai'), 'wa' => $sum('wa'), 'msgs' => (int) $sum('msgs'),
+            'total' => ['paid' => $income, 'pending' => $sum('pending'), 'ai' => $sum('ai'), 'agent' => $sum('agent'), 'wa' => $sum('wa'), 'msgs' => (int) $sum('msgs'),
                 'fixed' => $sum('fixed'), 'cost' => $cost, 'profit' => $income - $cost],
         ];
     }

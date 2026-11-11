@@ -98,7 +98,7 @@ final class SqlGuard
         }
         // Başka veritabanı: firma veritabanı öneki ("hesap_x.parties") ya da üç parçalı ad. (EXTRACT(month FROM e.entry_date) serbest.)
         $prefix = preg_quote(mb_strtolower((string) config('tenancy.database_prefix', 'hesap_')), '/');
-        if (($prefix !== '' && preg_match('/(?<![a-z0-9_])' . $prefix . '[a-z0-9_]*[`"]?\s*\./', $lower))
+        if (($prefix !== '' && preg_match('/(?<![a-z0-9_])(' . $prefix . '[a-z0-9_]*|[a-z0-9_]+_mgmt)[`"]?\s*\./', $lower))
             || preg_match('/[`"]?[a-z_][a-z0-9_]*[`"]?\s*\.\s*[`"]?[a-z_][a-z0-9_]*[`"]?\s*\.\s*[`"]?[a-z_*][a-z0-9_]*/', $lower)) {
             return self::no('Tablo adını tek başına yaz (veritabanı adı ekleme).');
         }

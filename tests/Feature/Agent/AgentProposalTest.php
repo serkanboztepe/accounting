@@ -272,7 +272,7 @@ class AgentProposalTest extends TestCase
         AgentProposal::markSent($p['proposal_id']);
 
         foreach (['742 -120 olacak' => 'onay yok', 'neden böyle' => 'onay yok', 'evet ama 620 kalacak' => 'kartta olmayan bir rakam',
-            'evet 130 bin yaz' => 'kartta olmayan bir rakam', 'hayır yanlış' => 'onay yok', 'evet değil iptal' => 'vazgeçme'] as $raw => $why) {
+            'evet 130 bin yaz' => 'kartta olmayan bir rakam', 'hayır yanlış' => 'onay yok', 'evet değil iptal' => 'vazgeçme', '' => 'onay yok'] as $raw => $why) {
             $r = AgentProposal::confirm(self::PHONE, $p['proposal_id'], $raw);
             $this->assertFalse($r['ok'], $raw);
             $this->assertStringContainsString($why, $r['reason'], $raw);

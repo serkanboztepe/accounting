@@ -75,7 +75,7 @@
                                 <td class="py-2 pe-3 text-gray-500">{{ $r['plan'] }}</td>
                                 <td class="py-2 pe-3 text-right">{{ $try($r['paid']) }}</td>
                                 <td class="py-2 pe-3 text-right {{ $r['pending'] > 0 ? 'text-warning-600 dark:text-warning-400' : 'text-gray-400' }}">{{ $r['pending'] > 0 ? $try($r['pending']) : '—' }}</td>
-                                <td class="py-2 pe-3 text-right">{{ $try($r['ai']) }}</td>
+                                <td class="py-2 pe-3 text-right">{{ $try($r['ai']) }}@if (($r['agent'] ?? 0) > 0) <span class="block text-xs text-gray-500">ajan {{ $try($r['agent']) }}</span>@endif</td>
                                 <td class="py-2 pe-3 text-right">{{ $try($r['wa']) }} <span class="text-xs text-gray-500">({{ $r['msgs'] }})</span></td>
                                 <td class="py-2 pe-3 text-right">{{ $try($r['fixed']) }}</td>
                                 <td class="py-2 text-right font-medium {{ $profitClass($r['profit']) }}">{{ $signed($r['profit']) }}</td>
@@ -93,7 +93,7 @@
                             <td class="py-3 pe-3" colspan="2">TOPLAM</td>
                             <td class="py-3 pe-3 text-right">{{ $try($t['paid']) }}</td>
                             <td class="py-3 pe-3 text-right">{{ $t['pending'] > 0 ? $try($t['pending']) : '—' }}</td>
-                            <td class="py-3 pe-3 text-right">{{ $try($t['ai'] + $detail['dev']) }}</td>
+                            <td class="py-3 pe-3 text-right">{{ $try($t['ai'] + $detail['dev']) }}@if (($t['agent'] ?? 0) > 0) <span class="block text-xs font-normal text-gray-500">ajan {{ $try($t['agent']) }}</span>@endif</td>
                             <td class="py-3 pe-3 text-right">{{ $try($t['wa']) }} <span class="text-xs font-normal text-gray-500">({{ $t['msgs'] }})</span></td>
                             <td class="py-3 pe-3 text-right">{{ $try($t['fixed']) }}</td>
                             <td class="py-3 text-right {{ $profitClass($t['profit']) }}">{{ $signed($t['profit']) }}</td>

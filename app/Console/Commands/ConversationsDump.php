@@ -89,6 +89,8 @@ class ConversationsDump extends Command
                 mb_strlen($body) > self::BODY_LIMIT ? mb_substr($body, 0, self::BODY_LIMIT) . '…' : $body);
         }
 
+        array_push($lines, ...\App\Services\Agent\AgentLog::dumpLines($since));
+
         $drafts = WhatsappPendingExpense::where('updated_at', '>=', $since)->orderBy('id')->get(['id', 'phone', 'status', 'summary', 'updated_at']);
         if ($drafts->isNotEmpty()) {
             $lines[] = '  TASLAKLAR:';

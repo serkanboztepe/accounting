@@ -392,6 +392,25 @@ class AgentTurnTest extends TestCase
         $this->assertFalse(Cache::has('wa-photo-busy:' . Phone::normalize(self::PHONE)), 'okunuyor işareti kalktı');
     }
 
+    public function test_morning_dump_lists_agent_turns_and_costs(): void
+    {
+        $this->assertSame([], AgentLog::dumpLines(now()->subDay()));
+        $this->model($this->say('Buyur.'));
+        $this->send('selam');
+        $this->model(['__status' => 500], ['__status' => 500]);
+        $this->send('ikinci');
+
+        $text = implode("\n", AgentLog::dumpLines(now()->subDay()));
+        $this->assertStringContainsString('AJAN: 2 tur · hata 1', $text);
+        $this->assertStringContainsString('selam', $text);
+        $this->assertStringContainsString('→ Buyur.', $text);
+        $this->assertStringContainsString('❗ HATA', $text);
+
+        $summary = \App\Models\UsageLog::monthSummary(now()->format('Y-m'));
+        $this->assertGreaterThan(0, $summary['agent_cost_usd']);
+        $this->assertLessThanOrEqual($summary['ai_cost_usd'], $summary['agent_cost_usd']);
+    }
+
     public function test_photo_is_passed_to_the_model_as_an_image_block(): void
     {
         $messages = AgentContext::messages(self::PHONE, 'bunu yaz', ['media_type' => 'image/jpeg', 'data' => 'QUJD']);

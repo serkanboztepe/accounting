@@ -37,6 +37,42 @@ final class AgentLog
         return array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []), 'is_array'));
     }
 
+    /**
+     * Sabah dökümü için ajan turları: saat, mesaj, kullandığı araçlar, süre, maliyet, hata; altında kısa cevap.
+     *
+     * @return list<string>
+     */
+    public static function dumpLines(\Illuminate\Support\Carbon $since): array
+    {
+        $day = $since->copy()->setTimezone('Europe/Istanbul')->startOfDay();
+        $today = now('Europe/Istanbul')->startOfDay();
+        $turns = [];
+        for (; $day->lte($today); $day->addDay()) {
+            array_push($turns, ...self::read($day->toDateString()));
+        }
+        $turns = array_values(array_filter($turns, fn ($t) => isset($t['at']) && \Illuminate\Support\Carbon::parse($t['at'])->gte($since)));
+        if ($turns === []) {
+            return [];
+        }
+        $errors = count(array_filter($turns, fn ($t) => ! empty($t['error'])));
+        $seconds = array_filter(array_column($turns, 'seconds'));
+        $lines = [sprintf('  AJAN: %d tur · hata %d · devir %d · en uzun %s sn · %.2f $', count($turns), $errors,
+            count(array_filter($turns, fn ($t) => ! empty($t['outcome']['handover']))), $seconds === [] ? '—' : max($seconds), array_sum(array_column($turns, 'cost_usd')))];
+        foreach ($turns as $t) {
+            $tools = implode(',', array_filter(array_map(fn ($s) => $s['tool'] ?? null, (array) ($t['steps'] ?? []))));
+            $lines[] = sprintf('    %s [%s] %s%s | %s | %s sn', substr((string) $t['at'], 5, 14), $t['mode'] ?? '?', ! empty($t['has_media']) ? '📎 ' : '',
+                mb_substr((string) preg_replace('/\s+/u', ' ', (string) ($t['message'] ?? '')), 0, 100), $tools ?: 'araçsız', $t['seconds'] ?? '?');
+            foreach (array_filter([! empty($t['error']) ? '❗ HATA: ' . $t['error'] : null, ! empty($t['outcome']['handover']) ? '↪ devir: ' . $t['outcome']['handover'] : null]) as $note) {
+                $lines[] = '        ' . mb_substr((string) $note, 0, 200);
+            }
+            foreach ((array) ($t['replies'] ?? []) as $reply) {
+                $lines[] = '        → ' . mb_substr((string) preg_replace('/\s+/u', ' ', is_array($reply) ? (string) $reply[0] : (string) $reply), 0, 240);
+            }
+        }
+
+        return $lines;
+    }
+
     public static function dir(): string
     {
         $base = (string) (config('agent.log_path') ?: storage_path('app/wa-agent'));
