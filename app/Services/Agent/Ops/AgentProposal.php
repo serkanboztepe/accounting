@@ -5,14 +5,17 @@ namespace App\Services\Agent\Ops;
 use App\Http\Controllers\WhatsappWebhookController;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
+use App\Models\Reminder;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
+use App\Services\Agent\AgentTurn;
 use App\Services\Whatsapp\ChatAssistant;
 use App\Services\Whatsapp\DraftGaps;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Support\Money;
 use App\Support\PartyStatement;
 use App\Support\Phone;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -98,17 +101,17 @@ final class AgentProposal
 
     /**
      * Tutar yazarak onay yalnız fotoğraf/belgeden okunan büyük tutarda: müşterinin kendi yazdığı rakamı ona tekrar yazdırmak anlamsız
-     * (kullanıcı 11.11), okuma hatası ise yalnız belgede olur. Son 30 dk'da belge yoksa ya da müşteri bu rakamı yazmışsa "evet" yeter.
+     * (kullanıcı 11.11), okuma hatası ise yalnız belgede olur. Üzerinde çalışılan belge yoksa ya da müşteri bu rakamı yazmışsa "evet" yeter.
      */
     private static function readFromDocument(string $phone, float $amount, string $sourceText): bool
     {
-        $inbound = WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'in')
-            ->where('created_at', '>=', now()->subMinutes(30))->get(['body', 'has_media']);
-        if (! $inbound->contains('has_media', true)) {
-            return false;
+        if ((array) Cache::get(AgentTurn::mediaKey($phone), []) === []) {
+            return false; // üzerinde çalışılan belge yok (işi bitince önbellekten düşer)
         }
 
-        return ! $inbound->pluck('body')->push($sourceText)->contains(fn ($text) => Numbers::contains((string) $text, $amount));
+        return ! WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'in')
+            ->where('created_at', '>=', now()->subMinutes(30))->pluck('body')->push($sourceText)
+            ->contains(fn ($text) => Numbers::contains((string) $text, $amount));
     }
 
     /** Açık öneri (son `proposal_minutes` içinde). */
@@ -198,6 +201,15 @@ final class AgentProposal
             return self::no('Kaydedilemedi, hiçbir şey yazılmadı: ' . $e->getMessage());
         }
 
+        // Hatırlatmaya cevap olarak yazılan iş ("aldım" → tahsilat) o kişinin hatırlatmasını kapatır (eski yolla aynı). Kayıt yazıldı; bu adım onu bozamaz.
+        foreach (array_unique($run['committed_party_ids']) as $id) {
+            try {
+                Reminder::awaitingReply(Phone::normalize($phone), (int) $id)?->acknowledge();
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         $lines = array_map(fn ($b) => '📒 ' . $b['name'] . ': ' . AgentCard::phrase($b['after']), $run['balances']);
         // Eski taslak ailesiyle yazılan işlemlerin onay metni o aileden gelir (personel kaydı, hatırlatma saati, günün cirosu…).
         $head = $run['deletes'] > 0 && $run['created'] === [] ? '🗑️ Silindi.' : '✅ Kaydedildi.';
@@ -210,7 +222,7 @@ final class AgentProposal
         return ['ok' => true, 'created' => $run['created'], 'party_ids' => $run['party_ids'], 'text' => $text];
     }
 
-    /** @return array{ok: bool, reason?: string} */
+    /** @return array{ok: bool, reason?: string, question?: string} */
     public static function cancel(string $phone, int $proposalId, string $rawMessage): array
     {
         $proposal = WhatsappPendingExpense::agentOpen($phone)->whereKey($proposalId)->first();
@@ -219,6 +231,12 @@ final class AgentProposal
         }
         if (! ChatAssistant::hasCancel($rawMessage)) {
             return self::no('Müşterinin mesajında vazgeçme sözü yok ("iptal", "vazgeç", "hayır"…) — öneri duruyor. Ne demek istediğini yorumla ya da sor.');
+        }
+        // Silme kartında "iptal" iki anlama gelir: "kaydı iptal et" (sil) ya da "silmekten vazgeçtim". Tahmin edilmez.
+        $lower = mb_strtolower(strtr($rawMessage, ['İ' => 'i', 'I' => 'ı']), 'UTF-8');
+        if ((int) ($proposal->extracted['deletes'] ?? 0) > 0 && str_contains($lower, 'iptal') && ! preg_match('/vazge[çc]|hay[ıi]r|silme/u', $lower)) {
+            // Soruyu kod yazar: numaralı seçenekle sorulursa "1" onay sayılmaz, müşteriye bir tur daha sorulur (11.11 denemesi).
+            return self::no('Silme kartında "iptal" belirsiz; kart duruyor.') + ['question' => 'Kaydı silmemi istiyorsan *evet*, silmekten vazgeçtiysen *vazgeç* yaz.'];
         }
         $proposal->update(['status' => WhatsappPendingExpense::AGENT_CANCELLED]);
 
@@ -235,7 +253,7 @@ final class AgentProposal
     private static function apply(string $phone, array $ops, string $sourceText): array
     {
         $s = ['issues' => [], 'warnings' => [], 'notes' => [], 'lines' => [], 'created' => [], 'created_lines' => [], 'before' => [],
-            'party_ids' => [], 'refs' => [], 'amounts' => [], 'old_amounts' => [], 'deletes' => 0, 'raw_lines' => [], 'texts' => []];
+            'party_ids' => [], 'committed_party_ids' => [], 'refs' => [], 'amounts' => [], 'old_amounts' => [], 'deletes' => 0, 'raw_lines' => [], 'texts' => []];
 
         foreach ($ops as $i => $op) {
             $type = (string) ($op['type'] ?? '');
@@ -276,6 +294,7 @@ final class AgentProposal
             'party_ids' => array_values(array_unique(array_map('intval', $s['party_ids']))), 'refs' => array_values(array_unique($s['refs'])),
             'numbers' => array_values(array_unique(array_map(fn ($n) => round((float) $n, 2), $numbers))),
             'amounts' => $s['amounts'], 'deletes' => $s['deletes'], 'raw_lines' => array_keys($s['raw_lines']), 'texts' => $s['texts'],
+            'committed_party_ids' => $s['committed_party_ids'],
         ];
     }
 
@@ -313,6 +332,7 @@ final class AgentProposal
         }
         if ($done['party_id']) {
             $s['party_ids'][] = (int) $done['party_id'];
+            $s['committed_party_ids'][] = (int) $done['party_id'];
         }
         $s['created'] = [...$s['created'], ...$done['created']];
         foreach ($done['created'] as [$type, $id]) {

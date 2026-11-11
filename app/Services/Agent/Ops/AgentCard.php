@@ -36,7 +36,7 @@ final class AgentCard
         $party = DraftGaps::party($d)?->name ?? (! empty($d['party_name']) ? $d['party_name'] . ' (yeni kişi)' : null);
         $parts = [$word . ($party ? ' — ' . $party : '') . ' *' . Money::format((float) ($d['amount'] ?? 0)) . ' ₺*'];
         $desc = trim((string) ($d['description'] ?? ''));
-        if ($desc !== '') {
+        if ($desc !== '' && ! str_contains(mb_strtolower($word), mb_strtolower($desc))) { // "Eski borç … · Eski borç" iki kez yazılmasın
             $parts[] = mb_strimwidth($desc, 0, 50, '…');
         }
         if (isset(self::PAYMENT_LABELS[$d['payment_type'] ?? '']) && in_array($kind, [ExpenseExtractor::KIND_PAYMENT, ExpenseExtractor::KIND_COLLECTION], true)) {
@@ -64,6 +64,9 @@ final class AgentCard
         $money = fn (float $b) => Money::format(abs($b));
         if (abs($before - $after) < 0.01) {
             return '📒 ' . $name . ': ' . self::phrase($after) . ' (değişmez)';
+        }
+        if (abs($before) < 0.01) {
+            return '📒 ' . $name . ': *' . self::phrase($after) . '*'; // önceki durum yok: "hesap kapalı →" kafa karıştırıyordu
         }
         if ($side($before) === $side($after) && $side($after) !== 'kapalı') {
             return '📒 ' . $name . ': ' . $side($after) . ' ' . $money($before) . ' → *' . $money($after) . ' ₺*';
@@ -101,8 +104,11 @@ final class AgentCard
             $out[] = '⚠️ ' . $w;
         }
         $out[] = match (true) {
-            $deletes >= (int) config('agent.delete_word_from') => $deletes . ' kayıt silinecek. Onay için *sil* yaz · vazgeçmek için *iptal*',
+            $deletes >= (int) config('agent.delete_word_from') => $deletes . ' kayıt silinecek. Onay için *sil* yaz · silmekten vazgeçtiysen *vazgeç*',
             $largeAmount !== null => 'Tutarı belgeden okudum — doğruysa onay için tutarı yaz (*' . number_format($largeAmount, 0, '', '') . '*) · vazgeçmek için *iptal*',
+            // Silmede "iptal" denmez: müşteri kaydı "iptal" etmek için geldi, aynı söz kartta "silme" demek olmasın.
+            $deletes > 0 && $deletes === count($lines) => 'Sileyim mi? *evet* / *vazgeç*',
+            $deletes > 0 => 'Onaylıyor musun? *evet* / *vazgeç*',
             default => 'Kaydedeyim mi? *evet* / *iptal*',
         };
 

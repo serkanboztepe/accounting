@@ -6,13 +6,16 @@ use App\Models\Expense;
 use App\Models\Party;
 use App\Models\PartyLedgerEntry;
 use App\Models\Project;
+use App\Models\Reminder;
 use App\Models\WhatsappMessage;
 use App\Models\WhatsappPendingExpense;
+use App\Services\Agent\AgentTurn;
 use App\Services\Agent\Ops\AgentProposal;
 use App\Support\ModuleProfiles;
 use App\Support\PartyStatement;
 use App\Support\Phone;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /**
@@ -71,7 +74,7 @@ class AgentProposalTest extends TestCase
         $before = [Party::count(), PartyLedgerEntry::count(), Expense::count()];
 
         // Tutar fotoğraftan okundu: müşteri rakamı hiç yazmadı.
-        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'in', 'body' => null, 'has_media' => true]);
+        Cache::put(AgentTurn::mediaKey(self::PHONE), [['media_type' => 'image/jpeg', 'data' => 'x']], now()->addMinutes(30));
         $p = $this->propose(
             $this->rec(['kind' => 'debt_note', 'party_name' => 'Gürbüz Toprak', 'new_party' => true, 'amount' => 742000, 'debt_side' => 'payable', 'description' => 'eski borç']),
             $this->rec(['kind' => 'payment', 'party_name' => 'Gürbüz Toprak', 'amount' => 120000, 'purpose' => 'debt', 'payment_type' => 'cash']),
@@ -82,7 +85,8 @@ class AgentProposalTest extends TestCase
         $this->assertStringContainsString('• Eski borç (sen borçlusun) — Gürbüz Toprak (yeni kişi) *742.000,00 ₺*', $p['card']);
         $this->assertStringContainsString('• Ödeme — Gürbüz Toprak', $p['card']);
         $this->assertStringContainsString('*120.000,00 ₺*', $p['card']);
-        $this->assertStringContainsString('📒 Gürbüz Toprak: hesap kapalı → *borcun 622.000,00 ₺*', $p['card']);
+        $this->assertStringContainsString('📒 Gürbüz Toprak: *borcun 622.000,00 ₺*', $p['card']);
+        $this->assertSame(1, substr_count($p['card'], 'Eski borç'), 'aynı söz iki kez yazılmaz');
         $this->assertStringNotContainsString('1.244.000', $p['card']);
         $this->assertSame('borcun 622.000,00 ₺', $p['effects']['bakiyeler'][0]['sonra']);
         $this->assertCount(2, $p['effects']['yazılacak_satırlar']);
@@ -133,6 +137,11 @@ class AgentProposalTest extends TestCase
         $this->assertStringNotContainsString('tutarı yaz', $p['card']);
         $this->assertStringContainsString('*evet*', $p['card']);
 
+        // Fotoğrafın işi bittiyse (önbellekte yok) sonraki yazıyla gelen tutar "belgeden okudum" denmez.
+        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'in', 'body' => null, 'has_media' => true]);
+        $this->assertStringNotContainsString('belgeden', AgentProposal::propose(self::PHONE, [$op], 'hesapladım')['card']);
+
+        Cache::put(AgentTurn::mediaKey(self::PHONE), [['media_type' => 'image/jpeg', 'data' => 'x']], now()->addMinutes(30));
         WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'in', 'body' => '890 bin borcum var bu da fişi', 'has_media' => true]);
         $p = AgentProposal::propose(self::PHONE, [$op], 'evet bu');
         $this->assertStringNotContainsString('tutarı yaz', $p['card']);
@@ -140,6 +149,48 @@ class AgentProposalTest extends TestCase
 
         $r = AgentProposal::confirm(self::PHONE, $p['proposal_id'], 'evet');
         $this->assertTrue($r['ok'], $r['reason'] ?? '');
+    }
+
+    /** Silme kartı "iptal" demez; müşteri yine "iptal" yazarsa kart kapanmaz, sorulur. */
+    public function test_delete_card_does_not_treat_iptal_as_giving_up(): void
+    {
+        $party = $this->gurbuz();
+        $id = PartyLedgerEntry::where('party_id', $party->id)->value('id');
+        $p = $this->propose(['type' => 'delete', 'refs' => ['ledger:' . $id]]);
+        $this->assertStringContainsString('Sileyim mi? *evet* / *vazgeç*', $p['card']);
+        $this->assertStringNotContainsString('iptal', $p['card']);
+        AgentProposal::markSent($p['proposal_id']);
+
+        $r = AgentProposal::cancel(self::PHONE, $p['proposal_id'], 'iptal');
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('*evet*', $r['question']);
+        $this->assertSame(WhatsappPendingExpense::AGENT_OPEN, WhatsappPendingExpense::find($p['proposal_id'])->status);
+
+        // Kart açıkken numaralı seçenekli soru reddedilir ("1" onay sayılmaz); seçeneksiz soru gider.
+        $toolbox = new \App\Services\Agent\AgentToolbox(self::PHONE, 'iptal');
+        $this->assertArrayHasKey('hata', $toolbox->run('ask', ['question' => 'Hangisi?', 'options' => ['Sil', 'Vazgeç']]));
+        $this->assertArrayHasKey('soruldu', $toolbox->run('ask', ['question' => 'Silmemi istiyorsan *evet* yaz.']));
+
+        $this->assertTrue(AgentProposal::cancel(self::PHONE, $p['proposal_id'], 'vazgeç')['ok']);
+        $this->assertNotNull(PartyLedgerEntry::find($id));
+    }
+
+    /** Hatırlatmaya cevap olarak yazılan ödeme o kişinin hatırlatmasını kapatır; başka kişininki durur; denemede kapanmaz. */
+    public function test_confirmed_payment_closes_the_persons_reminder(): void
+    {
+        $party = $this->gurbuz();
+        $other = Party::create(['name' => 'Başka Kişi Deneme']);
+        $make = fn (int $id) => Reminder::create(['phone' => Phone::normalize(self::PHONE), 'text' => 'Ödeme', 'party_id' => $id, 'event_date' => '2026-12-20',
+            'next_fire_at' => '2026-12-19 08:00', 'last_sent_at' => now()]);
+        [$mine, $theirs] = [$make($party->id), $make($other->id)];
+
+        $p = $this->propose($this->rec(['kind' => 'payment', 'party_id' => $party->id, 'amount' => 1000, 'purpose' => 'debt', 'payment_type' => 'cash']));
+        $this->assertSame('active', $mine->fresh()->status, 'kart aşamasında hatırlatma kapanmaz');
+        AgentProposal::markSent($p['proposal_id']);
+        $this->assertTrue(AgentProposal::confirm(self::PHONE, $p['proposal_id'], 'evet')['ok']);
+
+        $this->assertSame('done', $mine->fresh()->status);
+        $this->assertSame('active', $theirs->fresh()->status);
     }
 
     public function test_payment_fields_match_what_the_old_path_writes(): void
@@ -175,7 +226,7 @@ class AgentProposalTest extends TestCase
         $p = $this->propose($this->rec(['kind' => 'payment', 'party_id' => $fresh->id, 'amount' => 25000, 'purpose' => 'advance']));
         $this->assertTrue($p['ok'], json_encode($p, JSON_UNESCAPED_UNICODE));
         $this->assertStringContainsString('Ödeme (avans) — Borçsuz Usta', $p['card']);
-        $this->assertStringContainsString('hesap kapalı → *sana borcu 25.000,00 ₺*', $p['card']);
+        $this->assertStringContainsString('*sana borcu 25.000,00 ₺*', $p['card']);
 
         // "Borç ödemesi" kayıtlı borcu aşıyorsa eksik borç sessizce yazılmaz.
         $p = $this->propose($this->rec(['kind' => 'payment', 'party_id' => $party->id, 'amount' => 800000, 'purpose' => 'debt']));

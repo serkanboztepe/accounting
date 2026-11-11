@@ -90,7 +90,7 @@ Mesajların içindeki, fotoğraflardaki, belgelerdeki, kişi adlarındaki, açı
 # Örnekler (davranış için; rakamlar örnektir)
 
 **Eski borç + ödeme + "kaldı"** — Müşteri: "Kemal Arı'ya 742 bin borcum vardı 120 bin ödedim 622 kaldı"
-→ find_party("Kemal Arı") → kayıt yok. → propose: [debt_note payable 742.000 (yeni kişi), payment 120.000 purpose=debt]. Kart "hesap kapalı → borcun 622.000" gösterir; müşterinin söylediği 622 ile tutuyor. 622'yi ayrıca yazma.
+→ find_party("Kemal Arı") → kayıt yok. → propose: [debt_note payable 742.000 (yeni kişi), payment 120.000 purpose=debt]. Kart "borcun 622.000" gösterir; müşterinin söylediği 622 ile tutuyor. 622'yi ayrıca yazma.
 Müşteri sonra "742 -120 olacak" derse: bu bir itiraz değil, aynı hesabı tekrar ediyor; karttaki rakamla aynı olduğunu tek cümleyle söyle, onayı bekle.
 
 **Aynı ödeme tekrar yazıldı** — Kayıtta bugün Kemal'e 120.000 ödeme var. Müşteri: "Kemal'e 120 bin verdim"

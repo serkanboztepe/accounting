@@ -371,6 +371,23 @@ class WhatsappWebhookController extends Controller
             || DailyNudge::toggleWord($word) !== null;
     }
 
+    /**
+     * Az önce giden hatırlatmaya kısa cevap: "tamam" hatırlatmayı görüldü yapar, düzenli gider mesajına "iptal" o gideri geri alır — tek adım,
+     * eski yolun kesin davranışı. Yalnız son giden mesaj o hatırlatmaysa ve açık kart yoksa ("evet" ajanın sorusuna cevap olabilir).
+     */
+    private function answersReminder(string $phone, string $body, int $numMedia): bool
+    {
+        if ($numMedia > 0 || ! ($this->isConfirm($body) || $this->isCancel($body)) || \App\Services\Agent\Ops\AgentProposal::open($phone) !== null) {
+            return false;
+        }
+        $last = WhatsappMessage::where('phone', Phone::normalize($phone))->where('direction', 'out')->latest('id')->first(['kind', 'body']);
+        if ($last?->kind !== 'reminder') {
+            return false;
+        }
+
+        return $this->isConfirm($body) || str_contains((string) $last->body, 'Geri almak için');
+    }
+
     /** Bu tur ajanın okuduğu bir fotoğraf/belge: "okunuyor" işareti tur bitene kadar kalır. */
     private bool $agentPhotoTurn = false;
 
@@ -790,6 +807,7 @@ class WhatsappWebhookController extends Controller
         // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
         if (AgentGate::live() && ! $request->attributes->get('no_agent') && (string) $request->input('ButtonPayload', '') === ''
             && ! $this->staysOnOldPath($body, $numMedia)
+            && ! $this->answersReminder($phone, $body, $numMedia)
             && ($work = app(AgentTurn::class)->prepare($phone, $body, $numMedia, fn () => $this->agentMedia($request, $phone), $this->inboundMessageId)) !== null) {
             // Sıradaki fotoğraf zaten arka planda: ajan burada çalışır, cevabı sırayı işleyen gönderir. Devrederse aşağıda eski yol sürer.
             if ($request->attributes->get('queued')) {

@@ -20,6 +20,8 @@ class AgentTurn
 {
     public const SORRY = 'Şu an toparlayamadım, birazdan tekrar yazar mısın? 🙏';
 
+    public const NOT_SAVED = 'Bunu henüz kaydetmedim. Yazmamı istiyorsan bir kez daha söyler misin?';
+
     /**
      * @param  callable(): ?array{media_type:string,data:string}  $media  ek (fotoğraf/PDF) — yalnız tur alınırsa indirilir
      * @return (callable(): array{replies: list<string>, handover: ?string})|null
@@ -31,18 +33,27 @@ class AgentTurn
         }
         // Eski asistanın açık kartı / sorusu varken (ajanın devrettiği maaş, hatırlatma, stok… işi sürüyor) cevap ona aittir:
         // tur eski yolda biter. Süre eski yolun "açık taslak" penceresiyle aynı.
-        if (self::legacyDraftOpen($phone)) {
+        if (self::legacyDraftOpen($phone, $body)) {
             return null;
         }
 
         return fn (): array => $this->run($phone, $body, $numMedia > 0 ? $media() : null, $messageId);
     }
 
-    public static function legacyDraftOpen(string $phone): bool
+    public static function legacyDraftOpen(string $phone, string $body = ''): bool
     {
-        return \App\Models\WhatsappPendingExpense::legacyOpen($phone)
+        $drafts = \App\Models\WhatsappPendingExpense::legacyOpen($phone)
             ->where(fn ($q) => $q->where('updated_at', '>=', now()->subMinutes(30))->orWhere('followed_up_at', '>=', now()->subHours(24)))
-            ->exists();
+            ->get(['extracted']);
+
+        // Maaş sorusu 24 saat açık durur ama günü eski asistana bağlamasın: yalnız soruya verilen rakam cevabı (son giden mesaj o soruysa) eski yolda.
+        return $drafts->contains(fn ($d) => ($d->extracted['kind'] ?? null) !== \App\Support\SalaryFollowUp::KIND || (ctype_digit(trim($body))
+            && \App\Models\WhatsappMessage::where('phone', \App\Support\Phone::normalize($phone))->where('direction', 'out')->latest('id')->value('kind') === \App\Support\SalaryFollowUp::KIND));
+    }
+
+    public static function mediaKey(string $phone): string
+    {
+        return Tenancy::key('agent-media:' . sha1($phone));
     }
 
     /** @return array{replies: list<string>, handover: ?string} müşteriye gidecek mesaj(lar) ya da eski asistana devir */
@@ -50,7 +61,7 @@ class AgentTurn
     {
         $toolbox = new AgentToolbox($phone, $body);
         // Son gönderilen belge 30 dk akılda: sonraki turda ("Yusuf'a verdim") ajan görseli yeniden görür.
-        $mediaKey = Tenancy::key('agent-media:' . sha1($phone));
+        $mediaKey = self::mediaKey($phone);
         $earlier = (array) Cache::get($mediaKey, []);
         if ($media !== null) {
             $now = isset($media['data']) ? [$media] : array_values($media);
@@ -105,6 +116,12 @@ class AgentTurn
         $agentText = trim($agentText);
         $fixed = $outcome['confirmed'] ?? $outcome['question'] ?? $outcome['card'] ?? null;
         if ($fixed === null) {
+            // Bu turda kayıt olmadı: "kaydettim" denemez (kod kilidi; talimata bırakılmaz). "Zaten kaydedildi" gibi geçmişi anlatan cümle serbest.
+            if (empty($outcome['remembered']) && preg_match('/(?<!\p{L})(kaydettim|kaydedildi|yazdım|sildim|düzelttim|işledim|ekledim)(?!\p{L})|✅/ui', $agentText)
+                && ! preg_match('/zaten|daha önce|dün|geçen/ui', $agentText)) {
+                return [self::NOT_SAVED];
+            }
+
             return [$agentText !== '' ? $agentText : self::SORRY];
         }
         $safe = $agentText !== '' && mb_strlen($agentText) <= 200

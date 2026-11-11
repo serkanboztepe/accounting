@@ -17,6 +17,10 @@ use App\Services\Agent\Ops\AgentProposal;
 use App\Support\ModuleProfiles;
 use App\Support\Phone;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use App\Models\Expense;
+use App\Models\Reminder;
+use App\Services\Whatsapp\RecurringDraft;
+use App\Support\SalaryFollowUp;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
@@ -124,7 +128,7 @@ class AgentTurnTest extends TestCase
         $this->assertStringNotContainsString('<Message>', $twiml);
         $card = $this->lastOut();
         $this->assertStringContainsString('• Eski borç (sen borçlusun) — Gürbüz Toprak (yeni kişi) *742.000,00 ₺*', $card);
-        $this->assertStringContainsString('hesap kapalı → *borcun 622.000,00 ₺*', $card);
+        $this->assertStringContainsString('*borcun 622.000,00 ₺*', $card);
         $this->assertStringNotContainsString('Kartı hazırladım', $card, 'ajanın rakamlı cümlesi karta eklenmez');
         $this->assertSame([$card], $this->twilioBodies());
         $this->assertSame(0, PartyLedgerEntry::whereHas('party', fn ($q) => $q->where('name', 'Gürbüz Toprak'))->count(), 'onaysız kayıt yok');
@@ -196,6 +200,73 @@ class AgentTurnTest extends TestCase
         $this->assertSame(["Bir bak istersen.\n\nKART"], AgentTurn::replies('Bir bak istersen.', $outcome));
         $this->assertSame(['SORU'], AgentTurn::replies('', ['question' => 'SORU'] + $outcome), 'soru varsa kart gitmez');
         $this->assertSame([AgentTurn::SORRY], AgentTurn::replies('', ['card' => null] + $outcome));
+    }
+
+    /** Kart yokken de "kaydettim" denemez; geçmişi anlatmak ve hafıza serbest. */
+    public function test_text_without_a_card_cannot_claim_a_save(): void
+    {
+        $none = ['card' => null, 'proposal_id' => null, 'confirmed' => null, 'question' => null, 'cancelled' => false, 'notes' => []];
+        $this->assertSame([AgentTurn::NOT_SAVED], AgentTurn::replies('Tamam, Ali\'ye ödemeyi kaydettim.', $none));
+        $this->assertSame([AgentTurn::NOT_SAVED], AgentTurn::replies('✅ Oldu.', $none));
+        $this->assertSame(['Bu ödeme zaten kaydedildi.'], AgentTurn::replies('Bu ödeme zaten kaydedildi.', $none));
+        $this->assertSame(['Kaydedeyim mi?'], AgentTurn::replies('Kaydedeyim mi?', $none));
+        $this->assertSame(['Tamam, yazmadım.'], AgentTurn::replies('Tamam, yazmadım.', $none));
+        $this->assertSame(['Not olarak kaydettim.'], AgentTurn::replies('Not olarak kaydettim.', ['remembered' => true] + $none));
+    }
+
+    /** Maaş sorusu açıkken başka iş ajana gider; sorunun rakam cevabı eski yola. Ajanın sorusuna verilen rakam ajana. */
+    public function test_open_salary_question_does_not_hold_the_day_on_the_old_path(): void
+    {
+        WhatsappPendingExpense::create(['phone' => self::PHONE, 'status' => 'awaiting_confirmation', 'summary' => 'Maaş', 'followed_up_at' => now(),
+            'extracted' => ['kind' => SalaryFollowUp::KIND, 'items' => []]]);
+        $out = WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'out', 'body' => 'Maaş ödendi mi? 1 2 3', 'kind' => SalaryFollowUp::KIND]);
+
+        $this->assertFalse(AgentTurn::legacyDraftOpen(self::PHONE, 'bugün 12 bin nakit'));
+        $this->assertTrue(AgentTurn::legacyDraftOpen(self::PHONE, '1'));
+        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'out', 'body' => '❓ Hangisi? *1* A *2* B']);
+        $this->assertFalse(AgentTurn::legacyDraftOpen(self::PHONE, '1'), 'son soru ajanındı');
+
+        WhatsappPendingExpense::create(['phone' => self::PHONE, 'status' => 'awaiting_confirmation', 'summary' => 'Gider', 'extracted' => ['kind' => 'expense']]);
+        $this->assertTrue(AgentTurn::legacyDraftOpen(self::PHONE, 'selam'), 'başka eski taslak eskisi gibi');
+    }
+
+    /** Düzenli gider mesajına "iptal": model çağrılmaz, gider tek adımda geri alınır. Araya başka mesaj girdiyse ajana gider. */
+    public function test_iptal_right_after_a_recurring_expense_undoes_it_without_the_model(): void
+    {
+        $expense = Expense::create(['expense_date' => '2026-11-09', 'amount' => 34.6, 'description' => 'Ekmek']);
+        WhatsappPendingExpense::create(['phone' => self::PHONE, 'status' => 'confirmed', 'summary' => '🔁 Ekmek', 'extracted' => ['kind' => RecurringDraft::POSTED,
+            'amount' => 34.6, 'reminder_id' => 0, 'created_records' => [['expense', $expense->id]]]]);
+        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'out', 'kind' => 'reminder',
+            'body' => '🔁 34,60 ₺ Ekmek gider olarak eklendi. Geri almak için *iptal* yaz.']);
+
+        $this->model();
+        $reply = $this->send('iptal');
+        $this->assertSame([], $this->sent, 'model çağrılmadı');
+        $this->assertStringContainsString('Geri aldım', $reply);
+        $this->assertNull(Expense::find($expense->id));
+    }
+
+    /** Hatırlatmaya "tamam": görüldü olur, model çağrılmaz. */
+    public function test_ok_right_after_a_reminder_marks_it_seen_without_the_model(): void
+    {
+        $r = Reminder::create(['phone' => Phone::normalize(self::PHONE), 'text' => 'Kira', 'event_date' => '2026-11-09', 'last_sent_at' => now()]);
+        WhatsappMessage::create(['phone' => Phone::normalize(self::PHONE), 'direction' => 'out', 'kind' => 'reminder', 'body' => '⏰ Hatırlatma: Kira']);
+
+        $this->model();
+        $this->assertStringContainsString('Kira', $this->send('tamam'));
+        $this->assertSame([], $this->sent);
+        $this->assertNotNull($r->fresh()->acknowledged_at);
+    }
+
+    public function test_agent_alerts_the_admin_when_credit_runs_out(): void
+    {
+        config(['services.whatsapp.admin_phones' => ['whatsapp:+905550000000']]);
+        $empty = ['__status' => 400, 'body' => ['type' => 'error', 'error' => ['message' => 'Your credit balance is too low to access the Anthropic API.']]];
+        $this->model($empty, $empty);
+        $this->send('selam');
+
+        $this->assertTrue(Cache::has('ai-credit-empty'));
+        $this->assertSame(AgentTurn::SORRY, $this->lastOut());
     }
 
     public function test_ask_sends_a_numbered_question_once_and_refuses_to_repeat_it(): void

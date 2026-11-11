@@ -135,6 +135,7 @@ final class AgentRunner
             return null;
         }
         if ($response->failed()) {
+            \App\Support\CreditAlert::fromApiError((string) $response->body()); // kredi bittiyse yöneticiye haber
             \Illuminate\Support\Facades\Log::warning('Ajan: model isteği başarısız', ['status' => $response->status(), 'model' => $payload['model'],
                 'body' => mb_substr((string) $response->body(), 0, 500)]);
 

@@ -5,7 +5,7 @@
 | Model ve maliyet ayarları Aşama D'de eklenir.
 */
 return [
-    // Bu tutar ve üstündeki tek işlem "evet" ile değil, TUTARI YAZARAK onaylanır.
+    // Fotoğraf/belgeden okunan bu tutar ve üstü "evet" ile değil, TUTARI YAZARAK onaylanır (müşterinin yazdığı tutarda "evet" yeter).
     'large_amount' => (float) env('AGENT_LARGE_AMOUNT', 500000),
 
     // Silme: kart başına en çok, günde en çok (müşterinin gördüğü kayıt sayısı); bu sayıdan itibaren "sil" yazarak onay.

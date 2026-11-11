@@ -242,6 +242,11 @@ final class AgentToolbox
             return ['gölge' => 'Vazgeçme gölge modunda uygulanmaz.'];
         }
         $r = AgentProposal::cancel($this->phone, (int) ($in['proposal_id'] ?? 0), $this->rawMessage);
+        if (isset($r['question'])) {
+            $this->outcome['question'] = '❓ ' . $r['question'];
+
+            return ['soruldu' => true, 'not' => 'Soru müşteriye gidiyor; tur bitti.'];
+        }
         if (! $r['ok']) {
             return ['kapatılmadı' => $r['reason']];
         }
@@ -257,6 +262,10 @@ final class AgentToolbox
             return ['hata' => 'Soru boş.'];
         }
         $options = array_slice(array_values(array_filter(array_map(fn ($o) => is_string($o) ? trim($o) : '', (array) ($in['options'] ?? [])), 'strlen')), 0, 12);
+        // Silme kartı açıkken "1" onay sayılmaz; numaralı seçenek müşteriye boşuna bir tur daha sordurur (11.11 denemesi).
+        if ($options !== [] && (int) (AgentProposal::open($this->phone)?->extracted['deletes'] ?? 0) > 0) {
+            return ['hata' => 'Silme kartı açıkken numaralı seçenek verme: "1" onay sayılmaz. Seçeneksiz sor, cevabı kelimeyle iste: "Kaydı silmemi istiyorsan *evet*, silmekten vazgeçtiysen *vazgeç* yaz."'];
+        }
         // Tekrar-soru kilidi (Kaya 08.11: aynı soru 5 kez): aynı soru bu numaraya son 6 saatte sorulduysa reddedilir.
         $key = Tenancy::key('agent-asked:' . sha1($this->phone));
         $asked = (array) Cache::get($key, []);
@@ -323,6 +332,7 @@ final class AgentToolbox
         if ($this->shadow) {
             return ['gölge' => 'Hafıza gölge modunda yazılmaz.'];
         }
+        $this->outcome['remembered'] = true; // "not ettim / kaydettim" cümlesi burada doğru
         if (AssistantMemory::where('status', 'active')->where('fact', $fact)->exists()) {
             return ['zaten_var' => true];
         }
