@@ -84,9 +84,10 @@ final class AgentCard
     public static function build(array $lines, array $balances, int $deletes, ?float $largeAmount, array $warnings = [], array $rawLines = []): string
     {
         // Ham satır: eski taslak ailesinin kendi kartı (çok satırlı, kendi simgesiyle) — önüne numara/simge konmaz.
+        // Satırlar numaralanmaz: "1. 2." sorulardaki *1* *2* seçenekleri gibi okunuyordu, müşteri karta "2" diye cevap verdi (11.11).
         $out = count($lines) === 1
             ? [in_array(0, $rawLines, true) ? $lines[0] : '📝 ' . $lines[0]]
-            : array_map(fn ($l, $i) => in_array($i, $rawLines, true) ? $l : ($i + 1) . '. ' . $l, $lines, array_keys($lines));
+            : array_map(fn ($l, $i) => in_array($i, $rawLines, true) ? $l : '• ' . $l, $lines, array_keys($lines));
         $shown = implode("\n", $out);
         foreach ($balances as $b) {
             // Eski kart bakiyeyi zaten gösteriyorsa ("Bakiye: …") ikinci kez yazılmaz.

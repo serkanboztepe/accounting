@@ -123,7 +123,7 @@ class AgentTurnTest extends TestCase
         $twiml = $this->send("Gürbüz Toprak'a 742 bin borcum vardı 120 bin ödedim 622 kaldı");
         $this->assertStringNotContainsString('<Message>', $twiml);
         $card = $this->lastOut();
-        $this->assertStringContainsString('1. Eski borç (sen borçlusun) — Gürbüz Toprak (yeni kişi) *742.000,00 ₺*', $card);
+        $this->assertStringContainsString('• Eski borç (sen borçlusun) — Gürbüz Toprak (yeni kişi) *742.000,00 ₺*', $card);
         $this->assertStringContainsString('hesap kapalı → *borcun 622.000,00 ₺*', $card);
         $this->assertStringNotContainsString('Kartı hazırladım', $card, 'ajanın rakamlı cümlesi karta eklenmez');
         $this->assertSame([$card], $this->twilioBodies());

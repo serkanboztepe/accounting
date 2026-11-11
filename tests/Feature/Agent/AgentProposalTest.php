@@ -79,8 +79,8 @@ class AgentProposalTest extends TestCase
 
         $this->assertTrue($p['ok'], json_encode($p, JSON_UNESCAPED_UNICODE));
         $this->assertSame($before, [Party::count(), PartyLedgerEntry::count(), Expense::count()], 'öneri hiçbir şey yazmaz');
-        $this->assertStringContainsString('1. Eski borç (sen borçlusun) — Gürbüz Toprak (yeni kişi) *742.000,00 ₺*', $p['card']);
-        $this->assertStringContainsString('2. Ödeme — Gürbüz Toprak', $p['card']);
+        $this->assertStringContainsString('• Eski borç (sen borçlusun) — Gürbüz Toprak (yeni kişi) *742.000,00 ₺*', $p['card']);
+        $this->assertStringContainsString('• Ödeme — Gürbüz Toprak', $p['card']);
         $this->assertStringContainsString('*120.000,00 ₺*', $p['card']);
         $this->assertStringContainsString('📒 Gürbüz Toprak: hesap kapalı → *borcun 622.000,00 ₺*', $p['card']);
         $this->assertStringNotContainsString('1.244.000', $p['card']);
