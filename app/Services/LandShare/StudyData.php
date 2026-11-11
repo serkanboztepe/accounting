@@ -13,7 +13,7 @@ final class StudyData
     /**
      * @param  array<int, array{key:string, name:string, current_pay:int, current_payda:int, is_contractor?:bool, group_key?:?string}>  $shareholders
      * @param  array<int, array{section:string, holder:string, pay:int, payda:int}>  $allocations
-     * @param  array<string, array{arsa_pay:?int, arsa_payda:?int}>  $sections  BB anahtarı => arsa payı
+     * @param  array<string, array{arsa_pay:?int, arsa_payda:?int, auto?:bool}>  $sections  BB anahtarı => arsa payı (auto: girilmemiş, sistem tamamladı)
      * @param  array<string, int>  $groups  grup anahtarı => daire hakkı (yalnız GRUP)
      */
     public function __construct(

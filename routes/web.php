@@ -37,6 +37,8 @@ Route::get('/land-share-studies/{study}/yazdir', function (\App\Models\LandShare
         'common' => $result->commonDenominator(),
         'method' => $method,
         'arsa'   => (new \App\Services\LandShare\StudyValidator())->arsaSharesState($data),
+        // Girilmemiş arsa payları dahil (sistemin tamamladıkları) — tablo bunu gösterir.
+        'arsaShares' => $data->sections,
     ]);
 })->middleware('auth')->name('land-share.print');
 

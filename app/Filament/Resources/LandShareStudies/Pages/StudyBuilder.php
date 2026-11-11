@@ -852,35 +852,19 @@ class StudyBuilder extends Page implements HasSchemas
      */
     public function applyRemainingLandShare(array $sections): array
     {
-        $sum = Fraction::zero();
-        $den = $this->record->land_share_denominator ?? 1;
-        $empty = [];
+        // Kural tek yerde (StudyValidator) — cetvel/PDF'teki otomatik tamamlama ile aynı sonuç.
+        $normalized = array_map(
+            fn ($item) => $this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null),
+            $sections,
+        );
+        [$filled, $keys, $each] = StudyValidator::fillMissingArsaShares($normalized, $this->record->land_share_denominator);
 
-        foreach ($sections as $key => $item) {
-            $attrs = $this->landShareAttributes($item['arsa_pay'] ?? null, $item['arsa_payda'] ?? null);
-            if ($attrs['arsa_pay'] === null) {
-                $empty[] = $key;
-
-                continue;
-            }
-            $sum = $sum->add(Fraction::of($attrs['arsa_pay'], $attrs['arsa_payda']));
-            $den = Fraction::lcm($den, $attrs['arsa_payda']);
+        foreach ($keys as $key) {
+            $sections[$key]['arsa_pay'] = $filled[$key]['arsa_pay'];
+            $sections[$key]['arsa_payda'] = $filled[$key]['arsa_payda'];
         }
 
-        $remaining = Fraction::of(1)->sub($sum);
-        if ($empty === [] || $remaining->isZero() || $remaining->isNegative()) {
-            return [$sections, 0, null];
-        }
-
-        $each = $remaining->div(Fraction::of(count($empty)));
-        $den = Fraction::lcm($den, $each->den);   // mümkünse kullanıcının paydasıyla (1/18 → 1/18)
-
-        foreach ($empty as $key) {
-            $sections[$key]['arsa_pay'] = $each->numeratorOver($den);
-            $sections[$key]['arsa_payda'] = $den;
-        }
-
-        return [$sections, count($empty), $each->numeratorOver($den) . '/' . $den];
+        return [$sections, count($keys), $each];
     }
 
     private function remainingLandSharePreview(): string
@@ -926,14 +910,22 @@ class StudyBuilder extends Page implements HasSchemas
 
         ['state' => $state, 'sum' => $sum, 'missing' => $missing, 'denominator' => $den] = (new StudyValidator())->arsaSharesState($data);
         $total = $sum->toStringOver($this->record->land_share_denominator ?? $den);
-        $hint = $missing > 0 ? ' Kalanların hepsi aynıysa sağ üstteki "Kalan Arsa Payını Boşlara Dağıt" düğmesini kullanın.' : '';
+        [, $autoKeys, $each] = StudyValidator::fillMissingArsaShares($data->sections, $this->record->land_share_denominator);
+
+        if ($autoKeys !== []) {
+            $text = $state === 'none'
+                ? 'Arsa payı girilmedi — her BB eşit sayılır (her birine ' . $each . ').'
+                : 'Girilen arsa payları toplamı ' . $total . ' · boş ' . count($autoKeys) . ' BB\'ye kalan pay eşit bölünür (her birine ' . $each . '), toplam 1/1.';
+
+            return new HtmlString('<span class="text-gray-500 dark:text-gray-400">' . $text . '</span>');
+        }
 
         return match ($state) {
             'none'     => new HtmlString('<span class="text-gray-500 dark:text-gray-400">Arsa payı girilmedi — her BB eşit sayılır.</span>'),
             'complete' => new HtmlString('<span class="text-success-600 dark:text-success-400">✓ Arsa payları tam — toplam ' . $total . ' (1/1). Hisseler arsa payına göre hesaplanacak.</span>'),
             default    => new HtmlString('<span class="text-warning-600 dark:text-warning-400">⚠ Arsa payları toplamı ' . $total
-                . ($missing > 0 ? ' · ' . $missing . ' BB\'nin arsa payı boş' : '')
-                . ' — 1/1 olmalı. Tamamlanana kadar her BB eşit sayılır.' . $hint . '</span>'),
+                . ($missing > 0 ? ' · ' . $missing . ' BB boş ama dağıtılacak pay kalmadı' : '')
+                . ' — 1/1 olmalı. Düzeltilene kadar her BB eşit sayılır.</span>'),
         };
     }
 

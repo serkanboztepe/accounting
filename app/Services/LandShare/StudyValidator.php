@@ -83,6 +83,7 @@ final class StudyValidator
         $sum = Fraction::zero();
         $entered = 0;
         $missing = 0;
+        $auto = 0;
         $denominator = null;
 
         foreach ($data->sections as $section) {
@@ -94,6 +95,7 @@ final class StudyValidator
             $sum = $sum->add(Fraction::of($section['arsa_pay'], $section['arsa_payda']));
             $denominator = Fraction::lcm($denominator ?? 1, $section['arsa_payda']);
             $entered++;
+            $auto += ! empty($section['auto']) ? 1 : 0;
         }
 
         $state = match (true) {
@@ -102,7 +104,54 @@ final class StudyValidator
             default                                             => 'incomplete',
         };
 
-        return ['state' => $state, 'sum' => $sum, 'missing' => $missing, 'denominator' => $denominator];
+        return ['state' => $state, 'sum' => $sum, 'missing' => $missing, 'denominator' => $denominator, 'auto' => $auto];
+    }
+
+    /**
+     * Boş arsa paylarını hesap için tamamlar (veritabanına YAZILMAZ — kullanıcı
+     * kararı 11.11: "girilmemişse sistem kendisi saysın"):
+     *  - hiç girilmemişse her BB eşit (N BB → her biri 1/N),
+     *  - bir kısmı girilmişse 1/1'e kalan, boş BB'lere eşit bölünür.
+     * Girilenler 1/1'i zaten dolduruyor/aşıyorsa dokunulmaz (uyarı + eşit hesap sürer).
+     * Payda mümkünse kullanıcınınki (1/18 → 1/18, 9 BB + payda 9 → 1/9).
+     *
+     * @param  array<string|int, array{arsa_pay:?int, arsa_payda:?int}>  $sections
+     * @return array{0: array, 1: list<string|int>, 2: ?string}  [sections (doldurulanlarda 'auto' => true), doldurulan anahtarlar, BB başına pay "1/18"]
+     */
+    public static function fillMissingArsaShares(array $sections, ?int $denominator = null): array
+    {
+        $sum = Fraction::zero();
+        $den = $denominator ?: 1;
+        $hasEntries = false;
+        $empty = [];
+
+        foreach ($sections as $key => $section) {
+            if (($section['arsa_pay'] ?? null) === null || empty($section['arsa_payda'])) {
+                $empty[] = $key;
+
+                continue;
+            }
+            $sum = $sum->add(Fraction::of((int) $section['arsa_pay'], (int) $section['arsa_payda']));
+            $den = Fraction::lcm($den, (int) $section['arsa_payda']);
+            $hasEntries = true;
+        }
+
+        $remaining = Fraction::of(1)->sub($sum);
+        if ($empty === [] || $remaining->isZero() || $remaining->isNegative()) {
+            return [$sections, [], null];
+        }
+
+        $each = $remaining->div(Fraction::of(count($empty)));
+        // Hiç giriş yoksa ve payda BB sayısına bölünmüyorsa (1000 / 3) sade yaz: 1/3.
+        $den = ! $hasEntries && $den % $each->den !== 0 ? $each->den : Fraction::lcm($den, $each->den);
+
+        foreach ($empty as $key) {
+            $sections[$key]['arsa_pay'] = $each->numeratorOver($den);
+            $sections[$key]['arsa_payda'] = $den;
+            $sections[$key]['auto'] = true;
+        }
+
+        return [$sections, $empty, $each->numeratorOver($den) . '/' . $den];
     }
 
     /** Cetvelde seçilebilecek yöntemler — "akıllı" varsayılan için. */

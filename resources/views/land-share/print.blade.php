@@ -85,8 +85,11 @@
             Mevcut hisseler ile satış sonu kalan hisseler toplamı 1/1'dir. Devredilen sütunu, her hissedarın müteahhide / yeni hak sahibine aktardığı payı gösterir.
             @if ($arsa['state'] === 'complete')
                 Hisseler bağımsız bölümlerin arsa paylarına göre hesaplanmıştır.
+                @if (($arsa['auto'] ?? 0) > 0)
+                    Arsa payı girilmeyen {{ $arsa['auto'] }} bağımsız bölüme kalan pay eşit bölünmüştür.
+                @endif
             @elseif ($arsa['state'] === 'incomplete')
-                <strong>Not: Arsa payları eksik girildiğinden (toplam {{ $arsa['sum']->toStringOver($study->land_share_denominator ?? $arsa['denominator']) }}) her bağımsız bölüm eşit sayılmıştır.</strong>
+                <strong>Not: Arsa payları tutmadığından (toplam {{ $arsa['sum']->toStringOver($study->land_share_denominator ?? $arsa['denominator']) }}) her bağımsız bölüm eşit sayılmıştır.</strong>
             @endif
         </div>
 
@@ -104,10 +107,13 @@
                 <tbody>
                     @foreach ($study->blocks as $block)
                         @foreach ($block->sections as $section)
+                            @php
+                                $share = $arsaShares['sec' . $section->id] ?? ['arsa_pay' => $section->arsa_pay, 'arsa_payda' => $section->arsa_payda];
+                            @endphp
                             <tr>
                                 <td>{{ $block->name }}</td>
                                 <td>{{ $section->bb_no }}</td>
-                                <td class="num">{{ $section->arsa_pay }}/{{ $section->arsa_payda }}</td>
+                                <td class="num">{{ $share['arsa_pay'] }}/{{ $share['arsa_payda'] }}</td>
                                 <td>
                                     @foreach ($section->allocations as $alloc)
                                         {{ $alloc->shareholder?->name }}@if ($section->allocations->count() > 1) ({{ \App\Support\Fraction::of((int) $alloc->pay, max(1, (int) $alloc->payda)) }})@endif{{ $loop->last ? '' : ', ' }}

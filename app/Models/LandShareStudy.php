@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\LandShare\StudyData;
+use App\Services\LandShare\StudyValidator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -211,6 +212,9 @@ class LandShareStudy extends Model
                 }
             }
         }
+
+        // Boş arsa payları hesapta otomatik tamamlanır (DB'ye yazılmaz) — 'auto' => true.
+        [$sections] = StudyValidator::fillMissingArsaShares($sections, $this->land_share_denominator);
 
         $groups = $this->groups
             ->mapWithKeys(fn (LandShareGroup $g) => [$g->group_key => (int) $g->unit_credits])

@@ -124,24 +124,89 @@ class LandShareInputTest extends TestCase
             ->assertSee('Arsa payına göre hesaplandı');
     }
 
-    public function test_incomplete_land_shares_fall_back_to_equal_with_warning(): void
+    public function test_partial_land_shares_fill_remaining_into_empty_sections(): void
     {
+        // Kullanıcı kararı 11.11: boş BB'lere 1/1'e kalan pay eşit bölünür (DB'ye yazılmaz).
         [$study, $sections] = $this->makeStudy();
         $sections[0]->update(['arsa_pay' => 500, 'arsa_payda' => 1000]);
         $sections[1]->update(['arsa_pay' => 300, 'arsa_payda' => 1000]);
-        // BB3 boş → toplam 800/1000
+        // BB3 boş → kalan 200/1000 ona sayılır
+
+        $data = $study->fresh()->toStudyData();
+        $state = (new StudyValidator())->arsaSharesState($data);
+        $this->assertSame('complete', $state['state']);
+        $this->assertSame(1, $state['auto']);
+        $this->assertSame(ShareCalculator::ARSA_PAYLI, (new StudyValidator())->defaultMethod($data));
+        $this->assertSame(['Ali' => '1/2', 'Veli' => '3/10', 'Müteahhit' => '1/5'],
+            $this->remainingByName($study, ShareCalculator::ARSA_PAYLI));
+
+        // Veritabanı aynen kalır.
+        $this->assertNull($sections[2]->fresh()->arsa_pay);
+
+        $this->get("/admin/land-share-studies/{$study->id}/cetvel")
+            ->assertOk()
+            ->assertSee('Arsa payına göre hesaplandı')
+            ->assertSee('girilmeyen 1 BB');
+
+        $this->get(route('land-share.print', ['study' => $study->id]))
+            ->assertOk()
+            ->assertSee('BAĞIMSIZ BÖLÜM ARSA PAYLARI')
+            ->assertSee('200/1000')
+            ->assertSee('Arsa payı girilmeyen 1 bağımsız bölüme kalan pay eşit bölünmüştür');
+    }
+
+    public function test_no_land_shares_counts_every_section_equal_and_prints_table(): void
+    {
+        // 333/1 vakası: hiç arsa payı yok → her BB 1/N, tablo çıkar, sonuç eşit hesapla aynı.
+        [$study] = $this->makeStudy();
+        $study->update(['land_share_denominator' => null]);
+
+        $data = $study->fresh()->toStudyData();
+        $state = (new StudyValidator())->arsaSharesState($data);
+        $this->assertSame('complete', $state['state']);
+        $this->assertSame(3, $state['auto']);
+        $this->assertSame(['Ali' => '1/3', 'Veli' => '1/3', 'Müteahhit' => '1/3'],
+            $this->remainingByName($study, ShareCalculator::ARSA_PAYLI));
+        $this->assertSame(['Ali' => '1/3', 'Veli' => '1/3', 'Müteahhit' => '1/3'],
+            $this->remainingByName($study, ShareCalculator::BLOK_DAIRE));
+
+        $this->get(route('land-share.print', ['study' => $study->id]))
+            ->assertOk()
+            ->assertSee('BAĞIMSIZ BÖLÜM ARSA PAYLARI')
+            ->assertSee('1/3')
+            ->assertDontSee('"num">/</td>', false);
+    }
+
+    public function test_equal_split_uses_users_denominator_when_divisible(): void
+    {
+        $sections = array_fill_keys(range(1, 9), ['arsa_pay' => null, 'arsa_payda' => null]);
+        [$filled, $keys, $each] = StudyValidator::fillMissingArsaShares($sections, 9);
+        $this->assertCount(9, $keys);
+        $this->assertSame('1/9', $each);
+        $this->assertSame([1, 9, true], [$filled[1]['arsa_pay'], $filled[1]['arsa_payda'], $filled[1]['auto']]);
+
+        [, , $each] = StudyValidator::fillMissingArsaShares(array_slice($sections, 0, 3, true), 1000);
+        $this->assertSame('1/3', $each);   // 1000 / 3 bölünmez → sade yaz
+    }
+
+    public function test_overflowing_land_shares_fall_back_to_equal_with_warning(): void
+    {
+        [$study, $sections] = $this->makeStudy();
+        $sections[0]->update(['arsa_pay' => 600, 'arsa_payda' => 1000]);
+        $sections[1]->update(['arsa_pay' => 500, 'arsa_payda' => 1000]);
+        // BB3 boş ama toplam zaten 1100/1000 → dağıtılacak pay yok
 
         $data = $study->fresh()->toStudyData();
         $state = (new StudyValidator())->arsaSharesState($data);
         $this->assertSame('incomplete', $state['state']);
         $this->assertSame(1, $state['missing']);
-        $this->assertSame('800/1000', $state['sum']->toStringOver(1000));
+        $this->assertSame('1100/1000', $state['sum']->toStringOver(1000));
         $this->assertSame(ShareCalculator::BLOK_DAIRE, (new StudyValidator())->defaultMethod($data));
 
         $this->get("/admin/land-share-studies/{$study->id}/cetvel")
             ->assertOk()
-            ->assertSee('Arsa payları eksik')
-            ->assertSee('800/1000');
+            ->assertSee('Arsa payları tutmuyor')
+            ->assertSee('1100/1000');
 
         $this->get(route('land-share.print', ['study' => $study->id]))
             ->assertOk()
@@ -212,12 +277,14 @@ class LandShareInputTest extends TestCase
         $sections[12]->update(['arsa_pay' => 2, 'arsa_payda' => 18]);
         $sections[13]->update(['arsa_pay' => 2, 'arsa_payda' => 18]);
 
-        // Uyarı kullanıcının paydasıyla: 2/9 değil 4/18.
+        // Hesapta kendiliğinden tamamlanır (her boşa 1/18), DB'ye yazmadan.
         $state = (new StudyValidator())->arsaSharesState($study->fresh()->toStudyData());
-        $this->assertSame('incomplete', $state['state']);
-        $this->assertSame(14, $state['missing']);
-        $this->assertSame('4/18', $state['sum']->toStringOver($state['denominator']));
-        $this->get("/admin/land-share-studies/{$study->id}/cetvel")->assertSee('toplam 4/18, 14 BB boş)');
+        $this->assertSame('complete', $state['state']);
+        $this->assertSame(14, $state['auto']);
+        $this->assertSame('18/18', $state['sum']->toStringOver($state['denominator']));
+        $this->assertNull($sections[0]->fresh()->arsa_pay);
+        $this->get("/admin/land-share-studies/{$study->id}/cetvel")->assertSee('girilmeyen 14 BB');
+        $this->get(route('land-share.print', ['study' => $study->id]))->assertSee('1/18');
 
         $inst = Livewire::test(StudyBuilder::class, ['record' => $study->id])->instance();
         [, $count, $each] = $inst->applyRemainingLandShare($inst->data['sections']);
