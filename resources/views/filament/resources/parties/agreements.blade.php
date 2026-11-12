@@ -10,6 +10,33 @@
     :description="count($agreements['active']) . ' anlaşma · mal/iş gelince Alım Yaptım (satışta Satış Yaptım) penceresinin üstünden işaretlenir'"
     compact
 >
+    {{-- Üç kutu (12.11): şu an ödenecek · yapılacak iş · toplam — AgreementBalances::totals. Tek yönlü caride ilk kutu
+         Hesap Dökümü bakiyesiyle aynı; iki yönlü caride alış ve satış ayrı sıra, yalnız anlaşmalardan. --}}
+    @foreach ($agreements['totals'] ?? [] as $direction => $t)
+        @php
+            $sale = $direction === \App\Models\Agreement::DIRECTION_SALE;
+            $boxes = [
+                [$t['now'] < -0.009 ? ($sale ? 'Avans aldık' : 'Avans verdik') : ($sale ? 'Şu an alacağımız' : 'Şu an ödenecek'),
+                    abs($t['now']), $t['now'] < -0.009 ? ($sale ? 'yapılan işten fazla alınan' : 'yapılan işten fazla ödenen') : 'yapılan iş − ' . ($sale ? 'alınan' : 'ödenen')],
+                ['Yapılacak iş', $t['remaining'], 'anlaşmada olup henüz gelmeyen'],
+                [$t['total'] < -0.009 ? ($sale ? 'Fazla aldığımız' : 'Fazla ödediğimiz') : ($sale ? 'Toplam alacağımız' : 'Toplam ödeyeceğimiz'),
+                    abs($t['total']), 'şu an + yapılacak iş'],
+            ];
+        @endphp
+        @if ($t['agreements_only'])
+            <div class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">{{ $sale ? '📤 Satış anlaşmaları' : '📥 Alış anlaşmaları' }} · yalnız anlaşmalardan</div>
+        @endif
+        <div class="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3" data-agreement-totals="{{ $direction }}">
+            @foreach ($boxes as $i => [$label, $value, $hint])
+                <div class="rounded-lg border px-3 py-2 {{ $i === 2 ? 'border-primary-200 bg-primary-50 dark:border-primary-500/30 dark:bg-primary-500/10' : 'border-gray-200 dark:border-white/10' }}">
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ $label }}</div>
+                    <div class="text-lg font-semibold tabular-nums text-gray-950 dark:text-white">{{ $fmt($value) }} ₺</div>
+                    <div class="text-xs text-gray-400 dark:text-gray-500">{{ $hint }}</div>
+                </div>
+            @endforeach
+        </div>
+    @endforeach
+
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>

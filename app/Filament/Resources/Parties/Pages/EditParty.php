@@ -785,7 +785,7 @@ class EditParty extends EditRecord
     private function getAgreementCards(): array
     {
         if (! \App\Support\Features::agreements()) {
-            return ['active' => [], 'archived' => []];
+            return ['active' => [], 'archived' => [], 'totals' => []];
         }
         $data = \App\Support\AgreementBalances::forParty($this->record);
         $rows = collect($data['rows']);
@@ -793,6 +793,7 @@ class EditParty extends EditRecord
         return [
             'active'   => $rows->reject(fn ($r) => $r['archived'])->values()->all(),
             'archived' => $rows->filter(fn ($r) => $r['archived'])->values()->all(),
+            'totals'   => \App\Support\AgreementBalances::totals($data),
         ];
     }
 

@@ -277,6 +277,50 @@ class AgreementPaymentsTest extends TestCase
         $this->assertEqualsWithDelta(50000, $this->balanceOf($demir), 0.01);
     }
 
+    /** 12.11 Düzgün Yıldırım: şu an ödenecek (= Hesap Dökümü bakiyesi) · yapılacak iş · toplam. */
+    public function test_totals_boxes_match_statement_and_add_remaining_work(): void
+    {
+        $bitti = $this->agreement('Cumhuriyet', 1, 1000000);
+        $this->deliver($bitti, 1);
+        $this->pay(900000, $bitti);
+        $yesil = $this->agreement('Yesilyurt', 1, 380000);
+        $this->deliver($yesil, 1);
+        $this->agreement('Barbaros', 1, 1050000);                       // iş yapılmadı
+        PartyLedgerEntry::create(['party_id' => $this->party->id, 'entry_date' => now()->toDateString(),
+            'type' => PartyLedgerEntry::TYPE_PURCHASE, 'amount' => 5000]); // anlaşma dışı alış da ilk kutuya girer
+
+        $party = $this->party->fresh();
+        $t = AgreementBalances::totals(AgreementBalances::forParty($party))[Agreement::DIRECTION_PURCHASE];
+        $this->assertEqualsWithDelta(485000, $t['now'], 0.01);
+        $this->assertEqualsWithDelta(-PartyStatement::build($party)['balance'], $t['now'], 0.01);
+        $this->assertEqualsWithDelta(1050000, $t['remaining'], 0.01);
+        $this->assertEqualsWithDelta(1535000, $t['total'], 0.01);
+        $this->assertFalse($t['agreements_only']);
+
+        $this->page()->assertSeeInOrder(['Şu an ödenecek', '485.000,00', 'Yapılacak iş', '1.050.000,00', 'Toplam ödeyeceğimiz', '1.535.000,00', 'Anlaşılan']);
+    }
+
+    public function test_totals_advance_and_mixed_directions_stay_separate(): void
+    {
+        $alis = $this->agreement('Demir', 10, 1000);
+        $this->deliver($alis, 2);
+        $this->pay(5000, $alis);                                         // 2.000 iş, 5.000 ödendi → 3.000 avans
+        $satis = $this->agreement('Daire', 1, 100000, Agreement::DIRECTION_SALE);
+        $this->deliver($satis, 1);
+        $this->pay(40000, $satis, PartyLedgerEntry::TYPE_COLLECTION);
+
+        $t = AgreementBalances::totals(AgreementBalances::forParty($this->party->fresh()));
+        $this->assertEqualsWithDelta(-3000, $t[Agreement::DIRECTION_PURCHASE]['now'], 0.01);
+        $this->assertEqualsWithDelta(8000, $t[Agreement::DIRECTION_PURCHASE]['remaining'], 0.01);
+        $this->assertEqualsWithDelta(5000, $t[Agreement::DIRECTION_PURCHASE]['total'], 0.01);
+        $this->assertEqualsWithDelta(60000, $t[Agreement::DIRECTION_SALE]['now'], 0.01);
+        $this->assertEqualsWithDelta(0, $t[Agreement::DIRECTION_SALE]['remaining'], 0.01);
+        $this->assertTrue($t[Agreement::DIRECTION_SALE]['agreements_only']);
+
+        $this->page()->assertSeeInOrder(['Alış anlaşmaları', 'Avans verdik', '3.000,00', 'Toplam ödeyeceğimiz', '5.000,00'])
+            ->assertSeeInOrder(['Satış anlaşmaları', 'Şu an alacağımız', '60.000,00', 'Toplam alacağımız']);
+    }
+
     public function test_agreement_table_columns_other_row_and_archive(): void
     {
         $demir = $this->agreement('Demir', 10, 8000);

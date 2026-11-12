@@ -83,6 +83,37 @@ final class AgreementBalances
     }
 
     /**
+     * Cari ekranındaki üç kutu (kullanıcı 12.11, Düzgün Yıldırım: "ödenen 900 ama 400 küsür borç görünüyor" — 1.050.000'lik
+     * yapılmamış iş gözden kaçıyordu): yön başına
+     *   now       = şu an ödenecek / alınacak (yapılan iş − ödenen; tek yönlü caride Hesap Dökümü bakiyesinin AYNISI,
+     *               anlaşma dışı hareketler dahil; iki yönlü caride yalnız o yöndeki anlaşmalar — alış/satış karışmaz)
+     *   remaining = anlaşmada olup henüz gelmeyen (Agreement::remainingTotal — kapatılan / yalnız liste anlaşma 0)
+     *   total     = now + remaining
+     * İşaret yönden bakınca: alışta + = biz ödeyeceğiz, satışta + = bize ödenecek. Kayıt değişmez, yalnız gösterim.
+     *
+     * @param  array{rows: list<array>, other: array<string, float>}  $data  forParty() sonucu
+     * @return array<string, array{now: float, remaining: float, total: float, agreements_only: bool}>
+     */
+    public static function totals(array $data): array
+    {
+        $byDirection = collect($data['rows'])->groupBy(fn (array $r) => $r['agreement']->direction);
+        $mixed = $byDirection->count() > 1;
+        $out = [];
+        foreach ([Agreement::DIRECTION_PURCHASE, Agreement::DIRECTION_SALE] as $direction) {
+            $rows = $byDirection->get($direction);
+            if (! $rows) {
+                continue;
+            }
+            $agreementsNow = (float) $rows->sum('balance');
+            $now = round($mixed ? $agreementsNow : $agreementsNow + $data['other'][$direction], 2);
+            $remaining = round((float) $rows->sum(fn (array $r) => $r['agreement']->remainingTotal()), 2);
+            $out[$direction] = ['now' => $now, 'remaining' => $remaining, 'total' => round($now + $remaining, 2), 'agreements_only' => $mixed];
+        }
+
+        return $out;
+    }
+
+    /**
      * "Hangisi için?" seçenekleri: yöndeki arşivlenmemiş anlaşmalar, en sonda Diğer. Anlaşma yoksa boş (soru sorulmaz).
      * $editing: kayıtlı bir ödemeyi bağlarken / düzenlerken onun tutarı bulunduğu yerden geri eklenir ("öncesi" iki kez düşülmesin).
      *
