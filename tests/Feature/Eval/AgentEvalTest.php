@@ -117,7 +117,9 @@ class AgentEvalTest extends TestCase
             'app.project_label' => $case['project_label'] ?? 'Proje',
             'services.twilio.verify_signature' => false, 'services.twilio.allowed_phones' => ['0555 999 00 77'],
             'services.twilio.sid' => 'ACeval', 'services.twilio.token' => 'tok', 'services.whatsapp.from' => '+10000000000',
-            'services.whatsapp.agent' => 'on', 'agent.log_path' => $this->logDir, 'agent.daily_cost_usd' => 1000]);
+            'services.whatsapp.agent' => 'on', 'agent.log_path' => $this->logDir, 'agent.daily_cost_usd' => 1000,
+            // Gerçek AI harcaması (ajan + sanal müşteri) hub "Geliştirme" satırına düşsün — 18.11: Kasım'da ~75 $ kayıt dışı kalmıştı.
+            'services.dev_usage.report_in_tests' => true]);
         $files = array_map(fn ($f) => __DIR__ . '/fixtures/' . $f, (array) ($case['first_media'] ?? []));
         $media = $files[0] ?? null;
         $mime = $media && str_ends_with($media, '.pdf') ? 'application/pdf' : 'image/jpeg';
