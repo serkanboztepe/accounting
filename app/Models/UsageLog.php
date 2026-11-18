@@ -47,10 +47,14 @@ class UsageLog extends Model
     public static function costOf(string $model, array $usage): float
     {
         [$in, $out] = config("costs.ai_per_mtok.{$model}", [0, 0]);
+        // 1 saatlik önbelleğe yazma 2×, 5 dakikalığa 1,25× (18.11: hepsi 1,25× sayılıyordu → ajan maliyeti eksik görünüyordu).
+        $write = (int) ($usage['cache_creation_input_tokens'] ?? 0);
+        $write1h = min($write, (int) ($usage['cache_creation']['ephemeral_1h_input_tokens'] ?? 0));
 
         return ((int) ($usage['input_tokens'] ?? 0) * $in
             + (int) ($usage['output_tokens'] ?? 0) * $out
-            + (int) ($usage['cache_creation_input_tokens'] ?? 0) * $in * config('costs.cache_write_multiplier')
+            + ($write - $write1h) * $in * config('costs.cache_write_multiplier')
+            + $write1h * $in * config('costs.cache_write_1h_multiplier', 2.0)
             + (int) ($usage['cache_read_input_tokens'] ?? 0)
                 * (config("costs.cache_read_per_mtok.{$model}") ?? $in * config('costs.cache_read_multiplier'))) / 1_000_000;
     }

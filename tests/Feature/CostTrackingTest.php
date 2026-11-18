@@ -29,6 +29,25 @@ class CostTrackingTest extends TestCase
         $this->assertEqualsWithDelta(0.0175, UsageLog::latest('id')->first()->cost_usd, 0.000001);
     }
 
+    public function test_one_hour_cache_write_costs_double_input(): void
+    {
+        $usage = ['input_tokens' => 0, 'output_tokens' => 0, 'cache_creation_input_tokens' => 3000, 'cache_read_input_tokens' => 0,
+            'cache_creation' => ['ephemeral_1h_input_tokens' => 2000, 'ephemeral_5m_input_tokens' => 1000]];
+
+        // (2000×2×2 + 1000×2×1,25) / 1M — 1 saatlik 2×, 5 dakikalık 1,25×
+        $this->assertEqualsWithDelta(0.0105, UsageLog::costOf('claude-sonnet-5', $usage), 0.000001);
+        // Kırılım yoksa hepsi 5 dakikalık sayılır (eski davranış)
+        unset($usage['cache_creation']);
+        $this->assertEqualsWithDelta(0.0075, UsageLog::costOf('claude-sonnet-5', $usage), 0.000001);
+    }
+
+    public function test_agent_cache_uses_five_minute_ttl(): void
+    {
+        foreach (\App\Services\Agent\AgentContext::system('05550000000') as $block) {
+            $this->assertSame(['type' => 'ephemeral'], $block['cache_control'] ?? null);
+        }
+    }
+
     public function test_extractor_logs_every_ai_call(): void
     {
         config(['services.anthropic.api_key' => 'sk-test', 'services.anthropic.model' => 'claude-sonnet-5']);

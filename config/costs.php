@@ -25,6 +25,8 @@ return [
         'claude-haiku-5-5' => [0.10, 0.50], // 100K altı istem (19.10 metin modeli — Sonnet 5'in ~20'de biri)
     ],
     'cache_write_multiplier' => 1.25,
+    'cache_write_1h_multiplier' => 2.0, // usage.cache_creation.ephemeral_1h_input_tokens
+
     'cache_read_multiplier' => 0.10,
     // Önbellek okuma fiyatı girişin 0,1 katı OLMAYAN modeller (milyon token başına USD).
     'cache_read_per_mtok' => ['claude-fable-5-2' => 0.20],

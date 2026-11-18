@@ -23,9 +23,10 @@ final class AgentContext
     {
         return [
             // 1) Çekirdek talimat: firmadan bağımsız, bayt bayt sabit → araçlarla birlikte tüm firmalar için tek önbellek girdisi.
-            ['type' => 'text', 'text' => self::core(), 'cache_control' => ['type' => 'ephemeral', 'ttl' => '1h']],
+            // 5 dk önbellek (18.11): turların %94'ü ya <5 dk ya >60 dk arayla geliyor; 1 saatlik yazma 2× ücretli, 1,25× değil.
+            ['type' => 'text', 'text' => self::core(), 'cache_control' => ['type' => 'ephemeral']],
             // 2) Firma: işletme türü, hafıza, kişiler, yerler, kategoriler, ürünler (bugünkü asistanın gördüğü liste).
-            ['type' => 'text', 'text' => self::firm($phone), 'cache_control' => ['type' => 'ephemeral', 'ttl' => '1h']],
+            ['type' => 'text', 'text' => self::firm($phone), 'cache_control' => ['type' => 'ephemeral']],
         ];
     }
 
