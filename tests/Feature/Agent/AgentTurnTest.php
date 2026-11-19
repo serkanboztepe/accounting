@@ -145,7 +145,8 @@ class AgentTurnTest extends TestCase
         $this->assertSame('medium', $first['body']['output_config']['effort'], 'rutin tur');
         $this->assertSame('default', $first['body']['fallbacks']);
         $this->assertSame(['server-side-fallback-2026-07-01'], $first['headers']['anthropic-beta']);
-        $this->assertSame(['type' => 'ephemeral'], $first['body']['system'][0]['cache_control'], '5 dk önbellek (18.11)');
+        $this->assertSame(['type' => 'ephemeral', 'ttl' => '1h'], $first['body']['system'][0]['cache_control'], 'ortak önek 1 saat (ısıtılır)');
+        $this->assertSame(['type' => 'ephemeral'], $first['body']['system'][1]['cache_control'], 'firma bloğu 5 dk');
         $this->assertSame(AgentContext::core(), $first['body']['system'][0]['text']);
         $this->assertStringContainsString('BU İŞLETME', $first['body']['system'][1]['text']);
         $last = end($first['body']['messages']);
