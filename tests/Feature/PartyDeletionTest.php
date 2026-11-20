@@ -102,20 +102,21 @@ class PartyDeletionTest extends TestCase
         $this->assertSame(20.0, $flour->currentStock(), 'stok bozulmadı');
     }
 
-    // Veritabanı yine de reddederse: ekran hata vermez, cari ve işlem geçmişi olduğu gibi kalır (yarım "silindi" satırı yok).
+    // Veritabanı yine de reddederse: ekran hata vermez, cari, hareketleri ve işlem geçmişi olduğu gibi kalır (yarım "silindi" satırı yok).
+    // Ret çekle sınanır: checks.party_id veritabanında restrictOnDelete (pgsql ve MySQL). Eski senaryo (stoklu alış) 28.10'da
+    // expenses.party_id kalkınca veritabanında reddedilmez oldu — o durumda koruma ekrandaki engeldir (test_party_with_stocked_purchase_is_not_deleted_and_reason_is_told).
     public function test_database_refusal_is_reported_not_crashed(): void
     {
         $this->actingAs(User::factory()->create());
-        config(['modules.stock' => true, 'modules.purchases' => true]);
         $party = Party::create(['name' => 'Silme Test Red']);
-        $flour = \App\Models\Product::create(['name' => 'Silme Test Red Un', 'type' => \App\Models\Product::TYPE_PRODUCT]);
-        \App\Support\TradeDesk::savePurchase(['mode' => 'party', 'party_id' => $party->id,
-            'lines' => [['product_id' => $flour->id, 'quantity' => 5, 'amount' => '500,00']]]);
+        PartyLedgerEntry::create(['party_id' => $party->id, 'entry_date' => '2026-10-10', 'type' => PartyLedgerEntry::TYPE_COLLECTION, 'amount' => 20000]);
+        Check::create(['party_id' => $party->id, 'due_date' => '2031-01-01', 'amount' => 1000, 'status' => 'issued', 'check_number' => 'SILRED1']);
         $logsBefore = \App\Models\ActivityLog::count();
 
-        $this->assertFalse(PartyDeletion::delete($party), 'engel atlansa da veritabanı reddeder (pgsql)');
+        $this->assertFalse(PartyDeletion::delete($party), 'engel atlansa da veritabanı reddeder (çek)');
 
         $this->assertNotNull($party->fresh());
+        $this->assertSame(1, PartyLedgerEntry::where('party_id', $party->id)->count(), 'hareketler yerinde (hepsi ya da hiçbiri)');
         $this->assertSame($logsBefore, \App\Models\ActivityLog::count(), 'silinmeyen cari için "silindi" yazılmadı');
     }
 }
