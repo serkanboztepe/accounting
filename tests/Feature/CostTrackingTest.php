@@ -41,32 +41,6 @@ class CostTrackingTest extends TestCase
         $this->assertEqualsWithDelta(0.0075, UsageLog::costOf('claude-sonnet-5', $usage), 0.000001);
     }
 
-    public function test_warm_cache_sends_the_agents_exact_shared_prefix(): void
-    {
-        config(['services.anthropic.api_key' => 'sk-test', 'agent.server_fallbacks' => true]);
-        $sent = [];
-        Http::fake(['api.anthropic.com/*' => function ($request) use (&$sent) {
-            $sent[] = $request;
-
-            return Http::response(['model' => 'claude-fable-5-2', 'content' => [], 'stop_reason' => 'max_tokens',
-                'usage' => ['input_tokens' => 3, 'output_tokens' => 0, 'cache_creation_input_tokens' => 0, 'cache_read_input_tokens' => 21700]]);
-        }]);
-        $before = \App\Models\DevUsage::where('source', 'agent-warm')->count();
-
-        $this->artisan('agent:warm-cache')->assertSuccessful();
-
-        $body = $sent[0]->data();
-        $this->assertSame(0, $body['max_tokens'], 'cevap üretmez, yalnız öneki işler');
-        $this->assertSame(config('agent.model'), $body['model']);
-        $this->assertSame(\App\Services\Agent\AgentToolbox::definitions(), $body['tools']);
-        // Ajan turunun ilk sistem bloğuyla bayt bayt aynı (önek eşleşmesi)
-        $this->assertSame(\App\Services\Agent\AgentContext::system('05550000000')[0], $body['system'][0]);
-        $this->assertCount(1, $body['system'], 'firmaya özel blok yok');
-        $this->assertSame('default', $body['fallbacks']);
-        $this->assertSame(['server-side-fallback-2026-07-01'], $sent[0]->header('anthropic-beta'));
-        $this->assertSame($before + 1, \App\Models\DevUsage::where('source', 'agent-warm')->count(), 'maliyet hub\'a yazılır');
-    }
-
     public function test_extractor_logs_every_ai_call(): void
     {
         config(['services.anthropic.api_key' => 'sk-test', 'services.anthropic.model' => 'claude-sonnet-5']);

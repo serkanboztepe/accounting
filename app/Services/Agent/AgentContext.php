@@ -23,19 +23,12 @@ final class AgentContext
     {
         return [
             // 1) Çekirdek talimat: firmadan bağımsız, bayt bayt sabit → araçlarla birlikte tüm firmalar için tek önbellek girdisi.
-            // Araçlar + çekirdek (≈21,7k token, tüm firmalarda aynı): 1 saat; `agent:warm-cache` gündüz yarım saatte bir okuyup
-            // sıcak tutar → müşterinin ilk mesajı bunu baştan yazmaz (19.11; maliyetin %85'i bu yazmaydı). Isıtma bu bloğu birebir kullanır.
-            self::coreBlock(),
+            // 5 dk önbellek. 1 saat + ısıtma denendi (19–20.11) ve geri alındı: araç tanımları firmanın açık özelliklerine göre değişiyor
+            // (stok alanları, sql_select), ortak önek yok → ısıtma hiçbir firmayı tutturmadı, 2× yazma ilk mesajı 0,30 → 0,44 $ yaptı.
+            ['type' => 'text', 'text' => self::core(), 'cache_control' => ['type' => 'ephemeral']],
             // 2) Firma: işletme türü, hafıza, kişiler, yerler, kategoriler, ürünler (bugünkü asistanın gördüğü liste).
-            // Firma bloğu firmaya özel, seyrek tekrar eder: 5 dk (1 saatlik yazma 2× ücretli, değmez).
             ['type' => 'text', 'text' => self::firm($phone), 'cache_control' => ['type' => 'ephemeral']],
         ];
-    }
-
-    /** Ortak önek bloğu — ajan turu ve önbellek ısıtma aynı baytları göndermeli (önbellek önek eşleşmesi). */
-    public static function coreBlock(): array
-    {
-        return ['type' => 'text', 'text' => self::core(), 'cache_control' => ['type' => 'ephemeral', 'ttl' => '1h']];
     }
 
     public static function core(): string
