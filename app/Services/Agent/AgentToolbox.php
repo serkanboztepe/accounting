@@ -212,6 +212,26 @@ final class AgentToolbox
 
             return isset($r['noop']) ? ['yazılacak_bir_şey_yok' => $r['noop']] : ['bulgular' => $r['issues'], 'not' => 'Öneri kabul edilmedi, kart yok. Bulguyu çöz: kayıtta/konuşmada cevabı varsa düzeltip yeniden öner, yoksa ask ile sor.'];
         }
+        if (! empty($r['already_shown'])) {
+            // Aynı kart müşteriye zaten gösterilmişti (süresi dolmuştu); yeniden gönderilmez, onay bu turda alınabilir.
+            $this->outcome['card'] = null;
+            $this->outcome['proposal_id'] = null;
+
+            return ['kabul' => true, 'proposal_id' => $r['proposal_id'], 'zaten_gösterildi' => true,
+                'not' => 'Bu kart müşteriye zaten gösterilmişti. Müşteri bu mesajında onay verdiyse şimdi confirm çağır; vermediyse ne dediğini yorumla.'];
+        }
+        if (! $this->shadow && Ops\ChoiceCommit::applies($this->phone, $this->rawMessage, (array) ($in['ops'] ?? []), $r)) {
+            // Müşteri numaralı soruda tutarı ve kişiyi görüp seçeneği seçti: seçim onaydır, kart gösterilmeden yazılır.
+            $c = AgentProposal::commitChosen($this->phone, (int) $r['proposal_id']);
+            if ($c['ok']) {
+                $this->outcome['card'] = null;
+                $this->outcome['proposal_id'] = null;
+                $this->outcome['confirmed'] = $c['text'];
+
+                return ['kaydedildi' => true, 'müşteriye_giden' => $c['text'],
+                    'not' => 'Müşteri numaralı seçenekle onay verdi; sistem kaydetti ve bu metni gönderdi. Ekleyecek önemli bir şey yoksa bir şey yazma.'];
+            }
+        }
         $this->outcome['card'] = $r['card'];
         $this->outcome['proposal_id'] = $r['proposal_id'] ?? null;
 

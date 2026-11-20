@@ -98,6 +98,10 @@ final class DraftFollowUp
      */
     public static function gap(WhatsappPendingExpense $p): array
     {
+        if ($p->isAgentProposal()) {
+            // Ajan kartı her zaman tamdır (kod denedi, kartı çıkardı): eksik olan yalnız onay.
+            return ['code' => DraftGaps::CONFIRM, 'ask' => '', 'why' => 'Onay vermediğin için kaydetmedim.'];
+        }
         $gap = DraftGaps::reason($p->extracted);
         $question = trim((string) ($p->extracted['question'] ?? ''));
         if ($gap['code'] === DraftGaps::CONFIRM && $question !== '') {
@@ -129,7 +133,9 @@ final class DraftFollowUp
     {
         return WhatsappPendingExpense::query()
             ->when($phone !== null, fn ($q) => $q->where('phone', $phone))
-            ->where('status', 'awaiting_confirmation')
+            // Ajanın kartı da yarım kayıttır — yalnız müşteriye gerçekten gösterildiyse (20.11: Tok 7.500 kartı hiç hatırlatılmadı).
+            ->where(fn ($q) => $q->where('status', 'awaiting_confirmation')
+                ->orWhere(fn ($q) => $q->where('status', WhatsappPendingExpense::AGENT_OPEN)->where('extracted', 'like', '%"card_sent":true%')))
             ->where('follow_ups', '<', self::MAX)
             // "Cari kartına yazayım mı?" sorusu yarım kayıt değil (22.10: "Kayıt — Kamuran Narçin, tutar eksik" diye hatırlatıldı).
             ->where('extracted', 'not like', '%"kind":"' . PartyInfoDraft::KIND . '"%')
@@ -143,6 +149,9 @@ final class DraftFollowUp
      */
     private static function closeIfDuplicate(WhatsappPendingExpense $p): bool
     {
+        if ($p->isAgentProposal()) {
+            return false; // ajan kartı kendi parmak iziyle korunur: kayıtlar değiştiyse onayda "kart bayat" denir
+        }
         $d = $p->extracted ?? [];
         $kind = $d['kind'] ?? ExpenseExtractor::KIND_EXPENSE;
         $skip = in_array($kind, ['undo', 'return', 'bundle'], true);
@@ -163,6 +172,14 @@ final class DraftFollowUp
 
     private static function name(WhatsappPendingExpense $p): string
     {
+        if ($p->isAgentProposal()) {
+            // Kartın kendi satırları (bakiye ve onay satırı hariç, en çok 2).
+            $lines = array_values(array_filter(array_map('trim', explode("\n", (string) $p->summary)),
+                fn ($l) => $l !== '' && ! str_starts_with($l, '📒') && ! str_starts_with($l, 'Kaydedeyim mi')));
+
+            return implode("\n• ", array_map(fn ($l) => (string) preg_replace('/^(📝|•)\s*/u', '', $l), array_slice($lines, 0, 2)))
+                . (count($lines) > 2 ? "\n• …" : '');
+        }
         $label = DraftGaps::label($p->extracted ?? []);
         $date = $p->extracted['date'] ?? null;
         if ($date && $date !== now(self::TIMEZONE)->toDateString()) {

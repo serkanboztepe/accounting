@@ -35,6 +35,9 @@ final class AgentProposal
 {
     public const OP_TYPES = ['record', 'delete', 'edit', 'target_balance', 'check_cleared', 'return'];
 
+    /** Gösterilmiş kartın aynısı yeniden önerilirse diriltilebileceği süre (yarım kayıt hatırlatma penceresiyle aynı). */
+    private const REVIVE_HOURS = 23;
+
     /**
      * @param  list<array<string, mixed>>  $ops
      * @return array{ok: bool, issues?: list<string>, noop?: string, proposal_id?: int, card?: string, effects?: array, warnings?: list<string>}
@@ -66,9 +69,24 @@ final class AgentProposal
             'bakiyeler' => array_map(fn ($b) => ['kişi' => $b['name'], 'önce' => AgentCard::phrase($b['before']), 'sonra' => AgentCard::phrase($b['after'])], $run['balances']),
             'notlar' => $run['notes'],
         ];
+        // Numaralı seçimle doğrudan kayıt (ChoiceCommit) bu bilgilere bakar: kart dışında neyin yazılacağı.
+        $meta = ['amounts' => $run['amounts'], 'party_ids' => $run['party_ids'], 'new_party' => $run['new_party'],
+            'family_card' => $run['raw_lines'] !== [], 'large' => $large !== null, 'deletes' => $run['deletes']];
         if (! $store) {
             // Gölge: öneri denenir ve kartı çıkar ama saklanmaz — onaylanacak bir şey oluşmaz.
-            return ['ok' => true, 'proposal_id' => null, 'card' => $card, 'effects' => $effects, 'warnings' => $run['warnings']];
+            return ['ok' => true, 'proposal_id' => null, 'card' => $card, 'effects' => $effects, 'warnings' => $run['warnings'], 'meta' => $meta];
+        }
+
+        // Aynı kart az önce müşteriye gösterildi ama 60 dk penceresi kapandı (Ali 11.11: 66. dakikada "Evet" → kart yeniden gitti,
+        // ikinci "Evet" gerekti): yeni kart açılmaz, gösterilmiş olan yeniden etkinleşir — onay bu turda geçer.
+        $shown = WhatsappPendingExpense::agentOpen($phone)->where('updated_at', '>=', now()->subHours(self::REVIVE_HOURS))->latest('id')->first();
+        if ($shown && ! empty($shown->extracted['card_sent']) && $shown->summary === $card
+            && self::fingerprint((array) $shown->extracted['ops'], (array) ($shown->extracted['party_ids'] ?? []), (array) ($shown->extracted['refs'] ?? []))
+                === ($shown->extracted['fingerprint'] ?? null)) {
+            $shown->touch();
+
+            return ['ok' => true, 'proposal_id' => $shown->id, 'already_shown' => true, 'card' => $card, 'effects' => $effects,
+                'warnings' => $run['warnings'], 'meta' => $meta];
         }
 
         WhatsappPendingExpense::agentOpen($phone)->update(['status' => WhatsappPendingExpense::AGENT_SUPERSEDED]);
@@ -96,6 +114,7 @@ final class AgentProposal
             'card' => $card,
             'effects' => $effects,
             'warnings' => $run['warnings'],
+            'meta' => $meta,
         ];
     }
 
@@ -181,6 +200,43 @@ final class AgentProposal
             return self::no('Günlük silme sınırı (' . config('agent.delete_per_day') . ') doldu — kalanı panelden silinir.');
         }
 
+        return self::commit($phone, $proposal);
+    }
+
+    /**
+     * Numaralı seçim onaydır (ChoiceCommit): müşteri soruda tutarı/kişiyi görüp seçeneği seçti — kart gösterilmeden bu turda yazılır.
+     * Uygunluğu ChoiceCommit karar verir; burada yalnız aynı yazma yolu (kilit, tek işlem, hatırlatma kapatma).
+     *
+     * @return array{ok: bool, reason?: string, text?: string, created?: list<array{0:string,1:int}>}
+     */
+    public static function commitChosen(string $phone, int $proposalId): array
+    {
+        $proposal = self::open($phone);
+        if (! $proposal || $proposal->id !== $proposalId) {
+            return self::no('Öneri bulunamadı.');
+        }
+        $r = self::commit($phone, $proposal);
+        if (! $r['ok']) {
+            return $r;
+        }
+        // Müşteri kartı görmedi: onay metni neyin yazıldığını söyler (kart satırları; "önce → sonra" bakiye satırı yerine güncel bakiye).
+        $head = '✅ Kaydedildi.';
+        $text = $r['text'];
+        if (str_starts_with($text, $head)) {
+            $lines = array_filter(array_map('trim', explode("\n", (string) $proposal->summary)),
+                fn ($l) => $l !== '' && ! str_starts_with($l, '📒') && ! str_starts_with($l, 'Kaydedeyim mi'));
+            $what = implode("\n", array_map(fn ($l) => preg_replace('/^(📝|•)\s*/u', '', $l), $lines));
+            $balances = trim(substr($text, strlen($head)));
+            $text = '✅ Kaydedildi: ' . $what . ($balances !== '' ? "\n" . $balances : '');
+        }
+
+        return ['text' => $text . "\nYanlışsa *geri al* yaz."] + $r;
+    }
+
+    /** Ortak yazma: kilitli okuma, işlemler tek işlemde, hatırlatma kapatma, onay metni. */
+    private static function commit(string $phone, WhatsappPendingExpense $proposal): array
+    {
+        $x = $proposal->extracted;
         try {
             $run = DB::transaction(function () use ($phone, $proposal, $x) {
                 // Çift onay emniyeti: öneri satırı kilitli okunur.
@@ -253,7 +309,7 @@ final class AgentProposal
     private static function apply(string $phone, array $ops, string $sourceText): array
     {
         $s = ['issues' => [], 'warnings' => [], 'notes' => [], 'lines' => [], 'created' => [], 'created_lines' => [], 'before' => [],
-            'party_ids' => [], 'committed_party_ids' => [], 'refs' => [], 'amounts' => [], 'old_amounts' => [], 'deletes' => 0, 'raw_lines' => [], 'texts' => []];
+            'party_ids' => [], 'committed_party_ids' => [], 'refs' => [], 'amounts' => [], 'old_amounts' => [], 'deletes' => 0, 'raw_lines' => [], 'texts' => [], 'new_party' => false];
 
         foreach ($ops as $i => $op) {
             $type = (string) ($op['type'] ?? '');
@@ -294,7 +350,7 @@ final class AgentProposal
             'party_ids' => array_values(array_unique(array_map('intval', $s['party_ids']))), 'refs' => array_values(array_unique($s['refs'])),
             'numbers' => array_values(array_unique(array_map(fn ($n) => round((float) $n, 2), $numbers))),
             'amounts' => $s['amounts'], 'deletes' => $s['deletes'], 'raw_lines' => array_keys($s['raw_lines']), 'texts' => $s['texts'],
-            'committed_party_ids' => $s['committed_party_ids'],
+            'committed_party_ids' => $s['committed_party_ids'], 'new_party' => $s['new_party'],
         ];
     }
 
@@ -329,6 +385,7 @@ final class AgentProposal
         }
         if ($done['party_id'] && ! array_key_exists($done['party_id'], $s['before'])) {
             $s['before'][$done['party_id']] = 0.0; // bu işlemle açılan yeni kişi
+            $s['new_party'] = true;
         }
         if ($done['party_id']) {
             $s['party_ids'][] = (int) $done['party_id'];

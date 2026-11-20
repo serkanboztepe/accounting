@@ -12,15 +12,13 @@ use Illuminate\Support\Collection;
 
 /**
  * Faz 4 — kayıt sırasında uyarı (mesaj atmaz; taslak özetine ⚠️ satırı ekler, kayıt yine kullanıcının onayıyla):
- *  - ÇİFT KAYIT: aynı tutar + aynı kişi/kategori/şube yakın günlerde zaten var (Demir Medya kira ×3, 15.10).
+ *  - ÇİFT KAYIT: aynı tutar + aynı kişi (±3 gün) / aynı gün aynı kategori-proje gideri / aynı gün aynı şube kasası (Demir Medya kira ×3, 15.10).
  *  - OLAĞANDIŞI TUTAR: bu kişi/kategori/şubenin olağanının çok üstü ya da altı (Akkuş 25.113, fazladan sıfır).
  * Yalnız okuma; rakamları kod hesaplar. Kesin değil — "doğru mu?" diye sorar, engellemez.
  */
 final class DraftWarnings
 {
     private const DUP_DAYS = 3;
-
-    private const EXPENSE_DUP_DAYS = 7;
 
     /**
      * Olağandışı: en az bu kadar geçmiş kayıt varsa ve tutar ortancanın bu katı ve üstündeyse — yalnız FAZLADAN SIFIR.
@@ -67,8 +65,11 @@ final class DraftWarnings
         $hit = null;
 
         if ($kind === ExpenseExtractor::KIND_EXPENSE) {
-            $hit = self::near(Expense::query(), 'expense_date', $day, self::EXPENSE_DUP_DAYS)
+            // Gider: yalnız AYNI GÜN (20.11 — ±7 gün her akşamki 1.300 şube giderini ve farklı işlerin aynı tutarını "iki kez mi?" diye
+            // soruyordu: Akkuş Ergenekon, Muhasebe manito ↔ toprak nakliyesi). Tekrar gönderilen fiş aynı güne düşer, hâlâ yakalanır.
+            $hit = Expense::query()->whereDate('expense_date', $day->toDateString())
                 ->when(! empty($d['category_id']), fn ($q) => $q->where('expense_category_id', $d['category_id']))
+                ->when(! empty($d['project_id']), fn ($q) => $q->where('project_id', $d['project_id']))
                 ->get(['expense_date', 'amount', 'description'])->first(fn ($e) => self::same($amount, $e->amount));
             $hit = $hit ? [$hit->expense_date, $hit->description ?: 'gider'] : null;
         } elseif ($kind === ExpenseExtractor::KIND_TRADE_SALE && empty($d['party_id']) && empty($d['party_name'])) {
