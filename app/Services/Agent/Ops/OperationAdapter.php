@@ -416,6 +416,36 @@ final class OperationAdapter
             if (in_array($e['agreement_direction'] ?? null, ['purchase', 'sale'], true)) {
                 $d = \App\Services\Whatsapp\AgreementDraft::chooseDirection($d, $e['agreement_direction']);
             }
+            // 21.11 Seramik Park: ilk öneride has_payments=true idi, sonraki önerilerde alan düştü → kart "Ödeme: yok" çıktı,
+            // "ödeme var ama tutar yok" sorusu hiç sorulmadı. Her öneri sıfırdan değerlendirildiği için ajan bunu her seferinde söyler.
+            // Bu iki kontrol en sonda: eski soruların (fiyat, toplam, yerine/ayrı, çek bölme…) sırası değişmez.
+            $settled = \App\Services\Whatsapp\AgreementDraft::question($d) === null;
+            if ($settled && ($e['has_payments'] ?? null) === null && empty($d['agreement_payments']) && empty($d['check_plan'])
+                && empty($d['payments_skipped']) && empty($d['remaining_only'])) {
+                $issues[] = 'has_payments ver (true/false): belgede ya da konuşmada herhangi bir ödeme geçiyor mu (çek, senet, nakit, havale, '
+                    . 'vade, "2. aydan 12. aya" gibi plan)? Tutarı belli olmasa da true. Önceki önerinde true dediysen yine true.';
+            }
+            // Aynı gün: birim düştü → 5 ürün kartı birimsiz açıldı. Kayıtlı kartın birimi varsa o kullanılır; yoksa birim istenir.
+            $noUnit = [];
+            $d['mark_new_products'] = true; // ajan kartında onayda açılacak yeni ürün kartı "(yeni)" diye görünür
+            foreach ($d['agreement_items'] ?? [] as $i => $item) {
+                if ($item['free'] || $item['quantity'] === null || $item['unit'] !== null) {
+                    continue;
+                }
+                $product = $item['product_id'] ? \App\Models\Product::find($item['product_id'])
+                    : \App\Models\Product::whereRaw('LOWER(name) = ?', [mb_strtolower($item['description'])])->first();
+                if ($product?->unit?->name) {
+                    $d['agreement_items'][$i]['unit'] = $product->unit->name;
+
+                    continue;
+                }
+                $noUnit[] = $item['description'];
+            }
+            if ($settled && $noUnit !== []) {
+                $issues[] = 'Birim yok: ' . implode(', ', $noUnit) . ' — her kalemin birimini (m², adet, torba, kutu, mt…) unit alanına ver. '
+                    . 'Belgede/konuşmada yazıyorsa oradan al; yazmıyorsa müşteriye TEK soruda sor (ör. "1.502 Core Mat m² mi, kutu mu?"). '
+                    . 'Önceki önerinde verdiysen yine ver.';
+            }
         }
         if (\App\Services\Whatsapp\AgreementDeliveryDraft::handles($d)) {
             $d = \App\Services\Whatsapp\AgreementDeliveryDraft::prepare($d);
@@ -452,7 +482,15 @@ final class OperationAdapter
         if ($issues === []) {
             $gap = DraftGaps::reason($d);
             if ($gap['code'] !== DraftGaps::CONFIRM) {
-                $issues[] = self::plain($gap['ask']) . ' (Konuşmada/kayıtta cevabı varsa alanı doldurup yeniden öner; yoksa müşteriye sor.)';
+                $ask = self::plain($gap['ask']);
+                // Çek bölme seçenekleri tahmindir: gerçek çekler farklıysa müşterinin söyleyebileceği bir seçenek de olur (21.11 Seramik Park).
+                if (\App\Services\Whatsapp\AgreementDraft::handles($d) && \App\Services\Whatsapp\AgreementDraft::awaitsSplit($d)) {
+                    $ask .= "\n" . (count(\App\Services\Whatsapp\CheckSplit::options((float) $d['check_base'], (int) $d['check_plan']['count'])) + 1)
+                        . ' Çeklerin tutarları farklı, kendim yazacağım'
+                        . ' (bu seçeneği de müşteriye göster; belgede çek tutarları yazmıyorsa bunu açıkça söyle. Müşteri bunu seçerse tutar + vadeleri sor, '
+                        . 'agreement_payments\'a method=check ile tek tek ver.)';
+                }
+                $issues[] = $ask . ' (Konuşmada/kayıtta cevabı varsa alanı doldurup yeniden öner; yoksa müşteriye sor.)';
             } elseif ($question = ProjectChoice::blocker($d)) {
                 $issues[] = self::plain($question) . ' → project_id / project_name ver ya da müşteri "genel" dediyse no_project=true. Yerler: '
                     . (Project::whereNotIn('status', ['cancelled'])->orderBy('id')->take(30)->get(['id', 'name'])->map(fn ($p) => $p->name . ' (id ' . $p->id . ')')->implode(', ') ?: 'henüz yok');

@@ -677,7 +677,7 @@ class AgreementDraft
 
         $items = $d['agreement_items'] ?? [];
         foreach (array_slice($items, 0, self::MAX_CARD_ITEMS) as $item) {
-            $lines[] = '• ' . self::itemLine($item);
+            $lines[] = '• ' . self::itemLine($item, ! empty($d['mark_new_products']));
         }
         if (count($items) > self::MAX_CARD_ITEMS) {
             $lines[] = '• +' . (count($items) - self::MAX_CARD_ITEMS) . ' kalem daha';
@@ -703,7 +703,7 @@ class AgreementDraft
             $lines[] = '📅 Plan: ' . self::groupsText($planned, 'paid') . ' — hatırlatma kurulur';
         }
         if (! empty($d['agreement_notes'])) {
-            $lines[] = '📝 ' . mb_strimwidth(preg_replace('/\s+/u', ' ', $d['agreement_notes']), 0, 90, '…');
+            $lines[] = '📝 ' . mb_strimwidth(preg_replace('/\s+/u', ' ', $d['agreement_notes']), 0, 250, '…');
         }
         if (! self::awaitsDirection($d)) {
             $lines[] = 'Borç yazılmaz; ' . ($isSale ? 'teslim ettikçe' : 'mal/iş geldikçe') . ' anlaşmadan düşülür.';
@@ -812,8 +812,10 @@ class AgreementDraft
         }, $items)), 2);
     }
 
-    private static function itemLine(array $i): string
+    private static function itemLine(array $i, bool $markNew = false): string
     {
+        // Ajan kartı: onayda yeni ürün kartı açılacaksa görünür (21.11: eski "Palet" kartı varken yenisi sessizce açıldı). Eski yol aynen.
+        $i['description'] .= $markNew && self::opensNewProduct($i) ? ' (yeni)' : '';
         $unit = $i['unit'] ? ' ' . $i['unit'] : '';
         $qty = fn () => rtrim(rtrim(number_format((float) $i['quantity'], 2, ',', '.'), '0'), ',');
 
@@ -830,6 +832,16 @@ class AgreementDraft
                 . ($i['unit'] ? '/' . $i['unit'] : '') . ' (fiyat listesi)',
             default => $i['description'] . ($i['quantity'] !== null ? ' ' . $qty() . $unit : ' · götürü') . ' ' . Money::format((float) ($i['amount'] ?? $i['unit_price'])) . ' ₺',
         };
+    }
+
+    /** Onayda commit() bu kalem için yeni ürün kartı açar mı (kayıtlı id yok, aynı adlı kart da yok). */
+    private static function opensNewProduct(array $i): bool
+    {
+        if (! empty($i['product_id']) && Product::whereKey($i['product_id'])->exists()) {
+            return false;
+        }
+
+        return ! Product::whereRaw('LOWER(name) = ?', [mb_strtolower(trim((string) $i['description']))])->exists();
     }
 
     /** "💸 Ödeme: 160.000 nakit · 3 senet 600.000 (30.07 · 30.10 · 30.12)". */

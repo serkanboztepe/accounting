@@ -128,7 +128,7 @@ class AgentChecksAgreementsTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('fiyat', $this->propose($this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 0,
             'agreement_items' => [['description' => 'Beton', 'quantity' => 500, 'unit' => 'm³']]]))['issues'][0]);
 
-        $r = $this->save('evet', $this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 1900000, 'no_project' => true,
+        $r = $this->save('evet', $this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 1900000, 'no_project' => true, 'has_payments' => false,
             'agreement_items' => [['description' => 'Beton', 'quantity' => 500, 'unit' => 'm³', 'unit_price' => 3800, 'amount' => 1900000]]]));
         $this->assertTrue($r['ok'], ($r['reason'] ?? '') . $r['card']);
         $this->assertStringContainsString('1.900.000,00', $r['card']);
@@ -193,5 +193,61 @@ class AgentChecksAgreementsTest extends TestCase
         $this->assertStringContainsString('signature=', $url);
         $this->assertStringContainsString('.pdf', $url);
         $this->assertArrayHasKey('hata', (new AgentToolbox(self::PHONE, 'x'))->run('send_statement', ['party_id' => 999999999]));
+    }
+
+    /**
+     * 21.11 Seramik Park (firma 2): fişte "ödeme 2. aydan 12. aya" vardı; ajan sonraki önerilerde has_payments'ı ve birimleri düşürdü →
+     * kart "Ödeme: yok" çıktı, 5 ürün kartı birimsiz açıldı, 2027 vadeli çekler ekstrede "Peşinat" göründü, not 90 harfte kesildi.
+     */
+    public function test_seramik_park_agreement_asks_payments_and_units_and_labels_future_checks(): void
+    {
+        $party = Party::create(['name' => 'Anlaşma Testi Seramik']);
+        $unit = \App\Models\Unit::firstOrCreate(['code' => 'adet-test-sp'], ['name' => 'adet']);
+        $old = \App\Models\Product::create(['name' => 'Klozet Testi SP', 'type' => 'service', 'unit_id' => $unit->id, 'is_active' => true]);
+        $note = 'Nakliye ve KDV dahil. Ödeme 2. aydan 12. aya. Fişteki 1.425.384 toplamı çizilmiş, elle 1.187.820 TL yazılmış.';
+        $items = [['description' => 'Core Mat Testi SP', 'quantity' => 1502, 'unit_price' => 565, 'amount' => 848630],
+            ['description' => 'Klozet Testi SP', 'quantity' => 9, 'unit_price' => 7900, 'amount' => 71100]];
+        $base = ['kind' => 'agreement', 'party_id' => $party->id, 'amount' => 0, 'date' => '2026-10-16', 'no_project' => true, 'agreement_notes' => $note];
+
+        // 1) Ödeme bilgisi verilmedi → kart yok, ajan has_payments'ı söylemek zorunda.
+        $p = $this->propose($this->rec($base + ['agreement_items' => $items]));
+        $this->assertFalse($p['ok']);
+        $this->assertStringContainsString('has_payments', implode(' ', $p['issues']));
+
+        // 2) has_payments=true ama tutar yok → eski "ödeme var ama tutarını çıkaramadım" sorusu.
+        $p = $this->propose($this->rec($base + ['agreement_items' => $items, 'has_payments' => true]));
+        $this->assertFalse($p['ok']);
+        $this->assertStringContainsString('ödeme var', implode(' ', $p['issues']));
+
+        // 3) Çek planı: bölme sorusunda "kendim yazacağım" seçeneği de var.
+        $plan = ['count' => 11, 'first_month' => '2027-02'];
+        $p = $this->propose($this->rec($base + ['agreement_items' => $items, 'has_payments' => true, 'check_plan' => $plan]));
+        $this->assertFalse($p['ok']);
+        $this->assertStringContainsString('kendim yazacağım', implode(' ', $p['issues']));
+
+        // 4) Yeni kartın birimi yok → birim istenir; kayıtlı kartın birimi (adet) kendiliğinden gelir.
+        $plan['each_amount'] = 80000;
+        $p = $this->propose($this->rec($base + ['agreement_items' => $items, 'has_payments' => true, 'check_plan' => $plan]));
+        $this->assertFalse($p['ok']);
+        $issues = implode(' ', $p['issues']);
+        $this->assertStringContainsString('Birim yok: Core Mat Testi SP', $issues);
+        $this->assertStringNotContainsString('Klozet Testi SP', $issues);
+
+        // 5) Birim verildi → kart: birim + "(yeni)" + tam not; kayıtta birimli kart, çekler "Çek (vade …)".
+        $items[0]['unit'] = 'm²';
+        $r = $this->save('evet', $this->rec($base + ['agreement_items' => $items, 'has_payments' => true, 'check_plan' => $plan]));
+        $this->assertTrue($r['ok'], ($r['reason'] ?? '') . $r['card']);
+        $this->assertStringContainsString('Core Mat Testi SP (yeni) 1.502 m²', $r['card']);
+        $this->assertStringContainsString('Klozet Testi SP 9 adet', $r['card']);
+        $this->assertStringNotContainsString('Klozet Testi SP (yeni)', $r['card']);
+        $this->assertStringContainsString('elle 1.187.820 TL yazılmış.', $r['card']);
+
+        $agreement = Agreement::where('party_id', $party->id)->sole();
+        $this->assertSame('m²', $agreement->items()->orderBy('sort')->first()->product->unit?->name);
+        $this->assertSame($old->id, $agreement->items()->orderBy('sort')->get()[1]->product_id, 'aynı adlı eski kart kullanılır');
+        $checks = Check::where('party_id', $party->id)->orderBy('due_date')->get();
+        $this->assertCount(11, $checks);
+        $this->assertSame('2027-02-28', $checks->first()->due_date->toDateString());
+        $this->assertStringStartsWith('Çek (vade 28.02.2027) — ', PartyLedgerEntry::whereKey($checks->first()->party_ledger_entry_id)->value('description'));
     }
 }

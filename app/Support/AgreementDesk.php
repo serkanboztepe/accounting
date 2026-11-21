@@ -404,6 +404,12 @@ class AgreementDesk
     {
         $isPurchase = $agreement->isPurchase();
         $paymentType = $data['advance_payment_type'] ?? 'cash';
+        $label = $isPurchase ? 'Peşinat' : 'Kapora';
+        // İleri vadeli çek peşinat değildir (21.11 Seramik Park: 2027 vadeli 11 çek ekstrede "Peşinat" görünüyordu).
+        $entryDate = \Carbon\Carbon::parse($data['entry_date'] ?? $agreement->agreement_date ?? now());
+        if ($paymentType === 'check' && ! empty($data['check_due_date']) && \Carbon\Carbon::parse($data['check_due_date'])->gt($entryDate)) {
+            $label = ($isPurchase ? 'Çek' : 'Alınan çek') . ' (vade ' . \Carbon\Carbon::parse($data['check_due_date'])->format('d.m.Y') . ')';
+        }
         $entry = PartyLedgerEntry::create([
             'party_id'     => $agreement->party_id,
             'agreement_id' => $agreement->id,
@@ -411,7 +417,7 @@ class AgreementDesk
             'type'         => $isPurchase ? PartyLedgerEntry::TYPE_PAYMENT : PartyLedgerEntry::TYPE_COLLECTION,
             'amount'       => $amount,
             'payment_type' => $paymentType,
-            'description'  => ($isPurchase ? 'Peşinat — ' : 'Kapora — ') . $agreement->title . (! empty($data['note']) ? ' (' . $data['note'] . ')' : ''),
+            'description'  => $label . ' — ' . $agreement->title . (! empty($data['note']) ? ' (' . $data['note'] . ')' : ''),
         ]);
         if ($paymentType === 'check') {
             Check::create([
