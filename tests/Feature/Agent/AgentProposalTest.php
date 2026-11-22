@@ -250,6 +250,42 @@ class AgentProposalTest extends TestCase
         $this->assertNull(Party::where('name', 'Gürbüz')->first(), 'yeni kişi öneride açılmaz');
     }
 
+    /**
+     * Kent 22.11: "1200 m³ beton… toplam 1.400.000" → ajan 3 seçenek sordu, "Pardon evet 4.800.000" cevabını "hepsi ödendi" saydı;
+     * varsayım cümlesi kartla gitmedi. Ödendi bilgisi müşteriden gelmediyse (paid_assumed) kart çıkmaz, sorulur.
+     */
+    public function test_assumed_paid_is_asked_not_carded(): void
+    {
+        $party = Party::create(['name' => 'Teknik Beton']);
+        $rows = PartyLedgerEntry::count();
+
+        $p = $this->propose($this->rec(['kind' => 'purchase', 'party_id' => $party->id, 'amount' => 4800000, 'paid' => true, 'paid_assumed' => true, 'no_project' => true]));
+        $this->assertFalse($p['ok']);
+        $this->assertStringContainsString('paid_assumed', $p['issues'][0]);
+        $this->assertStringContainsString('sor', $p['issues'][0]);
+
+        // Anlaşmada da (ödemeleri varsayılmışsa) kart çıkmaz.
+        $p = $this->propose($this->rec(['kind' => 'agreement', 'party_id' => $party->id, 'paid_assumed' => true,
+            'agreement_items' => [['name' => 'Beton', 'quantity' => 1200, 'unit' => 'm³', 'unit_price' => 4000]],
+            'agreement_payments' => [['amount' => 4800000]]]));
+        $this->assertFalse($p['ok']);
+        $this->assertStringContainsString('paid_assumed', $p['issues'][0]);
+        $this->assertSame($rows, PartyLedgerEntry::count(), 'hiçbiri yazmadı');
+
+        // Müşteri söylediyse (işaret yok) aynı kayıt kart olur.
+        $p = $this->propose($this->rec(['kind' => 'purchase', 'party_id' => $party->id, 'amount' => 4800000, 'paid' => true, 'no_project' => true]));
+        $this->assertTrue($p['ok'], json_encode($p, JSON_UNESCAPED_UNICODE));
+    }
+
+    public function test_core_rules_for_assumed_paid_and_supply_deals(): void
+    {
+        $core = \App\Services\Agent\AgentContext::core();
+        $this->assertStringContainsString('`paid_assumed`=true', $core);
+        $this->assertStringContainsString('Anlaşmalar açık işletmede `agreement`', $core, 'bağlantı anlaşmadır (Anlaşmalar açıksa)');
+        $entry = collect(\App\Services\Agent\AgentToolbox::definitions())->firstWhere('name', 'propose')['input_schema']['properties']['ops']['items']['properties']['entry'];
+        $this->assertArrayHasKey('paid_assumed', $entry['properties']);
+    }
+
     /** Yıldız 02.11: "Emrah Acar'a 400.000 verdim" → eski yol "ne için?" sorusunu 4 kez sordu; doğrusu müşteri adına ödeme. */
     public function test_payment_on_behalf_of_a_customer_goes_to_their_account(): void
     {

@@ -47,6 +47,7 @@ final class AgentToolbox
                 'date' => ['type' => ['string', 'null'], 'description' => 'YYYY-MM-DD; söylenmediyse null (bugün)'],
                 'description' => ['type' => ['string', 'null'], 'description' => 'Kısa açıklama (ne için / ne alındı); yoksa null'],
                 'paid' => ['type' => ['boolean', 'null'], 'description' => 'sale/purchase/expense: parası ödendi mi. sale/purchase için zorunlu — bilmiyorsan sor'],
+                'paid_assumed' => ['type' => ['boolean', 'null'], 'description' => 'true: müşteri BU kayıt için ödendiğini söylemedi; paid ya da agreement_payments başka kayıttan, alışkanlıktan ya da belirsiz bir cevaptan çıkarıldı. Sistem kart çıkarmaz, sormanı ister'],
                 'payment_type' => ['type' => ['string', 'null'], 'enum' => [...OperationAdapter::PAYMENT_TYPES, null], 'description' => 'Söylendiyse: cash, eft, bank_transfer, check…'],
                 'purpose' => ['type' => ['string', 'null'], 'enum' => [...OperationAdapter::PURPOSES, null],
                     'description' => 'payment/collection: debt = var olan borca karşılık · advance = önden, iş/mal sonra · loan = borç verdim · on_behalf = o kişi ADINA başkasına ödendi (harç, fatura, kurs ücreti), hesabına yazılır'],

@@ -368,7 +368,12 @@ final class AgentProposal
     /** @return list<string> bulgular (boşsa yazıldı) */
     private static function applyRecord(array &$s, string $phone, array $entry, string $sourceText, ?string $linePrefix = null): array
     {
-        $r = in_array($entry['kind'] ?? null, OperationAdapter::EXTENDED_KINDS, true)
+        // Ajan ödendi bilgisini müşteriden almadığını işaretledi: kart çıkmaz, sorulur (Kent 22.11 beton: "evet 4.800.000" hepsi ödendi sayıldı).
+        if (! empty($entry['paid_assumed'])) {
+            return ['Ödendi bilgisi müşteriden gelmedi (paid_assumed). Kart çıkarmadan sor: ödendi mi, ödendiyse ne kadarı? '
+                . 'Cevaba göre paid_assumed olmadan yeniden öner.'];
+        }
+        $r =in_array($entry['kind'] ?? null, OperationAdapter::EXTENDED_KINDS, true)
             ? OperationAdapter::extended($entry, $phone, $sourceText) : OperationAdapter::record($entry, $phone, $sourceText);
         if ($r['issues'] !== []) {
             return $r['issues'];
