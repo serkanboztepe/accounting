@@ -803,6 +803,12 @@ class WhatsappWebhookController extends Controller
     private function respond(Request $request, ExpenseExtractor $extractor, string $phone, string $body, int $numMedia)
     {
         $this->inboundBody = $body;
+        // "Dünkü ciro" / "bugünkü ciro" (mesajın tamamı): AI'sız, anında (kullanıcı 23.11 — Akkuş her gün soruyor).
+        if ($numMedia === 0 && ($revenue = \App\Support\RevenueQuickAnswer::answer($body)) !== null) {
+            $this->inboundKind = 'quick';
+
+            return $this->twiml($revenue . $this->otherPhonesPending($phone)); // şube numarasının onay bekleyen kasası da söylenir
+        }
         // Ajan asistan (plan v5): firma "ajan canlı" ise tur ajana gider. null = ajan bu turu almadı → eski yol aynen işler.
         // Kapalı firmada (varsayılan) bu satır hiçbir şey yapmaz.
         if (AgentGate::live() && ! $request->attributes->get('no_agent') && (string) $request->input('ButtonPayload', '') === ''
