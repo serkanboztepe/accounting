@@ -803,6 +803,7 @@ class WhatsappWebhookController extends Controller
     private function respond(Request $request, ExpenseExtractor $extractor, string $phone, string $body, int $numMedia)
     {
         $this->inboundBody = $body;
+        $this->forwardBillingReply($phone, $body, $numMedia);
         // "Dünkü ciro" / "bugünkü ciro" (mesajın tamamı): AI'sız, anında (kullanıcı 23.11 — Akkuş her gün soruyor).
         if ($numMedia === 0 && ($revenue = \App\Support\RevenueQuickAnswer::answer($body)) !== null) {
             $this->inboundKind = 'quick';
@@ -4705,6 +4706,34 @@ class WhatsappWebhookController extends Controller
     }
 
     /** İşlem geçmişindeki kişi: hub'daki numara adı + numara ("Emre (0532 059 11 24)"); ad yoksa yalnız numara. */
+    /** Ücret mesajı (kind billing) bu numaraya son kaç saatte gittiyse gelen cevabın kopyası yöneticiye gider. */
+    public const BILLING_REPLY_HOURS = 72;
+
+    /**
+     * Ücret mesajına gelen cevap asistan numarasına düşer; kopyası yöneticiye (WHATSAPP_ADMIN_PHONES) iletilir (kullanıcı 23.11).
+     * Ajan yine cevap verir (çekirdek talimattaki ücret kuralı). Hata cevabı engellemez.
+     */
+    private function forwardBillingReply(string $phone, string $body, int $numMedia): void
+    {
+        try {
+            $mine = Phone::normalize($phone);
+            $billed = WhatsappMessage::where('phone', $mine)->where('direction', 'out')->where('kind', 'billing')
+                ->where('created_at', '>=', now()->subHours(self::BILLING_REPLY_HOURS))->exists();
+            if (! $billed) {
+                return;
+            }
+            $text = '💬 ' . (Tenancy::current()?->name ?? 'Firma') . ' — ' . self::activityActor($phone) . " ücret mesajına cevap yazdı:\n«"
+                . mb_strimwidth(trim($body), 0, 700, '…') . '»' . ($numMedia > 0 ? "\n(📎 fotoğraf/belge de gönderdi)" : '');
+            foreach ((array) config('services.whatsapp.admin_phones', []) as $admin) {
+                if (Phone::normalize((string) $admin) !== $mine) {
+                    app(WhatsappSender::class)->sendText((string) $admin, $text);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Ücret cevabı yöneticiye iletilemedi', ['msg' => $e->getMessage()]);
+        }
+    }
+
     private static function activityActor(string $phone): string
     {
         $number = Phone::display($phone);
