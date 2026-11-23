@@ -23,8 +23,31 @@ final class AgentToolbox
 
     public function __construct(private string $phone, private string $rawMessage, private bool $shadow = false) {}
 
-    /** Tüm firmalarda aynı sırada aynı tanımlar (önbellek); yalnız sql_select firmaya göre var/yok. */
+    /** Tanımlar kurulurken açık sayılan özellik anahtarları (config/modules) — hepsi. */
+    private const SCHEMA_FEATURES = ['agent_live', 'agent_shadow', 'agreements', 'assistant_pilot', 'cari_supplier', 'checks', 'contracts',
+        'daily_nudge', 'dashboard', 'direct_sales', 'expenses', 'fast_save', 'land_share', 'natural_voice', 'place_cost', 'proactive_alerts',
+        'projects', 'property_tax', 'purchase_contracts', 'purchases', 'quotes', 'report_monthly', 'report_project', 'report_sales',
+        'report_stock', 'revenue_prompt', 'sales_contracts', 'sales_desk', 'smart_assistant', 'stock'];
+
+    /**
+     * TÜM FİRMALARDA BAYT BAYT AYNI tanımlar (23.11, maliyet): araçlar + çekirdek talimat tek ortak önek → bir firmanın turu
+     * ya da `agent:warm-cache` önbelleğe yazınca hepsi okur. Bu yüzden tanımlar her özellik AÇIK sayılarak kurulur; firmanın
+     * gerçek ayarı kayıtta geçerlidir (kapalı türü OperationAdapter reddeder). Ayar yalnız kurulum süresince değişir, sonra geri döner.
+     */
     public static function definitions(): array
+    {
+        $modules = (array) config('modules', []);
+        $direction = config('app.agreement_direction');
+        config(['modules' => array_merge($modules, array_fill_keys(self::SCHEMA_FEATURES, true)),
+            'app.agreement_direction' => \App\Support\FeatureSettings::AGREEMENT_BOTH]);
+        try {
+            return self::buildDefinitions();
+        } finally {
+            config(['modules' => $modules, 'app.agreement_direction' => $direction]);
+        }
+    }
+
+    private static function buildDefinitions(): array
     {
         $entry = [
             'type' => 'object',

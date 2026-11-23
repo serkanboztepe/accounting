@@ -8,7 +8,8 @@ use Throwable;
 
 /**
  * Ajanın OKUMA araçları (plan v5 §2): hiçbiri veri değiştirmez. Araç bir hata verirse ajana düz cümleyle döner (tur kopmaz).
- * Sıra ve tanımlar firmadan bağımsızdır (önbellek); yalnız sql_select firmanın salt-okur kullanıcısı varsa listeye girer.
+ * Sıra ve tanımlar firmadan bağımsızdır (önbellek, 23.11: sql_select de hep listede — salt-okur kullanıcısı olmayan firmada
+ * çalıştırılınca "bu firmada yok" der; ortak önek merkezdeki ısıtmayla da aynı kalsın).
  */
 final class ReadTools
 {
@@ -29,10 +30,8 @@ final class ReadTools
             $records,
             Report::tool(),
             $conversations,
+            SqlSelect::tool(),
         ];
-        if (SqlSelect::available()) {
-            $tools[] = SqlSelect::tool();
-        }
 
         return $tools;
     }

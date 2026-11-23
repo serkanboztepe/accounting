@@ -17,7 +17,7 @@ final class AgentRunner
 {
     public const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 
-    private const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+    public const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
     /**
      * @param  list<array<string, mixed>>  $system

@@ -43,6 +43,8 @@ if (config('tenancy.enabled')) {
     Schedule::command('tenants:run "drafts:follow-up"')->everyFiveMinutes()->withoutOverlapping(10);
     // Günlük konuşma analizi: dünün konuşmaları → numaralı rapor (hub) + yöneticiye WhatsApp özeti.
     Schedule::command('ai:credit-check')->hourly(); // Faz 5: tahmini kredi < 5 $ → yöneticiye WhatsApp (günde 1)
+    // Ajanın ortak öneki (araçlar + çekirdek, tüm firmalarda aynı, 1 saat önbellek) gündüz sıcak kalsın (23.11): okuma ≈0,005 $.
+    Schedule::command('agent:warm-cache')->everyThirtyMinutes()->between('07:00', '23:00')->timezone('Europe/Istanbul');
     // WhatsApp konuşma kaydı 90 günden eskiyse silinir (App\Models\WhatsappMessage tek Prunable model).
     Schedule::command('tenants:run "model:prune"')->daily()->at('04:30');
 } else {

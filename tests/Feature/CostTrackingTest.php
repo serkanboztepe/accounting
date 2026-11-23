@@ -8,7 +8,9 @@ use App\Models\HubPhone;
 use App\Models\UsageLog;
 use App\Services\Whatsapp\ExpenseExtractor;
 use App\Services\Whatsapp\WhatsappSender;
+use App\Support\FeatureSettings;
 use App\Support\HubSignature;
+use App\Support\ModuleProfiles;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -39,6 +41,58 @@ class CostTrackingTest extends TestCase
         // Kırılım yoksa hepsi 5 dakikalık sayılır (eski davranış)
         unset($usage['cache_creation']);
         $this->assertEqualsWithDelta(0.0075, UsageLog::costOf('claude-sonnet-5', $usage), 0.000001);
+    }
+
+    public function test_warm_cache_sends_the_agents_exact_shared_prefix(): void
+    {
+        config(['services.anthropic.api_key' => 'sk-test', 'agent.server_fallbacks' => true]);
+        $sent = [];
+        Http::fake(['api.anthropic.com/*' => function ($request) use (&$sent) {
+            $sent[] = $request;
+
+            return Http::response(['model' => 'claude-fable-5-2', 'content' => [], 'stop_reason' => 'max_tokens',
+                'usage' => ['input_tokens' => 3, 'output_tokens' => 0, 'cache_creation_input_tokens' => 0, 'cache_read_input_tokens' => 21700]]);
+        }]);
+        $before = \App\Models\DevUsage::where('source', 'agent-warm')->count();
+
+        $this->artisan('agent:warm-cache')->assertSuccessful();
+
+        $body = $sent[0]->data();
+        $this->assertSame(0, $body['max_tokens'], 'cevap üretmez, yalnız öneki işler');
+        $this->assertSame(config('agent.model'), $body['model']);
+        $this->assertSame(\App\Services\Agent\AgentToolbox::definitions(), $body['tools']);
+        // Ajan turunun ilk sistem bloğuyla bayt bayt aynı (önek eşleşmesi)
+        $this->assertSame(\App\Services\Agent\AgentContext::system('05550000000')[0], $body['system'][0]);
+        $this->assertCount(1, $body['system'], 'firmaya özel blok yok');
+        $this->assertSame('default', $body['fallbacks']);
+        $this->assertSame(['server-side-fallback-2026-07-01'], $sent[0]->header('anthropic-beta'));
+        $this->assertSame($before + 1, \App\Models\DevUsage::where('source', 'agent-warm')->count(), 'maliyet hub\'a yazılır');
+    }
+
+    /**
+     * 23.11: araç tanımları firmanın özelliklerinden bağımsız, bayt bayt aynı (ortak önek — ısıtma herkes için tutsun).
+     * 19–20.11 ısıtması 14 firmada 6 farklı tanım yüzünden hiç tutmamıştı. Firmanın gerçek ayarı kurulumdan sonra geri gelir.
+     */
+    public function test_tool_definitions_are_identical_for_every_feature_set(): void
+    {
+        $profiles = [
+            ModuleProfiles::resolve('mimar', []),
+            ModuleProfiles::resolve('muteahhit', ['projects' => true]),
+            ModuleProfiles::resolve('trade', ['projects' => true, 'stock' => true, 'sales_desk' => true]),
+            ModuleProfiles::resolve('alacak_verecek', []),
+        ];
+        $seen = [];
+        foreach ($profiles as $modules) {
+            foreach ([FeatureSettings::AGREEMENT_PURCHASE, FeatureSettings::AGREEMENT_SALE, FeatureSettings::AGREEMENT_BOTH] as $direction) {
+                config(['modules' => $modules, 'app.agreement_direction' => $direction]);
+                $seen[] = md5(json_encode(\App\Services\Agent\AgentToolbox::definitions()));
+                $this->assertSame($modules, config('modules'), 'firmanın ayarı geri döndü');
+                $this->assertSame($direction, config('app.agreement_direction'));
+            }
+        }
+        $this->assertCount(1, array_unique($seen), 'tek ortak tanım');
+        $names = array_column(\App\Services\Agent\AgentToolbox::definitions(), 'name');
+        $this->assertContains('sql_select', $names, 'salt-okur kullanıcısı olmasa da listede (çalıştırınca "bu firmada yok")');
     }
 
     public function test_extractor_logs_every_ai_call(): void
